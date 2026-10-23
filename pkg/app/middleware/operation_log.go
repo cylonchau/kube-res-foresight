@@ -1,0 +1,219 @@
+package middleware
+
+import (
+	"bytes"
+	"encoding/json"
+	"github.com/cylonchau/kubeforecast/pkg/dao/rdb"
+	"github.com/cylonchau/kubeforecast/pkg/logger"
+	"github.com/cylonchau/kubeforecast/pkg/model"
+	"github.com/gin-gonic/gin"
+	"io"
+	"net/http"
+	"regexp"
+	"strings"
+	"time"
+)
+
+// maxOperationLogBody caps how much of a request body gets captured/stored —
+// large payloads (file imports and bulk operations) are truncated rather
+// than skipped outright, so the shape of the call is still visible.
+const maxOperationLogBody = 32 * 1024
+
+// loggedMethods is deliberately narrow: GET reads are noise for an
+// "operation log" in the conventional admin-console sense (an audit trail
+// of changes, not a full access log) and would dwarf the mutating requests
+// that are actually interesting.
+var loggedMethods = map[string]bool{
+	http.MethodPost:   true,
+	http.MethodPut:    true,
+	http.MethodDelete: true,
+	http.MethodPatch:  true,
+}
+
+// excludedPathPrefixes are mutating endpoints that save a per-user UI
+// preference rather than perform an auditable business action — column
+// widths/visibility being the prototypical case, saved automatically on
+// nearly every resize/page load and therefore frequent enough to bury any
+// real operation under a wall of "POST /api/v1/columns/config" rows if left
+// in. These mirror the same "self-service" endpoints CasbinMiddleware
+// already special-cases (see rbac.go).
+var excludedPathPrefixes = []string{
+	"/api/v1/columns/",
+}
+
+// excludedPathsExact is the same idea for endpoints matched by exact path
+// rather than prefix.
+var excludedPathsExact = map[string]bool{
+	"/api/v1/auth/language": true,
+}
+
+func isExcludedFromOperationLog(path string) bool {
+	if excludedPathsExact[path] {
+		return true
+	}
+	for _, prefix := range excludedPathPrefixes {
+		if strings.HasPrefix(path, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// secretFieldPattern matches JSON keys whose values should never be
+// persisted verbatim — mirrors the same keyword heuristic the system-config
+// UI already uses client-side (web/src/views/system/config/index.vue's
+// isSecretKey) so a login/credential payload doesn't end up readable in the
+// operation log.
+var secretFieldPattern = regexp.MustCompile(`(?i)(password|secret|token|credential|access_key|private_key|api_hash|session|phone_code|verification_code|^code$)`)
+
+// OperationLogMiddleware records every mutating (POST/PUT/DELETE/PATCH)
+// request into operation_log for the "系统管理/操作日志" page. It must be
+// registered AFTER JWTAuthMiddleware and CasbinMiddleware so it can read
+// the userId/username/developerCredential values those set into the
+// context, and it deliberately never aborts or alters the response — a
+// logging failure must not affect the request it's describing.
+func OperationLogMiddleware(dao *rdb.OperationLogDAO) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !loggedMethods[c.Request.Method] || isExcludedFromOperationLog(c.Request.URL.Path) {
+			c.Next()
+			return
+		}
+
+		body := captureBody(c)
+		start := time.Now()
+
+		c.Next()
+
+		entry := &model.OperationLog{
+			CreatedAt:  start,
+			ClientType: resolveClientType(c),
+			Method:     c.Request.Method,
+			Path:       c.Request.URL.Path,
+			Module:     resolveModule(c.Request.URL.Path),
+			StatusCode: c.Writer.Status(),
+			ClientIP:   c.ClientIP(),
+			UserAgent:  c.Request.UserAgent(),
+			Params:     truncate(c.Request.URL.RawQuery, maxOperationLogBody),
+			Body:       body,
+			DurationMs: time.Since(start).Milliseconds(),
+		}
+		if userID, ok := c.Get("userId"); ok {
+			if uid, ok := userID.(uint); ok {
+				entry.UserID = uid
+			}
+		}
+		if username, ok := c.Get("username"); ok {
+			if name, ok := username.(string); ok {
+				entry.Username = name
+			}
+		}
+		if len(c.Errors) > 0 {
+			entry.ErrorMsg = truncate(c.Errors.String(), 500)
+		}
+
+		if err := dao.Create(c.Request.Context(), entry); err != nil {
+			logger.Error("failed to write operation log", logger.Err(err), logger.String("path", entry.Path))
+		}
+	}
+}
+
+// resolveClientType maps the three filterable sources onto the mechanisms
+// that already distinguish them: developer-credential calls (access-key/
+// secret, see extractDeveloperCredential) are "api"; everything else is an
+// interactive JWT session, told apart by the X-KubeForecast-Client header each
+// frontend sets on every request (web sends "web", the Telegram Mini App
+// sends "tma") since both otherwise share the exact same token mechanism.
+func resolveClientType(c *gin.Context) string {
+	if dev, _ := c.Get("developerCredential"); dev == true {
+		// Command-line integrations use the same developer credential as
+		// other API clients and identify their source with this header.
+		if strings.EqualFold(c.GetHeader("X-KubeForecast-Client"), "cli") {
+			return "cli"
+		}
+		return "api"
+	}
+	if strings.EqualFold(c.GetHeader("X-KubeForecast-Client"), "tma") {
+		return "tma"
+	}
+	return "page"
+}
+
+// resolveModule extracts the first path segment after /api/v1/ as a cheap,
+// curation-free grouping key (e.g. "users", "workflows", "tasks") for
+// the filter UI.
+func resolveModule(path string) string {
+	trimmed := strings.TrimPrefix(path, "/api/v1/")
+	if trimmed == path {
+		trimmed = strings.TrimPrefix(path, "/")
+	}
+	if idx := strings.IndexByte(trimmed, '/'); idx >= 0 {
+		return trimmed[:idx]
+	}
+	return trimmed
+}
+
+// captureBody buffers and redacts the request body ahead of the handler,
+// restoring c.Request.Body so the real handler still sees the full,
+// unredacted payload. Skipped for anything that isn't a reasonably small
+// JSON/form body — file uploads are not
+// captured at all rather than partially/uselessly truncated.
+func captureBody(c *gin.Context) string {
+	if c.Request.Body == nil {
+		return ""
+	}
+	contentType := c.Request.Header.Get("Content-Type")
+	if strings.HasPrefix(contentType, "multipart/") {
+		return ""
+	}
+	raw, err := io.ReadAll(io.LimitReader(c.Request.Body, maxOperationLogBody+1))
+	if err != nil {
+		return ""
+	}
+	c.Request.Body = io.NopCloser(bytes.NewReader(raw))
+	if len(raw) == 0 {
+		return ""
+	}
+
+	redacted := redactJSON(raw)
+	return truncate(redacted, maxOperationLogBody)
+}
+
+// redactJSON walks a JSON object/array replacing any value whose key looks
+// secret-shaped with "***". Non-JSON or unparsable bodies are returned
+// as-is truncated — best-effort, never fatal to the request.
+func redactJSON(raw []byte) string {
+	var parsed any
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		return string(raw)
+	}
+	redactValue(parsed)
+	out, err := json.Marshal(parsed)
+	if err != nil {
+		return string(raw)
+	}
+	return string(out)
+}
+
+func redactValue(v any) {
+	switch typed := v.(type) {
+	case map[string]any:
+		for key, val := range typed {
+			if secretFieldPattern.MatchString(key) {
+				typed[key] = "***"
+				continue
+			}
+			redactValue(val)
+		}
+	case []any:
+		for _, item := range typed {
+			redactValue(item)
+		}
+	}
+}
+
+func truncate(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max]
+}

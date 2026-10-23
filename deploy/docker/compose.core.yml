@@ -1,0 +1,96 @@
+name: kubeforecast-core
+
+x-core-environment: &core-environment
+  KUBEFORECAST_DATABASE_DRIVER: mysql
+  KUBEFORECAST_MYSQL_HOST: ${MYSQL_HOST:-host.docker.internal}
+  KUBEFORECAST_MYSQL_PORT: ${MYSQL_PORT:-3306}
+  KUBEFORECAST_MYSQL_DATABASE: ${MYSQL_DATABASE:-kubeforecast}
+  KUBEFORECAST_MYSQL_USERNAME: ${MYSQL_USER:-kubeforecast}
+  KUBEFORECAST_MYSQL_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD in deploy/docker/.env}
+  KUBEFORECAST_SERVER_JWT_SECRET: ${KUBEFORECAST_JWT_SECRET:?set KUBEFORECAST_JWT_SECRET in deploy/docker/.env}
+
+x-db-hosts: &db-hosts
+  - "host.docker.internal:host-gateway"
+
+x-server-image: &server-image
+  image: ${KUBEFORECAST_SERVER_IMAGE:-kubeforecast-server:local}
+  build:
+    context: ../..
+    dockerfile: deploy/docker/Dockerfile
+    target: server
+    args:
+      VERSION: ${KUBEFORECAST_VERSION:-dev}
+
+services:
+  # The built-in MySQL service is intentionally disabled. This stack connects
+  # to the existing MySQL instance on the Docker host instead.
+  # mysql:
+  #   image: mysql:8.4
+  #   restart: unless-stopped
+  #   environment:
+  #     MYSQL_DATABASE: kubeforecast
+  #     MYSQL_USER: kubeforecast
+  #     MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+  #     MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+  #   volumes:
+  #     - mysql-data:/var/lib/mysql
+
+  migrate:
+    <<: *server-image
+    restart: "no"
+    command: ["--config=/etc/kubeforecast/config.yaml", "--sql-driver=mysql", "--migration"]
+    environment: *core-environment
+    extra_hosts: *db-hosts
+    volumes:
+      - ./core.config.yaml:/etc/kubeforecast/config.yaml:ro
+    networks:
+      - core
+
+  server:
+    <<: *server-image
+    restart: unless-stopped
+    command: ["--config=/etc/kubeforecast/config.yaml", "--sql-driver=mysql"]
+    environment: *core-environment
+    extra_hosts: *db-hosts
+    volumes:
+      - ./core.config.yaml:/etc/kubeforecast/config.yaml:ro
+    ports:
+      - "${KUBEFORECAST_SERVER_BIND:-0.0.0.0}:${KUBEFORECAST_SERVER_PORT:-10000}:10000"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:10000/ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - core
+
+  job:
+    image: ${KUBEFORECAST_JOB_IMAGE:-kubeforecast-job:local}
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+      target: job
+      args:
+        VERSION: ${KUBEFORECAST_VERSION:-dev}
+    restart: unless-stopped
+    command:
+      - --config=/etc/kubeforecast/config.yaml
+      - --sql-driver=mysql
+      - --max-workers=${KUBEFORECAST_JOB_WORKERS:-10}
+      - --poll-interval=${KUBEFORECAST_JOB_POLL_INTERVAL:-100ms}
+    environment: *core-environment
+    extra_hosts: *db-hosts
+    volumes:
+      - ./core.config.yaml:/etc/kubeforecast/config.yaml:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - core
+
+networks:
+  core:

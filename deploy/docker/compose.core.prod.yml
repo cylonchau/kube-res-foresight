@@ -1,0 +1,19 @@
+services:
+  server:
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "5"
+
+  job:
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 1m
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "5"

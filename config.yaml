@@ -1,0 +1,52 @@
+
+app_name: kubeforecast
+database_driver: sqlite
+sqlite:
+  file: kubeforecast.db
+  max_open_connection: "20"
+  max_idle_connection: "10"
+
+server:
+  port: 20000
+  # jwt_secret: change-me-to-a-long-random-value # required in production; also settable via KUBEFORECAST_SERVER_JWT_SECRET
+  # dev_mode enables local-dev-only conveniences (currently: Telegram mock-login,
+  # POST /api/v1/telegram/auth/mock-login, which logs in as the first active
+  # admin with no credentials). Must be false/unset in production. Also
+  # settable via KUBEFORECAST_SERVER_DEV_MODE.
+  dev_mode: true
+  # Only needed when a frontend dev server on a different origin talks to
+  # this API directly (e.g. `npm run dev` for web/ without its Vite proxy
+  # engaged). The normal setup — this binary serving the built SPA itself —
+  # never needs this, since browser and API share one origin.
+  cors_allowed_origins:
+    - http://localhost:10000
+    - http://127.0.0.1:10000
+
+loggers:
+  business:
+    enabled: true
+    level: debug
+    format: text
+    outputs:
+      - type: stdout
+  sql:
+    enabled: true
+    level: info
+    format: json
+    outputs:
+      - type: file
+        file:
+          filename: logs/sql.log
+          max_size: "10M"
+          max_backups: 5
+          max_age: "7d"
+          compress: true
+
+# Run the schema migration before starting the complete system.
+metrics:
+  listen: ""
+
+redis:
+  addr: "127.0.0.1:6379"
+  password: ""
+  db: 0

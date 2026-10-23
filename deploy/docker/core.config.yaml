@@ -1,0 +1,32 @@
+
+app_name: kubeforecast
+database_driver: mysql
+
+# Values are overridden by KUBEFORECAST_MYSQL_* in compose.core.yml.
+mysql:
+  # Inside Docker, host.docker.internal resolves to the Docker host gateway.
+  host: host.docker.internal
+  port: 3306
+  database: kubeforecast
+  username: kubeforecast
+  password: change-me
+  max_open_connection: "100"
+  max_idle_connection: "50"
+
+server:
+  port: 10000
+  jwt_secret: change-me
+
+loggers:
+  business:
+    enabled: true
+    level: info
+    format: json
+    outputs:
+      - type: stdout
+  sql:
+    enabled: true
+    level: warn
+    format: json
+    outputs:
+      - type: stdout
