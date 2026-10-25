@@ -30,7 +30,8 @@ func timeQuery(c *gin.Context, key string) *time.Time {
 	if err != nil {
 		return nil
 	}
-	return &parsed
+	utc := parsed.UTC() // rows are stored in UTC: a bound in another zone would compare as text against another offset
+	return &utc
 }
 
 // pageParams reads page and page_size with the project defaults.

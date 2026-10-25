@@ -3,7 +3,7 @@ package forecastsvc
 import (
 	"context"
 
-	"github.com/cylonchau/kubeforecast/pkg/model"
+	"github.com/cylonchau/kube-resource-fcst/pkg/model"
 )
 
 // boundSet is what a module works with: one run for each enabled algorithm, in algorithm order, each reading the

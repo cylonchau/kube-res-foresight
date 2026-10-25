@@ -1,14 +1,14 @@
 package router
 
 import (
-	"github.com/cylonchau/kubeforecast/pkg/app/middleware"
-	"github.com/cylonchau/kubeforecast/pkg/dao/rdb"
-	"github.com/cylonchau/kubeforecast/pkg/forecastsvc"
-	"github.com/cylonchau/kubeforecast/pkg/ldapauth"
-	"github.com/cylonchau/kubeforecast/pkg/model"
+	"github.com/cylonchau/kube-resource-fcst/pkg/app/middleware"
+	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
+	"github.com/cylonchau/kube-resource-fcst/pkg/forecastsvc"
+	"github.com/cylonchau/kube-resource-fcst/pkg/ldapauth"
+	"github.com/cylonchau/kube-resource-fcst/pkg/model"
 	"github.com/gin-gonic/gin"
 
-	v1 "github.com/cylonchau/kubeforecast/pkg/app/server/api"
+	v1 "github.com/cylonchau/kube-resource-fcst/pkg/app/server/api"
 )
 
 // RegisteredRouter composes the business-neutral platform APIs.
@@ -146,6 +146,7 @@ func RegisteredRouter(e *gin.Engine) {
 	v1Group.POST("/algorithms", forecastHandler.CreateAlgorithm)
 	v1Group.PUT("/algorithms/:id", forecastHandler.UpdateAlgorithm)
 	v1Group.DELETE("/algorithms/:id", forecastHandler.DeleteAlgorithm)
+	v1Group.POST("/algorithms/batch", forecastHandler.BatchAlgorithms)
 	v1Group.POST("/algorithm-formulas/check", forecastHandler.FormulaCheck)
 	v1Group.GET("/algorithm-formulas/functions", forecastHandler.FormulaFunctions)
 	v1Group.GET("/algorithms/:id/schema", forecastHandler.AlgorithmSchema)
@@ -159,6 +160,7 @@ func RegisteredRouter(e *gin.Engine) {
 	moduleGroup := v1Group.Group("/modules")
 	moduleGroup.GET("", forecastHandler.ListModules)
 	moduleGroup.POST("", forecastHandler.CreateModule)
+	moduleGroup.POST("/batch", forecastHandler.BatchModules)
 	moduleGroup.GET("/:id", forecastHandler.GetModule)
 	moduleGroup.PUT("/:id", forecastHandler.UpdateModule)
 	moduleGroup.DELETE("/:id", forecastHandler.DeleteModule)
@@ -169,6 +171,7 @@ func RegisteredRouter(e *gin.Engine) {
 	moduleGroup.PUT("/:id/sources/:sid", forecastHandler.UpdateSource)
 	moduleGroup.DELETE("/:id/sources/:sid", forecastHandler.DeleteSource)
 	moduleGroup.GET("/:id/history", forecastHandler.ModuleHistory)
+	moduleGroup.GET("/:id/compare", forecastHandler.ModuleCompare)
 	moduleGroup.POST("/:id/collect", forecastHandler.ModuleCollect)
 	moduleGroup.POST("/:id/predict", forecastHandler.ModulePredict)
 	moduleGroup.POST("/:id/run", forecastHandler.ModuleRun)
@@ -186,6 +189,8 @@ func RegisteredRouter(e *gin.Engine) {
 	moduleGroup.GET("/:id/leaderboard", forecastHandler.Leaderboard)
 	v1Group.GET("/forecast-metrics/catalog", forecastHandler.MetricCatalog)
 	v1Group.GET("/forecast-metrics/query", forecastHandler.QueryMetrics)
+	v1Group.POST("/metric-queries/test", forecastHandler.TestMetricQuery)
+	v1Group.POST("/records/batch-delete", forecastHandler.BatchDeleteRecords)
 	v1Group.GET("/evaluations", forecastHandler.ListEvaluations)
 	v1Group.GET("/recommendations", forecastHandler.ListRecommendations)
 	v1Group.GET("/backtests", forecastHandler.SearchBacktests)

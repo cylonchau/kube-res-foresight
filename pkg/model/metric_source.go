@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cylonchau/kubeforecast/pkg/multimetric"
+	"github.com/cylonchau/kube-resource-fcst/pkg/multimetric"
 )
 
 func init() {
@@ -286,6 +286,13 @@ type AdmissionDecision struct {
 	CPUMilli    int64 `gorm:"not null;default:0" json:"cpu_milli" column_setting:"true"`
 	MemoryBytes int64 `gorm:"not null;default:0" json:"memory_bytes" column_setting:"true"`
 	GPU         int   `gorm:"not null;default:0" json:"gpu" column_setting:"true"`
+	// The limits the answer carries (0 = left alone), the kind of the workload the caller named, the mode of the module and the
+	// algorithm behind the answer: what the admission did and why, readable without the recommendation snapshot.
+	LimitCPUMilli    int64  `gorm:"not null;default:0" json:"limit_cpu_milli" column_setting:"false"`
+	LimitMemoryBytes int64  `gorm:"not null;default:0" json:"limit_memory_bytes" column_setting:"false"`
+	WorkloadKind     string `gorm:"type:varchar(16)" json:"workload_kind" column_setting:"false"`
+	Mode             string `gorm:"type:varchar(16)" json:"mode" column_setting:"false"`
+	Algorithm        string `gorm:"type:varchar(40)" json:"algorithm" column_setting:"false"`
 	// The values the Pod asked for, when the caller sent them.
 	OriginalCPUMilli    int64 `gorm:"not null;default:0" json:"original_cpu_milli" column_setting:"false"`
 	OriginalMemoryBytes int64 `gorm:"not null;default:0" json:"original_memory_bytes" column_setting:"false"`

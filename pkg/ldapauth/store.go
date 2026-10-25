@@ -10,7 +10,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	"github.com/cylonchau/kubeforecast/pkg/model"
+	"github.com/cylonchau/kube-resource-fcst/pkg/model"
 )
 
 // The directory configuration lives in the system parameters, under the ldap. prefix. The generic settings API

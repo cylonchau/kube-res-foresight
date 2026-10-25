@@ -3,9 +3,9 @@ package notifytask
 import (
 	"context"
 	"encoding/json"
-	"github.com/cylonchau/kubeforecast/pkg/job/tasks/notifyjob"
-	"github.com/cylonchau/kubeforecast/pkg/model"
-	"github.com/cylonchau/kubeforecast/pkg/notify"
+	"github.com/cylonchau/kube-resource-fcst/pkg/job/tasks/notifyjob"
+	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-resource-fcst/pkg/notify"
 	"testing"
 )
 

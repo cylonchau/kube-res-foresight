@@ -2,9 +2,9 @@ package middleware
 
 import (
 	"context"
-	"github.com/cylonchau/kubeforecast/pkg/apis"
-	"github.com/cylonchau/kubeforecast/pkg/dao/rdb"
-	"github.com/cylonchau/kubeforecast/pkg/model"
+	"github.com/cylonchau/kube-resource-fcst/pkg/apis"
+	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
+	"github.com/cylonchau/kube-resource-fcst/pkg/model"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/require"
@@ -15,7 +15,7 @@ import (
 )
 
 func TestDeveloperCredentialPermissionBoundary(t *testing.T) {
-	t.Setenv("KUBEFORECAST_SECRET_KEY", "12345678901234567890123456789012")
+	t.Setenv("KUBE_RESOURCE_FCST_SECRET_KEY", "12345678901234567890123456789012")
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&model.SecretKey{}, &model.Permission{}, &model.RefreshTokenSession{}))
@@ -41,21 +41,21 @@ func TestDeveloperCredentialPermissionBoundary(t *testing.T) {
 	group.GET("/secret-keys", func(c *gin.Context) { c.Status(http.StatusNoContent) })
 
 	allowed := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
-	allowed.Header.Set("X-KubeForecast-AccessKey", accessKey)
-	allowed.Header.Set("X-KubeForecast-AccessSecret", accessSecret)
+	allowed.Header.Set("X-kube-resource-fcst-AccessKey", accessKey)
+	allowed.Header.Set("X-kube-resource-fcst-AccessSecret", accessSecret)
 	allowedResponse := httptest.NewRecorder()
 	router.ServeHTTP(allowedResponse, allowed)
 	require.Equal(t, http.StatusNoContent, allowedResponse.Code)
 
 	forbidden := httptest.NewRequest(http.MethodGet, "/api/v1/secret-keys", nil)
-	forbidden.Header.Set("Authorization", "KubeForecast-AK "+accessKey+":"+accessSecret)
+	forbidden.Header.Set("Authorization", "kube-resource-fcst-AK "+accessKey+":"+accessSecret)
 	forbiddenResponse := httptest.NewRecorder()
 	router.ServeHTTP(forbiddenResponse, forbidden)
 	require.Equal(t, http.StatusForbidden, forbiddenResponse.Code)
 
 	invalid := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
-	invalid.Header.Set("X-KubeForecast-AccessKey", accessKey)
-	invalid.Header.Set("X-KubeForecast-AccessSecret", "wrong")
+	invalid.Header.Set("X-kube-resource-fcst-AccessKey", accessKey)
+	invalid.Header.Set("X-kube-resource-fcst-AccessSecret", "wrong")
 	invalidResponse := httptest.NewRecorder()
 	router.ServeHTTP(invalidResponse, invalid)
 	require.Equal(t, http.StatusUnauthorized, invalidResponse.Code)

@@ -5,7 +5,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/cylonchau/kubeforecast/pkg/forecast"
+	"github.com/cylonchau/kube-resource-fcst/pkg/forecast"
 )
 
 // Gap is a run of missing grid steps.

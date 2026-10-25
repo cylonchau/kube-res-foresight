@@ -1,4 +1,4 @@
-// Package controller holds the reconciler of kubeforecast-operator. The scaling rules live in Plan, a pure
+// Package controller holds the reconciler of kube-resource-fcst-operator. The scaling rules live in Plan, a pure
 // function, so every safety rule can be tested without a cluster; the Reconciler only gathers its inputs and
 // applies its result.
 package controller
@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/cylonchau/kubeforecast/pkg/operator/api/v1alpha1"
+	"github.com/cylonchau/kube-resource-fcst/pkg/operator/api/v1alpha1"
 )
 
 // Decision is the desired replica count read from a decision source.

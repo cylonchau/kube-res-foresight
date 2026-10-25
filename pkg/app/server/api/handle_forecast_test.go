@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cylonchau/kubeforecast/pkg/collector"
-	"github.com/cylonchau/kubeforecast/pkg/dao/rdb"
-	"github.com/cylonchau/kubeforecast/pkg/forecast"
-	"github.com/cylonchau/kubeforecast/pkg/forecastsvc"
-	"github.com/cylonchau/kubeforecast/pkg/model"
+	"github.com/cylonchau/kube-resource-fcst/pkg/collector"
+	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
+	"github.com/cylonchau/kube-resource-fcst/pkg/forecast"
+	"github.com/cylonchau/kube-resource-fcst/pkg/forecastsvc"
+	"github.com/cylonchau/kube-resource-fcst/pkg/model"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -84,6 +84,7 @@ func forecastTestRouter(t *testing.T) (*gin.Engine, *model.MetricMapping) {
 	r.PUT("/modules/:id/sources/:sid", h.UpdateSource)
 	r.DELETE("/modules/:id/sources/:sid", h.DeleteSource)
 	r.GET("/modules/:id/history", h.ModuleHistory)
+	r.GET("/modules/:id/compare", h.ModuleCompare)
 	r.POST("/modules/:id/collect", h.ModuleCollect)
 	r.POST("/modules/:id/predict", h.ModulePredict)
 	r.POST("/modules/:id/run", h.ModuleRun)
@@ -106,6 +107,10 @@ func forecastTestRouter(t *testing.T) (*gin.Engine, *model.MetricMapping) {
 	r.GET("/evaluations", h.ListEvaluations)
 	r.GET("/forecast-metrics/catalog", h.MetricCatalog)
 	r.GET("/forecast-metrics/query", h.QueryMetrics)
+	r.POST("/metric-queries/test", h.TestMetricQuery)
+	r.POST("/records/batch-delete", h.BatchDeleteRecords)
+	r.POST("/algorithms/batch", h.BatchAlgorithms)
+	r.POST("/modules/batch", h.BatchModules)
 	r.GET("/operator/decisions", rt.Decision)
 	r.POST("/operator/reports", rt.Report)
 	r.GET("/admission/recommendations", rt.Admission)
@@ -762,4 +767,129 @@ func TestTrainingSummaryCountsHowRunsEndedAndWhyTheyDidNotRun(t *testing.T) {
 	assert.Empty(t, got["reasons"])
 	got = decodeData(t, performJSON(t, r, http.MethodGet, "/training-runs/summary?module_id=9999", "", nil).Body.Bytes())
 	assert.EqualValues(t, 0, got["total"], "nothing recorded is an empty summary, not an error")
+}
+
+func TestCompareReadsTheActualHistoryFromPrometheusAndAlignsTheForecastsOfEveryAlgorithm(t *testing.T) {
+	r, cpu := forecastTestRouter(t)
+	module := moduleWithCPU(t, r, cpu, map[string]any{"name": "cmp", "lookback_hours": 6, "horizon_minutes": 10, "replica_mode": "dynamic", "capacity_mode": "manual",
+		"pod_cpu_request_milli": 1000, "target_utilization": 0.5, "min_replicas": 1, "max_replicas": 20, "headroom_ratio": 1})
+	base := fmt.Sprintf("/modules/%d", module)
+	enableAlgorithm(t, r, "naive", nil)
+	enableAlgorithm(t, r, "ewma", map[string]any{"alpha": 0.5})
+	require.Equal(t, http.StatusOK, performJSON(t, r, http.MethodPost, base+"/run", "", nil).Code)
+
+	// nothing was ever collected for this module, yet a window before it existed has actual values: they come from Prometheus
+	from, to := time.Now().UTC().Add(-30*24*time.Hour), time.Now().UTC().Add(-29*24*time.Hour)
+	rec := performJSON(t, r, http.MethodGet, fmt.Sprintf("%s/compare?metric=cpu&from=%s&to=%s&predictions=false", base, from.Format(time.RFC3339), to.Format(time.RFC3339)), "", nil)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	got := decodeData(t, rec.Body.Bytes())
+	actual := got["actual"].(map[string]any)
+	assert.Equal(t, false, actual["missing"], "Prometheus has samples in the window")
+	candles := actual["candles"].([]any)
+	require.NotEmpty(t, candles)
+	first := candles[0].(map[string]any)
+	assert.EqualValues(t, 2, first["open"])
+	assert.EqualValues(t, 2, first["high"])
+	assert.EqualValues(t, 2, first["low"])
+	assert.Empty(t, got["algorithms"], "no forecasts were asked for")
+
+	// the window of the forecasts: every enabled algorithm with a forecast is in the answer, with its replicas
+	now := time.Now().UTC()
+	rec = performJSON(t, r, http.MethodGet, fmt.Sprintf("%s/compare?metric=cpu&from=%s&to=%s", base, now.Add(-time.Hour).Format(time.RFC3339), now.Add(time.Hour).Format(time.RFC3339)), "", nil)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	got = decodeData(t, rec.Body.Bytes())
+	algorithms := got["algorithms"].([]any)
+	require.Len(t, algorithms, 2, "both enabled algorithms, not a fixed number")
+	assert.Equal(t, "ewma", algorithms[0].(map[string]any)["algorithm_id"])
+	point := algorithms[1].(map[string]any)["points"].([]any)[0].(map[string]any)
+	assert.EqualValues(t, 2, point["value"])
+	assert.EqualValues(t, 4, point["replicas"], "ceil(2 cores / (1 core x 50%))")
+	assert.NotEmpty(t, got["replica_basis"])
+	// a filter keeps only the algorithms asked for
+	rec = performJSON(t, r, http.MethodGet, fmt.Sprintf("%s/compare?metric=cpu&algorithms=naive&from=%s&to=%s", base, now.Add(-time.Hour).Format(time.RFC3339), now.Add(time.Hour).Format(time.RFC3339)), "", nil)
+	assert.Len(t, decodeData(t, rec.Body.Bytes())["algorithms"], 1)
+
+	assert.Equal(t, http.StatusBadRequest, performJSON(t, r, http.MethodGet, base+"/compare?metric=memory", "", nil).Code)
+	assert.Equal(t, http.StatusBadRequest, performJSON(t, r, http.MethodGet, fmt.Sprintf("%s/compare?metric=cpu&from=%s&to=%s", base, to.Format(time.RFC3339), from.Format(time.RFC3339)), "", nil).Code)
+}
+
+func TestMetricQueryTestSaysHowFarAQueryGotBeforeItIsSaved(t *testing.T) {
+	r, cpu := forecastTestRouter(t)
+	module := moduleWithCPU(t, r, cpu, map[string]any{"name": "qt"})
+	call := func(body map[string]any) map[string]any {
+		t.Helper()
+		rec := performJSON(t, r, http.MethodPost, "/metric-queries/test", "", body)
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		return decodeData(t, rec.Body.Bytes())
+	}
+	good := map[string]any{"datasource_id": cpu.DatasourceID, "metric": "cpu", "level": "workload", "module_id": module, "step_seconds": 60,
+		"query": `sum(rate(cpu{namespace="{{namespace}}",pod=~"{{workload}}-.*"}[{{range}}]))`, "scale": 0.5, "precision": 2}
+	got := call(good)
+	assert.Equal(t, true, got["ok"])
+	assert.Equal(t, "ok", got["stage"])
+	assert.Equal(t, "cores", got["unit"])
+	assert.Contains(t, got["rendered"], `namespace="prod"`, "the variables come from the workload of the module")
+	assert.EqualValues(t, 1, got["mean"], "the values are shaped like a dataset: 2 x 0.5")
+	assert.NotEmpty(t, got["points"])
+
+	bad := map[string]any{}
+	for k, v := range good {
+		bad[k] = v
+	}
+	bad["query"] = `sum(up{job="{{nope}}"})`
+	got = call(bad)
+	assert.Equal(t, false, got["ok"])
+	assert.Equal(t, "template", got["stage"])
+	assert.Contains(t, got["error"], "unknown template variable")
+	bad["query"], bad["datasource_id"] = good["query"], 9999
+	assert.Equal(t, "datasource", call(bad)["stage"])
+	bad["datasource_id"], bad["from"], bad["to"] = good["datasource_id"], "2026-01-02T00:00:00Z", "2026-01-01T00:00:00Z"
+	assert.Equal(t, "template", call(bad)["stage"], "from after to")
+}
+
+func TestBatchOperationsReportWhatWasDoneAndWhatWasRefused(t *testing.T) {
+	r, cpu := forecastTestRouter(t)
+	t.Cleanup(func() { forecast.RemoveCustom("batch_ewma") })
+	a := moduleWithCPU(t, r, cpu, map[string]any{"name": "b1", "workload": "b1"})
+	b := moduleWithCPU(t, r, cpu, map[string]any{"name": "b2", "workload": "b2"})
+	batch := func(path string, body map[string]any) map[string]any {
+		t.Helper()
+		rec := performJSON(t, r, http.MethodPost, path, "", body)
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		return decodeData(t, rec.Body.Bytes())
+	}
+
+	// an enabled module is not deleted; after it is disabled it is, the other one is untouched
+	got := batch("/modules/batch", map[string]any{"action": "delete", "ids": []int{a, b}})
+	assert.EqualValues(t, 0, got["done"])
+	assert.Len(t, got["failed"], 2)
+	got = batch("/modules/batch", map[string]any{"action": "disable", "ids": []int{a}})
+	assert.EqualValues(t, 1, got["done"])
+	got = batch("/modules/batch", map[string]any{"action": "delete", "ids": []int{a, b}})
+	assert.EqualValues(t, 1, got["done"], "only the disabled one")
+	assert.Len(t, got["failed"], 1)
+	assert.Equal(t, http.StatusNotFound, performJSON(t, r, http.MethodGet, fmt.Sprintf("/modules/%d", a), "", nil).Code)
+	assert.Equal(t, http.StatusOK, performJSON(t, r, http.MethodGet, fmt.Sprintf("/modules/%d", b), "", nil).Code)
+	assert.Equal(t, http.StatusBadRequest, performJSON(t, r, http.MethodPost, "/modules/batch", "", map[string]any{"action": "explode", "ids": []int{b}}).Code)
+
+	// algorithms: a built-in one is disabled, never deleted; a derived one is deleted once it is disabled
+	require.Equal(t, http.StatusOK, performJSON(t, r, http.MethodPost, "/algorithms", "", map[string]any{"id": "batch_ewma", "base": "ewma", "enabled": true}).Code)
+	got = batch("/algorithms/batch", map[string]any{"action": "delete", "ids": []string{"batch_ewma", "naive", "ghost"}})
+	assert.EqualValues(t, 0, got["done"])
+	assert.Len(t, got["failed"], 3)
+	got = batch("/algorithms/batch", map[string]any{"action": "enable", "ids": []string{"naive"}})
+	assert.EqualValues(t, 1, got["done"])
+	got = batch("/algorithms/batch", map[string]any{"action": "disable", "ids": []string{"batch_ewma", "naive"}})
+	assert.EqualValues(t, 2, got["done"])
+	got = batch("/algorithms/batch", map[string]any{"action": "delete", "ids": []string{"batch_ewma", "naive"}})
+	assert.EqualValues(t, 1, got["done"])
+	assert.Equal(t, http.StatusNotFound, performJSON(t, r, http.MethodGet, "/algorithms/batch_ewma", "", nil).Code)
+
+	// records: only the lists that record what happened
+	require.NoError(t, model.DB.Create(&model.TrainingRun{ModuleID: uint(b), Metric: "cpu", AlgorithmID: "naive", Status: "ok", PredictionTime: time.Now()}).Error)
+	var run model.TrainingRun
+	require.NoError(t, model.DB.First(&run).Error)
+	got = batch("/records/batch-delete", map[string]any{"kind": "trainings", "ids": []uint{run.ID, 99999}})
+	assert.EqualValues(t, 1, got["done"])
+	assert.Equal(t, http.StatusBadRequest, performJSON(t, r, http.MethodPost, "/records/batch-delete", "", map[string]any{"kind": "recommendations", "ids": []uint{1}}).Code, "the snapshots are the audit trail")
 }

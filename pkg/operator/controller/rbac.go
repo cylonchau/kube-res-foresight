@@ -3,8 +3,8 @@ package controller
 // The operator's permissions. They are package-level markers (not attached to a declaration) so that
 // controller-gen turns them into deploy/operator/rbac/role.yaml.
 
-// +kubebuilder:rbac:groups=autoscaling.kubeforecast.io,resources=predictivescalers,verbs=get;list;watch
-// +kubebuilder:rbac:groups=autoscaling.kubeforecast.io,resources=predictivescalers/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=autoscaling.kube-resource-fcst.io,resources=predictivescalers,verbs=get;list;watch
+// +kubebuilder:rbac:groups=autoscaling.kube-resource-fcst.io,resources=predictivescalers/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=apps,resources=deployments;statefulsets,verbs=get;list;watch
 // +kubebuilder:rbac:groups=apps,resources=deployments/scale;statefulsets/scale,verbs=get;update;patch
 // +kubebuilder:rbac:groups=autoscaling,resources=horizontalpodautoscalers,verbs=get;list;watch

@@ -10,11 +10,11 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
-	"github.com/cylonchau/kubeforecast/pkg/app/query"
-	"github.com/cylonchau/kubeforecast/pkg/dao/rdb"
-	"github.com/cylonchau/kubeforecast/pkg/forecastsvc"
-	"github.com/cylonchau/kubeforecast/pkg/model"
-	"github.com/cylonchau/kubeforecast/pkg/preset"
+	"github.com/cylonchau/kube-resource-fcst/pkg/app/query"
+	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
+	"github.com/cylonchau/kube-resource-fcst/pkg/forecastsvc"
+	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-resource-fcst/pkg/preset"
 )
 
 // PresetRouter serves the built-in metric presets and the one-click demo.

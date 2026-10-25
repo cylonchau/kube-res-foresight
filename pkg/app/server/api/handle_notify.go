@@ -2,9 +2,9 @@ package api
 
 import (
 	"errors"
-	"github.com/cylonchau/kubeforecast/pkg/app/query"
-	"github.com/cylonchau/kubeforecast/pkg/dao/rdb"
-	"github.com/cylonchau/kubeforecast/pkg/notify"
+	"github.com/cylonchau/kube-resource-fcst/pkg/app/query"
+	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
+	"github.com/cylonchau/kube-resource-fcst/pkg/notify"
 	"github.com/gin-gonic/gin"
 	"strconv"
 )

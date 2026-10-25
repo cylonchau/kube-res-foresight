@@ -12,12 +12,12 @@ import (
 	"log"
 	"time"
 
-	"github.com/cylonchau/kubeforecast/pkg/collector"
-	"github.com/cylonchau/kubeforecast/pkg/dao/rdb"
-	"github.com/cylonchau/kubeforecast/pkg/demo"
-	"github.com/cylonchau/kubeforecast/pkg/forecast"
-	"github.com/cylonchau/kubeforecast/pkg/model"
-	"github.com/cylonchau/kubeforecast/pkg/promclient"
+	"github.com/cylonchau/kube-resource-fcst/pkg/collector"
+	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
+	"github.com/cylonchau/kube-resource-fcst/pkg/demo"
+	"github.com/cylonchau/kube-resource-fcst/pkg/forecast"
+	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-resource-fcst/pkg/promclient"
 )
 
 // ErrNotConfigured means the module lacks something the step needs (a source, a mapping, a datasource, an enabled

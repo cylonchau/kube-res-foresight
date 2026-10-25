@@ -14,7 +14,7 @@ import "time"
 // console, "api" for calls authenticated
 // with an access-key/secret developer credential rather than an
 // interactive login, and "cli" for a command-line client using that developer
-// credential with X-KubeForecast-Client: cli (see middleware.resolveClientType).
+// credential with X-kube-resource-fcst-Client: cli (see middleware.resolveClientType).
 type OperationLog struct {
 	ID         int64     `gorm:"primaryKey;autoIncrement" json:"id" column_setting:"true"`
 	CreatedAt  time.Time `gorm:"index" json:"created_at" column_setting:"true"`

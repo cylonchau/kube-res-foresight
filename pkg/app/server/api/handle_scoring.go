@@ -6,10 +6,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/cylonchau/kubeforecast/pkg/app/query"
-	"github.com/cylonchau/kubeforecast/pkg/dao/rdb"
-	"github.com/cylonchau/kubeforecast/pkg/model"
-	"github.com/cylonchau/kubeforecast/pkg/scoring"
+	"github.com/cylonchau/kube-resource-fcst/pkg/app/query"
+	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
+	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-resource-fcst/pkg/scoring"
 )
 
 // BreakdownRow is one part of a score: how accurate the algorithm was on a resource, the error, the weight the part

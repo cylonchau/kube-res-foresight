@@ -1,4 +1,4 @@
-module github.com/cylonchau/kubeforecast
+module github.com/cylonchau/kube-resource-fcst
 
 go 1.27.0
 

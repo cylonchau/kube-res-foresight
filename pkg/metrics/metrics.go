@@ -1,12 +1,12 @@
 // Package metrics exposes Prometheus metrics and a health endpoint for the
-// standalone KubeForecast processes. Collectors register on the shared
+// standalone kube-resource-fcst processes. Collectors register on the shared
 // registry; a module serves it only when metrics.listen is configured.
 package metrics
 
 import (
 	"context"
 	"errors"
-	"github.com/cylonchau/kubeforecast/pkg/logger"
+	"github.com/cylonchau/kube-resource-fcst/pkg/logger"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"net/http"
@@ -30,19 +30,19 @@ func newFactory() promAuto { return promAuto{} }
 type promAuto struct{}
 
 func (promAuto) Counter(name, help string, labels ...string) *prometheus.CounterVec {
-	c := prometheus.NewCounterVec(prometheus.CounterOpts{Namespace: "kubeforecast", Name: name, Help: help}, labels)
+	c := prometheus.NewCounterVec(prometheus.CounterOpts{Namespace: "kube_resource_fcst", Name: name, Help: help}, labels)
 	Registry.MustRegister(c)
 	return c
 }
 
 func (promAuto) Gauge(name, help string, labels ...string) *prometheus.GaugeVec {
-	g := prometheus.NewGaugeVec(prometheus.GaugeOpts{Namespace: "kubeforecast", Name: name, Help: help}, labels)
+	g := prometheus.NewGaugeVec(prometheus.GaugeOpts{Namespace: "kube_resource_fcst", Name: name, Help: help}, labels)
 	Registry.MustRegister(g)
 	return g
 }
 
 func (promAuto) GaugeFunc(name, help string, fn func() float64) {
-	Registry.MustRegister(prometheus.NewGaugeFunc(prometheus.GaugeOpts{Namespace: "kubeforecast", Name: name, Help: help}, fn))
+	Registry.MustRegister(prometheus.NewGaugeFunc(prometheus.GaugeOpts{Namespace: "kube_resource_fcst", Name: name, Help: help}, fn))
 }
 
 // Handler serves /metrics, /healthz and /readyz.

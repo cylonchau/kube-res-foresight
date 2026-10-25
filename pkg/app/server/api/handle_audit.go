@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cylonchau/kubeforecast/pkg/app/middleware"
-	"github.com/cylonchau/kubeforecast/pkg/app/query"
-	"github.com/cylonchau/kubeforecast/pkg/dao/rdb"
-	"github.com/cylonchau/kubeforecast/pkg/model"
+	"github.com/cylonchau/kube-resource-fcst/pkg/app/middleware"
+	"github.com/cylonchau/kube-resource-fcst/pkg/app/query"
+	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
+	"github.com/cylonchau/kube-resource-fcst/pkg/model"
 	"github.com/gin-gonic/gin"
 )
 
@@ -128,7 +128,7 @@ func (r *AuditRouter) Export(c *gin.Context) {
 	// the export is a read that hands out records in bulk: it is entered in the operation log with its scope
 	c.Set(middleware.OperationLogNoteKey, fmt.Sprintf("export kind=%s module_id=%d rows=%d", kind, moduleID, len(rows)))
 	c.Header("Content-Type", "text/csv; charset=utf-8")
-	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="kubeforecast-%s-%s.csv"`, kind, time.Now().UTC().Format("20060102T150405Z")))
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="kube-resource-fcst-%s-%s.csv"`, kind, time.Now().UTC().Format("20060102T150405Z")))
 	c.Status(http.StatusOK)
 	w := csv.NewWriter(c.Writer)
 	_ = w.Write(header)

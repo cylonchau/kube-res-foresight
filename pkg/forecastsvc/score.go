@@ -7,10 +7,10 @@ import (
 	"sort"
 	"time"
 
-	"github.com/cylonchau/kubeforecast/pkg/forecast"
-	"github.com/cylonchau/kubeforecast/pkg/model"
-	"github.com/cylonchau/kubeforecast/pkg/multimetric"
-	"github.com/cylonchau/kubeforecast/pkg/scoring"
+	"github.com/cylonchau/kube-resource-fcst/pkg/forecast"
+	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-resource-fcst/pkg/multimetric"
+	"github.com/cylonchau/kube-resource-fcst/pkg/scoring"
 )
 
 // ErrNothingToScore means no algorithm instance is bound to the module or no usable history exists to replay.

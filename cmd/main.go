@@ -7,12 +7,12 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/cylonchau/kubeforecast/pkg/cmd"
+	"github.com/cylonchau/kube-resource-fcst/pkg/cmd"
 	"github.com/spf13/pflag"
 )
 
 func main() {
-	command := cmd.NewKubeForecastCommand(cmd.KubeForecastOptions{})
+	command := cmd.NewKubeResourceFcstCommand(cmd.KubeResourceFcstOptions{})
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	// Restore the default signal behavior after the first cancellation so a

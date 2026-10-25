@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cylonchau/kubeforecast/pkg/forecast"
-	"github.com/cylonchau/kubeforecast/pkg/model"
+	"github.com/cylonchau/kube-resource-fcst/pkg/forecast"
+	"github.com/cylonchau/kube-resource-fcst/pkg/model"
 )
 
 // ErrStale means the newest stored sample is too old to predict from.

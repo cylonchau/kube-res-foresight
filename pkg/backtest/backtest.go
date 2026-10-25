@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/cylonchau/kubeforecast/pkg/forecast"
+	"github.com/cylonchau/kube-resource-fcst/pkg/forecast"
 )
 
 // Config selects the rolling origins and scoring level.

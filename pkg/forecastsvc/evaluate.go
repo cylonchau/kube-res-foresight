@@ -7,9 +7,9 @@ import (
 	"sort"
 	"time"
 
-	"github.com/cylonchau/kubeforecast/pkg/dao/rdb"
-	"github.com/cylonchau/kubeforecast/pkg/forecast"
-	"github.com/cylonchau/kubeforecast/pkg/model"
+	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
+	"github.com/cylonchau/kube-resource-fcst/pkg/forecast"
+	"github.com/cylonchau/kube-resource-fcst/pkg/model"
 )
 
 // maxRunsPerAlgorithm bounds the evaluations done for one algorithm in one pass.
@@ -182,7 +182,7 @@ type LeaderboardEntry struct {
 // Leaderboard ranks the enabled algorithms of a module on the sources of one kind (cpu, memory, ...) by
 // observed WAPE over the evaluations since the given time. Ranking is by what actually happened, not by backtest;
 // it never promotes anything by itself.
-func (s *Service) Leaderboard(ctx context.Context, moduleID uint, kind string, since *time.Time) ([]LeaderboardEntry, error) {
+func (s *Service) Leaderboard(ctx context.Context, moduleID uint, kind string, since, until *time.Time) ([]LeaderboardEntry, error) {
 	mod, err := s.Modules.Get(ctx, moduleID)
 	if err != nil {
 		return nil, err
@@ -197,7 +197,7 @@ func (s *Service) Leaderboard(ctx context.Context, moduleID uint, kind string, s
 			if src.Kind != kind || src.Basis != model.BasisForecast {
 				continue
 			}
-			evals, err := s.Predictions.AllEvaluations(ctx, rdb.EvaluationFilter{ModuleID: inst.ID, Metric: src.Key, AlgorithmID: inst.Key(), Since: since})
+			evals, err := s.Predictions.AllEvaluations(ctx, rdb.EvaluationFilter{ModuleID: inst.ID, Metric: src.Key, AlgorithmID: inst.Key(), Since: since, Until: until})
 			if err != nil {
 				return nil, err
 			}

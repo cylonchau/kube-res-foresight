@@ -4,7 +4,7 @@ package store
 import (
 	"context"
 	"fmt"
-	"github.com/cylonchau/kubeforecast/pkg/logger"
+	"github.com/cylonchau/kube-resource-fcst/pkg/logger"
 	"github.com/glebarez/sqlite"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
@@ -127,6 +127,9 @@ func (m *RDBStore) initMySQL(config *gorm.Config) error {
 
 // initSQLite 初始化SQLite连接
 func (m *RDBStore) initSQLite(config *gorm.Config) error {
+	// SQLite keeps a time as text with its offset, and the filters of the lists compare that text: every row has to be
+	// written in one zone, UTC, or a window picked in another zone would compare wrongly.
+	config.NowFunc = func() time.Time { return time.Now().UTC() }
 	dbPath := m.config.File
 	var err error
 	// The pragmas go in the DSN so that every connection gets them: the pool closes and reopens its connection, and a

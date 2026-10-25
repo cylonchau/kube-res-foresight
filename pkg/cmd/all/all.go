@@ -1,14 +1,14 @@
-// Package all implements the single-process KubeForecast deployment mode.
+// Package all implements the single-process kube-resource-fcst deployment mode.
 package all
 
 import (
 	"context"
 	"fmt"
-	"github.com/cylonchau/kubeforecast/pkg/app/utils"
-	cmdbootstrap "github.com/cylonchau/kubeforecast/pkg/cmd/bootstrap"
-	jobcmd "github.com/cylonchau/kubeforecast/pkg/cmd/job"
-	servercmd "github.com/cylonchau/kubeforecast/pkg/cmd/server"
-	"github.com/cylonchau/kubeforecast/pkg/logger"
+	"github.com/cylonchau/kube-resource-fcst/pkg/app/utils"
+	cmdbootstrap "github.com/cylonchau/kube-resource-fcst/pkg/cmd/bootstrap"
+	jobcmd "github.com/cylonchau/kube-resource-fcst/pkg/cmd/job"
+	servercmd "github.com/cylonchau/kube-resource-fcst/pkg/cmd/server"
+	"github.com/cylonchau/kube-resource-fcst/pkg/logger"
 	"github.com/spf13/cobra"
 	"time"
 )
@@ -29,7 +29,7 @@ func NewCommand() *cobra.Command {
 	opts := &options{maxWorkers: 10, pollInterval: 10 * time.Millisecond}
 	cmd := &cobra.Command{
 		Use:   "all",
-		Short: "Start all KubeForecast modules in one process",
+		Short: "Start all kube-resource-fcst modules in one process",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return opts.run(cmd.Context())
@@ -85,7 +85,7 @@ func runServices(parent context.Context, services []service) error {
 			return fmt.Errorf("%s module stopped: %w", result.name, result.err)
 		}
 		if parent.Err() == nil {
-			logger.Warn("KubeForecast module stopped without process cancellation", logger.String("module", result.name))
+			logger.Warn("kube-resource-fcst module stopped without process cancellation", logger.String("module", result.name))
 			cancel()
 		}
 	}

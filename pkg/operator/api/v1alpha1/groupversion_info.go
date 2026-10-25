@@ -1,6 +1,6 @@
-// Package v1alpha1 contains the PredictiveScaler API of kubeforecast-operator.
+// Package v1alpha1 contains the PredictiveScaler API of kube-resource-fcst-operator.
 // +kubebuilder:object:generate=true
-// +groupName=autoscaling.kubeforecast.io
+// +groupName=autoscaling.kube-resource-fcst.io
 package v1alpha1
 
 import (
@@ -10,7 +10,7 @@ import (
 
 var (
 	// GroupVersion is the API group and version. The group is provisional until the project domain is decided.
-	GroupVersion = schema.GroupVersion{Group: "autoscaling.kubeforecast.io", Version: "v1alpha1"}
+	GroupVersion = schema.GroupVersion{Group: "autoscaling.kube-resource-fcst.io", Version: "v1alpha1"}
 
 	// SchemeBuilder registers the types with a runtime scheme.
 	SchemeBuilder = &scheme.Builder{GroupVersion: GroupVersion}

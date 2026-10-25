@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/cylonchau/kubeforecast/pkg/model"
+	"github.com/cylonchau/kube-resource-fcst/pkg/model"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -163,6 +163,21 @@ func (dao *PredictionDAO) ListPredictions(ctx context.Context, f PredictionFilte
 	var list []*model.Prediction
 	err := q.Order("prediction_time DESC, target_time ASC, id ASC").Offset(pageOffset(page, pageSize)).Limit(pageSize).Find(&list).Error
 	return list, total, err
+}
+
+// maxCompareRows bounds the forecasts one comparison reads.
+const maxCompareRows = 300000
+
+// ForCompare returns the forecasts of a metric whose target time is in [from, to], for the algorithms given (all when
+// none), in target order. The newest forecast of every target is picked by the caller.
+func (dao *PredictionDAO) ForCompare(ctx context.Context, moduleID uint, metric string, from, to time.Time, algorithms []string) ([]model.Prediction, error) {
+	q := dao.db.WithContext(ctx).Model(&model.Prediction{}).Where("module_id = ? AND metric = ? AND target_time >= ? AND target_time <= ?", moduleID, metric, from, to)
+	if len(algorithms) > 0 {
+		q = q.Where("algorithm_id IN ?", algorithms)
+	}
+	var rows []model.Prediction
+	err := q.Order("target_time ASC, prediction_time ASC").Limit(maxCompareRows).Find(&rows).Error
+	return rows, err
 }
 
 // LatestRun returns the forecasts (point or quantile, as the algorithm produces) of the newest prediction run of an algorithm for a module metric.

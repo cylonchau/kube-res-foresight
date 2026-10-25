@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	apputils "github.com/cylonchau/kubeforecast/pkg/app/utils"
-	"github.com/cylonchau/kubeforecast/pkg/model"
-	cryptoutils "github.com/cylonchau/kubeforecast/pkg/utils"
+	apputils "github.com/cylonchau/kube-resource-fcst/pkg/app/utils"
+	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	cryptoutils "github.com/cylonchau/kube-resource-fcst/pkg/utils"
 	"gorm.io/gorm"
 )
 

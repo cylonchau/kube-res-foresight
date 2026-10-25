@@ -1,8 +1,8 @@
 package api
 
 import (
-	"github.com/cylonchau/kubeforecast/pkg/app/query"
-	"github.com/cylonchau/kubeforecast/pkg/model"
+	"github.com/cylonchau/kube-resource-fcst/pkg/app/query"
+	"github.com/cylonchau/kube-resource-fcst/pkg/model"
 	"github.com/gin-gonic/gin"
 	"sort"
 	"strings"

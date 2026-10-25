@@ -1,21 +1,21 @@
 package cmd
 
 import (
-	allcmd "github.com/cylonchau/kubeforecast/pkg/cmd/all"
-	"github.com/cylonchau/kubeforecast/pkg/cmd/job"
-	notifycmd "github.com/cylonchau/kubeforecast/pkg/cmd/notify"
-	operatorcmd "github.com/cylonchau/kubeforecast/pkg/cmd/operator"
-	"github.com/cylonchau/kubeforecast/pkg/cmd/server"
+	allcmd "github.com/cylonchau/kube-resource-fcst/pkg/cmd/all"
+	"github.com/cylonchau/kube-resource-fcst/pkg/cmd/job"
+	notifycmd "github.com/cylonchau/kube-resource-fcst/pkg/cmd/notify"
+	operatorcmd "github.com/cylonchau/kube-resource-fcst/pkg/cmd/operator"
+	"github.com/cylonchau/kube-resource-fcst/pkg/cmd/server"
 	"github.com/spf13/cobra"
 )
 
-type KubeForecastOptions struct{}
+type KubeResourceFcstOptions struct{}
 
-func NewKubeForecastCommand(o KubeForecastOptions) *cobra.Command {
+func NewKubeResourceFcstCommand(o KubeResourceFcstOptions) *cobra.Command {
 	rootCmd := &cobra.Command{
-		Use:   "kubeforecast",
+		Use:   "kube-resource-fcst",
 		Short: "Kubernetes resource forecasting and Pod scaling orchestration",
-		Long:  "KubeForecast provides the management foundation for Kubernetes resource forecasting and Pod scaling.",
+		Long:  "kube-resource-fcst provides the management foundation for Kubernetes resource forecasting and Pod scaling.",
 		Run: func(cmd *cobra.Command, args []string) {
 			cmd.Help()
 		},

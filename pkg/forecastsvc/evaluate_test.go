@@ -63,7 +63,7 @@ func TestEvaluateScoresFinishedRunsOnceAndRanksByObservedAccuracy(t *testing.T) 
 	require.NoError(t, err)
 	assert.Zero(t, total(again), "a run is scored once")
 
-	board, err := f.svc.Leaderboard(ctx, f.module.ID, "cpu", nil)
+	board, err := f.svc.Leaderboard(ctx, f.module.ID, "cpu", nil, nil)
 	require.NoError(t, err)
 	require.Len(t, board, 3)
 	assert.Equal(t, "seasonal_naive", board[0].AlgorithmID, "an exact seasonal series is predicted perfectly by the seasonal baseline")
@@ -100,7 +100,7 @@ func TestEvaluateRecordsRunsWithoutActualsSoTheyAreNotRetried(t *testing.T) {
 	results, err := f.evaluate(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, 1, results[0].Evaluated)
-	board, err := f.svc.Leaderboard(ctx, f.module.ID, "cpu", nil)
+	board, err := f.svc.Leaderboard(ctx, f.module.ID, "cpu", nil, nil)
 	require.NoError(t, err)
 	assert.Empty(t, board, "a run with no actuals says nothing about accuracy")
 }
@@ -131,18 +131,18 @@ func TestForecastCollectorExportsBoundedLabelsAndFreshness(t *testing.T) {
 			}
 		}
 	}
-	for _, want := range []string{"kubeforecast_module_enabled", "kubeforecast_module_bypass", "kubeforecast_recommendation_value",
-		"kubeforecast_recommendation_source", "kubeforecast_recommendation_valid", "kubeforecast_series_latest_sample_age_seconds",
-		"kubeforecast_prediction_age_seconds", "kubeforecast_backtest_promoted", "kubeforecast_forecast_metrics_error"} {
+	for _, want := range []string{"kube_resource_fcst_module_enabled", "kube_resource_fcst_module_bypass", "kube_resource_fcst_recommendation_value",
+		"kube_resource_fcst_recommendation_source", "kube_resource_fcst_recommendation_valid", "kube_resource_fcst_series_latest_sample_age_seconds",
+		"kube_resource_fcst_prediction_age_seconds", "kube_resource_fcst_backtest_promoted", "kube_resource_fcst_forecast_metrics_error"} {
 		assert.Contains(t, names, want)
 	}
-	assert.Equal(t, 4, names["kubeforecast_recommendation_source"], "one per resource: cpu, memory, replicas and gpu")
+	assert.Equal(t, 4, names["kube_resource_fcst_recommendation_source"], "one per resource: cpu, memory, replicas and gpu")
 
-	expected := `# HELP kubeforecast_forecast_metrics_error 1 when the last scrape of forecast state failed.
-# TYPE kubeforecast_forecast_metrics_error gauge
-kubeforecast_forecast_metrics_error 0
+	expected := `# HELP kube_resource_fcst_forecast_metrics_error 1 when the last scrape of forecast state failed.
+# TYPE kube_resource_fcst_forecast_metrics_error gauge
+kube_resource_fcst_forecast_metrics_error 0
 `
-	require.NoError(t, testutil.GatherAndCompare(reg, strings.NewReader(expected), "kubeforecast_forecast_metrics_error"))
+	require.NoError(t, testutil.GatherAndCompare(reg, strings.NewReader(expected), "kube_resource_fcst_forecast_metrics_error"))
 	assert.NoError(t, f.svc.Ready(ctx))
 }
 

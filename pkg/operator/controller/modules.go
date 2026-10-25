@@ -9,14 +9,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cylonchau/kubeforecast/pkg/operator/api/v1alpha1"
+	"github.com/cylonchau/kube-resource-fcst/pkg/operator/api/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 // AnnotationModuleDriven marks a PredictiveScaler that was built in memory from a platform module and never stored in
 // the cluster.
-const AnnotationModuleDriven = "autoscaling.kubeforecast.io/module-driven"
+const AnnotationModuleDriven = "autoscaling.kube-resource-fcst.io/module-driven"
 
 // IsModuleDriven reports whether the scaler comes from a platform module rather than from a PredictiveScaler object.
 func IsModuleDriven(ps *v1alpha1.PredictiveScaler) bool {

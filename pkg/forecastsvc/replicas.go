@@ -8,9 +8,9 @@ import (
 	"sort"
 	"time"
 
-	"github.com/cylonchau/kubeforecast/pkg/dao/rdb"
-	"github.com/cylonchau/kubeforecast/pkg/decision"
-	"github.com/cylonchau/kubeforecast/pkg/model"
+	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
+	"github.com/cylonchau/kube-resource-fcst/pkg/decision"
+	"github.com/cylonchau/kube-resource-fcst/pkg/model"
 )
 
 const (

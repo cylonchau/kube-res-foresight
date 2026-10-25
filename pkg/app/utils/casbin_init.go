@@ -6,8 +6,8 @@ import (
 	"github.com/casbin/casbin/v3"
 	"github.com/casbin/casbin/v3/model"
 	gormadapter "github.com/casbin/gorm-adapter/v3"
-	"github.com/cylonchau/kubeforecast/pkg/logger"
-	hmodel "github.com/cylonchau/kubeforecast/pkg/model"
+	"github.com/cylonchau/kube-resource-fcst/pkg/logger"
+	hmodel "github.com/cylonchau/kube-resource-fcst/pkg/model"
 	"strings"
 )
 

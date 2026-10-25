@@ -9,10 +9,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/cylonchau/kubeforecast/pkg/collector"
-	"github.com/cylonchau/kubeforecast/pkg/demo"
-	"github.com/cylonchau/kubeforecast/pkg/model"
-	"github.com/cylonchau/kubeforecast/pkg/preset"
+	"github.com/cylonchau/kube-resource-fcst/pkg/collector"
+	"github.com/cylonchau/kube-resource-fcst/pkg/demo"
+	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-resource-fcst/pkg/preset"
 )
 
 var target = collector.Target{Namespace: "prod", Workload: "api", Container: "app", Service: "api-svc"}

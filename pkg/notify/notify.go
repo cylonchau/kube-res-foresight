@@ -11,7 +11,7 @@ package notify
 import (
 	"context"
 	"fmt"
-	"github.com/cylonchau/kubeforecast/pkg/notify/template"
+	"github.com/cylonchau/kube-resource-fcst/pkg/notify/template"
 )
 
 // Message is a channel-agnostic notification payload. Buttons is a flat

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strconv"
@@ -8,8 +9,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/cylonchau/kubeforecast/pkg/app/query"
-	"github.com/cylonchau/kubeforecast/pkg/forecastsvc"
+	"github.com/cylonchau/kube-resource-fcst/pkg/app/query"
+	"github.com/cylonchau/kube-resource-fcst/pkg/forecastsvc"
 )
 
 // MetricCatalog lists every queryable forecasting metric with its unit, labels, source table and retention.
@@ -74,4 +75,25 @@ func (r *ForecastRouter) QueryMetrics(c *gin.Context) {
 		return
 	}
 	query.SuccessResponse(c, nil, res)
+}
+
+// TestMetricQuery checks a PromQL of a dataset and runs it against its datasource for a short window, so the author sees the
+// error, the values and the curve before the metric is saved. It stores nothing; the answer says how far the query got.
+// @Summary Test a metric query
+// @Tags Forecast
+// @Router /api/v1/metric-queries/test [post]
+func (r *ForecastRouter) TestMetricQuery(c *gin.Context) {
+	var req forecastsvc.QueryTest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		query.BadRequest(c, err)
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
+	defer cancel()
+	out, err := r.Service.TestQuery(ctx, req)
+	if err != nil {
+		query.InternalError(c, err)
+		return
+	}
+	query.SuccessResponse(c, nil, out)
 }

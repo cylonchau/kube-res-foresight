@@ -8,9 +8,9 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/cylonchau/kubeforecast/pkg/demo"
-	"github.com/cylonchau/kubeforecast/pkg/model"
-	"github.com/cylonchau/kubeforecast/pkg/preset"
+	"github.com/cylonchau/kube-resource-fcst/pkg/demo"
+	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-resource-fcst/pkg/preset"
 )
 
 // Names of the demo objects. Everything the demo creates carries one of them, so it can be recognised and

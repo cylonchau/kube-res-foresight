@@ -22,7 +22,7 @@ type DecisionSource string
 const (
 	// SourceStatic uses spec.decision.static.replicas.
 	SourceStatic DecisionSource = "Static"
-	// SourcePlatformAPI asks the KubeForecast platform for the replicas of a module.
+	// SourcePlatformAPI asks the kube-resource-fcst platform for the replicas of a module.
 	SourcePlatformAPI DecisionSource = "PlatformAPI"
 	// SourcePrometheus reads one existing Prometheus series as the desired replicas. The Adapter source
 	// (external metrics API) is deliberately not offered: this operator replaces HPA/KEDA and must not depend on one.
@@ -55,7 +55,7 @@ type SecretKeyRef struct {
 
 // PlatformAPIDecision reads the replicas of a platform module.
 type PlatformAPIDecision struct {
-	// URL is the base URL of the KubeForecast platform, for example https://kubeforecast.example.com.
+	// URL is the base URL of the kube-resource-fcst platform, for example https://kube-resource-fcst.example.com.
 	URL string `json:"url"`
 	// Module is the name of the platform module that decides this workload.
 	// +kubebuilder:validation:MinLength=1

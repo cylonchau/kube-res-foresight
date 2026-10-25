@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/cylonchau/kubeforecast/pkg/model"
+	"github.com/cylonchau/kube-resource-fcst/pkg/model"
 )
 
 // QueryRowLimit bounds the rows one metric query reads; a query that hits it reports itself truncated.

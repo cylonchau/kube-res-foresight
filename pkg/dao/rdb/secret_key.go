@@ -9,9 +9,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"github.com/cylonchau/kubeforecast/pkg/apis"
-	"github.com/cylonchau/kubeforecast/pkg/model"
-	"github.com/cylonchau/kubeforecast/pkg/utils"
+	"github.com/cylonchau/kube-resource-fcst/pkg/apis"
+	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-resource-fcst/pkg/utils"
 	"gorm.io/gorm"
 	"sort"
 	"strings"
@@ -38,11 +38,11 @@ func generateDeveloperToken(prefix string, size int) (string, error) {
 }
 
 func generateDeveloperCredentialPair() (string, string, error) {
-	accessKey, err := generateDeveloperToken("ak_kubeforecast_", 18)
+	accessKey, err := generateDeveloperToken("ak_kube_resource_fcst_", 18)
 	if err != nil {
 		return "", "", err
 	}
-	accessSecret, err := generateDeveloperToken("sk_kubeforecast_", 32)
+	accessSecret, err := generateDeveloperToken("sk_kube_resource_fcst_", 32)
 	return accessKey, accessSecret, err
 }
 
@@ -254,7 +254,7 @@ func (dao *SecretKeyDAO) Update(ctx context.Context, id uint64, req *apis.Secret
 	}
 	newSecret := ""
 	if req.RotateSecret {
-		newSecret, err = generateDeveloperToken("sk_kubeforecast_", 32)
+		newSecret, err = generateDeveloperToken("sk_kube_resource_fcst_", 32)
 		if err != nil {
 			return nil, err
 		}

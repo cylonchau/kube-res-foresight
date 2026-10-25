@@ -1,13 +1,13 @@
 package tasks
 
 import (
-	"github.com/cylonchau/kubeforecast/pkg/dao/rdb"
-	"github.com/cylonchau/kubeforecast/pkg/forecastsvc"
-	"github.com/cylonchau/kubeforecast/pkg/job"
-	"github.com/cylonchau/kubeforecast/pkg/job/tasks/forecasttask"
-	"github.com/cylonchau/kubeforecast/pkg/job/tasks/ldaptask"
-	"github.com/cylonchau/kubeforecast/pkg/ldapauth"
-	"github.com/cylonchau/kubeforecast/pkg/model"
+	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
+	"github.com/cylonchau/kube-resource-fcst/pkg/forecastsvc"
+	"github.com/cylonchau/kube-resource-fcst/pkg/job"
+	"github.com/cylonchau/kube-resource-fcst/pkg/job/tasks/forecasttask"
+	"github.com/cylonchau/kube-resource-fcst/pkg/job/tasks/ldaptask"
+	"github.com/cylonchau/kube-resource-fcst/pkg/ldapauth"
+	"github.com/cylonchau/kube-resource-fcst/pkg/model"
 )
 
 // registerForecast registers the forecasting jobs: one for the regular collect/predict/recommend pass and one,

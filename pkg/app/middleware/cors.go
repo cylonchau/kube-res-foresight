@@ -29,7 +29,7 @@ func CORS(allowedOrigins []string) gin.HandlerFunc {
 			c.Header("Access-Control-Allow-Credentials", "true")
 			c.Header("Vary", "Origin")
 			c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-			c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-KubeForecast-AccessKey, X-KubeForecast-AccessSecret")
+			c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-kube-resource-fcst-AccessKey, X-kube-resource-fcst-AccessSecret")
 		}
 		if c.Request.Method == http.MethodOptions {
 			c.AbortWithStatus(http.StatusNoContent)

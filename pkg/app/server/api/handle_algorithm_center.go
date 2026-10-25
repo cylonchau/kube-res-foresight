@@ -10,12 +10,12 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
-	"github.com/cylonchau/kubeforecast/pkg/app/query"
-	"github.com/cylonchau/kubeforecast/pkg/dao/rdb"
-	"github.com/cylonchau/kubeforecast/pkg/forecast"
-	"github.com/cylonchau/kubeforecast/pkg/forecastsvc"
-	"github.com/cylonchau/kubeforecast/pkg/model"
-	"github.com/cylonchau/kubeforecast/pkg/scoring"
+	"github.com/cylonchau/kube-resource-fcst/pkg/app/query"
+	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
+	"github.com/cylonchau/kube-resource-fcst/pkg/forecast"
+	"github.com/cylonchau/kube-resource-fcst/pkg/forecastsvc"
+	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-resource-fcst/pkg/scoring"
 )
 
 // AlgorithmCenterRouter serves the usage of an algorithm across the modules, the trace from an algorithm on a module
@@ -59,6 +59,22 @@ type UsageModule struct {
 	Score      *float64      `json:"score"`
 	Rank       int           `json:"rank"`
 	Sources    []SourceUsage `json:"source_usage"`
+	// Mode and Dataset say what the algorithm runs on for this module: the metric sources of the module's dataset.
+	Mode    string        `json:"mode"`
+	Dataset []DatasetInfo `json:"dataset"`
+}
+
+// DatasetInfo is one metric of the dataset of a module, with the Prometheus query behind it.
+type DatasetInfo struct {
+	Key         string `json:"key"`
+	Name        string `json:"name"`
+	Kind        string `json:"kind"`
+	Category    string `json:"category"`
+	Unit        string `json:"unit"`
+	StepSeconds int    `json:"step_seconds"`
+	Mapping     string `json:"mapping"`
+	Query       string `json:"query"`
+	Enabled     bool   `json:"enabled"`
 }
 
 const usageRecentRuns = 20
@@ -139,7 +155,20 @@ func (r *AlgorithmCenterRouter) Usage(c *gin.Context) {
 	out := make([]UsageModule, 0, len(modules))
 	for _, m := range modules {
 		run := model.NewRun(m, cfg)
-		item := UsageModule{ModuleID: m.ID, ModuleName: m.Name, Namespace: m.Namespace, Workload: m.Workload, Enabled: cfg.Enabled}
+		item := UsageModule{ModuleID: m.ID, ModuleName: m.Name, Namespace: m.Namespace, Workload: m.Workload, Enabled: cfg.Enabled, Mode: m.Mode, Dataset: []DatasetInfo{}}
+		for _, src := range m.Sources {
+			info := DatasetInfo{Key: src.Key, Name: src.Name, Kind: src.Kind, Category: model.KindCategory(src.Kind), Unit: forecastsvc.MetricUnit(src.Kind), StepSeconds: m.StepSeconds, Enabled: src.Enabled}
+			if mp, err := r.Service.Mappings.GetByID(ctx, src.MappingID); err == nil {
+				info.Mapping, info.Query = mp.Name, mp.Query
+				if info.Unit == "" {
+					info.Unit = mp.Unit
+				}
+				if info.StepSeconds == 0 {
+					info.StepSeconds = mp.StepSeconds
+				}
+			}
+			item.Dataset = append(item.Dataset, info)
+		}
 		for _, key := range run.SourceKeys() {
 			item.Sources = append(item.Sources, r.sourceUsage(ctx, run, key))
 		}

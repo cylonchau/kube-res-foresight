@@ -1,24 +1,24 @@
 package middleware
 
 import (
-	"github.com/cylonchau/kubeforecast/pkg/app/query"
-	"github.com/cylonchau/kubeforecast/pkg/app/utils"
-	"github.com/cylonchau/kubeforecast/pkg/dao/rdb"
+	"github.com/cylonchau/kube-resource-fcst/pkg/app/query"
+	"github.com/cylonchau/kube-resource-fcst/pkg/app/utils"
+	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
 	"github.com/gin-gonic/gin"
 	"net/http"
 	"strings"
 )
 
 func extractDeveloperCredential(r *http.Request) (accessKey, accessSecret string, present bool) {
-	accessKey = strings.TrimSpace(r.Header.Get("X-KubeForecast-AccessKey"))
-	accessSecret = strings.TrimSpace(r.Header.Get("X-KubeForecast-AccessSecret"))
+	accessKey = strings.TrimSpace(r.Header.Get("X-kube-resource-fcst-AccessKey"))
+	accessSecret = strings.TrimSpace(r.Header.Get("X-kube-resource-fcst-AccessSecret"))
 	if accessKey != "" || accessSecret != "" {
 		return accessKey, accessSecret, true
 	}
 
 	authorization := strings.TrimSpace(r.Header.Get("Authorization"))
-	if strings.HasPrefix(authorization, "KubeForecast-AK ") {
-		parts := strings.SplitN(strings.TrimSpace(strings.TrimPrefix(authorization, "KubeForecast-AK ")), ":", 2)
+	if strings.HasPrefix(authorization, "kube-resource-fcst-AK ") {
+		parts := strings.SplitN(strings.TrimSpace(strings.TrimPrefix(authorization, "kube-resource-fcst-AK ")), ":", 2)
 		if len(parts) == 2 {
 			return strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]), true
 		}
@@ -26,8 +26,8 @@ func extractDeveloperCredential(r *http.Request) (accessKey, accessSecret string
 	}
 
 	queryValues := r.URL.Query()
-	accessKey = strings.TrimSpace(queryValues.Get("__kubeforecast_ak"))
-	accessSecret = strings.TrimSpace(queryValues.Get("__kubeforecast_sk"))
+	accessKey = strings.TrimSpace(queryValues.Get("__kube_resource_fcst_ak"))
+	accessSecret = strings.TrimSpace(queryValues.Get("__kube_resource_fcst_sk"))
 	if accessKey != "" || accessSecret != "" {
 		return accessKey, accessSecret, true
 	}
@@ -37,8 +37,8 @@ func extractDeveloperCredential(r *http.Request) (accessKey, accessSecret string
 // WebSocketAuthSubprotocol marks the Sec-WebSocket-Protocol entry that precedes
 // the access token. Browsers cannot set an Authorization header on a WebSocket
 // handshake, and a token in the URL would leak into access logs, so the client
-// offers ["kubeforecast.jwt", "<token>"] and the server accepts only "kubeforecast.jwt".
-const WebSocketAuthSubprotocol = "kubeforecast.jwt"
+// offers ["kube-resource-fcst.jwt", "<token>"] and the server accepts only "kube-resource-fcst.jwt".
+const WebSocketAuthSubprotocol = "kube-resource-fcst.jwt"
 
 func websocketBearer(r *http.Request) string {
 	if !strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {

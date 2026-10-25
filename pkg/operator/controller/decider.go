@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cylonchau/kubeforecast/pkg/operator/api/v1alpha1"
+	"github.com/cylonchau/kube-resource-fcst/pkg/operator/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -65,7 +65,7 @@ type PlatformEndpoint struct {
 	Client *http.Client
 }
 
-// PlatformDecider asks the KubeForecast platform for the replicas of a module. It also implements Reporter.
+// PlatformDecider asks the kube-resource-fcst platform for the replicas of a module. It also implements Reporter.
 type PlatformDecider struct {
 	Reader  client.Reader
 	Metrics *Metrics
@@ -175,7 +175,7 @@ func (d *PlatformDecider) request(ctx context.Context, ps *v1alpha1.PredictiveSc
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "KubeForecast-AK "+credential)
+	req.Header.Set("Authorization", "kube-resource-fcst-AK "+credential)
 	req.Header.Set("Accept", "application/json")
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")

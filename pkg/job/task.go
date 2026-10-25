@@ -2,7 +2,7 @@ package job
 
 import (
 	"context"
-	"github.com/cylonchau/kubeforecast/pkg/model"
+	"github.com/cylonchau/kube-resource-fcst/pkg/model"
 )
 
 // Task is the unified abstraction for all concrete tasks

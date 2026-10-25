@@ -4,10 +4,10 @@ package notify
 import (
 	"context"
 	"fmt"
-	cmdbootstrap "github.com/cylonchau/kubeforecast/pkg/cmd/bootstrap"
-	notifyruntime "github.com/cylonchau/kubeforecast/pkg/notify"
-	"github.com/cylonchau/kubeforecast/pkg/notify/voice"
-	"github.com/cylonchau/kubeforecast/pkg/notify/webhook"
+	cmdbootstrap "github.com/cylonchau/kube-resource-fcst/pkg/cmd/bootstrap"
+	notifyruntime "github.com/cylonchau/kube-resource-fcst/pkg/notify"
+	"github.com/cylonchau/kube-resource-fcst/pkg/notify/voice"
+	"github.com/cylonchau/kube-resource-fcst/pkg/notify/webhook"
 	"github.com/spf13/cobra"
 	"time"
 )
@@ -17,7 +17,7 @@ func NewCommand() *cobra.Command {
 	var sqlDriver string
 	cmd := &cobra.Command{
 		Use:   "notify",
-		Short: "Start the KubeForecast notification runtime",
+		Short: "Start the kube-resource-fcst notification runtime",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return run(cmd.Context(), configFile, sqlDriver)

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/cylonchau/kubeforecast/pkg/promclient"
+	"github.com/cylonchau/kube-resource-fcst/pkg/promclient"
 )
 
 // PromQuerier adapts a Prometheus client to RangeQuerier.

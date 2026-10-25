@@ -7,8 +7,8 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/cylonchau/kubeforecast/pkg/ldapauth"
-	"github.com/cylonchau/kubeforecast/pkg/model"
+	"github.com/cylonchau/kube-resource-fcst/pkg/ldapauth"
+	"github.com/cylonchau/kube-resource-fcst/pkg/model"
 )
 
 // menuSuccessors maps a retired menu code to the codes that replaced it. A role that could open the old page

@@ -10,13 +10,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cylonchau/kubeforecast/pkg/apis"
-	"github.com/cylonchau/kubeforecast/pkg/app/query"
-	"github.com/cylonchau/kubeforecast/pkg/dao/rdb"
-	"github.com/cylonchau/kubeforecast/pkg/decision"
-	"github.com/cylonchau/kubeforecast/pkg/forecast"
-	"github.com/cylonchau/kubeforecast/pkg/forecastsvc"
-	"github.com/cylonchau/kubeforecast/pkg/model"
+	"github.com/cylonchau/kube-resource-fcst/pkg/apis"
+	"github.com/cylonchau/kube-resource-fcst/pkg/app/query"
+	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
+	"github.com/cylonchau/kube-resource-fcst/pkg/decision"
+	"github.com/cylonchau/kube-resource-fcst/pkg/forecast"
+	"github.com/cylonchau/kube-resource-fcst/pkg/forecastsvc"
+	"github.com/cylonchau/kube-resource-fcst/pkg/model"
 	"github.com/gin-gonic/gin"
 )
 
@@ -575,7 +575,7 @@ func (r *ForecastRouter) Leaderboard(c *gin.Context) {
 		query.BadRequest(c, fmt.Errorf("kind must be a metric kind such as cpu or memory"))
 		return
 	}
-	entries, err := r.Service.Leaderboard(c.Request.Context(), m.ID, kind, sinceHours(c))
+	entries, err := r.Service.Leaderboard(c.Request.Context(), m.ID, kind, sinceHours(c), timeQuery(c, "to"))
 	if err != nil {
 		query.InternalError(c, err)
 		return

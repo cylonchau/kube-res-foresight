@@ -4,11 +4,11 @@ import (
 	"context"
 	"sync"
 
-	"github.com/cylonchau/kubeforecast/pkg/config"
-	"github.com/cylonchau/kubeforecast/pkg/dao/rdb"
-	"github.com/cylonchau/kubeforecast/pkg/forecastsvc"
-	"github.com/cylonchau/kubeforecast/pkg/metrics"
-	"github.com/cylonchau/kubeforecast/pkg/model"
+	"github.com/cylonchau/kube-resource-fcst/pkg/config"
+	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
+	"github.com/cylonchau/kube-resource-fcst/pkg/forecastsvc"
+	"github.com/cylonchau/kube-resource-fcst/pkg/metrics"
+	"github.com/cylonchau/kube-resource-fcst/pkg/model"
 )
 
 var registerForecastCollector sync.Once

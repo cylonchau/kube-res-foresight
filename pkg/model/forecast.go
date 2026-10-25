@@ -81,7 +81,7 @@ const (
 	DefaultSwitchCycles = 2
 )
 
-// ForecastModule is a Kubernetes workload that KubeForecast adjusts: a Deployment, StatefulSet or DaemonSet named by
+// ForecastModule is a Kubernetes workload that kube-resource-fcst adjusts: a Deployment, StatefulSet or DaemonSet named by
 // its namespace and name. It owns the metrics to read (its metric sources, with their thresholds), the history window
 // and the forecast period, and the policy for applying recommendations (bounds, fallback, headroom, mode). Every
 // enabled algorithm (see AlgorithmConfig) is applied to it automatically. Rows are hard-deleted so the unique name

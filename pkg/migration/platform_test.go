@@ -3,9 +3,9 @@ package migration
 import (
 	"context"
 	"fmt"
-	"github.com/cylonchau/kubeforecast/pkg/ldapauth"
-	"github.com/cylonchau/kubeforecast/pkg/model"
-	cryptoutils "github.com/cylonchau/kubeforecast/pkg/utils"
+	"github.com/cylonchau/kube-resource-fcst/pkg/ldapauth"
+	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	cryptoutils "github.com/cylonchau/kube-resource-fcst/pkg/utils"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"

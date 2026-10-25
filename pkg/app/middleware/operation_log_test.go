@@ -53,10 +53,10 @@ func TestRedactJSONSecretFields(t *testing.T) {
 func TestResolveClientType(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	newCtx := func(developerCredential bool, xKubeForecastClient string) *gin.Context {
+	newCtx := func(developerCredential bool, xKubeResourceFcstClient string) *gin.Context {
 		req := httptest.NewRequest("POST", "/api/v1/users", nil)
-		if xKubeForecastClient != "" {
-			req.Header.Set("X-KubeForecast-Client", xKubeForecastClient)
+		if xKubeResourceFcstClient != "" {
+			req.Header.Set("X-kube-resource-fcst-Client", xKubeResourceFcstClient)
 		}
 		c, _ := gin.CreateTestContext(httptest.NewRecorder())
 		c.Request = req
@@ -67,19 +67,19 @@ func TestResolveClientType(t *testing.T) {
 	}
 
 	cases := []struct {
-		name                string
-		developerCredential bool
-		xKubeForecastClient string
-		want                string
+		name                    string
+		developerCredential     bool
+		xKubeResourceFcstClient string
+		want                    string
 	}{
-		{"kubeforecastctl CLI over a developer credential", true, "cli", "cli"},
+		{"kube-resource-fcstctl CLI over a developer credential", true, "cli", "cli"},
 		{"a different integration over the same developer credential", true, "", "api"},
-		{"a developer credential with an unrelated X-KubeForecast-Client value", true, "something-else", "api"},
+		{"a developer credential with an unrelated X-kube-resource-fcst-Client value", true, "something-else", "api"},
 		{"web admin session (no header, no developer credential)", false, "", "page"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := resolveClientType(newCtx(tc.developerCredential, tc.xKubeForecastClient)); got != tc.want {
+			if got := resolveClientType(newCtx(tc.developerCredential, tc.xKubeResourceFcstClient)); got != tc.want {
 				t.Errorf("resolveClientType() = %q, want %q", got, tc.want)
 			}
 		})

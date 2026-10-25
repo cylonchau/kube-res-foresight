@@ -3,7 +3,7 @@ package webhook
 import (
 	"context"
 	"encoding/json"
-	"github.com/cylonchau/kubeforecast/pkg/notify"
+	"github.com/cylonchau/kube-resource-fcst/pkg/notify"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"net/http"

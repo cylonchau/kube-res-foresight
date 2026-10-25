@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cylonchau/kubeforecast/pkg/operator/api/v1alpha1"
+	"github.com/cylonchau/kube-resource-fcst/pkg/operator/api/v1alpha1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
@@ -89,7 +89,7 @@ func TestModuleSyncScalesAWorkloadFromTheModuleConfigWithoutAnyPredictiveScaler(
 
 	s.Once(context.Background())
 	assert.EqualValues(t, 7, replicasOf(t, c), "the module's scale-up step of 3 limits the move from 4 to 9")
-	assert.Equal(t, "KubeForecast-AK ak:sk", p.seenAuth)
+	assert.Equal(t, "kube-resource-fcst-AK ak:sk", p.seenAuth)
 	var scalers v1alpha1.PredictiveScalerList
 	require.NoError(t, c.List(context.Background(), &scalers))
 	assert.Empty(t, scalers.Items, "no object is created in the cluster")

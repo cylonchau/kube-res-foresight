@@ -7,12 +7,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cylonchau/kubeforecast/pkg/apis"
-	"github.com/cylonchau/kubeforecast/pkg/app/query"
-	"github.com/cylonchau/kubeforecast/pkg/dao/rdb"
-	"github.com/cylonchau/kubeforecast/pkg/model"
-	"github.com/cylonchau/kubeforecast/pkg/promclient"
-	cryptoutils "github.com/cylonchau/kubeforecast/pkg/utils"
+	"github.com/cylonchau/kube-resource-fcst/pkg/apis"
+	"github.com/cylonchau/kube-resource-fcst/pkg/app/query"
+	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
+	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-resource-fcst/pkg/promclient"
+	cryptoutils "github.com/cylonchau/kube-resource-fcst/pkg/utils"
 	"github.com/gin-gonic/gin"
 )
 

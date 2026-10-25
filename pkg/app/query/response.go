@@ -2,7 +2,7 @@ package query
 
 import (
 	"errors"
-	"github.com/cylonchau/kubeforecast/pkg/logger"
+	"github.com/cylonchau/kube-resource-fcst/pkg/logger"
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
 	"gorm.io/gorm"

@@ -2,8 +2,8 @@ package rdb
 
 import (
 	"context"
-	"github.com/cylonchau/kubeforecast/pkg/apis"
-	"github.com/cylonchau/kubeforecast/pkg/model"
+	"github.com/cylonchau/kube-resource-fcst/pkg/apis"
+	"github.com/cylonchau/kube-resource-fcst/pkg/model"
 	"gorm.io/gorm"
 	"time"
 )

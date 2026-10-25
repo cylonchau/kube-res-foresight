@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cylonchau/kubeforecast/pkg/version"
+	"github.com/cylonchau/kube-resource-fcst/pkg/version"
 	"github.com/prometheus/client_golang/api"
 	promv1 "github.com/prometheus/client_golang/api/prometheus/v1"
 	"github.com/prometheus/common/model"
@@ -81,7 +81,7 @@ type authRoundTripper struct {
 
 func (rt authRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	req = req.Clone(req.Context())
-	req.Header.Set("User-Agent", "kubeforecast/"+version.Version)
+	req.Header.Set("User-Agent", "kube-resource-fcst/"+version.Version)
 	switch rt.cfg.AuthType {
 	case AuthBasic:
 		req.SetBasicAuth(rt.cfg.Username, rt.cfg.Password)

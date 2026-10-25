@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cylonchau/kubeforecast/pkg/operator/api/v1alpha1"
+	"github.com/cylonchau/kube-resource-fcst/pkg/operator/api/v1alpha1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
@@ -61,7 +61,7 @@ func TestPlatformDeciderSendsTheCredentialAndParsesTheDecision(t *testing.T) {
 
 	d, err := platformDecider(t, "AK123:SK456").Decide(context.Background(), platformScaler(server.URL+"/"))
 	require.NoError(t, err)
-	assert.Equal(t, "KubeForecast-AK AK123:SK456", gotAuth)
+	assert.Equal(t, "kube-resource-fcst-AK AK123:SK456", gotAuth)
 	assert.Equal(t, "api", gotModule)
 	assert.Equal(t, "/api/v1/operator/decisions", gotPath)
 	assert.EqualValues(t, 7, d.Replicas)

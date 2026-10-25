@@ -6,19 +6,19 @@ import (
 	"testing"
 )
 
-func TestKubeForecastCommandExposesArchitectureModules(t *testing.T) {
-	root := NewKubeForecastCommand(KubeForecastOptions{})
+func TestKubeResourceFcstCommandExposesArchitectureModules(t *testing.T) {
+	root := NewKubeResourceFcstCommand(KubeResourceFcstOptions{})
 	names := make([]string, 0, len(root.Commands()))
 	for _, command := range root.Commands() {
 		names = append(names, command.Name())
 	}
 
-	assert.Equal(t, "kubeforecast", root.Name())
+	assert.Equal(t, "kube-resource-fcst", root.Name())
 	assert.ElementsMatch(t, []string{"all", "platform", "job", "server", "notify", "operator", "version"}, names)
 }
 
-func TestKubeForecastCommandWithoutSubcommandPrintsHelp(t *testing.T) {
-	root := NewKubeForecastCommand(KubeForecastOptions{})
+func TestKubeResourceFcstCommandWithoutSubcommandPrintsHelp(t *testing.T) {
+	root := NewKubeResourceFcstCommand(KubeResourceFcstOptions{})
 	output := &bytes.Buffer{}
 	root.SetOut(output)
 	// Cobra treats nil as "read process arguments", which makes this test

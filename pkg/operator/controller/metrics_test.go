@@ -18,7 +18,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"github.com/cylonchau/kubeforecast/pkg/operator/api/v1alpha1"
+	"github.com/cylonchau/kube-resource-fcst/pkg/operator/api/v1alpha1"
 )
 
 func metricsHarness(t *testing.T, d Decider, mode v1alpha1.Mode, extra ...*autoscalingv2.HorizontalPodAutoscaler) (*harness, *Metrics, *prometheus.Registry) {
@@ -53,16 +53,16 @@ func TestOperatorMetricsAfterOneAppliedReconcile(t *testing.T) {
 	names := map[string]bool{}
 	for _, mf := range families {
 		names[mf.GetName()] = true
-		assert.True(t, strings.HasPrefix(mf.GetName(), "kubeforecast_operator_"), mf.GetName())
+		assert.True(t, strings.HasPrefix(mf.GetName(), "kube_resource_fcst_operator_"), mf.GetName())
 		for _, metric := range mf.GetMetric() {
 			for _, l := range metric.GetLabel() {
 				assert.Contains(t, []string{"module", "direction", "result", "source", "le"}, l.GetName(), "%s has an unbounded label", mf.GetName())
 			}
 		}
 	}
-	for _, want := range []string{"kubeforecast_operator_reconciles_total", "kubeforecast_operator_reconcile_duration_seconds",
-		"kubeforecast_operator_scale_actions_total", "kubeforecast_operator_desired_replicas", "kubeforecast_operator_current_replicas",
-		"kubeforecast_operator_ready_replicas", "kubeforecast_operator_decision_valid", "kubeforecast_operator_decision_expires_in_seconds"} {
+	for _, want := range []string{"kube_resource_fcst_operator_reconciles_total", "kube_resource_fcst_operator_reconcile_duration_seconds",
+		"kube_resource_fcst_operator_scale_actions_total", "kube_resource_fcst_operator_desired_replicas", "kube_resource_fcst_operator_current_replicas",
+		"kube_resource_fcst_operator_ready_replicas", "kube_resource_fcst_operator_decision_valid", "kube_resource_fcst_operator_decision_expires_in_seconds"} {
 		assert.True(t, names[want], "%s is not exposed", want)
 	}
 }
@@ -105,7 +105,7 @@ func TestOperatorMetricsCountAnErrorWithoutInventingReplicas(t *testing.T) {
 	families, err := reg.Gather()
 	require.NoError(t, err)
 	for _, mf := range families {
-		assert.NotEqual(t, "kubeforecast_operator_current_replicas", mf.GetName(), "no replica gauge for a target that could not be read")
+		assert.NotEqual(t, "kube_resource_fcst_operator_current_replicas", mf.GetName(), "no replica gauge for a target that could not be read")
 	}
 }
 

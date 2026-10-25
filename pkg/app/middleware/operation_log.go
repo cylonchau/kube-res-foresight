@@ -3,9 +3,9 @@ package middleware
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/cylonchau/kubeforecast/pkg/dao/rdb"
-	"github.com/cylonchau/kubeforecast/pkg/logger"
-	"github.com/cylonchau/kubeforecast/pkg/model"
+	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
+	"github.com/cylonchau/kube-resource-fcst/pkg/logger"
+	"github.com/cylonchau/kube-resource-fcst/pkg/model"
 	"github.com/gin-gonic/gin"
 	"io"
 	"net/http"
@@ -125,12 +125,12 @@ func OperationLogMiddleware(dao *rdb.OperationLogDAO) gin.HandlerFunc {
 
 // resolveClientType maps the filterable sources onto the mechanisms that already distinguish them:
 // developer-credential calls (access-key/secret, see extractDeveloperCredential) are "api" (or "cli" when the
-// X-KubeForecast-Client header says so); everything else is an interactive JWT session, "page".
+// X-kube-resource-fcst-Client header says so); everything else is an interactive JWT session, "page".
 func resolveClientType(c *gin.Context) string {
 	if dev, _ := c.Get("developerCredential"); dev == true {
 		// Command-line integrations use the same developer credential as
 		// other API clients and identify their source with this header.
-		if strings.EqualFold(c.GetHeader("X-KubeForecast-Client"), "cli") {
+		if strings.EqualFold(c.GetHeader("X-kube-resource-fcst-Client"), "cli") {
 			return "cli"
 		}
 		return "api"

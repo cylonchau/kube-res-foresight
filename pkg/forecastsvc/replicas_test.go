@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/cylonchau/kubeforecast/pkg/decision"
-	"github.com/cylonchau/kubeforecast/pkg/model"
+	"github.com/cylonchau/kube-resource-fcst/pkg/decision"
+	"github.com/cylonchau/kube-resource-fcst/pkg/model"
 )
 
 func (f *fixture) addEvaluations(t *testing.T, metric, algorithm string, peakUnder float64, n int) {

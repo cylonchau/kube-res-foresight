@@ -2,11 +2,11 @@ package store
 
 import (
 	"database/sql"
-	"github.com/cylonchau/kubeforecast/pkg/logger"
+	"github.com/cylonchau/kube-resource-fcst/pkg/logger"
+	"github.com/cylonchau/kube-resource-fcst/pkg/utils"
 	"gorm.io/gorm"
 	"net/http"
-	_ "net/http/pprof" // registered on the default mux; served only when KUBEFORECAST_PPROF_ADDR is set
-	"os"
+	_ "net/http/pprof" // registered on the default mux; served only when KUBE_RESOURCE_FCST_PPROF_ADDR is set
 	"regexp"
 	"sort"
 	"sync"
@@ -30,7 +30,7 @@ type statementEntry struct {
 
 var tablePattern = regexp.MustCompile(`(?i)(?:from|into|update)\s+[` + "`" + `"]?(\w+)`)
 
-const statsStartKey = "kubeforecast:stmt_start"
+const statsStartKey = "kube_resource_fcst:stmt_start"
 
 func (s *statementStats) record(tx *gorm.DB, op string) {
 	started, ok := tx.InstanceGet(statsStartKey)
@@ -84,23 +84,23 @@ func (s *statementStats) takeTop(n int) (total int, top []map[string]any) {
 }
 
 // StartDiagnostics counts the statements of a database handle and logs the busiest ones, with the connection pool
-// counters, once a minute. It also serves the Go profiler when KUBEFORECAST_PPROF_ADDR is set (for example 127.0.0.1:6060),
+// counters, once a minute. It also serves the Go profiler when KUBE_RESOURCE_FCST_PPROF_ADDR is set (for example 127.0.0.1:6060),
 // which is how a process that uses a whole core can be asked what it is doing.
 func StartDiagnostics(db *gorm.DB, sqlDB *sql.DB) {
 	stats := &statementStats{entries: map[string]*statementEntry{}}
 	start := func(tx *gorm.DB) { tx.InstanceSet(statsStartKey, time.Now()) }
-	_ = db.Callback().Query().Before("gorm:query").Register("kubeforecast:stats_start_query", start)
-	_ = db.Callback().Query().After("gorm:after_query").Register("kubeforecast:stats_query", func(tx *gorm.DB) { stats.record(tx, "SELECT") })
-	_ = db.Callback().Row().Before("gorm:row").Register("kubeforecast:stats_start_row", start)
-	_ = db.Callback().Row().After("gorm:row").Register("kubeforecast:stats_row", func(tx *gorm.DB) { stats.record(tx, "SELECT") })
-	_ = db.Callback().Create().Before("gorm:begin_transaction").Register("kubeforecast:stats_start_create", start)
-	_ = db.Callback().Create().After("gorm:commit_or_rollback_transaction").Register("kubeforecast:stats_create", func(tx *gorm.DB) { stats.record(tx, "INSERT") })
-	_ = db.Callback().Update().Before("gorm:begin_transaction").Register("kubeforecast:stats_start_update", start)
-	_ = db.Callback().Update().After("gorm:commit_or_rollback_transaction").Register("kubeforecast:stats_update", func(tx *gorm.DB) { stats.record(tx, "UPDATE") })
-	_ = db.Callback().Delete().Before("gorm:begin_transaction").Register("kubeforecast:stats_start_delete", start)
-	_ = db.Callback().Delete().After("gorm:commit_or_rollback_transaction").Register("kubeforecast:stats_delete", func(tx *gorm.DB) { stats.record(tx, "DELETE") })
+	_ = db.Callback().Query().Before("gorm:query").Register("kube_resource_fcst:stats_start_query", start)
+	_ = db.Callback().Query().After("gorm:after_query").Register("kube_resource_fcst:stats_query", func(tx *gorm.DB) { stats.record(tx, "SELECT") })
+	_ = db.Callback().Row().Before("gorm:row").Register("kube_resource_fcst:stats_start_row", start)
+	_ = db.Callback().Row().After("gorm:row").Register("kube_resource_fcst:stats_row", func(tx *gorm.DB) { stats.record(tx, "SELECT") })
+	_ = db.Callback().Create().Before("gorm:begin_transaction").Register("kube_resource_fcst:stats_start_create", start)
+	_ = db.Callback().Create().After("gorm:commit_or_rollback_transaction").Register("kube_resource_fcst:stats_create", func(tx *gorm.DB) { stats.record(tx, "INSERT") })
+	_ = db.Callback().Update().Before("gorm:begin_transaction").Register("kube_resource_fcst:stats_start_update", start)
+	_ = db.Callback().Update().After("gorm:commit_or_rollback_transaction").Register("kube_resource_fcst:stats_update", func(tx *gorm.DB) { stats.record(tx, "UPDATE") })
+	_ = db.Callback().Delete().Before("gorm:begin_transaction").Register("kube_resource_fcst:stats_start_delete", start)
+	_ = db.Callback().Delete().After("gorm:commit_or_rollback_transaction").Register("kube_resource_fcst:stats_delete", func(tx *gorm.DB) { stats.record(tx, "DELETE") })
 
-	if addr := os.Getenv("KUBEFORECAST_PPROF_ADDR"); addr != "" {
+	if addr := utils.ProjectEnv("KUBE_RESOURCE_FCST_PPROF_ADDR"); addr != "" {
 		go func() {
 			logger.Info("Serving the Go profiler", logger.String("addr", addr))
 			_ = http.ListenAndServe(addr, nil)

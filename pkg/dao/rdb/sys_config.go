@@ -3,7 +3,7 @@ package rdb
 import (
 	"context"
 	"fmt"
-	"github.com/cylonchau/kubeforecast/pkg/model"
+	"github.com/cylonchau/kube-resource-fcst/pkg/model"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"strconv"

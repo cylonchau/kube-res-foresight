@@ -5,9 +5,9 @@ package ldaptask
 import (
 	"context"
 
-	"github.com/cylonchau/kubeforecast/pkg/ldapauth"
-	"github.com/cylonchau/kubeforecast/pkg/logger"
-	"github.com/cylonchau/kubeforecast/pkg/model"
+	"github.com/cylonchau/kube-resource-fcst/pkg/ldapauth"
+	"github.com/cylonchau/kube-resource-fcst/pkg/logger"
+	"github.com/cylonchau/kube-resource-fcst/pkg/model"
 )
 
 // JobType is the identifier of the sync job.

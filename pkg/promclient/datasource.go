@@ -4,8 +4,8 @@ import (
 	"errors"
 	"time"
 
-	"github.com/cylonchau/kubeforecast/pkg/model"
-	cryptoutils "github.com/cylonchau/kubeforecast/pkg/utils"
+	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	cryptoutils "github.com/cylonchau/kube-resource-fcst/pkg/utils"
 )
 
 // ConfigFromDatasource decrypts the stored secrets of a datasource into a client configuration.

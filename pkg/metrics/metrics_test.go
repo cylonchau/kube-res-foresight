@@ -16,7 +16,7 @@ func TestEndpoints(t *testing.T) {
 		return rec
 	}
 	ok := Handler(func() error { return nil })
-	if body := get(ok, "/metrics").Body.String(); !strings.Contains(body, "kubeforecast_test_total 1") {
+	if body := get(ok, "/metrics").Body.String(); !strings.Contains(body, "kube_resource_fcst_test_total 1") {
 		t.Fatalf("metric missing from /metrics: %.200s", body)
 	}
 	if rec := get(ok, "/healthz"); rec.Code != 200 {

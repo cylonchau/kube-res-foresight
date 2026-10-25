@@ -3,10 +3,10 @@ package migration
 import (
 	"context"
 	"fmt"
-	"github.com/cylonchau/kubeforecast/pkg/app/utils"
-	"github.com/cylonchau/kubeforecast/pkg/dao/rdb"
-	"github.com/cylonchau/kubeforecast/pkg/model"
-	"github.com/cylonchau/kubeforecast/pkg/store"
+	"github.com/cylonchau/kube-resource-fcst/pkg/app/utils"
+	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
+	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-resource-fcst/pkg/store"
 	"gorm.io/gorm"
 	"sort"
 	"strings"
@@ -99,7 +99,7 @@ func seedPlatformPermissions() error {
 		{permission: model.Permission{Name: "Current Ranking", Code: "forecast_ranking", Type: "MENU", FeRoute: "/forecast/ranking", FeComponent: "view.forecast_ranking", Icon: "carbon:trophy", Sort: 3, Visible: true, Status: true}, parentCode: "forecast"},
 		{permission: model.Permission{Name: "Ranking History", Code: "forecast_ranking-history", Type: "MENU", FeRoute: "/forecast/ranking-history", FeComponent: "view.forecast_ranking-history", Icon: "carbon:chart-line", Sort: 4, Visible: true, Status: true}, parentCode: "forecast"},
 		{permission: model.Permission{Name: "Forecast Results", Code: "forecast-results", Type: "DIRECTORY", FeRoute: "/forecast-results", FeComponent: "layout.base", Icon: "carbon:chart-evaluation", Sort: 26, Visible: true, Status: true}},
-		{permission: model.Permission{Name: "History and Data Gaps", Code: "forecast-results_history", Type: "MENU", FeRoute: "/forecast-results/history", FeComponent: "view.forecast-results_history", Icon: "carbon:chart-line", Sort: 1, Visible: true, Status: true}, parentCode: "forecast-results"},
+		{permission: model.Permission{Name: "History Data", Code: "forecast-results_history", Type: "MENU", FeRoute: "/forecast-results/history", FeComponent: "view.forecast-results_history", Icon: "carbon:chart-line", Sort: 1, Visible: true, Status: true}, parentCode: "forecast-results"},
 		{permission: model.Permission{Name: "Rolling Backtest Records", Code: "forecast-results_backtests", Type: "MENU", FeRoute: "/forecast-results/backtests", FeComponent: "view.forecast-results_backtests", Icon: "carbon:time", Sort: 2, Visible: true, Status: true}, parentCode: "forecast-results"},
 		{permission: model.Permission{Name: "Measured Accuracy Records", Code: "forecast-results_evaluations", Type: "MENU", FeRoute: "/forecast-results/evaluations", FeComponent: "view.forecast-results_evaluations", Icon: "carbon:chart-evaluation", Sort: 3, Visible: true, Status: true}, parentCode: "forecast-results"},
 		{permission: model.Permission{Name: "Algorithm Leaderboard", Code: "forecast-results_leaderboard", Type: "MENU", FeRoute: "/forecast-results/leaderboard", FeComponent: "view.forecast-results_leaderboard", Icon: "carbon:trophy", Sort: 4, Visible: true, Status: true}, parentCode: "forecast-results"},
@@ -112,7 +112,7 @@ func seedPlatformPermissions() error {
 		{permission: model.Permission{Name: "Audit Exports", Code: "forecast-actions_audit-exports", Type: "MENU", FeRoute: "/forecast-actions/audit-exports", FeComponent: "view.forecast-actions_audit-exports", Icon: "carbon:export", Sort: 5, Visible: true, Status: true}, parentCode: "forecast-actions"},
 		{permission: model.Permission{Name: "Admission Decisions", Code: "forecast-actions_admissions", Type: "MENU", FeRoute: "/forecast-actions/admissions", FeComponent: "view.forecast-actions_admissions", Icon: "carbon:application-web", Sort: 4, Visible: true, Status: true}, parentCode: "forecast-actions"},
 		{permission: model.Permission{Name: "Monitoring Metrics", Code: "monitoring", Type: "DIRECTORY", FeRoute: "/monitoring", FeComponent: "layout.base", Icon: "carbon:dashboard", Sort: 28, Visible: true, Status: true}},
-		{permission: model.Permission{Name: "Prometheus Metric Datasets", Code: "monitoring_datasets", Type: "MENU", FeRoute: "/monitoring/datasets", FeComponent: "view.monitoring_datasets", Icon: "carbon:data-vis-4", Sort: 1, Visible: true, Status: true}, parentCode: "monitoring"},
+		{permission: model.Permission{Name: "Metrics Dataset", Code: "monitoring_datasets", Type: "MENU", FeRoute: "/monitoring/datasets", FeComponent: "view.monitoring_datasets", Icon: "carbon:data-vis-4", Sort: 1, Visible: true, Status: true}, parentCode: "monitoring"},
 		{permission: model.Permission{Name: "Metric Catalog", Code: "monitoring_metrics", Type: "MENU", FeRoute: "/monitoring/metrics", FeComponent: "view.monitoring_metrics", Icon: "carbon:catalog", Sort: 2, Visible: true, Status: true}, parentCode: "monitoring"},
 		{permission: model.Permission{Name: "Metric Curves", Code: "monitoring_curves", Type: "MENU", FeRoute: "/monitoring/curves", FeComponent: "view.monitoring_curves", Icon: "carbon:chart-line-smooth", Sort: 3, Visible: true, Status: true}, parentCode: "monitoring"},
 		{permission: model.Permission{Name: "Tasks", Code: "task-center", Type: "DIRECTORY", FeRoute: "/task-center", FeComponent: "layout.base", Icon: "carbon:task", Sort: 40, Visible: true, Status: true}},
@@ -125,6 +125,7 @@ func seedPlatformPermissions() error {
 		{permission: model.Permission{Name: "API Credentials", Code: "system_secret-keys", Type: "MENU", FeRoute: "/system/secret-keys", FeComponent: "view.system_secret-keys", Icon: "carbon:password", Sort: 3, Visible: true, Status: true}, parentCode: "system"},
 		{permission: model.Permission{Name: "Admission Recommendations (read)", Code: "forecast:admission:read", Type: "BUTTON", BeApis: `["GET /api/v1/admission/recommendations"]`, Status: true}},
 		{permission: model.Permission{Name: "Operator Decisions (read, report)", Code: "forecast:operator:use", Type: "BUTTON", BeApis: `["GET /api/v1/operator/modules","GET /api/v1/operator/decisions","POST /api/v1/operator/reports"]`, Status: true}},
+		{permission: model.Permission{Name: "Metric Query Test (read)", Code: "forecast:query:test", Type: "BUTTON", BeApis: `["POST /api/v1/metric-queries/test"]`, Status: true}},
 		{permission: model.Permission{Name: "Audit Export (read)", Code: "forecast:audit:export", Type: "BUTTON", BeApis: `["GET /api/v1/audit/export"]`, Status: true}},
 		{permission: model.Permission{Name: "Read APIs", Code: "sys:all:read", Type: "BUTTON", BeApis: `["GET /api/v1/*"]`, Status: true}},
 		{permission: model.Permission{Name: "Write APIs", Code: "sys:all:write", Type: "BUTTON", BeApis: `["POST /api/v1/*","PUT /api/v1/*","DELETE /api/v1/*"]`, Status: true}},
@@ -201,7 +202,7 @@ func EnsureDefaultConfigs() error {
 		{ConfigKey: "sys.auth.access_token_minutes", ConfigValue: "30", ConfigName: "Access Token Lifetime Minutes"},
 		{ConfigKey: "sys.auth.refresh_token_days", ConfigValue: "30", ConfigName: "Refresh Token Lifetime Days"},
 		{ConfigKey: "forecast.allow_admission_mode", ConfigValue: "false", ConfigName: "Allow Admission Mode", Remark: "Set to true only after the Kyverno policy has been verified in the target cluster. Until then modules cannot be put in admission mode."},
-		{ConfigKey: "forecast.allow_auto_mode", ConfigValue: "false", ConfigName: "Allow Auto Mode", Remark: "Set to true only after kubeforecast-operator has been verified to scale and recover in the target cluster. Until then modules cannot be put in auto mode."},
+		{ConfigKey: "forecast.allow_auto_mode", ConfigValue: "false", ConfigName: "Allow Auto Mode", Remark: "Set to true only after kube-resource-fcst-operator has been verified to scale and recover in the target cluster. Until then modules cannot be put in auto mode."},
 		{ConfigKey: "sys.auth.login_failure_threshold", ConfigValue: "3", ConfigName: "Login Failures Before Captcha", Remark: "Failed logins within the window after which the account and address must solve a captcha (1-100)."},
 		{ConfigKey: "sys.auth.login_failure_window_minutes", ConfigValue: "15", ConfigName: "Login Failure Window Minutes", Remark: "How long failures count towards the captcha threshold (1-1440)."},
 		{ConfigKey: "sys.login_log.retention_days", ConfigValue: "90", ConfigName: "Login Log Retention Days", Remark: "Login history older than this is deleted by the server every hour."},

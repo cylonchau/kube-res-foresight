@@ -5,16 +5,17 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
-	"github.com/cylonchau/kubeforecast/pkg/apis"
-	"github.com/cylonchau/kubeforecast/pkg/app/query"
-	"github.com/cylonchau/kubeforecast/pkg/dao/rdb"
-	"github.com/cylonchau/kubeforecast/pkg/forecastsvc"
-	"github.com/cylonchau/kubeforecast/pkg/model"
+	"github.com/cylonchau/kube-resource-fcst/pkg/apis"
+	"github.com/cylonchau/kube-resource-fcst/pkg/app/query"
+	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
+	"github.com/cylonchau/kube-resource-fcst/pkg/forecastsvc"
+	"github.com/cylonchau/kube-resource-fcst/pkg/model"
 )
 
 // checkSource verifies that a source's mapping exists and measures the kind of the source.
@@ -303,6 +304,48 @@ func (r *ForecastRouter) ModuleHistory(c *gin.Context) {
 	query.SuccessResponse(c, nil, history)
 }
 
+// ModuleCompare serves the actual values of a metric of the module, read from Prometheus for the window (the history from
+// before the module existed included), next to the forecasts of the algorithms for the same time points and the actual
+// and forecast replica counts. @Router /api/v1/modules/{id}/compare [get]
+func (r *ForecastRouter) ModuleCompare(c *gin.Context) {
+	a, ok := r.module(c)
+	if !ok {
+		return
+	}
+	to := time.Now().UTC()
+	if t := timeQuery(c, "to"); t != nil {
+		to = *t
+	}
+	from := to.Add(-24 * time.Hour)
+	if t := timeQuery(c, "from"); t != nil {
+		from = *t
+	}
+	if !from.Before(to) {
+		query.BadRequest(c, fmt.Errorf("from must be before to"))
+		return
+	}
+	maxPoints, _ := strconv.Atoi(c.Query("max_points"))
+	var algorithms []string
+	for _, id := range strings.Split(c.Query("algorithms"), ",") {
+		if id = strings.TrimSpace(id); id != "" {
+			algorithms = append(algorithms, id)
+		}
+	}
+	ctx, cancel := r.stepCtx(c)
+	defer cancel()
+	out, err := r.Service.Compare(ctx, a.ID, forecastsvc.CompareOptions{Metric: c.Query("metric"), From: from, To: to, Algorithms: algorithms,
+		MaxPoints: maxPoints, WithPredictions: c.Query("predictions") != "false"})
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			query.NotFound(c, query.ErrRecordNotFound)
+			return
+		}
+		query.BadRequest(c, err)
+		return
+	}
+	query.SuccessResponse(c, nil, out)
+}
+
 func (r *ForecastRouter) stepCtx(c *gin.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(c.Request.Context(), pipelineTimeout)
 }
@@ -443,7 +486,8 @@ func (r *ForecastRouter) ListPredictions(c *gin.Context) {
 func sinceHours(c *gin.Context) *time.Time {
 	hours, err := strconv.Atoi(c.Query("since_hours"))
 	if err != nil || hours <= 0 {
-		return nil
+		// a page that picks a start time sends it as from
+		return timeQuery(c, "from")
 	}
 	t := time.Now().UTC().Add(-time.Duration(hours) * time.Hour)
 	return &t

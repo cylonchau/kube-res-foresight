@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/cylonchau/kubeforecast/pkg/model"
+	"github.com/cylonchau/kube-resource-fcst/pkg/model"
 )
 
 // Requirement says whether the dataset of a module can feed an algorithm: how much history the algorithm needs on the

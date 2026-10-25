@@ -2,8 +2,8 @@ package notify
 
 import (
 	"context"
-	"github.com/cylonchau/kubeforecast/pkg/config"
-	"github.com/cylonchau/kubeforecast/pkg/model"
+	"github.com/cylonchau/kube-resource-fcst/pkg/config"
+	"github.com/cylonchau/kube-resource-fcst/pkg/model"
 	"github.com/stretchr/testify/require"
 	"os"
 	"path/filepath"

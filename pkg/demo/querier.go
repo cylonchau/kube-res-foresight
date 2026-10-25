@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cylonchau/kubeforecast/pkg/collector"
+	"github.com/cylonchau/kube-resource-fcst/pkg/collector"
 )
 
 // Shape of the artificial workload. One pod safely serves PodCapacityRPS when it uses TargetUtil of its PodCPUCores request; the

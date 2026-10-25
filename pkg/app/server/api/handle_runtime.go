@@ -8,14 +8,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cylonchau/kubeforecast/pkg/app/query"
-	"github.com/cylonchau/kubeforecast/pkg/dao/rdb"
-	"github.com/cylonchau/kubeforecast/pkg/forecastsvc"
-	"github.com/cylonchau/kubeforecast/pkg/model"
+	"github.com/cylonchau/kube-resource-fcst/pkg/app/query"
+	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
+	"github.com/cylonchau/kube-resource-fcst/pkg/forecastsvc"
+	"github.com/cylonchau/kube-resource-fcst/pkg/model"
 	"github.com/gin-gonic/gin"
 )
 
-// RuntimeRouter serves the two machine consumers of recommendations: kubeforecast-operator (replicas) and the
+// RuntimeRouter serves the two machine consumers of recommendations: kube-resource-fcst-operator (replicas) and the
 // Kyverno admission policy (requests). Both are read-mostly, fail closed (they answer "do not apply" whenever
 // anything is doubtful) and are reached with developer credentials limited to these routes.
 type RuntimeRouter struct {
@@ -320,7 +320,8 @@ func (r *RuntimeRouter) Admission(c *gin.Context) {
 			_ = r.Predictions.SaveAdmission(c.Request.Context(), &model.AdmissionDecision{ModuleID: found.ID, Namespace: clip(namespace, 253),
 				Workload: clip(workload, 253), Container: clip(container, 253), Applied: out.Apply, Reason: clip(out.Reason, 512), Version: out.Version,
 				CPUMilli: out.Resources.CPUMilli, MemoryBytes: out.Resources.MemoryBytes, GPU: out.Resources.GPU,
-				OriginalCPUMilli: original[0], OriginalMemoryBytes: original[1]})
+				OriginalCPUMilli: original[0], OriginalMemoryBytes: original[1], LimitCPUMilli: out.Limits.CPUMilli, LimitMemoryBytes: out.Limits.MemoryBytes,
+				WorkloadKind: clip(c.Query("kind"), 16), Mode: found.Mode, Algorithm: clip(out.Algorithm, 40)})
 		}
 		query.SuccessResponse(c, nil, out)
 	}

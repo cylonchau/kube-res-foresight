@@ -3,8 +3,8 @@ package job
 import (
 	"context"
 	"errors"
-	"github.com/cylonchau/kubeforecast/pkg/dao/rdb"
-	"github.com/cylonchau/kubeforecast/pkg/model"
+	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
+	"github.com/cylonchau/kube-resource-fcst/pkg/model"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"testing"
