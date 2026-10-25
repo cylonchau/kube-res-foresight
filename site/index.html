@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="zh-CN" data-site-root="./">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="kube-resource-fcst：面向单 Kubernetes 集群的资源预测与弹性调度平台。连接 Prometheus，通过多算法预测、滚动回测和可审计决策，逐步走向安全自动伸缩。">
+  <meta name="theme-color" content="#0b1116" media="(prefers-color-scheme: dark)"><meta name="theme-color" content="#f6f9f8" media="(prefers-color-scheme: light)"><meta property="og:title" content="kube-resource-fcst · 让资源调度，看见下一刻"><meta property="og:description" content="从 Prometheus 指标到资源建议与副本执行，构建可解释、可回测、可审计的预测闭环。"><meta property="og:type" content="website">
+  <title>kube-resource-fcst · 让资源调度，看见下一刻</title>
+  <script src="assets/locale.js"></script><link rel="alternate" hreflang="zh-CN" href="index.html"><link rel="alternate" hreflang="en" href="en/index.html"><link rel="icon" href="assets/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="assets/style.css"><link rel="stylesheet" href="assets/adaptive.css"><link id="light-theme" rel="stylesheet" href="assets/light.css" media="(prefers-color-scheme: light)"><script src="assets/theme.js"></script>
+  <script src="assets/config.js" defer></script><script src="assets/main.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到主要内容</a>
+  <header class="site-header"><div class="container nav-wrap">
+    <a class="brand" href="./" aria-label="kube-resource-fcst 首页"><img src="assets/favicon.svg" alt="" width="32" height="32">kube-resource-<span>fcst</span></a>
+    <button class="menu-toggle" aria-label="展开导航" aria-expanded="false" aria-controls="site-nav"><span aria-hidden="true">☰</span></button>
+    <nav id="site-nav" aria-label="主导航"><a href="#capabilities">平台能力</a><a href="#architecture">功能架构</a><a href="docs.html">项目文档</a><a href="docs.html#quickstart">快速开始</a><a class="nav-github" data-repo href="https://github.com/cylonchau/hermes">GitHub <span aria-hidden="true">↗</span></a></nav><div class="theme-control"><button type="button" class="theme-toggle" id="theme-toggle" aria-label="切换外观" title="切换外观" aria-expanded="false" aria-controls="theme-menu"><span aria-hidden="true">◐</span></button><div class="theme-menu" id="theme-menu" role="group" aria-label="切换外观" hidden><button type="button" data-theme-mode="auto" aria-pressed="true"><span aria-hidden="true">◐</span> 跟随系统</button><button type="button" data-theme-mode="light" aria-pressed="false"><span aria-hidden="true">☀</span> 浅色</button><button type="button" data-theme-mode="dark" aria-pressed="false"><span aria-hidden="true">☾</span> 深色</button></div></div><div class="language-switch" role="group" aria-label="选择语言"><a data-language="zh" href="index.html?lang=zh" lang="zh-CN" aria-current="true">中文</a><a data-language="en" href="en/index.html?lang=en" lang="en">EN</a></div>
+  </div></header>
+  <main id="main">
+    <section class="hero container">
+      <div class="hero-copy"><div class="eyebrow"><span class="status-dot"></span> KUBERNETES · PREDICTIVE AUTOSCALING</div>
+        <h1>让资源调度，<br><em>看见下一刻。</em></h1>
+        <p class="hero-description">把历史指标转化为下一步的资源决策。<br>从多算法预测、滚动回测，到安全推荐与弹性执行，<br class="desktop-break">让每一次伸缩都有依据。</p>
+        <div class="hero-actions"><a class="button primary" href="docs.html#quickstart">开始探索 <span aria-hidden="true">↗</span></a><a class="button secondary" href="#architecture">了解功能架构 <span aria-hidden="true">↓</span></a></div>
+        <div class="hero-note"><span>多算法预测</span><i></i><span>单集群设计</span><i></i><span>渐进式自动化</span></div>
+      </div>
+      <div class="forecast-window" aria-label="资源需求预测示意图，使用合成数据，并非真实运行结果">
+        <div class="window-top"><div class="window-dots"><b></b><b></b><b></b></div><span>WORKLOAD / DEMAND FORECAST</span><span class="small-tag">流程示意</span></div>
+        <div class="chart-heading"><div><span class="overline">资源需求趋势</span><h2>从观测，走向预判<span class="status-dot"></span></h2></div><span class="unit">归一化负载</span></div>
+        <svg class="forecast-chart" viewBox="0 0 600 270" role="img" aria-labelledby="chart-title chart-description">
+          <title id="chart-title">历史负载与未来需求预测</title><desc id="chart-description">青色实线为历史观测，绿色虚线为未来预测，绿色阴影为预测区间示意。所有数据为演示。</desc>
+          <defs><linearGradient id="area" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#69dfb5" stop-opacity=".22"/><stop offset="1" stop-color="#69dfb5" stop-opacity="0"/></linearGradient></defs>
+          <g class="chart-grid"><path d="M42 35H575M42 85H575M42 135H575M42 185H575M42 235H575"/><path d="M42 35V235M145 35V235M250 35V235M355 35V235M465 35V235M575 35V235"/></g>
+          <g class="chart-labels"><text x="3" y="39">1.0</text><text x="3" y="89">0.8</text><text x="3" y="139">0.6</text><text x="3" y="189">0.4</text><text x="3" y="239">0.2</text><text x="40" y="264">过去</text><text x="331" y="264">当前</text><text x="540" y="264">未来</text></g>
+          <path d="M355 126C383 118 395 75 425 58S474 25 501 39S549 80 575 65L575 120C550 132 528 100 501 91S455 98 425 108S386 144 355 126Z" fill="#70e6b7" opacity=".13"/>
+          <path d="M42 196C65 196 70 165 92 170S123 198 145 183S175 133 198 148S228 184 250 165S280 123 302 133S337 151 355 126L355 235H42Z" fill="url(#area)"/>
+          <path d="M42 196C65 196 70 165 92 170S123 198 145 183S175 133 198 148S228 184 250 165S280 123 302 133S337 151 355 126" fill="none" stroke="#6acdcc" stroke-width="2.5"/>
+          <path d="M355 126C383 131 397 91 425 83S476 59 501 65S550 108 575 92" fill="none" stroke="#a0f3c6" stroke-width="2.5" stroke-dasharray="6 5"/>
+          <path d="M355 25V239" stroke="#7faaa0" stroke-dasharray="3 5" opacity=".6"/><circle cx="355" cy="126" r="5" fill="#b2f8d2" stroke="#172e29" stroke-width="4"/>
+        </svg>
+        <div class="chart-legend"><span><i class="legend-observed"></i>历史观测</span><span><i class="legend-predicted"></i>算法预测</span><span><i class="legend-band"></i>预测区间示意</span></div>
+        <div class="decision-strip"><div><span class="terminal-prompt">›</span> 资源推荐 · 决策可追溯</div><span><i class="status-dot"></i>先验证，再执行</span></div>
+        <p class="visual-caption">预测流程示意 · 示例数据</p>
+      </div>
+    </section>
+    <div class="stack-strip"><div class="container"><span>围绕工作负载的完整管理</span><strong>指标接入</strong><strong>负载预测</strong><strong>回测选优</strong><strong>资源推荐</strong><strong>执行审计</strong></div></div>
+    <section id="capabilities" class="section container">
+      <div class="section-heading"><div class="eyebrow">01 / PLATFORM CAPABILITIES</div><h2>从一条指标，到一个完整闭环。</h2><p>采集、预测、验证和执行各司其职。理解建议从何而来，也能追踪它最终如何生效。</p></div>
+      <div class="capability-grid">
+        <a class="feature feature-wide" href="docs.html#data"><span class="feature-index">01 — OBSERVE</span><div class="mini-series" aria-hidden="true">▁ ▂ ▂ ▄ ▃ ▅ ▄ ▆ ▅ ▇ ▆ █</div><h3>让指标成为可靠的输入</h3><p>连接 Prometheus，管理指标映射与数据集。统一采样、单位与缺失处理，先检查历史质量，再进入预测。</p><span class="text-link">数据接入与质量 <span>↗</span></span></a>
+        <a class="feature" href="docs.html#algorithms"><span class="feature-index">02 — PREDICT</span><div class="algorithm-chips" aria-hidden="true"><span>EWMA</span><span>KNN</span><span>GBDT</span><span>LSTM</span></div><h3>多种算法，同一套标准</h3><p>统一管理算法启用、参数与权重。让多种预测方法参与比较，用回测与实测结果筛选适合当前负载的候选。</p><span class="text-link">探索算法目录 <span>↗</span></span></a>
+        <a class="feature" href="docs.html#evaluation"><span class="feature-index">03 — VALIDATE</span><div class="mini-ranking" aria-hidden="true"><i></i><i></i><i></i></div><h3>用回测回答“是否更好”</h3><p>按时间滚动回测，以 WAPE、峰值低估和后续实测评估模型，记录评分与排名变化。</p><span class="text-link">回测与模型选优 <span>↗</span></span></a>
+        <a class="feature feature-wide" href="docs.html#execution"><span class="feature-index">04 — ACT</span><div class="replica-visual" aria-hidden="true"><b></b><b></b><span>→</span><b></b><b></b><b></b><b></b></div><h3>把建议交给有边界的执行</h3><p>Operator 负责副本，准入负责新 Pod 资源。快照有效期、上下界、步长、冷却与旁路共同约束每一次动作。</p><span class="text-link">执行机制与安全边界 <span>↗</span></span></a>
+        <a class="feature feature-wide" href="docs.html#architecture"><span class="feature-index">05 — MANAGE</span><div class="algorithm-chips" aria-hidden="true"><span>指标来源</span><span>运行模式</span><span>固定周期</span></div><h3>一个工作负载，一份管理视图</h3><p>在模块中配置指标、预测周期、资源边界与兜底策略。按业务需要观察、推荐或开放执行，固定周期规则覆盖明确的保障时段。</p><span class="text-link">模块管理与业务流程 <span>↗</span></span></a>
+        <a class="feature" href="docs.html#operations"><span class="feature-index">06 — TRACE</span><div class="algorithm-chips" aria-hidden="true"><span>推荐</span><span>执行</span><span>回退</span><span>审计</span></div><h3>每一次变化，都有迹可循</h3><p>串联预测、资源推荐、准入与扩缩容记录。发生降级时查明原因，结合运行指标与审计导出复盘每次调整。</p><span class="text-link">监控与审计能力 <span>↗</span></span></a>
+      </div>
+    </section>
+    <section id="architecture" class="section architecture-section"><div class="container">
+      <div class="section-heading split-heading"><div><div class="eyebrow">02 / FUNCTIONAL ARCHITECTURE</div><h2>以工作负载为中心，<br>连接预测、推荐与执行。</h2></div><p>为每个工作负载建立模块，关联指标来源与策略。预测结果经过评估形成资源建议，执行记录与后续实测继续反馈到下一轮决策。</p></div>
+      <div class="architecture-board">
+        <div class="arch-source"><span class="node-symbol">◉</span><strong>指标接入</strong><span>CPU / 内存 / 请求量</span></div><span class="flow-arrow" aria-hidden="true">→</span>
+        <div class="arch-platform"><div class="arch-label"><span class="status-dot"></span> 工作负载模块 <span>配置 · 运行 · 追踪</span></div><div class="pipeline" role="group" aria-label="查看功能环节说明"><button class="pipeline-step active" data-stage="collect" aria-pressed="true">01 <strong>数据与指标</strong></button><span aria-hidden="true">→</span><button class="pipeline-step" data-stage="predict" aria-pressed="false">02 <strong>预测与选优</strong></button><span aria-hidden="true">→</span><button class="pipeline-step" data-stage="decide" aria-pressed="false">03 <strong>推荐与策略</strong></button></div><div class="platform-foundation"><span>权限管理</span><span>任务管理</span><span>运行监控</span><span>操作审计</span></div></div>
+        <span class="flow-arrow" aria-hidden="true">→</span><div class="arch-targets"><div><strong>副本伸缩</strong><span>按边界与节奏调整数量</span></div><div><strong>资源配置</strong><span>为新 Pod 应用资源建议</span></div></div>
+      </div>
+      <div class="architecture-detail" aria-live="polite"><span id="stage-number">01 / COLLECT</span><div><h3 id="stage-title">先确认数据可用，再开始预测</h3><p id="stage-description">接入工作负载的 CPU、内存、请求量等指标，查看历史趋势、缺样与新鲜度。通过数据集统一统计口径，为预测准备可信的输入。</p></div><a href="docs.html#architecture" class="text-link">功能详解 ↗</a></div>
+    </div></section>
+    <section class="section container rollout-section">
+      <div><div class="eyebrow">03 / CONTROLLED ROLLOUT</div><h2>自动化，<br>从建立信任开始。</h2><p class="section-description">每个工作负载都可以从观察起步。<br>验证数据、评估建议，再逐步开放写入。</p><a class="text-link" href="docs.html#safety">阅读安全与回退机制 ↗</a></div>
+      <ol class="rollout-list"><li><span>01</span><div><h3>Observe <small>观察</small></h3><p>采集历史、运行预测和回测，建立可比较的基线。</p></div><b>只读</b></li><li><span>02</span><div><h3>Recommend <small>推荐</small></h3><p>生成资源与副本建议，查看约束、来源和降级原因。</p></div><b>可解释</b></li><li><span>03</span><div><h3>Admission <small>准入</small></h3><p>验证策略后，应用新建 Pod 的资源推荐。</p></div><b>需授权</b></li><li><span>04</span><div><h3>Auto <small>自动</small></h3><p>Operator 在硬边界和节奏限制内执行副本调整。</p></div><b>需授权</b></li></ol>
+    </section>
+    <section class="section container documentation-section"><div class="documentation-intro"><div class="eyebrow">04 / BUILT TO BE UNDERSTOOD</div><h2>不仅知道怎么用，<br>也知道为什么。</h2><p>从配置第一个工作负载，到评估建议、开放执行，按实际操作流程理解平台各项功能。</p><a class="button secondary" href="docs.html">进入项目文档 <span aria-hidden="true">↗</span></a></div><div class="doc-links"><a href="docs.html#quickstart"><span>01</span><div><h3>快速开始</h3><p>从演示体验到接入第一个工作负载</p></div><b>↗</b></a><a href="docs.html#architecture"><span>02</span><div><h3>功能架构与模块关系</h3><p>了解各功能做什么、如何协作与产出结果</p></div><b>↗</b></a><a href="docs.html#operations"><span>03</span><div><h3>监控与管理支撑</h3><p>运行状态、任务、权限与审计管理</p></div><b>↗</b></a><a href="docs.html#status"><span>04</span><div><h3>适用范围与使用边界</h3><p>了解管理范围、资源变更与容量估计</p></div><b>↗</b></a></div></section>
+    <section class="container closing"><div class="eyebrow">YOUR NEXT SCALING DECISION STARTS HERE</div><h2>先理解负载，再改变资源。</h2><p>从一个工作负载、一组可信指标开始。</p><a class="button primary" href="docs.html#quickstart">阅读接入指南 <span aria-hidden="true">↗</span></a><span class="closing-orbit" aria-hidden="true"></span></section>
+  </main>
+  <footer class="container site-footer"><a class="brand" href="./"><img src="assets/favicon.svg" alt="" width="26" height="26">kube-resource-<span>fcst</span></a><p>可解释的预测 · 有边界的执行</p><div><a href="docs.html">文档</a><a data-repo href="https://github.com/cylonchau/hermes">GitHub ↗</a><a href="docs.html#status">使用边界</a></div></footer>
+</body>
+</html>

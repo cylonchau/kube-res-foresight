@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en" data-site-root="../">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0b1116" media="(prefers-color-scheme: dark)"><meta name="theme-color" content="#f6f9f8" media="(prefers-color-scheme: light)">
+  <meta name="description" content="kube-resource-fcst user guide: capabilities, workload modules, metrics, forecasting, model selection, resource advice, safe scaling, and administration.">
+  <title>Documentation · kube-resource-fcst</title><script src="../assets/locale.js"></script><link rel="alternate" hreflang="zh-CN" href="../docs.html"><link rel="alternate" hreflang="en" href="docs.html"><link rel="icon" href="../assets/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="../assets/style.css"><link rel="stylesheet" href="../assets/adaptive.css"><link id="light-theme" rel="stylesheet" href="../assets/light.css" media="(prefers-color-scheme: light)"><script src="../assets/theme.js"></script><script src="../assets/config.js" defer></script><script src="../assets/main.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to documentation</a>
+  <header class="site-header"><div class="container nav-wrap"><a class="brand" href="./"><img src="../assets/favicon.svg" alt="" width="32" height="32">kube-resource-<span>fcst</span></a><button class="menu-toggle" aria-label="Toggle navigation" aria-expanded="false" aria-controls="site-nav"><span aria-hidden="true">☰</span></button><nav id="site-nav" aria-label="Main navigation"><a href="index.html#capabilities">Capabilities</a><a href="index.html#architecture">How it works</a><a href="docs.html" aria-current="page">Documentation</a><a href="#quickstart">Get started</a><a class="nav-github" data-repo href="https://github.com/cylonchau/hermes">GitHub ↗</a></nav><div class="theme-control"><button type="button" class="theme-toggle" id="theme-toggle" aria-label="Appearance" title="Appearance" aria-expanded="false" aria-controls="theme-menu"><span aria-hidden="true">◐</span></button><div class="theme-menu" id="theme-menu" role="group" aria-label="Appearance" hidden><button type="button" data-theme-mode="auto" aria-pressed="true"><span aria-hidden="true">◐</span> System</button><button type="button" data-theme-mode="light" aria-pressed="false"><span aria-hidden="true">☀</span> Light</button><button type="button" data-theme-mode="dark" aria-pressed="false"><span aria-hidden="true">☾</span> Dark</button></div></div><div class="language-switch" role="group" aria-label="Choose language"><a data-language="zh" href="../docs.html?lang=zh" lang="zh-CN">中文</a><a data-language="en" href="docs.html?lang=en" lang="en" aria-current="true">EN</a></div></div></header>
+  <div class="container docs-layout">
+    <aside class="docs-sidebar" aria-label="Documentation navigation"><label for="doc-search">PROJECT DOCUMENTATION</label><input id="doc-search" type="search" placeholder="Find a topic: models, metrics, OOM…" autocomplete="off" aria-describedby="search-status"><p id="search-status" role="status"></p><nav aria-label="Chapters">
+      <a href="#overview" data-topic="introduction capabilities">01 Overview</a><a href="#quickstart" data-topic="setup installation demo">02 Get started</a><a href="#architecture" data-topic="capabilities modules workloads workflow">03 Capabilities and modules</a><a href="#data" data-topic="Prometheus PromQL datasets metrics">04 Data and quality</a><a href="#algorithms" data-topic="models KNN EWMA GBDT LSTM formulas">05 Models and forecasts</a><a href="#evaluation" data-topic="backtests scores rankings WAPE">06 Evaluation and selection</a><a href="#execution" data-topic="Operator replicas admission resources">07 Advice and actions</a><a href="#safety" data-topic="safety bypass fallback OOM memory">08 Safety and fallback</a><a href="#operations" data-topic="monitoring tasks access audit LDAP">09 Monitoring and administration</a><a href="#status" data-topic="scope boundaries capacity single cluster">10 Scope and boundaries</a><a href="#faq" data-topic="FAQ help questions">11 Common questions</a>
+    </nav><p class="sidebar-note">Workloads · Forecasts · Resource decisions<br><a href="index.html">← Back to home</a></p></aside>
+    <main id="main" class="docs-content">
+      <div class="docs-intro"><div class="eyebrow">KUBE_RESOURCE_FCST / DOCUMENTATION</div><h1>Understand forecasts.<br>Manage resource decisions.</h1><p>Learn the workflow: configure workloads, compare predictions, review resource advice, and gradually enable scaling.</p></div>
+<noscript><div class="callout"><p>All chapters are available without JavaScript. Enable JavaScript for topic search, copying commands, and language preferences.</p></div></noscript>
+      <section id="overview"><h2><span class="section-no">01</span>Overview</h2>
+<p><strong>kube-resource-fcst is a resource forecasting and scaling platform for a single Kubernetes cluster.</strong> It reads historical and current metrics from Prometheus, compares multiple forecasting methods through rolling backtests and actual results, and produces CPU, memory, and replica recommendations.</p>
+<p>Use the platform to understand recurring demand, compare models, review recommendations, and gradually authorize changes. Its capabilities cover data sources, workload modules, models, forecasts, recommendations, execution history, monitoring, access control, and scheduled tasks.</p>
+<h3>One module describes one workload</h3><p>A module connects a workload to its metric sources, thresholds, history window, forecast interval, replica bounds, schedules, and fallback values. Model settings are managed centrally and enabled models automatically participate across modules.</p>
+<div class="docs-flow"><span>Metrics</span><b>→</b><span>Forecasts / backtests</span><b>→</b><span>Recommendations</span><b>→</b><span>Admission / scaling</span><b>→</b><span>Actual results</span></div>
+<div class="callout"><div class="callout-title">Read observations, estimates, forecasts, and outcomes separately</div><p>Metrics are observations. Historical capacity is an estimate. Future demand is a forecast. Applied changes and Ready replicas are execution outcomes. Review each when deciding whether capacity is sufficient.</p></div>
+      </section>
+      <section id="quickstart"><h2><span class="section-no">02</span>Get started</h2>
+<p>Start with the demo to learn how data becomes forecasts, recommendations, and evaluations. Then connect a workload in Observe mode.</p>
+<h3>1. Explore a demo module</h3><p>Create the demo from the data-source pages. The platform prepares example metrics and a module. Explore history, forecasts, backtests, and advice to understand how the pages connect. Demo values are illustrative.</p>
+<h3>2. Connect your metrics</h3><p>Add a Prometheus data source and check the connection. Map CPU, memory, request volume, and other metrics. Confirm workload scope, units, history, and gaps.</p>
+<h3>3. Create a workload module</h3><p>Select a namespace and workload. Connect metric sources and thresholds, then set the forecast interval, resource bounds, replica limits, schedules, and fallback values. Enabled models are configured centrally.</p>
+<h3>4. Compare predictions and review advice</h3><p>Run collection, forecasting, and rolling backtests. Review errors, peak underestimation, scores, and rankings. In Recommend mode, inspect resource advice, decisive constraints, sources, and fallback reasons. Evaluate against actuals as target times arrive.</p>
+<h3>5. Gradually enable actions</h3><p>Review admission and scaling policies, permissions, bounds, and fallback behavior before authorizing each mode. Continue monitoring actual replicas, Ready capacity, and resource use.</p>
+<div class="callout"><div class="callout-title">Before enabling changes</div><p>Confirm the connection, metric meanings, sufficient history, comparable backtests, understandable recommendations, and appropriate fallback values. Admission and Auto are disabled by global settings by default.</p></div>
+<details class="technical-details"><summary>Need to install the platform? View build and startup instructions</summary><h3>Prepare the tools</h3><p>Use the Go toolchain declared by <code>go.mod</code> (currently <code>1.27.0</code>) and the Node.js / pnpm versions specified by the admin frontend. The <code>web/</code> frontend is a separate Git repository; prepare it before building the embedded UI.</p>
+<div class="code-block"><div class="code-header"><span>BASH / REPOSITORY ROOT</span><button type="button" data-copy="build-code" aria-label="Copy build commands">Copy</button></div><pre><code id="build-code">cd web
+pnpm install --frozen-lockfile
+cd ..
+make package-web
+mkdir -p target/bin
+go build -o target/bin/kube-resource-fcst ./cmd</code></pre></div>
+<h3>Configure and start</h3><p>Set the database, server address, and logging in <code>config.yaml</code>. The example uses SQLite and port <code>20001</code>. Keep JWT and credential-encryption keys secure and stable, including <code>KUBE_RESOURCE_FCST_SECRET_KEY</code>.</p>
+<div class="code-block"><div class="code-header"><span>BASH / FIRST INSTALLATION</span><button type="button" data-copy="start-code" aria-label="Copy startup commands">Copy</button></div><pre><code id="start-code"># First installation: migrate and start the server
+target/bin/kube-resource-fcst server --config config.yaml --migration
+
+# Stop the server above, then run the API and job engine together
+target/bin/kube-resource-fcst all --config config.yaml</code></pre></div>
+<p>Open <code>http://localhost:20001</code>. The <code>server</code> and <code>job</code> commands can also run separately. For an existing installation, back up the database before using <code>--upgrade</code>, which removes retired module tables. Normal startup does not perform that cleanup. Use Git Bash on Windows and an <code>.exe</code> executable name.</p></details>
+      </section>
+      <section id="architecture"><h2><span class="section-no">03</span>Capabilities and module relationships</h2>
+<p><strong>The workload module is the center of the workflow.</strong> Data sources provide metrics; model management supplies forecasting methods; result pages compare their performance; advice and execution turn decisions into bounded actions; monitoring and audit connect them to actual outcomes.</p>
+<div class="docs-flow"><span>Data sources</span><b>→</b><span>Workload modules</span><b>→</b><span>Forecast and compare</span><b>→</b><span>Recommend and act</span><b>→</b><span>Review outcomes</span></div>
+<div class="table-wrap"><table><thead><tr><th>Capability</th><th>What you manage</th><th>What you get</th></tr></thead><tbody>
+<tr><td>Sources and metrics</td><td>Connections, mappings, datasets, units, and aggregation</td><td>History with clear scope and quality</td></tr>
+<tr><td>Workload modules</td><td>Targets, metric thresholds, intervals, modes, and bounds</td><td>A forecasting and resource policy per workload</td></tr>
+<tr><td>Models</td><td>Enabled methods, parameters, weights, eligibility, and custom formulas</td><td>Candidates for each module</td></tr>
+<tr><td>Forecasts and selection</td><td>Trends, training records, backtests, actual evaluations, and rankings</td><td>Demand forecasts and performance comparisons</td></tr>
+<tr><td>Resource advice</td><td>CPU, memory, replicas, constraints, sources, and expiry</td><td>Explainable recommendation snapshots</td></tr>
+<tr><td>Schedules and fallback</td><td>Fixed values for defined periods and handling for missing or stale inputs</td><td>Clear behavior and reasons for exceptions</td></tr>
+<tr><td>Admission and scaling</td><td>Authorization, bounds, step limits, and cooldowns</td><td>Admission decisions and scaling reports</td></tr>
+<tr><td>Monitoring and audit</td><td>Trends, freshness, fallback history, and exports</td><td>A trace from predictions to outcomes</td></tr>
+<tr><td>Administration</td><td>Settings, roles, permissions, tasks, and access logs</td><td>Controlled day-to-day operation</td></tr>
+</tbody></table></div>
+<h3>How do modules, metrics, and models relate?</h3><p>A <strong>module</strong> defines the workload and its limits. <strong>Metrics</strong> define the inputs and their meaning. <strong>Models</strong> define the prediction methods, configured centrally and applied to modules. Together they determine the inputs, candidates, and resulting recommendations.</p>
+<h3>A typical operating cycle</h3><ol><li><strong>Configure:</strong> choose a workload and set inputs, bounds, schedules, fallback, and mode.</li><li><strong>Observe:</strong> inspect trends, gaps, and freshness.</li><li><strong>Compare:</strong> review predictions, backtests, and actual scores against adoption criteria.</li><li><strong>Recommend:</strong> inspect CPU, memory, and replica advice and its decisive constraints.</li><li><strong>Act and review:</strong> authorize changes and feed actual behavior into the next evaluation.</li></ol>
+<h3>Common scenarios</h3><ul><li><strong>Capacity observation:</strong> use Observe or Recommend to compare recurring demand with current resources.</li><li><strong>Scheduled resource guarantees:</strong> configure fixed values for a business window, including timezone, fields, and limits.</li><li><strong>Gradual scaling:</strong> start with a noncritical workload, review cooldowns and Ready capacity, then expand use.</li></ul>
+      </section>
+      <section id="data"><h2><span class="section-no">04</span>Data and quality</h2>
+<p>Metric mappings define queries and workload scope. Datasets define sampling, aggregation, precision, conversion, and missing-data handling. A module can use CPU, memory, requests, OOM, JVM, and other metrics with their own thresholds.</p>
+<h3>Five things to check</h3><ul><li><strong>Scope:</strong> namespace, workload, and container labels must select the intended series.</li><li><strong>Meaning:</strong> distinguish workload-wide request rate from per-Pod throughput, and configured requests / limits from actual use.</li><li><strong>Units:</strong> align CPU cores, millicores, bytes, and MiB before comparing values.</li><li><strong>Time:</strong> history length, sampling interval, forecast horizon, and freshness must fit model requirements.</li><li><strong>Quality:</strong> review coverage, gaps, invalid values, and degradation thresholds. Insufficient inputs should lead to skipping or fallback.</li></ul>
+<p>Built-in PromQL presets are a starting point. Cluster labels differ; when a query returns no data, inspect its labels and filters against the available series.</p>
+<p>Times are stored in UTC. Schedules use an explicit IANA timezone, and displayed times follow the configured setting.</p>
+      </section>
+      <section id="algorithms"><h2><span class="section-no">05</span>Models and forecasts</h2>
+<p>The platform includes <strong>14 built-in algorithms</strong>. Manage activation, parameters, weights, and adoption thresholds centrally. Enabled candidates participate automatically; a model name alone does not determine whether it suits your workload.</p>
+<div class="table-wrap"><table><thead><tr><th>Model</th><th>Approach</th><th>Considerations</th></tr></thead><tbody>
+<tr><td>Naive / Seasonal Naive</td><td>Reuse the last value or a historical cycle</td><td>Useful baselines; seasonal prediction needs enough cycles</td></tr>
+<tr><td>EWMA</td><td>Exponential smoothing emphasizes recent observations</td><td>Set smoothing and span according to input behavior</td></tr>
+<tr><td>Holt-Winters</td><td>Level, trend, and seasonality</td><td>Compare season length and damping through backtests</td></tr>
+<tr><td>Histogram Percentile</td><td>Time-decayed historical percentiles</td><td>A resource-sizing estimate rather than a future load forecast</td></tr>
+<tr><td>MACD Trend</td><td>Bounded trend adjustment using fast, slow, and signal EMAs</td><td>Univariate resource trends; no trading signals</td></tr>
+<tr><td>Ridge AR</td><td>Regularized lagged regression with optional calendar and covariates</td><td>Use only information available before each forecast origin</td></tr>
+<tr><td>GBDT</td><td>Boosted regression trees with a quantile objective option</td><td>Constrain training cost and model size</td></tr>
+<tr><td>Random Forest</td><td>Average regression trees trained with sampled rows and features</td><td>Cannot extrapolate beyond its training target range</td></tr>
+<tr><td>KNN</td><td>Match historical windows and combine their following trajectories</td><td>Needs complete follow-on windows; relative normalization is available</td></tr>
+<tr><td>Naive Bayes</td><td>Bin continuous targets and predict using lagged features</td><td>Choose bins and features appropriate for the sample size</td></tr>
+<tr><td>RNN / GRU / LSTM</td><td>Use temporal dependencies in historical sequences to forecast changes</td><td>Training is budgeted; timeout leads to failure and fallback</td></tr>
+</tbody></table></div>
+<h3>Central settings and custom models</h3><p>Administrators can create derived models from built-in methods or formula models with numeric and boolean parameters. Formulas are evaluated before saving. Parameter and implementation changes affect version identity and promotion eligibility.</p>
+<h3>What should you review?</h3><ul><li>Check sample requirements and reasons for skipped or degraded runs.</li><li>Align history, forecast intervals, and horizon with resource preparation time.</li><li>Compare backtests, actual errors, and peak underestimation against adoption thresholds.</li><li>Recheck eligibility after changing parameters.</li></ul><p>Models that support additional metrics can use their past values as covariates. Backtests must respect each prediction origin and never use real future values.</p>
+      </section>
+      <section id="evaluation"><h2><span class="section-no">06</span>Evaluation and model selection</h2>
+<p>Rolling backtests move through history in time order. Training data stays before each forecast origin; actual observations are linked to predictions as their target times arrive. Use windows and horizons that match your operating decisions.</p>
+<div class="table-wrap"><table><thead><tr><th>Measure</th><th>Meaning</th><th>How to read it</th></tr></thead><tbody>
+<tr><td>WAPE</td><td>Total absolute error relative to total absolute actual values</td><td>Compare the same inputs and window; zero denominators follow the platform rule</td></tr>
+<tr><td>Peak underestimation</td><td>Risk of forecasting less than peak demand</td><td>Lower average error can still hide peak risk</td></tr>
+<tr><td>Scores and rankings</td><td>Resource accuracy, OOM penalties, completeness, and configured weights</td><td>Review component scores and model eligibility together</td></tr>
+<tr><td>Actual evaluation</td><td>Comparison with observations at forecast target times</td><td>Future targets without actuals do not have zero error</td></tr>
+</tbody></table></div>
+<p>Adoption also depends on promotion, minimum score, freshness, and switching hysteresis. A leading rank does not cause an immediate switch. Current and historical rankings, score details, and training records explain the selection.</p><p>Performance varies with workload patterns, data quality, and horizon. Use your own data to review error, peaks, and resource outcomes before adjusting policy.</p>
+      </section>
+      <section id="execution"><h2><span class="section-no">07</span>Recommendations and actions</h2>
+<h3>Resource and replica advice answer different questions</h3><p>Fixed replica calculation combines peak demand, headroom, and per-Pod capacity. Dynamic calculation considers throughput, CPU, memory, and JVM heap pressure. Recommendations incorporate bounds, smoothing, and peak underestimation. Historical capacity estimates need to be compared with workload load tests.</p>
+<h3>Apply replica advice through controlled scaling</h3><p>Configure minimum and maximum replicas, per-direction step limits, and cooldowns in the module. After Auto mode is authorized, the Operator applies valid advice. Review desired, current, and Ready replicas together with pause or failure reasons.</p><p>Use platform module settings for day-to-day management, or PredictiveScaler for declarative configuration. One workload must have only one replica controller; do not use competing HPA, KEDA, or duplicate scalers.</p>
+<h3>Apply resources to new Pods</h3><p>Admission reads the latest valid recommendation to adjust CPU / memory requests and configured limits ratios. Inspect admission records for results and reasons. Missing modules, unavailable advice, or an unreachable platform should preserve original resources and allow deployment.</p><p>Admission affects new Pods. Running Pods receive new resource settings through creation or rolling updates. Lowering memory limits needs separate risk assessment and authorization.</p>
+<p>Setup references: <a data-source="deploy/helm/kube-resource-fcst-operator/README.md" href="https://github.com/cylonchau/hermes">Operator installation ↗</a> · <a data-source="deploy/kyverno/kube-resource-fcst-requests.yaml" href="https://github.com/cylonchau/hermes">Kyverno policy ↗</a>.</p>
+      </section>
+      <section id="safety"><h2><span class="section-no">08</span>Safety and fallback</h2>
+<p>Recommendations must be fresh and valid, within configured limits, and authorized for the selected mode. Data or model failures lead to recorded degradation. Enable module bypass when manual intervention is needed.</p>
+<div class="table-wrap"><table><thead><tr><th>Safeguard</th><th>Behavior</th></tr></thead><tbody>
+<tr><td>Gradual modes</td><td>Observe → Recommend → Admission → Auto, gated by module mode and global authorization</td></tr>
+<tr><td>Global settings</td><td>Admission and automatic scaling are off by default. Disabling them stops subsequent application after a short settings cache delay</td></tr>
+<tr><td>Module bypass</td><td>Preserves original values and records the reason</td></tr>
+<tr><td>Per-field fallback</td><td>Bypass → schedule → eligible model → module fallback → unchanged, with safety checks on each value</td></tr>
+<tr><td>OOM protection</td><td>The OOM floor applies outside bypass, remains within module bounds, and includes an explanation</td></tr>
+<tr><td>Recovery hysteresis</td><td>Requires consecutive healthy cycles before leaving degradation</td></tr>
+<tr><td>Scaling limits</td><td>Hard bounds, steps, and cooldowns constrain changes; missing or stale decisions stop dangerous actions</td></tr>
+</tbody></table></div>
+<h3>When you need to stop automatic changes</h3><ol><li>Enable Bypass for the module and record a reason.</li><li>Disable the corresponding global setting and return to Recommend or Observe.</li><li>Review snapshots, admission decisions, scaling reports, and actual state.</li><li>Fix the inputs or policy, rerun backtests, then restore authorization gradually.</li></ol>
+<p>Bypass and global settings stop future actions. They do not undo earlier resource or replica changes; restoration should consider current service conditions.</p>
+      </section>
+      <section id="operations"><h2><span class="section-no">09</span>Monitoring and administration</h2>
+<p>Monitoring shows whether the workflow is running. Tasks, access control, and audit explain why advice changed and who changed the configuration.</p>
+<h3>Monitoring: locate where the workflow is waiting</h3><p>Compare history, forecasts, and actuals. Inspect data-source status, recommendation age, model performance, and fallback. Desired, current, and Ready replicas distinguish a submitted change from available capacity. Use curves and exported data to review outcomes.</p>
+<h3>Task center: inspect recurring work</h3><p>Review task definitions, schedules, and execution records for collection, prediction, backtesting, and evaluation. Check errors and inputs before retrying. A completed task does not guarantee fresh data or suitable recommendations.</p>
+<h3>Permissions and settings: control who changes policies</h3><p>Users, roles, menu permissions, and API permissions define access. Global settings control platform defaults and safety gates; model and module pages hold their respective policies. LDAP connection, user/group lookup, and role mapping are available under <strong>System → System parameters → LDAP</strong>. Local accounts remain an emergency access path.</p>
+<h3>Audit: explain each change</h3><div class="table-wrap"><table><thead><tr><th>Question</th><th>Where to look</th></tr></thead><tbody>
+<tr><td>Why was this model selected?</td><td>Backtests, actual scores, rankings, and training records</td></tr>
+<tr><td>Why is this the recommended value?</td><td>Snapshot sources, decisive constraints, and fallback reasons</td></tr>
+<tr><td>Was it applied, and what happened?</td><td>Scaling reports, admission decisions, and actual / Ready replicas</td></tr>
+<tr><td>Why did fallback apply, and when did it recover?</td><td>Degradation records, duration, and recovery state</td></tr>
+<tr><td>Who edited configuration or exported data?</td><td>Operation logs and export records; login attempts have separate logs</td></tr>
+</tbody></table></div>
+<h3>Retention and exports</h3><p>Set retention according to review needs for metric history, forecasts, evaluations, recommendations, actions, and logs. Audit exports support offline review and are logged. Protect credentials and grant API access by purpose with minimal permissions.</p>
+<details class="technical-details"><summary>Deployment references and external monitoring</summary><p>Deploy the platform separately with the required database, certificates, keys, and cluster permissions. Back up the database and stable credential-encryption key.</p><p>Configure metric listening to expose <code>/metrics</code>, <code>/healthz</code>, and <code>/readyz</code> for external monitoring.</p><p><a data-source="deploy/README.md" href="https://github.com/cylonchau/hermes">Deployment guide ↗</a> · <a data-source="deploy/helm/kube-resource-fcst-operator/README.md" href="https://github.com/cylonchau/hermes">Operator installation ↗</a></p></details>
+      </section>
+      <section id="status"><h2><span class="section-no">10</span>Scope and usage boundaries</h2>
+<p>Choose data sources and operating modes with the management scope and effects of each action in mind.</p>
+<div class="table-wrap"><table><thead><tr><th>Scope</th><th>Usage guidance</th></tr></thead><tbody>
+<tr><td>Single cluster</td><td>Manage forecasting and resource policies for workloads in one Kubernetes cluster. Cross-cluster migration and multicloud scheduling are outside this scope.</td></tr>
+<tr><td>Capacity estimates</td><td>Historical per-Pod capacity is an estimate, not a measured maximum. Set bounds using workload load tests and SLOs.</td></tr>
+<tr><td>Resource changes</td><td>Admission affects new Pods; the Operator adjusts replica counts. Authorize each separately.</td></tr>
+<tr><td>Replica ownership</td><td>Keep one replica controller per workload. Stop the previous controller before switching.</td></tr>
+<tr><td>Memory safety</td><td>Review OOM behavior, peaks, and resource bounds. Separately assess and authorize memory-limit reductions.</td></tr>
+<tr><td>Forecasts and readiness</td><td>Separate future demand, desired replicas, and actual Ready capacity. Allow for metric collection and Pod startup time.</td></tr>
+</tbody></table></div>
+      </section>
+      <section id="faq" class="faq"><h2><span class="section-no">11</span>Common questions</h2>
+<details open><summary>Can I use this website as the management console?</summary><p>This website explains capabilities and usage. Deploy the management console separately to connect data sources, manage models and modules, inspect results, and authorize actions.</p></details>
+<details><summary>Can HPA or KEDA control the same workload?</summary><p>No. A workload must have one replica controller. Stop the previous controller and release ownership before switching.</p></details>
+<details><summary>How should I choose a forecasting model?</summary><p>Start with a baseline. Compare error, peak underestimation, and runtime over the same history and forecast horizon. Set adoption thresholds for your workload and resource budget, then continue evaluating against actual results.</p></details>
+<details><summary>Why are forecasts or rankings missing?</summary><p>Check the source connection, PromQL labels, units, module activation, history window, and minimum samples. Then inspect tasks, freshness, target times, and eligibility. Actual comparisons require observations at the forecast target time.</p></details>
+      </section>
+      <div class="docs-bottom">kube-resource-fcst user guide · <a href="index.html">Back to home ↑</a></div>
+    </main>
+  </div>
+  <footer class="container site-footer"><a class="brand" href="./"><img src="../assets/favicon.svg" alt="" width="26" height="26">kube-resource-<span>fcst</span></a><p>Explainable forecasts · Bounded actions</p><div><a href="docs.html">Docs</a><a data-repo href="https://github.com/cylonchau/hermes">GitHub ↗</a><a href="#status">Usage boundaries</a></div></footer>
+</body>
+</html>

@@ -1,0 +1,74 @@
+name: kube-resource-fcst website
+
+on:
+  push:
+    paths:
+      - 'site/**'
+      - 'scripts/check-site.py'
+      - '.github/workflows/pages.yml'
+  pull_request:
+    paths:
+      - 'site/**'
+      - 'scripts/check-site.py'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+      - name: Validate static website
+        run: python scripts/check-site.py
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Check JavaScript syntax
+        run: |
+          node --check site/assets/config.js
+          node --check site/assets/locale.js
+          node --check site/assets/theme.js
+          node --check site/assets/main.js
+
+  deploy:
+    if: github.event_name != 'pull_request' && github.ref_name == github.event.repository.default_branch
+    needs: check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/configure-pages@v5
+        id: pages
+      - name: Set the 404 home URL
+        env:
+          PAGES_BASE_URL: ${{ steps.pages.outputs.base_url }}
+        run: |
+          python3 - <<'PY'
+          import html, os
+          from pathlib import Path
+          path = Path('site/404.html')
+          home = html.escape(os.environ['PAGES_BASE_URL'].rstrip('/') + '/', quote=True)
+          path.write_text(path.read_text(encoding='utf-8').replace('href="./" data-pages-home', f'href="{home}" data-pages-home'), encoding='utf-8')
+          PY
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
