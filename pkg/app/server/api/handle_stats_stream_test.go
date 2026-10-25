@@ -16,15 +16,15 @@ import (
 )
 
 func TestParseStatsTopicsKeepsKnownTopicsOnce(t *testing.T) {
-	assert.Equal(t, []string{"workflow", "tasks"}, parseStatsTopics("workflow, nope,tasks,workflow,"))
+	assert.Equal(t, []string{"tasks"}, parseStatsTopics("workflow, nope,tasks,tasks,"))
 	assert.Empty(t, parseStatsTopics("nope"))
 	assert.Empty(t, parseStatsTopics(""))
 }
 
 func TestStatsStreamPushesTheTopicThatChanged(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db := workflowAPIDB(t)
-	require.NoError(t, db.AutoMigrate(&model.WorkflowDef{}))
+	db := apiTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.TaskDefinition{}))
 	h := &StatsRouter{DB: db}
 	r := gin.New()
 	r.GET("/stream", h.StreamStats)
@@ -34,11 +34,11 @@ func TestStatsStreamPushesTheTopicThatChanged(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	url := "ws" + strings.TrimPrefix(server.URL, "http") + "/stream"
-	conn, _, err := websocket.Dial(ctx, url+"?topics=workflow,tasks", &websocket.DialOptions{Subprotocols: []string{middleware.WebSocketAuthSubprotocol}})
+	conn, _, err := websocket.Dial(ctx, url+"?topics=tasks", &websocket.DialOptions{Subprotocols: []string{middleware.WebSocketAuthSubprotocol}})
 	require.NoError(t, err)
 	defer conn.CloseNow()
 
-	require.NoError(t, db.Create(&model.WorkflowDef{WorkflowKey: "test", Name: "Test"}).Error)
+	require.NoError(t, db.Create(&model.TaskDefinition{TaskType: "test", CronExpr: "@every 1h"}).Error)
 
 	_, payload, err := conn.Read(ctx)
 	require.NoError(t, err)
@@ -48,12 +48,12 @@ func TestStatsStreamPushesTheTopicThatChanged(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(payload, &message))
 	assert.Equal(t, "stats", message.Type)
-	assert.Equal(t, "workflow", message.Data["topic"])
+	assert.Equal(t, "tasks", message.Data["topic"])
 }
 
 func TestStatsStreamRejectsUnknownTopics(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	h := &StatsRouter{DB: workflowAPIDB(t)}
+	h := &StatsRouter{DB: apiTestDB(t)}
 	r := gin.New()
 	r.GET("/stream", h.StreamStats)
 	w := httptest.NewRecorder()

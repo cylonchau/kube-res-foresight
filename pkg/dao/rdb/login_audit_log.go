@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/cylonchau/kubeforecast/pkg/model"
 	"gorm.io/gorm"
+	"strings"
 	"time"
 )
 
@@ -84,4 +85,99 @@ func (dao *LoginAuditLogDAO) LatestSuccessByUsernames(ctx context.Context, usern
 		}
 	}
 	return result, nil
+}
+
+// RecordEntry appends a fully described attempt to the login history.
+func (dao *LoginAuditLogDAO) RecordEntry(ctx context.Context, entry *model.LoginAuditLog) error {
+	if len(entry.UserAgent) > 255 {
+		entry.UserAgent = entry.UserAgent[:255]
+	}
+	return dao.db.WithContext(ctx).Create(entry).Error
+}
+
+// LoginAuditListFilter narrows List to what the login-log page filters on.
+type LoginAuditListFilter struct {
+	Username string
+	ClientIP string
+	Reason   string
+	Method   string
+	Success  *bool
+	Since    *time.Time
+	Until    *time.Time
+	// SortBy is one of created_at, username, client_ip, success, reason; SortDesc reverses the default order.
+	SortBy   string
+	SortDesc bool
+	Offset   int
+	Limit    int
+}
+
+var loginAuditSortColumns = map[string]string{
+	"created_at": "created_at", "username": "username", "client_ip": "client_ip", "success": "success", "reason": "reason", "method": "method",
+}
+
+// List pages the login history; filtering, ordering and paging all happen in the database.
+func (dao *LoginAuditLogDAO) List(ctx context.Context, filter LoginAuditListFilter) ([]model.LoginAuditLog, int64, error) {
+	q := dao.db.WithContext(ctx).Model(&model.LoginAuditLog{})
+	if name := strings.TrimSpace(filter.Username); name != "" {
+		q = q.Where("username LIKE ?", "%"+name+"%")
+	}
+	if ip := strings.TrimSpace(filter.ClientIP); ip != "" {
+		q = q.Where("client_ip LIKE ?", "%"+ip+"%")
+	}
+	if filter.Reason != "" {
+		q = q.Where("reason = ?", filter.Reason)
+	}
+	if filter.Method != "" {
+		q = q.Where("method = ?", filter.Method)
+	}
+	if filter.Success != nil {
+		q = q.Where("success = ?", *filter.Success)
+	}
+	if filter.Since != nil {
+		q = q.Where("created_at >= ?", *filter.Since)
+	}
+	if filter.Until != nil {
+		q = q.Where("created_at <= ?", *filter.Until)
+	}
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	column, ok := loginAuditSortColumns[filter.SortBy]
+	direction := " ASC"
+	if !ok {
+		column, direction = "created_at", " DESC"
+	} else if filter.SortDesc {
+		direction = " DESC"
+	}
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = 20
+	}
+	var logs []model.LoginAuditLog
+	err := q.Order(column + direction + ", id DESC").Offset(filter.Offset).Limit(limit).Find(&logs).Error
+	return logs, total, err
+}
+
+// PurgeOlderThan deletes history older than cutoff in bounded batches and returns how many rows went.
+func (dao *LoginAuditLogDAO) PurgeOlderThan(ctx context.Context, cutoff time.Time) (int64, error) {
+	const batchSize = 500
+	var total int64
+	for {
+		var ids []int64
+		if err := dao.db.WithContext(ctx).Model(&model.LoginAuditLog{}).Where("created_at < ?", cutoff).Limit(batchSize).Pluck("id", &ids).Error; err != nil {
+			return total, err
+		}
+		if len(ids) == 0 {
+			return total, nil
+		}
+		res := dao.db.WithContext(ctx).Where("id IN ?", ids).Delete(&model.LoginAuditLog{})
+		if res.Error != nil {
+			return total, res.Error
+		}
+		total += res.RowsAffected
+		if len(ids) < batchSize {
+			return total, nil
+		}
+	}
 }

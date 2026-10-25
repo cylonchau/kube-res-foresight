@@ -16,7 +16,7 @@ import (
 
 func TestNotifyRouter(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db := workflowAPIDB(t)
+	db := apiTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.NotificationDelivery{}))
 
 	dao := rdb.NewNotificationDAO(db)
@@ -30,7 +30,7 @@ func TestNotifyRouter(t *testing.T) {
 	// Seed test delivery
 	require.NoError(t, dao.RecordDelivery(t.Context(), &model.NotificationDelivery{
 		NotificationID:  "notif_test_1",
-		Channel:         "telegram",
+		Channel:         "webhook",
 		Recipient:       "12345",
 		Title:           "Flash Crash Alert",
 		Content:         "BTC dropped 8%",

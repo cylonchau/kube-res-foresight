@@ -82,7 +82,7 @@ func (dao *SysConfigDAO) GetValue(ctx context.Context, key string) (string, erro
 // GetValueOrDefault is GetValue with fallback substituted for both a missing
 // row (gorm.ErrRecordNotFound) and an explicitly empty stored value — the
 // shared shape every notify.*/expiry-check SysConfig read in pkg/job/tasks
-// and pkg/notify/telegram uses, so the ErrRecordNotFound/empty-string
+// and the notify channels use, so the ErrRecordNotFound/empty-string
 // handling lives in exactly one place.
 func (dao *SysConfigDAO) GetValueOrDefault(ctx context.Context, key, fallback string) (string, error) {
 	cfg, err := dao.GetByKey(ctx, key)

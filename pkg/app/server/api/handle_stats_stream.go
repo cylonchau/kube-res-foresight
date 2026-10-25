@@ -25,8 +25,7 @@ const (
 // subscribes to the topics it shows numbers for and re-reads its own (filtered) statistics
 // when one fires; the push carries no numbers.
 var statsTopics = map[string][]string{
-	"tasks":    {"job", "task_definition"},
-	"workflow": {"workflow_def", "workflow_instance", "workflow_pending_reply"},
+	"tasks": {"job", "task_definition"},
 }
 var appendOnlyTables = map[string]bool{"job": true}
 

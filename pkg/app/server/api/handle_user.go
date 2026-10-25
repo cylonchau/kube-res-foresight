@@ -18,18 +18,6 @@ type UserRouter struct {
 	LoginAuditDAO *rdb.LoginAuditLogDAO
 }
 
-func telegramBindingDTO(b *model.TelegramBinding) *apis.TelegramBindingDTO {
-	if b == nil {
-		return nil
-	}
-	return &apis.TelegramBindingDTO{
-		ID: b.ID, CreatedAt: b.CreatedAt, UpdatedAt: b.UpdatedAt, UserID: b.UserID,
-		TelegramUserID: b.TelegramUserID, TelegramUsername: b.TelegramUsername,
-		FirstName: b.FirstName, LastName: b.LastName, PhotoURL: b.PhotoURL,
-		AuthDate: b.AuthDate, Status: b.Status,
-	}
-}
-
 func userDTO(u *model.User) *apis.UserDTO {
 	if u == nil {
 		return nil
@@ -51,9 +39,6 @@ func userDTO(u *model.User) *apis.UserDTO {
 		for i := range u.Roles {
 			dto.Roles = append(dto.Roles, *roleDTO(&u.Roles[i]))
 		}
-	}
-	if u.TelegramBinding != nil {
-		dto.TelegramBinding = telegramBindingDTO(u.TelegramBinding)
 	}
 	return dto
 }
@@ -340,3 +325,6 @@ func (h *UserRouter) BatchDelete(c *gin.Context) {
 	_ = utils.SyncPolicies()
 	query.SuccessResponse(c, nil, nil)
 }
+
+// onlineSessionWindow is how recently a session must have been used for its user to count as online.
+const onlineSessionWindow = 15 * time.Minute

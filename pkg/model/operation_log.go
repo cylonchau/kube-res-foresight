@@ -11,7 +11,7 @@ import "time"
 //
 // ClientType is how the four filterable sources in the UI ("页面日志" /
 // "tma日志" / "api日志" / "CLI日志") are told apart: "page" for the web admin
-// console, "tma" for the Telegram Mini App, "api" for calls authenticated
+// console, "api" for calls authenticated
 // with an access-key/secret developer credential rather than an
 // interactive login, and "cli" for a command-line client using that developer
 // credential with X-KubeForecast-Client: cli (see middleware.resolveClientType).
@@ -24,7 +24,7 @@ type OperationLog struct {
 	Method     string    `gorm:"type:varchar(10)" json:"method" column_setting:"true"`
 	Path       string    `gorm:"type:varchar(255);index" json:"path" column_setting:"true"`
 	// Module is the first path segment after /api/v1/ (e.g. "users",
-	// "workflows", "tasks") — a cheap, curation-free grouping for the
+	// "modules", "tasks") — a cheap, curation-free grouping for the
 	// filter UI without needing a hand-maintained action catalog.
 	Module     string `gorm:"type:varchar(64);index" json:"module" column_setting:"true"`
 	StatusCode int    `gorm:"index" json:"status_code" column_setting:"true"`

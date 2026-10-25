@@ -40,8 +40,8 @@ func TestEngineDispatchAndDedup(t *testing.T) {
 	engine, dao := setupEngineTest(t)
 	ctx := context.Background()
 
-	mockTelegram := &testNotifier{channel: "mock_tg"}
-	Register(mockTelegram)
+	mockChannel := &testNotifier{channel: "mock_tg"}
+	Register(mockChannel)
 
 	req := DeliveryRequest{
 		NotificationID: "notif_001",
@@ -58,7 +58,7 @@ func TestEngineDispatchAndDedup(t *testing.T) {
 	res, err := engine.Dispatch(ctx, req)
 	require.NoError(t, err)
 	assert.Equal(t, StatusSent, res.Status)
-	assert.Len(t, mockTelegram.sentMsgs, 1)
+	assert.Len(t, mockChannel.sentMsgs, 1)
 
 	// Check DB record
 	dbRecord, err := dao.GetByNotificationID(ctx, "notif_001")
@@ -71,7 +71,7 @@ func TestEngineDispatchAndDedup(t *testing.T) {
 	resDup, err := engine.Dispatch(ctx, dupReq)
 	require.NoError(t, err)
 	assert.Equal(t, StatusDeduped, resDup.Status)
-	assert.Len(t, mockTelegram.sentMsgs, 1) // not sent again
+	assert.Len(t, mockChannel.sentMsgs, 1) // not sent again
 }
 
 func TestEngineCooldown(t *testing.T) {

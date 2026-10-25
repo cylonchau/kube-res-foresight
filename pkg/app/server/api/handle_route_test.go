@@ -33,8 +33,9 @@ func TestFilterRetiredRoutePermissions(t *testing.T) {
 		{Code: "telegram_workflows"},
 		{Code: "node_bot-api-nodes"},
 		{Code: "workflow_pipelines"},
+		{Code: "forecast-modules_modules"},
 	})
-	if len(routes) != 1 || routes[0].Code != "workflow_pipelines" {
+	if len(routes) != 1 || routes[0].Code != "forecast-modules_modules" {
 		t.Fatalf("unexpected filtered routes: %#v", routes)
 	}
 }

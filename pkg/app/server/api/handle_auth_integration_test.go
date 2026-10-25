@@ -14,7 +14,7 @@ import (
 
 func authAPIRouter(t *testing.T) (*gin.Engine, *model.User) {
 	t.Helper()
-	db := workflowAPIDB(t)
+	db := apiTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.SysConfig{}, &model.SystemMarker{}, &model.RefreshTokenSession{}, &model.LoginFailureRecord{}, &model.LoginCaptchaChallenge{}, &model.LoginAuditLog{}))
 	previousDB := model.DB
 	model.DB = db

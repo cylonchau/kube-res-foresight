@@ -38,7 +38,6 @@ type DeliveryRequest struct {
 	Severity        string // INFO, WARN, P1, P0
 	EscalateChannel string // Secondary channel if unacked (e.g. "voice", "webhook")
 	Buttons         []template.Button
-	SendAccountID   int64 // see Message.SendAccountID
 }
 
 // DeliveryResult contains the outcome of a dispatch attempt.
@@ -147,8 +146,6 @@ func (e *Engine) Dispatch(ctx context.Context, req DeliveryRequest) (*DeliveryRe
 		Title:   req.Title,
 		Content: req.Content,
 		Buttons: req.Buttons,
-
-		SendAccountID: req.SendAccountID,
 	}
 
 	sendErr := channelNotifier.Send(ctx, req.Recipient, msg)

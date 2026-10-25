@@ -14,22 +14,29 @@ type ColumnInfo struct {
 }
 
 var PageModelMap = map[string]interface{}{
-	"user_manage":               &model.User{},
-	"role_manage":               &model.Role{},
-	"system_config_manage":      &model.SysConfig{},
-	"secret_key_manage":         &model.SecretKey{},
-	"task_center_definition":    &model.TaskDefinition{},
-	"task_center_audit":         &model.Job{},
-	"user_column_config":        &model.UserColumnConfig{},
-	"telegram_binding_manage":   &model.TelegramBinding{},
-	"telegram_bot_commands":     &model.BotCommandDef{},
-	"telegram_commands":         &model.BotCommandDef{},
-	"workflow_instances":        &model.WorkflowInstance{},
-	"workflow_instances_global": &model.WorkflowInstance{},
-	"workflow_pipeline_manage":  &model.WorkflowDef{},
-	"workflow_pipelines":        &model.WorkflowDef{},
-	"telegram_template_manage":  &model.NotifyTemplate{},
-	"telegram_templates":        &model.NotifyTemplate{},
+	"user_manage":            &model.User{},
+	"role_manage":            &model.Role{},
+	"system_config_manage":   &model.SysConfig{},
+	"secret_key_manage":      &model.SecretKey{},
+	"datasource_manage":      &model.Datasource{},
+	"metric_mapping_manage":  &model.MetricMapping{},
+	"task_center_definition": &model.TaskDefinition{},
+	"task_center_audit":      &model.Job{},
+	"user_column_config":     &model.UserColumnConfig{},
+
+	// forecasting and log pages: the model's column_setting tags say which columns the user may configure
+	"forecast_module_manage":   &model.ForecastModule{},
+	"forecast_recommendation":  &model.Recommendation{},
+	"forecast_execution":       &model.ScalingExecution{},
+	"forecast_backtest":        &model.BacktestRun{},
+	"forecast_evaluation_runs": &model.PredictionEvaluation{},
+	"forecast_algorithm":       &model.AlgorithmConfig{},
+	"forecast_algorithm_score": &model.AlgorithmScore{},
+	"forecast_admission":       &model.AdmissionDecision{},
+	"forecast_metric_source":   &model.MetricSource{},
+	"forecast_fallback":        &model.Recommendation{},
+	"system_login_log":         &model.LoginAuditLog{},
+	"system_operation_log":     &model.OperationLog{},
 }
 
 func (dao *ColumnMetaDAO) GetModelColumnsByPage(pageName string) []ColumnInfo {

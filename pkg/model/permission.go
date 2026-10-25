@@ -6,15 +6,24 @@ import (
 	"time"
 )
 
-// IsPlatformRoute limits navigation to the four supported modules and the hidden profile page.
+// retiredMenuCodes are menus that were split or removed. A database that still holds them has them deleted by the
+// upgrade after their grants moved to the successors, and they never route.
+var retiredMenuCodes = map[string]bool{
+	"forecast_history": true, "forecast_evaluation": true, "forecast_recommendations": true, "forecast_metrics": true,
+	"authorization_ldap": true, "forecast_modules": true, "forecast_algorithm-templates": true, "forecast_input-sets": true,
+	"forecast_catalog": true, "forecast_sources": true, "forecast-modules_bindings": true,
+	"forecast_scores": true, "forecast-modules_sources": true,
+}
+
+// IsPlatformRoute limits navigation to the supported modules and the hidden profile page.
 func IsPlatformRoute(code string) bool {
 	if code == "user-center" {
 		return true
 	}
-	if code == "system_coins" {
+	if code == "system_coins" || retiredMenuCodes[code] {
 		return false
 	}
-	for _, module := range []string{"workflow", "system", "authorization", "task-center"} {
+	for _, module := range []string{"system", "authorization", "task-center", "datasource", "forecast", "forecast-modules", "forecast-results", "forecast-actions", "monitoring"} {
 		if code == module || strings.HasPrefix(code, module+"_") {
 			return true
 		}

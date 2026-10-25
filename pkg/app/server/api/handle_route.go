@@ -10,9 +10,13 @@ import (
 
 type RouteRouter struct{}
 
+// retiredRouteCodes are menu codes of removed features; a database that still holds them never routes to them.
 var retiredRouteCodes = map[string]struct{}{
 	"node_bot-api-nodes": {},
 	"telegram_workflows": {},
+	"workflow":           {},
+	"workflow_pipelines": {},
+	"workflow_instances": {},
 }
 
 func (rr *RouteRouter) GetConstantRoutes(c *gin.Context) {
@@ -44,7 +48,7 @@ func (rr *RouteRouter) IsRouteExist(c *gin.Context) {
 func (rr *RouteRouter) GetUserRoutes(c *gin.Context) {
 	permissions, err := routePermissionsForCurrentUser(c)
 	if err != nil {
-		query.SuccessResponse(c, nil, gin.H{"home": "workflow_pipelines", "routes": []gin.H{}})
+		query.SuccessResponse(c, nil, gin.H{"home": homeRoute, "routes": []gin.H{}})
 		return
 	}
 	permissions = filterRetiredRoutePermissions(ensureBuiltInSelfServiceRoutes(permissions))
@@ -79,7 +83,7 @@ func (rr *RouteRouter) GetUserRoutes(c *gin.Context) {
 		}
 		roots = append(roots, item)
 	}
-	query.SuccessResponse(c, nil, gin.H{"home": "workflow_pipelines", "routes": roots})
+	query.SuccessResponse(c, nil, gin.H{"home": homeRoute, "routes": roots})
 }
 
 func filterRetiredRoutePermissions(permissions []model.Permission) []model.Permission {
@@ -185,3 +189,6 @@ func routeItem(permission model.Permission, buttons []gin.H) gin.H {
 		"meta": gin.H{"title": permission.Name, "i18nKey": "route." + permission.Code, "icon": permission.Icon, "order": permission.Sort, "hideInMenu": !permission.Visible, "buttons": buttons},
 	}
 }
+
+// homeRoute is the landing page after login.
+const homeRoute = "forecast-modules_modules"

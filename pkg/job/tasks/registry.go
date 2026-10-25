@@ -13,24 +13,12 @@ import (
 	"github.com/cylonchau/kubeforecast/pkg/dao/rdb"
 	"github.com/cylonchau/kubeforecast/pkg/job"
 	"github.com/cylonchau/kubeforecast/pkg/job/tasks/notifytask"
-	"github.com/cylonchau/kubeforecast/pkg/model"
-	"github.com/cylonchau/kubeforecast/pkg/notify"
-	notifytelegram "github.com/cylonchau/kubeforecast/pkg/notify/telegram"
 )
 
-// RegisterAll injects DAO dependencies into tasks and registers them with the job.Registry
-func RegisterAll(sysConfigDAO *rdb.SysConfigDAO) {
-	telegramBindingDAO := rdb.NewTelegramBindingDAO(model.DB)
-
-	// Notify channels: register each concrete channel once here. Detection
-	// producer tasks never talk to a channel directly —
-	// they call notify.Broadcast, which fans out to every registered
-	// channel via this registry. Adding email/webhook/etc. later means
-	// writing one more notify.Notifier implementation and registering it
-	// here — nothing else changes.
-	notify.Register(notifytelegram.WithClientAccount(
-		notifytelegram.NewWithBots(sysConfigDAO, telegramBindingDAO, rdb.NewTelegramBotDAO(model.DB)),
-		rdb.NewTelegramClientDAO(model.DB), rdb.NewTelegramAgentRequestDAO(model.DB)))
-
+// RegisterAll registers every job type with the job.Registry. Notification channels (webhook, voice) are
+// registered by the notify runtime, not here; the notify task only looks a channel up by name.
+func RegisterAll(_ *rdb.SysConfigDAO) {
 	job.Register(notifytask.New())
+	registerForecast()
+	registerLDAP()
 }

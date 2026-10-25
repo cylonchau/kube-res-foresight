@@ -74,7 +74,7 @@ var secretFieldPattern = regexp.MustCompile(`(?i)(password|secret|token|credenti
 // logging failure must not affect the request it's describing.
 func OperationLogMiddleware(dao *rdb.OperationLogDAO) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if !loggedMethods[c.Request.Method] || isExcludedFromOperationLog(c.Request.URL.Path) {
+		if !(loggedMethods[c.Request.Method] || isAuditExport(c)) || isExcludedFromOperationLog(c.Request.URL.Path) {
 			c.Next()
 			return
 		}
@@ -97,6 +97,12 @@ func OperationLogMiddleware(dao *rdb.OperationLogDAO) gin.HandlerFunc {
 			Body:       body,
 			DurationMs: time.Since(start).Milliseconds(),
 		}
+		if note, ok := c.Get(OperationLogNoteKey); ok {
+			// a handler's own account of what the request did (an export's scope and row count)
+			if text, ok := note.(string); ok && text != "" {
+				entry.Body = truncate(text, maxOperationLogBody)
+			}
+		}
 		if userID, ok := c.Get("userId"); ok {
 			if uid, ok := userID.(uint); ok {
 				entry.UserID = uid
@@ -117,12 +123,9 @@ func OperationLogMiddleware(dao *rdb.OperationLogDAO) gin.HandlerFunc {
 	}
 }
 
-// resolveClientType maps the three filterable sources onto the mechanisms
-// that already distinguish them: developer-credential calls (access-key/
-// secret, see extractDeveloperCredential) are "api"; everything else is an
-// interactive JWT session, told apart by the X-KubeForecast-Client header each
-// frontend sets on every request (web sends "web", the Telegram Mini App
-// sends "tma") since both otherwise share the exact same token mechanism.
+// resolveClientType maps the filterable sources onto the mechanisms that already distinguish them:
+// developer-credential calls (access-key/secret, see extractDeveloperCredential) are "api" (or "cli" when the
+// X-KubeForecast-Client header says so); everything else is an interactive JWT session, "page".
 func resolveClientType(c *gin.Context) string {
 	if dev, _ := c.Get("developerCredential"); dev == true {
 		// Command-line integrations use the same developer credential as
@@ -132,14 +135,11 @@ func resolveClientType(c *gin.Context) string {
 		}
 		return "api"
 	}
-	if strings.EqualFold(c.GetHeader("X-KubeForecast-Client"), "tma") {
-		return "tma"
-	}
 	return "page"
 }
 
 // resolveModule extracts the first path segment after /api/v1/ as a cheap,
-// curation-free grouping key (e.g. "users", "workflows", "tasks") for
+// curation-free grouping key (e.g. "users", "modules", "tasks") for
 // the filter UI.
 func resolveModule(path string) string {
 	trimmed := strings.TrimPrefix(path, "/api/v1/")
@@ -216,4 +216,13 @@ func truncate(s string, max int) string {
 		return s
 	}
 	return s[:max]
+}
+
+// OperationLogNoteKey is the context key a handler sets to put its own account of a request in the log.
+const OperationLogNoteKey = "operationLogNote"
+
+// isAuditExport marks the one read that is logged: an audit export hands out records in bulk, so who took what is
+// part of the audit trail itself.
+func isAuditExport(c *gin.Context) bool {
+	return c.Request.Method == http.MethodGet && strings.HasSuffix(c.Request.URL.Path, "/audit/export")
 }

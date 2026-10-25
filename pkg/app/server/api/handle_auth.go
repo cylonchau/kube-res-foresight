@@ -2,11 +2,15 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/cylonchau/kubeforecast/pkg/apis"
 	"github.com/cylonchau/kubeforecast/pkg/app/query"
 	"github.com/cylonchau/kubeforecast/pkg/app/utils"
 	"github.com/cylonchau/kubeforecast/pkg/dao/rdb"
+	"github.com/cylonchau/kubeforecast/pkg/ldapauth"
+	"github.com/cylonchau/kubeforecast/pkg/logger"
+	"github.com/cylonchau/kubeforecast/pkg/model"
 	"github.com/gin-gonic/gin"
 	"time"
 )
@@ -18,6 +22,8 @@ type AuthRouter struct {
 	RefreshDAO    *rdb.RefreshTokenSessionDAO
 	SecurityDAO   *rdb.LoginSecurityDAO
 	LoginAuditDAO *rdb.LoginAuditLogDAO
+	// LDAP is optional; nil keeps every account on local password authentication.
+	LDAP *ldapauth.Service
 }
 
 func authenticatedUsername(c *gin.Context) (string, bool) {
@@ -61,24 +67,50 @@ func (h *AuthRouter) Login(c *gin.Context) {
 	}
 	loginKey := loginAttemptKey(c, req.Username)
 	if h.loginCaptchaRequired(c, loginKey) && !h.verifyLoginCaptcha(c.Request.Context(), loginKey, req.CaptchaID, req.CaptchaCode) {
+		h.recordLoginAudit(c, req.Username, false, loginMethodPassword, loginReasonCaptchaRequired)
 		query.UnauthorizedWithData(c, query.ErrCaptchaRequired, gin.H{"captcha_required": true})
 		return
 	}
 
 	// 1. Find user
 	user, err := h.UserDAO.GetByUsername(context.Background(), req.Username)
+
+	// 1.5 Directory accounts. A local account (the break-glass path) is always checked locally; a name that is
+	// unknown here, or belongs to a directory account, is checked against the directory when LDAP is enabled.
+	directoryVerified := false
+	if h.LDAP != nil && (err != nil || user.Source == model.UserSourceLDAP) && h.LDAP.Enabled(c.Request.Context()) {
+		ldapUser, ldapErr := h.LDAP.Login(c.Request.Context(), req.Username, req.Password)
+		switch {
+		case ldapErr == nil:
+			user, err, directoryVerified = ldapUser, nil, true
+		case errors.Is(ldapErr, ldapauth.ErrAccountDisabled):
+			h.recordLoginAudit(c, req.Username, false, loginMethodLDAP, loginReasonUserDisabled)
+			query.Unauthorized(c, query.ErrUserDisabled)
+			return
+		default:
+			// The reason is logged for the administrator; the user only sees "invalid credentials".
+			logger.Warn("ldap login refused", logger.String("username", req.Username), logger.String("reason", ldapErr.Error()))
+			h.loginFailed(c, loginKey, req.Username, loginMethodLDAP, loginReasonInvalidCredentials)
+			return
+		}
+	}
 	if err != nil {
-		h.loginFailed(c, loginKey, req.Username)
+		h.loginFailed(c, loginKey, req.Username, loginMethodPassword, loginReasonInvalidCredentials)
 		return
 	}
+	loginMethod := loginMethodPassword
+	if directoryVerified || user.Source == model.UserSourceLDAP {
+		loginMethod = loginMethodLDAP
+	}
 	if !user.Status {
+		h.recordLoginAudit(c, req.Username, false, loginMethod, loginReasonUserDisabled)
 		query.Unauthorized(c, query.ErrUserDisabled)
 		return
 	}
 
-	// 2. Verify password (bcrypt hashing)
-	if !utils.ComparePassword(user.PasswordHash, req.Password) {
-		h.loginFailed(c, loginKey, req.Username)
+	// 2. Verify password (bcrypt hashing); directory accounts were verified by the directory
+	if !directoryVerified && !utils.ComparePassword(user.PasswordHash, req.Password) {
+		h.loginFailed(c, loginKey, req.Username, loginMethod, loginReasonInvalidCredentials)
 		return
 	}
 	h.clearLoginFailures(c, loginKey)
@@ -112,7 +144,7 @@ func (h *AuthRouter) Login(c *gin.Context) {
 		query.InternalError(c, query.ErrTokenFailed)
 		return
 	}
-	h.recordLoginAudit(c, req.Username, true)
+	h.recordLoginAudit(c, req.Username, true, loginMethod, loginReasonOK)
 	query.SuccessResponse(c, nil, tokens)
 }
 
@@ -147,12 +179,14 @@ func (h *AuthRouter) LoginOTP(c *gin.Context) {
 		return
 	}
 	if !user.Status {
+		h.recordLoginAudit(c, user.Username, false, loginMethodOTP, loginReasonUserDisabled)
 		query.Unauthorized(c, query.ErrInvalidCredentials)
 		return
 	}
 
 	// 3. Verify OTP code
 	if !utils.VerifyOTP(user.OtpSecret, req.OtpCode) {
+		h.recordLoginAudit(c, user.Username, false, loginMethodOTP, loginReasonOTPInvalid)
 		query.Unauthorized(c, query.ErrOtpInvalid)
 		return
 	}
@@ -173,7 +207,7 @@ func (h *AuthRouter) LoginOTP(c *gin.Context) {
 		query.InternalError(c, query.ErrTokenFailed)
 		return
 	}
-	h.recordLoginAudit(c, user.Username, true)
+	h.recordLoginAudit(c, user.Username, true, loginMethodOTP, loginReasonOK)
 	query.SuccessResponse(c, nil, tokens)
 }
 
@@ -311,6 +345,11 @@ func (h *AuthRouter) UpdatePassword(c *gin.Context) {
 	user, err := h.UserDAO.GetByID(c.Request.Context(), userID)
 	if err != nil {
 		query.NotFound(c, query.ErrUserNotFound)
+		return
+	}
+
+	if user.Source == model.UserSourceLDAP {
+		query.BadRequest(c, errors.New("this account is managed by the directory: change the password there"))
 		return
 	}
 

@@ -124,7 +124,7 @@ func (dao *RefreshTokenSessionDAO) FamilyRevokedReason(ctx context.Context, user
 }
 
 // HasActiveByClientType returns the most recently used active session for a
-// user on a given client type ("web" or "tma"), or nil if there is none —
+// user on a given client type ("web"), or nil if there is none —
 // used at login time to detect "already signed in elsewhere on this client"
 // before a new token pair is issued.
 func (dao *RefreshTokenSessionDAO) HasActiveByClientType(ctx context.Context, userID uint, clientType string) (*model.RefreshTokenSession, error) {

@@ -1,0 +1,437 @@
+package api
+
+import (
+	"encoding/json"
+	"fmt"
+	"math"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/cylonchau/kubeforecast/pkg/app/query"
+	"github.com/cylonchau/kubeforecast/pkg/dao/rdb"
+	"github.com/cylonchau/kubeforecast/pkg/forecastsvc"
+	"github.com/cylonchau/kubeforecast/pkg/model"
+	"github.com/gin-gonic/gin"
+)
+
+// RuntimeRouter serves the two machine consumers of recommendations: kubeforecast-operator (replicas) and the
+// Kyverno admission policy (requests). Both are read-mostly, fail closed (they answer "do not apply" whenever
+// anything is doubtful) and are reached with developer credentials limited to these routes.
+type RuntimeRouter struct {
+	Modules     *rdb.ModuleDAO
+	Predictions *rdb.PredictionDAO
+	// RunStates gives the replica ceiling in force under dynamic expansion; without it the hard ceiling applies.
+	RunStates *rdb.RunStateDAO
+	// Config holds the switches that open the modes writing to the cluster. Without it every mode is closed.
+	Config *rdb.SysConfigDAO
+	Now    func() time.Time
+}
+
+func (r *RuntimeRouter) now() time.Time {
+	if r.Now != nil {
+		return r.Now().UTC()
+	}
+	return time.Now().UTC()
+}
+
+// storedDetail reads the explanation saved with a recommendation.
+// modeOpen reports whether an administrator has opened a mode that writes to the cluster. It is checked on every
+// answer, not only when a module is configured, so turning the switch off stops admission and the operator
+// at once (within the short cache of the setting). A missing setting or a read error counts as closed.
+func (r *RuntimeRouter) modeOpen(c *gin.Context, key string) bool {
+	if r.Config == nil {
+		return false
+	}
+	open, err := r.Config.GetBool(c.Request.Context(), key, false)
+	return err == nil && open
+}
+
+func storedDetail(rec *model.Recommendation) forecastsvc.RecommendDetail {
+	var d forecastsvc.RecommendDetail
+	_ = json.Unmarshal([]byte(rec.Detail), &d)
+	return d
+}
+
+// OperatorDecision is the answer to the operator.
+type OperatorDecision struct {
+	Available  bool       `json:"available"`
+	Module     string     `json:"module"`
+	Version    int        `json:"version,omitempty"`
+	Replicas   int        `json:"replicas,omitempty"`
+	ValidUntil *time.Time `json:"valid_until,omitempty"`
+	// CreatedAt is when the recommendation was made, so the operator can report the age of the decision it uses.
+	CreatedAt *time.Time `json:"created_at,omitempty"`
+	Source    string     `json:"source,omitempty"`
+	Reason    string     `json:"reason"`
+	// Algorithm and Score are the algorithm instance whose forecast decided the replicas and its score.
+	Algorithm string  `json:"algorithm,omitempty"`
+	Score     float64 `json:"score,omitempty"`
+	// MinReplicas is the hard floor, MaxReplicas the ceiling in force now (fixed, or the dynamically expanded one) and
+	// HardMaxReplicas the safety ceiling the expansion never passes. The operator refuses a decision outside them.
+	MinReplicas     int `json:"min_replicas,omitempty"`
+	MaxReplicas     int `json:"max_replicas,omitempty"`
+	HardMaxReplicas int `json:"hard_max_replicas,omitempty"`
+}
+
+// replicaCeiling is the largest replica count the module may be given now.
+func (r *RuntimeRouter) replicaCeiling(c *gin.Context, m *model.ForecastModule) (effective, hard int) {
+	effective, hard = m.MaxReplicas, m.MaxReplicas
+	if m.MaxReplicasMode != model.MaxReplicasDynamic || m.HardMaxReplicas <= 0 {
+		return effective, hard
+	}
+	hard = m.HardMaxReplicas
+	effective = m.MaxReplicas
+	if r.RunStates != nil {
+		if st, err := r.RunStates.RunState(c.Request.Context(), m.ID); err == nil && st.EffectiveMaxReplicas > effective {
+			effective = st.EffectiveMaxReplicas
+		}
+	}
+	if effective > hard {
+		effective = hard
+	}
+	return effective, hard
+}
+
+// Decision answers GET /operator/decisions?module=<name> with the replicas the operator may apply.
+func (r *RuntimeRouter) Decision(c *gin.Context) {
+	name := strings.TrimSpace(c.Query("module"))
+	if name == "" {
+		query.BadRequest(c, fmt.Errorf("module is required"))
+		return
+	}
+	m, err := r.Modules.ByName(c.Request.Context(), name)
+	if err != nil {
+		query.HandleDBError(c, err)
+		return
+	}
+	out := OperatorDecision{Module: m.Name}
+	deny := func(reason string) {
+		out.Reason = reason
+		query.SuccessResponse(c, nil, out)
+	}
+	switch {
+	case !r.modeOpen(c, ConfigAllowAutoMode):
+		deny("auto mode is switched off by an administrator (forecast.allow_auto_mode)")
+		return
+	case !m.Enabled:
+		deny("module is disabled")
+		return
+	case m.Mode != model.ModeAuto:
+		deny(fmt.Sprintf("module is in %s mode, not auto", m.Mode))
+		return
+	case m.Bypass:
+		deny("module is in bypass: the operator must leave the replicas alone")
+		return
+	case !m.HasReplicas():
+		deny("a DaemonSet has no replica count: the operator has nothing to scale")
+		return
+	}
+	rec, err := r.Predictions.LatestRecommendation(c.Request.Context(), m.ID)
+	if err != nil {
+		query.InternalError(c, err)
+		return
+	}
+	switch {
+	case rec == nil:
+		deny("no recommendation has been made yet")
+		return
+	case !r.now().Before(rec.ValidUntil):
+		deny("the latest recommendation has expired")
+		return
+	case !rec.ReplicasSet || rec.Replicas < 1:
+		deny("the latest recommendation keeps the original replicas")
+		return
+	}
+	effectiveMax, hardMax := r.replicaCeiling(c, m)
+	switch {
+	case effectiveMax > 0 && rec.Replicas > effectiveMax, hardMax > 0 && rec.Replicas > hardMax, rec.Replicas < m.MinReplicas:
+		deny("the latest recommendation is outside the module's current replica bounds")
+		return
+	}
+	validUntil := rec.ValidUntil.UTC()
+	out.Available, out.Version, out.Replicas, out.ValidUntil, out.Source = true, rec.Version, rec.Replicas, &validUntil, rec.ReplicasSource
+	createdAt := rec.CreatedAt.UTC()
+	out.CreatedAt = &createdAt
+	out.Reason = storedDetail(rec).Replicas.Reason
+	out.Algorithm, out.Score = rec.Algorithm, rec.Score
+	out.MinReplicas, out.MaxReplicas, out.HardMaxReplicas = m.MinReplicas, effectiveMax, hardMax
+	query.SuccessResponse(c, nil, out)
+}
+
+// OperatorModule is one workload the operator scales, read from the module configuration: the platform is the only place
+// the replicas, their bounds and the pace of the changes are configured, so nothing has to be generated into the cluster.
+type OperatorModule struct {
+	Name         string `json:"name"`
+	Namespace    string `json:"namespace"`
+	WorkloadKind string `json:"workload_kind"`
+	Workload     string `json:"workload"`
+	// MinReplicas and MaxReplicas are the bounds in force now (a dynamic maximum is the one the run state allows);
+	// HardMaxReplicas is the ceiling the maximum may never pass.
+	MinReplicas     int `json:"min_replicas"`
+	MaxReplicas     int `json:"max_replicas"`
+	HardMaxReplicas int `json:"hard_max_replicas"`
+	// FallbackReplicas is what the operator uses while there is no fresh decision (never below the current replicas); 0 = none.
+	FallbackReplicas         int `json:"fallback_replicas"`
+	ScaleUpMaxStep           int `json:"scale_up_max_step"`
+	ScaleDownMaxStep         int `json:"scale_down_max_step"`
+	ScaleUpCooldownSeconds   int `json:"scale_up_cooldown_seconds"`
+	ScaleDownCooldownSeconds int `json:"scale_down_cooldown_seconds"`
+}
+
+// OperatorModules answers GET /operator/modules with the workloads the operator may scale now: enabled modules in auto
+// mode that are not in bypass, while an administrator allows auto mode. An empty list is a valid answer.
+func (r *RuntimeRouter) OperatorModules(c *gin.Context) {
+	out := struct {
+		AutoAllowed bool             `json:"auto_allowed"`
+		Modules     []OperatorModule `json:"modules"`
+	}{Modules: []OperatorModule{}}
+	if !r.modeOpen(c, ConfigAllowAutoMode) {
+		query.SuccessResponse(c, nil, out)
+		return
+	}
+	out.AutoAllowed = true
+	modules, err := r.Modules.ListEnabled(c.Request.Context())
+	if err != nil {
+		query.InternalError(c, err)
+		return
+	}
+	for _, m := range modules {
+		if m.Mode != model.ModeAuto || m.Bypass || !m.HasReplicas() || (m.WorkloadKind != model.KindDeployment && m.WorkloadKind != model.KindStatefulSet) {
+			continue
+		}
+		effectiveMax, hardMax := r.replicaCeiling(c, m)
+		out.Modules = append(out.Modules, OperatorModule{Name: m.Name, Namespace: m.Namespace, WorkloadKind: m.WorkloadKind, Workload: m.Workload,
+			MinReplicas: m.MinReplicas, MaxReplicas: effectiveMax, HardMaxReplicas: hardMax, FallbackReplicas: m.FallbackReplicas,
+			ScaleUpMaxStep: m.ScaleUpMaxStep, ScaleDownMaxStep: m.ScaleDownMaxStep,
+			ScaleUpCooldownSeconds: m.ScaleUpCooldownSeconds, ScaleDownCooldownSeconds: m.ScaleDownCooldownSeconds})
+	}
+	query.SuccessResponse(c, nil, out)
+}
+
+// ReportReq is the operator's report after an evaluation.
+type ReportReq struct {
+	Module          string `json:"module" binding:"required"`
+	Namespace       string `json:"namespace" binding:"required"`
+	Scaler          string `json:"scaler" binding:"required"`
+	TargetKind      string `json:"target_kind" binding:"required"`
+	TargetName      string `json:"target_name" binding:"required"`
+	Current         int    `json:"current"`
+	Ready           int    `json:"ready"`
+	Desired         int    `json:"desired"`
+	Action          string `json:"action" binding:"required"`
+	Result          string `json:"result" binding:"required"`
+	Reason          string `json:"reason"`
+	DecisionVersion int64  `json:"decision_version"`
+}
+
+func clip(s string, n int) string {
+	if len(s) > n {
+		return s[:n]
+	}
+	return s
+}
+
+// Report records what the operator did.
+func (r *RuntimeRouter) Report(c *gin.Context) {
+	var req ReportReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		query.BadRequest(c, err)
+		return
+	}
+	switch req.Result {
+	case model.ExecApplied, model.ExecObserved, model.ExecHeld, model.ExecConflict, model.ExecError:
+	default:
+		query.BadRequest(c, fmt.Errorf("unknown result %q", req.Result))
+		return
+	}
+	if req.Current < 0 || req.Ready < 0 || req.Desired < 0 {
+		query.BadRequest(c, fmt.Errorf("replica counts must not be negative"))
+		return
+	}
+	m, err := r.Modules.ByName(c.Request.Context(), req.Module)
+	if err != nil {
+		query.HandleDBError(c, err)
+		return
+	}
+	row := &model.ScalingExecution{
+		ModuleID: m.ID, Namespace: clip(req.Namespace, 253), Scaler: clip(req.Scaler, 253), TargetKind: clip(req.TargetKind, 32),
+		TargetName: clip(req.TargetName, 253), Current: req.Current, Ready: req.Ready, Desired: req.Desired,
+		Action: clip(req.Action, 16), Result: req.Result, Reason: clip(req.Reason, 512), DecisionVersion: req.DecisionVersion,
+	}
+	if err := r.Predictions.SaveExecution(c.Request.Context(), row); err != nil {
+		query.InternalError(c, err)
+		return
+	}
+	query.SuccessResponse(c, nil, "ok")
+}
+
+// ListExecutions serves GET /scaling-decisions.
+func (r *RuntimeRouter) ListExecutions(c *gin.Context) {
+	page, size := pageParams(c)
+	list, total, err := r.Predictions.SearchExecutions(c.Request.Context(), executionFilter(c), page, size)
+	if err != nil {
+		query.InternalError(c, err)
+		return
+	}
+	query.SuccessResponse(c, nil, gin.H{"list": list, "total": total, "page": page, "pageSize": size})
+}
+
+// AdmissionAnswer is what the Kyverno policy reads. Apply false means "leave the Pod alone".
+type AdmissionAnswer struct {
+	Apply      bool       `json:"apply"`
+	Reason     string     `json:"reason"`
+	Module     string     `json:"module,omitempty"`
+	Version    int        `json:"version,omitempty"`
+	ValidUntil *time.Time `json:"valid_until,omitempty"`
+	Resources  struct {
+		CPUMilli    int64 `json:"cpu_milli,omitempty"`
+		MemoryBytes int64 `json:"memory_bytes,omitempty"`
+		// GPU is the number of GPU cards of a new Pod; it applies to new Pods only, never to running ones.
+		GPU int `json:"gpu,omitempty"`
+	} `json:"resources"`
+	// Limits are set only for a module that manages them (limit_cpu_ratio, limit_memory_ratio): the recommended
+	// request times the ratio. A resource that is absent keeps the limit the workload declares.
+	Limits struct {
+		CPUMilli    int64 `json:"cpu_milli,omitempty"`
+		MemoryBytes int64 `json:"memory_bytes,omitempty"`
+	} `json:"limits"`
+	// Algorithm and Score say which algorithm instance produced the values and how it scored.
+	Algorithm string  `json:"algorithm,omitempty"`
+	Score     float64 `json:"score,omitempty"`
+}
+
+// Admission answers GET /admission/recommendations?namespace=&workload=&container= with the requests a new Pod
+// of that workload may be given. It never answers with replicas; limits only for a module that manages them. The caller may pass the
+// container's current limits (limit_cpu_milli, limit_memory_bytes); a request above a limit is dropped, since
+// the API server would reject such a Pod.
+func (r *RuntimeRouter) Admission(c *gin.Context) {
+	namespace, workload, container := c.Query("namespace"), c.Query("workload"), c.Query("container")
+	if namespace == "" || workload == "" {
+		query.BadRequest(c, fmt.Errorf("namespace and workload are required"))
+		return
+	}
+	var out AdmissionAnswer
+	var found *model.ForecastModule
+	var original [2]int64
+	// answer sends the answer and keeps a record of it, so every admission can be audited afterwards
+	answer := func() {
+		if found != nil && r.Predictions != nil {
+			_ = r.Predictions.SaveAdmission(c.Request.Context(), &model.AdmissionDecision{ModuleID: found.ID, Namespace: clip(namespace, 253),
+				Workload: clip(workload, 253), Container: clip(container, 253), Applied: out.Apply, Reason: clip(out.Reason, 512), Version: out.Version,
+				CPUMilli: out.Resources.CPUMilli, MemoryBytes: out.Resources.MemoryBytes, GPU: out.Resources.GPU,
+				OriginalCPUMilli: original[0], OriginalMemoryBytes: original[1]})
+		}
+		query.SuccessResponse(c, nil, out)
+	}
+	deny := func(reason string) {
+		out.Apply, out.Reason = false, reason
+		answer()
+	}
+	if !r.modeOpen(c, ConfigAllowAdmissionMode) {
+		deny("admission mode is switched off by an administrator (forecast.allow_admission_mode)")
+		return
+	}
+	// a module is a workload: namespace, kind (when the caller knows it) and name
+	modules, err := r.Modules.ForWorkload(c.Request.Context(), namespace, c.Query("kind"), workload)
+	if err != nil {
+		query.InternalError(c, err)
+		return
+	}
+	var m *model.ForecastModule
+	if len(modules) > 0 {
+		m = modules[0]
+	}
+	// every answer about a module is kept, a refusal as much as an applied one
+	found = m
+	original[0], _ = strconv.ParseInt(c.Query("cpu_milli"), 10, 64)
+	original[1], _ = strconv.ParseInt(c.Query("memory_bytes"), 10, 64)
+	switch {
+	case m == nil:
+		deny("no module manages this workload")
+		return
+	case m.Mode != model.ModeAdmission && m.Mode != model.ModeAuto:
+		// auto adds the replicas to what admission does, so it answers admission requests too
+		deny(fmt.Sprintf("module %q is in %s mode, not admission", m.Name, m.Mode))
+		return
+	case m.Bypass:
+		deny(fmt.Sprintf("module %q is in bypass", m.Name))
+		return
+	}
+	out.Module = m.Name
+	rec, err := r.Predictions.LatestRecommendation(c.Request.Context(), m.ID)
+	if err != nil {
+		query.InternalError(c, err)
+		return
+	}
+	if rec == nil {
+		deny("no recommendation has been made yet")
+		return
+	}
+	if !r.now().Before(rec.ValidUntil) {
+		deny("the latest recommendation has expired")
+		return
+	}
+	validUntil := rec.ValidUntil.UTC()
+	out.Version, out.ValidUntil = rec.Version, &validUntil
+
+	limitCPU, _ := strconv.ParseInt(c.Query("limit_cpu_milli"), 10, 64)
+	limitMem, _ := strconv.ParseInt(c.Query("limit_memory_bytes"), 10, 64)
+	var notes []string
+	if rec.CPUSet {
+		switch {
+		case rec.CPUMilli < 1 || (m.MinCPUMilli > 0 && rec.CPUMilli < m.MinCPUMilli) || (m.MaxCPUMilli > 0 && rec.CPUMilli > m.MaxCPUMilli):
+			notes = append(notes, "cpu is outside the module's current bounds")
+		case limitCPU > 0 && m.LimitCPURatio == 0 && rec.CPUMilli > limitCPU:
+			notes = append(notes, "cpu request would exceed the container's limit")
+		default:
+			out.Resources.CPUMilli = rec.CPUMilli
+		}
+	}
+	if rec.MemorySet {
+		switch {
+		case rec.MemoryBytes < 1 || (m.MinMemoryBytes > 0 && rec.MemoryBytes < m.MinMemoryBytes) || (m.MaxMemoryBytes > 0 && rec.MemoryBytes > m.MaxMemoryBytes):
+			notes = append(notes, "memory is outside the module's current bounds")
+		case limitMem > 0 && m.LimitMemoryRatio == 0 && rec.MemoryBytes > limitMem:
+			notes = append(notes, "memory request would exceed the container's limit")
+		default:
+			out.Resources.MemoryBytes = rec.MemoryBytes
+		}
+	}
+	if rec.GPUSet {
+		switch {
+		case rec.GPU < 1 || (m.MinGPU > 0 && rec.GPU < m.MinGPU) || (m.MaxGPU > 0 && rec.GPU > m.MaxGPU):
+			notes = append(notes, "gpu is outside the module's current bounds")
+		default:
+			out.Resources.GPU = rec.GPU
+		}
+	}
+	// the limits the module manages follow the requests that are applied
+	if m.LimitCPURatio > 0 && out.Resources.CPUMilli > 0 {
+		out.Limits.CPUMilli = int64(math.Ceil(float64(out.Resources.CPUMilli) * m.LimitCPURatio))
+	}
+	if m.LimitMemoryRatio > 0 && out.Resources.MemoryBytes > 0 {
+		out.Limits.MemoryBytes = int64(math.Ceil(float64(out.Resources.MemoryBytes) * m.LimitMemoryRatio))
+	}
+	out.Algorithm, out.Score = rec.Algorithm, rec.Score
+	if out.Resources.CPUMilli == 0 && out.Resources.MemoryBytes == 0 && out.Resources.GPU == 0 {
+		reason := "the recommendation keeps the original requests"
+		if len(notes) > 0 {
+			reason = strings.Join(notes, "; ")
+		}
+		deny(reason)
+		return
+	}
+	out.Apply = true
+	out.Reason = "recommendation " + strconv.Itoa(rec.Version) + " applies"
+	if len(notes) > 0 {
+		out.Reason += " (" + strings.Join(notes, "; ") + ")"
+	}
+	answer()
+}
+
+func executionFilter(c *gin.Context) rdb.ExecutionFilter {
+	moduleID, _ := strconv.ParseUint(c.Query("module_id"), 10, 64)
+	return rdb.ExecutionFilter{ModuleID: uint(moduleID), Result: c.Query("result"), Action: c.Query("action"), Keyword: c.Query("keyword"),
+		Since: timeQuery(c, "from"), Until: timeQuery(c, "to"), Sort: c.Query("sort_by"), Dir: c.Query("sort_order")}
+}

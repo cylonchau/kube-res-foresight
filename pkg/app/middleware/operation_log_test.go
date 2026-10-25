@@ -14,7 +14,7 @@ func TestIsExcludedFromOperationLog(t *testing.T) {
 	}{
 		{"/api/v1/columns/config", true},
 		{"/api/v1/columns/meta", true},
-		{"/api/v1/telegram/admin/workflows", false},
+		{"/api/v1/modules", false},
 		{"/api/v1/auth/language", true},
 		{"/api/v1/users", false},
 		{"/api/v1/records/1", false},
@@ -27,7 +27,7 @@ func TestIsExcludedFromOperationLog(t *testing.T) {
 	}
 }
 
-func TestRedactJSONTelegramClientCredentials(t *testing.T) {
+func TestRedactJSONSecretFields(t *testing.T) {
 	raw := []byte(`{"name":"reader","api_hash":"hash-value","code":"12345","password":"2fa-value","nested":{"session":"session-value"},"status_code":200}`)
 
 	redacted := redactJSON(raw)
@@ -75,7 +75,6 @@ func TestResolveClientType(t *testing.T) {
 		{"kubeforecastctl CLI over a developer credential", true, "cli", "cli"},
 		{"a different integration over the same developer credential", true, "", "api"},
 		{"a developer credential with an unrelated X-KubeForecast-Client value", true, "something-else", "api"},
-		{"TMA session", false, "tma", "tma"},
 		{"web admin session (no header, no developer credential)", false, "", "page"},
 	}
 	for _, tc := range cases {

@@ -45,11 +45,11 @@ func (promAuto) GaugeFunc(name, help string, fn func() float64) {
 	Registry.MustRegister(prometheus.NewGaugeFunc(prometheus.GaugeOpts{Namespace: "kubeforecast", Name: name, Help: help}, fn))
 }
 
-// Handler serves /metrics and /healthz.
+// Handler serves /metrics, /healthz and /readyz.
 func Handler(ready func() error) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.HandlerFor(Registry, promhttp.HandlerOpts{}))
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+	probe := func(w http.ResponseWriter, _ *http.Request) {
 		if ready != nil {
 			if err := ready(); err != nil {
 				http.Error(w, err.Error(), http.StatusServiceUnavailable)
@@ -57,7 +57,9 @@ func Handler(ready func() error) http.Handler {
 			}
 		}
 		_, _ = w.Write([]byte("ok"))
-	})
+	}
+	mux.HandleFunc("/healthz", probe)
+	mux.HandleFunc("/readyz", probe)
 	return mux
 }
 

@@ -15,7 +15,7 @@ func TestProtectedAuthRoutesRequireJWT(t *testing.T) {
 	t.Cleanup(func() { model.DB = previousDB })
 
 	engine := gin.New()
-	RegisteredRouter(engine, nil)
+	RegisteredRouter(engine)
 
 	for _, path := range []string{
 		"/api/v1/auth/info",

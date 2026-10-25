@@ -2,7 +2,6 @@ package model
 
 import (
 	"gorm.io/gorm"
-	"strings"
 	"time"
 )
 
@@ -30,14 +29,17 @@ type User struct {
 	// clients fall back to system/browser language detection — this field
 	// only exists so a deliberate choice follows the user across devices
 	// and survives clearing local browser storage.
-	Language        string           `gorm:"type:varchar(20)" json:"language" column_setting:"true"`
-	TelegramBinding *TelegramBinding `gorm:"foreignKey:UserID" json:"telegramBinding,omitempty" column_setting:"false"`
+	// Source says where the account is authenticated: local (password hash in this database, always usable as the
+	// break-glass path) or ldap (password checked against the directory). ExternalID is the directory DN.
+	// ExternalDisabled marks an account the directory sync disabled, so it can be re-enabled automatically when
+	// the directory enables it again, while an administrator's own disable (Status=false alone) always sticks.
+	Source           string `gorm:"type:varchar(16);not null;default:'local';index" json:"source" column_setting:"true"`
+	ExternalID       string `gorm:"type:varchar(512)" json:"externalId" column_setting:"false"`
+	ExternalDisabled bool   `gorm:"not null;default:false" json:"externalDisabled" column_setting:"false"`
+	Language         string `gorm:"type:varchar(20)" json:"language" column_setting:"true"`
 }
 
-// DisplayName returns a user's preferred display name (NickName, falling
-// back to Username). Use it for greetings and profile UI; for anyone
-// appearing in a workflow — an approver, an operator, a requester — use
-// ActorName instead, which is stable and unambiguous.
+// DisplayName returns a user's preferred display name (NickName, falling back to Username).
 func DisplayName(u *User) string {
 	if u == nil {
 		return ""
@@ -48,48 +50,8 @@ func DisplayName(u *User) string {
 	return u.Username
 }
 
-// ActorName renders the single canonical identity string for a person taking
-// part in a workflow — used everywhere one appears: audit history, bot
-// notifications, the console's ticket detail, the pipeline flowchart, the
-// generic record list.
-//
-//	admin      // has a KubeForecast account, whether or not Telegram is linked
-//	zhaosi     // only ever falls back to the Telegram identity when
-//	           // there is no linked KubeForecast account at all
-//
-// The KubeForecast account username is the identity shown, never the nickname
-// (it is unique, is what an admin can actually look someone up by, and does
-// not change when they edit their profile — a nickname does all three
-// wrongly, which is how "处理人：Admin Test User" ended up in notifications
-// where a real account handle belonged) and never paired with the Telegram
-// handle/ID — one identity, not two glued together with parentheses.
-//
-// binding may be nil, in which case u's own linked binding is used; passing
-// one explicitly covers the chat-inbound path, where the binding is what was
-// resolved from the incoming message and u hangs off it.
-func ActorName(u *User, binding *TelegramBinding) string {
-	if binding == nil && u != nil {
-		binding = u.TelegramBinding
-	}
-	if u == nil && binding != nil {
-		u = binding.User
-	}
-
-	if u != nil {
-		if account := strings.TrimSpace(u.Username); account != "" {
-			return account
-		}
-		if nick := strings.TrimSpace(u.NickName); nick != "" {
-			return nick
-		}
-	}
-
-	if binding != nil {
-		if telegram := strings.TrimSpace(binding.TelegramUsername); telegram != "" {
-			return telegram
-		}
-		return strings.TrimSpace(binding.FirstName + " " + binding.LastName)
-	}
-
-	return ""
-}
+// User sources.
+const (
+	UserSourceLocal = "local"
+	UserSourceLDAP  = "ldap"
+)

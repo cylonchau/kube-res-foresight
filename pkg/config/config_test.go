@@ -11,7 +11,7 @@ import (
 func TestLoadConfigurationFileAndEnvironment(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
-	require.NoError(t, os.WriteFile(path, []byte("app_name: test\ndatabase_driver: sqlite\nserver:\n  port: 12345\n  dev_mode: false\ntelegram:\n  enabled: true\n"), 0600))
+	require.NoError(t, os.WriteFile(path, []byte("app_name: test\ndatabase_driver: sqlite\nserver:\n  port: 12345\n  dev_mode: false\n"), 0600))
 	t.Setenv("KUBEFORECAST_SERVER_DEV_MODE", "true")
 	cfg, err := Load(path)
 	require.NoError(t, err)

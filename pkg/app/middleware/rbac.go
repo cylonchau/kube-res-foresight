@@ -132,7 +132,7 @@ func developerCredentialRouteDenied(path string) bool {
 	for _, prefix := range []string{
 		"/api/v1/auth", "/api/v1/users", "/api/v1/roles", "/api/v1/permissions",
 		"/api/v1/configs", "/api/v1/secret-keys", "/api/v1/columns", "/api/v1/route",
-		"/api/v1/telegram",
+		"/api/v1/ldap",
 	} {
 		if path == prefix || strings.HasPrefix(path, prefix+"/") {
 			return true
@@ -204,14 +204,6 @@ func CasbinMiddleware(permissionDAO *rdb.PermissionDAO) func(c *gin.Context) {
 			strings.HasPrefix(reqPath, "/api/v1/auth/otp/") ||
 			strings.HasPrefix(reqPath, "/api/v1/route/") ||
 			strings.HasPrefix(reqPath, "/api/v1/columns/") ||
-			// Every authenticated user manages their own Telegram binding
-			// regardless of role — these three don't fit a role-based
-			// Casbin policy (unlike the rest of /api/v1/telegram/*, which
-			// is enforced normally below via the BeApis seeded in
-			// migration menu bootstrap).
-			reqPath == "/api/v1/telegram/status" ||
-			reqPath == "/api/v1/telegram/bind/generate" ||
-			reqPath == "/api/v1/telegram/unbind" ||
 			(method == "GET" && strings.HasPrefix(reqPath, "/api/v1/configs/ui.")) ||
 			(method == "GET" && strings.HasPrefix(reqPath, "/api/v1/configs/ui/")) {
 			c.Next()

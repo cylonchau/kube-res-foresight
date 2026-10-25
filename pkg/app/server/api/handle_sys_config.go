@@ -50,7 +50,12 @@ const SecretMask = "********"
 
 var internalSysConfigKeys = map[string]bool{"sys.auth.jwt_secret": true}
 
-func IsInternalSysConfigKey(key string) bool { return internalSysConfigKeys[strings.TrimSpace(key)] }
+// IsInternalSysConfigKey hides the keys the generic settings API must never expose or accept: the signing secret
+// and the whole LDAP configuration, which has its own validated, secret-aware panel.
+func IsInternalSysConfigKey(key string) bool {
+	key = strings.TrimSpace(key)
+	return internalSysConfigKeys[key] || strings.HasPrefix(key, "ldap.")
+}
 
 func (h *ConfigRouter) List(c *gin.Context) {
 	_ = migration.EnsureDefaultConfigs()

@@ -9,9 +9,9 @@ type RefreshTokenSession struct {
 	TokenHash string `gorm:"type:char(64);uniqueIndex;not null" json:"-" column_setting:"false"`
 	FamilyID  string `gorm:"type:char(32);index;index:idx_refresh_session_family_active;not null" json:"-" column_setting:"false"`
 	// ClientType records which surface this session was issued to ("web" or
-	// "tma") — set once at issuance (issueTokenPair / issueTelegramTokens)
+	// "tma") — set once at issuance (issueTokenPair)
 	// and never changed. It's what lets single-session-per-client-type
-	// enforcement and the operation log's page/tma split tell the two apart,
+	// enforcement tells the surfaces apart,
 	// since they otherwise share the exact same JWT/refresh-token mechanism.
 	ClientType string     `gorm:"type:varchar(16);index" json:"client_type" column_setting:"false"`
 	ExpiresAt  time.Time  `gorm:"index;not null" json:"expires_at" column_setting:"false"`

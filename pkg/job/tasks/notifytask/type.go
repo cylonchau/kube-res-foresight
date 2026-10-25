@@ -2,7 +2,7 @@
 // to one recipient on one channel. It has no channel-specific knowledge
 // itself — it just looks the channel up in the pkg/notify registry and hands
 // off, so adding a new channel (email, webhook, ...) never requires touching
-// this task. Channel implementations (e.g. pkg/notify/telegram) register
+// this task. Channel implementations (e.g. pkg/notify/webhook) register
 // themselves via notify.Register — see pkg/job/tasks/registry.go.
 //
 // Producer tasks never send

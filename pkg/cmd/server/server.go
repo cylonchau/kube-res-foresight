@@ -216,14 +216,14 @@ func RunPlatform(ctx context.Context) error {
 		return err
 	}
 
-	workflowEngine := app.NewWorkflowEngine(ctx, model.DB)
-
 	// Operation log retention: intentionally NOT part of the separate
 	// job engine (pkg/job/pkg/cmd/job) — the user asked for something that
 	// just lives inside the main server process, so it's a plain background
 	// goroutine tied to this process's lifetime.
-	startOperationLogRetentionLoop(ctx, rdb.NewSysConfigDAO(model.DB), rdb.NewOperationLogDAO(model.DB))
+	startOperationLogRetentionLoop(ctx, rdb.NewSysConfigDAO(model.DB), rdb.NewOperationLogDAO(model.DB), rdb.NewLoginAuditLogDAO(model.DB))
 
 	// Start Application.
-	return app.NewHTTPServer(ctx, workflowEngine)
+	startForecastMetrics(ctx)
+
+	return app.NewHTTPServer(ctx)
 }

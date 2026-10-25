@@ -23,7 +23,17 @@ func TestColumnMetaDAOHonorsColumnSettingTag(t *testing.T) {
 	}, columns)
 }
 
-func TestColumnMetaDAOExposesWorkflowColumns(t *testing.T) {
-	columns := (&ColumnMetaDAO{}).GetModelColumnsByPage("workflow_instances")
-	assert.NotEmpty(t, columns)
+func TestNewPagesAreRegisteredForPerUserColumnSettings(t *testing.T) {
+	for _, page := range []string{"forecast_module_manage", "forecast_recommendation", "forecast_execution", "forecast_backtest",
+		"forecast_evaluation_runs", "forecast_algorithm", "forecast_metric_source", "forecast_fallback", "forecast_algorithm_score", "forecast_admission", "system_login_log", "system_operation_log"} {
+		columns := (&ColumnMetaDAO{}).GetModelColumnsByPage(page)
+		assert.NotEmpty(t, columns, page)
+	}
+	var configurable int
+	for _, c := range (&ColumnMetaDAO{}).GetModelColumnsByPage("system_login_log") {
+		if c.Configurable {
+			configurable++
+		}
+	}
+	assert.GreaterOrEqual(t, configurable, 5, "the login log columns can be configured per user")
 }

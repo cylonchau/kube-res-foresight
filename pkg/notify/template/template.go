@@ -14,10 +14,10 @@ import (
 )
 
 // Button is a channel-agnostic rendered button. ActionType is "webapp"
-// (opens the Mini App at ActionTarget, or the default Mini App URL if
+// (an optional link target at ActionTarget, or none if
 // ActionTarget is empty), "callback" (ActionTarget is the action prefix;
 // the caller appends ":<entityID>" once it knows which
-// entity this send is for; see pkg/telegram/bot.go's callback router),
+// entity this send is for),
 // or "url" (opens ActionTarget as an ordinary external link — e.g. a help
 // page or an external ticket system; not routed through the bot at all).
 type Button struct {

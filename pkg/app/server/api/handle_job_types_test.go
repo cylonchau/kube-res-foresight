@@ -15,7 +15,7 @@ import (
 
 func TestJobTypesListRegisteredTasksAndTypesAlreadyInTheTable(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db := workflowAPIDB(t)
+	db := apiTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.Job{}))
 	require.NoError(t, db.Create(&model.Job{JobType: "llm_rating", IdempotencyKey: "a"}).Error)
 	require.NoError(t, db.Create(&model.Job{JobType: "llm_rating", IdempotencyKey: "b"}).Error)
@@ -43,7 +43,7 @@ func TestJobTypesListRegisteredTasksAndTypesAlreadyInTheTable(t *testing.T) {
 
 func TestJobBatchResetRequeuesFailedJobsAndSkipsRunningOnes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db := workflowAPIDB(t)
+	db := apiTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.Job{}))
 	failed := model.Job{JobType: "x", IdempotencyKey: "f", Status: "failed"}
 	running := model.Job{JobType: "x", IdempotencyKey: "r", Status: "running", ClaimedBy: "w1"}

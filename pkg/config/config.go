@@ -17,12 +17,11 @@ type Config struct {
 	Database       store.DatabaseConfig           `mapstructure:"database"` // 保留旧的兼容性
 	Server         ServerConfig                   `mapstructure:"server"`
 	Loggers        map[string]logger.LoggerConfig `mapstructure:"loggers"`
-	Telegram       TelegramConfig                 `mapstructure:"telegram"`
 	Redis          RedisConfig                    `mapstructure:"redis"`
 	Metrics        MetricsConfig                  `mapstructure:"metrics"`
 }
 
-// MetricsConfig serves /metrics and /healthz from standalone modules. Empty
+// MetricsConfig serves /metrics, /healthz and /readyz from standalone modules. Empty
 // Listen disables the endpoint.
 type MetricsConfig struct {
 	Listen string `mapstructure:"listen"`
@@ -37,17 +36,6 @@ type RedisConfig struct {
 	Key      string `mapstructure:"key"`
 }
 
-type TelegramConfig struct {
-	Enabled     bool   `mapstructure:"enabled"`
-	BotToken    string `mapstructure:"bot_token"`
-	BotUsername string `mapstructure:"bot_username"`
-	MiniAppURL  string `mapstructure:"miniapp_url"`
-	// APIBaseURL optionally points the long-poll receiver at a self-hosted
-	// telegram-bot-api server instead of api.telegram.org. Empty keeps the
-	// library default.
-	APIBaseURL string `mapstructure:"api_base_url"`
-}
-
 // ServerConfig 服务器基础配置
 type ServerConfig struct {
 	Port      int    `mapstructure:"port"`
@@ -57,12 +45,7 @@ type ServerConfig struct {
 	// different generated key, invalidating sessions and breaking multi-
 	// instance deployments. Also settable via KUBEFORECAST_SERVER_JWT_SECRET.
 	JWTSecret string `mapstructure:"jwt_secret"`
-	// DevMode gates local-development-only conveniences that must never
-	// reach production — currently just the Telegram mock-login endpoint
-	// (POST /api/v1/telegram/auth/mock-login), which logs in as the first
-	// active admin with no credentials at all. Defaults to false (safe);
-	// the route is not even registered unless this is explicitly true.
-	// Also settable via KUBEFORECAST_SERVER_DEV_MODE.
+	// DevMode is kept only so configuration files that still set it are read without error; nothing depends on it.
 	DevMode bool `mapstructure:"dev_mode"`
 	// CORSAllowedOrigins lists exact origins (scheme+host+port, e.g.
 	// "http://localhost:10000") allowed to make cross-origin requests with

@@ -10,7 +10,6 @@ import (
 	"github.com/cylonchau/kubeforecast/pkg/app/router"
 	"github.com/cylonchau/kubeforecast/pkg/config"
 	"github.com/cylonchau/kubeforecast/pkg/logger"
-	"github.com/cylonchau/kubeforecast/pkg/workflow"
 	"github.com/gin-gonic/gin"
 	"io/fs"
 	"net/http"
@@ -21,12 +20,8 @@ import (
 //go:embed all:router/dist
 var staticFS embed.FS
 
-// NewHTTPServer starts the management API and gracefully shuts it down when
-// the command context is cancelled. workflowEngine is the shared
-// *workflow.Engine constructed by the caller (pkg/cmd/server/server.go) —
-// see router.RegisteredRouter's doc comment for why it's threaded through
-// rather than built here.
-func NewHTTPServer(ctx context.Context, workflowEngine *workflow.Engine) error {
+// NewHTTPServer starts the management API and gracefully shuts it down when the command context is cancelled.
+func NewHTTPServer(ctx context.Context) error {
 	cfg := config.Get()
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)
 	logger.Info("KubeForecast HTTP server listening", logger.String("addr", addr))
@@ -80,7 +75,7 @@ func NewHTTPServer(ctx context.Context, workflowEngine *workflow.Engine) error {
 	})
 
 	// Register Routers
-	router.RegisteredRouter(engine, workflowEngine)
+	router.RegisteredRouter(engine)
 
 	server := &http.Server{Addr: addr, Handler: engine}
 	serveErrors := make(chan error, 1)

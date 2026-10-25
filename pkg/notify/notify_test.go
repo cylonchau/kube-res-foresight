@@ -90,10 +90,10 @@ func TestBroadcastNoRegisteredChannelsIsNoop(t *testing.T) {
 
 func TestRegisterGet(t *testing.T) {
 	withCleanRegistry(t)
-	n := &fakeNotifier{channel: "telegram"}
+	n := &fakeNotifier{channel: "webhook"}
 	Register(n)
 
-	got, ok := Get("telegram")
+	got, ok := Get("webhook")
 	if !ok || got != n {
 		t.Fatalf("expected to get back the registered notifier, got %#v ok=%v", got, ok)
 	}

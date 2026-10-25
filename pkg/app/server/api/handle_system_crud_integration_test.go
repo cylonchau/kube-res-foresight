@@ -13,7 +13,7 @@ import (
 
 func systemCRUDRouter(t *testing.T) (*gin.Engine, *model.Role) {
 	t.Helper()
-	db := workflowAPIDB(t)
+	db := apiTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.SecretKey{}, &model.RefreshTokenSession{}, &model.LoginAuditLog{}))
 	previousDB := model.DB
 	model.DB = db

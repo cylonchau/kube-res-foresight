@@ -1,0 +1,446 @@
+package forecast
+
+import (
+	"fmt"
+	"math"
+	"regexp"
+	"sort"
+	"strings"
+)
+
+// ParamSpec is one platform parameter of an algorithm. The names are the platform's own; each is validated here.
+type ParamSpec struct {
+	Name        string   `json:"name"`
+	Type        string   `json:"type"` // int, float, bool, string
+	Required    bool     `json:"required"`
+	Default     any      `json:"default,omitempty"`
+	Min         *float64 `json:"min,omitempty"`
+	Max         *float64 `json:"max,omitempty"`
+	Enum        []string `json:"enum,omitempty"`
+	Unit        string   `json:"unit,omitempty"`
+	Description string   `json:"description"`
+	// OmitWhenDefault keeps a parameter added after the first release out of the canonical form while it has its
+	// default value, so the stored parameters, the model version and every promotion made before it existed stay valid.
+	OmitWhenDefault bool `json:"-"`
+}
+
+// Definition describes one registered algorithm.
+type Definition struct {
+	ID          string `json:"id"`
+	Category    string `json:"category"` // baseline, statistical, machine_learning
+	Version     string `json:"version"`
+	ImplVersion string `json:"impl_version"`
+	Baseline    bool   `json:"baseline"` // baselines are always eligible and are what others must beat
+	// Complexity and MinHistory are plain statements for the algorithm center: the cost of one forecast and the
+	// history it needs before it can run at all.
+	Complexity string `json:"complexity"`
+	MinHistory string `json:"min_history"`
+	// Covariates says whether the algorithm can use the other metrics of an input set; one that cannot is refused
+	// an input set with covariates rather than silently ignoring them.
+	Covariates  bool        `json:"covariates"`
+	Description string      `json:"description"`
+	Params      []ParamSpec `json:"params"`
+	// Dynamic marks an implementation whose parameter schema is not fixed: it comes from the setting that uses it (the
+	// formula implementation). Its Params here is empty.
+	Dynamic bool `json:"dynamic"`
+	// Custom marks an algorithm an administrator wrote as a formula; Formula and Recursive show how it computes and
+	// MinSamples the history it needs.
+	Custom     bool   `json:"custom"`
+	Formula    string `json:"formula,omitempty"`
+	Recursive  bool   `json:"recursive,omitempty"`
+	MinSamples int    `json:"min_samples,omitempty"`
+	// Base is the built-in algorithm a variant is derived from: the same code with its own id and its own parameter
+	// values. Empty for a built-in algorithm and for a formula algorithm.
+	Base string `json:"base,omitempty"`
+}
+
+// Builder constructs a model from parameters that were already validated and had their defaults filled in.
+type Builder func(p map[string]any) (Model, error)
+
+// Implementation is what a Go algorithm registers: its definition (the parameter schema the pages and the API are built
+// from), the builder of its model, and an optional check of parameter combinations that are each valid alone.
+// Registering is the one way an algorithm enters the platform: the list, the forms, the validation, the training and
+// the scoring all start from the registry, so nothing else names an algorithm.
+type Implementation struct {
+	Definition
+	Build Builder
+	// Check rejects a combination of the given (not yet completed) parameters; nil accepts any.
+	Check func(raw map[string]any) error
+}
+
+var (
+	registry []Implementation
+	byID     = map[string]int{}
+)
+
+// Register adds an algorithm implementation. It panics on a duplicate id, a missing builder or a missing version: those
+// are programming errors that must stop the start-up, not surface as a missing algorithm later.
+func Register(impl Implementation) {
+	if impl.ID == "" || impl.Build == nil && !impl.Dynamic {
+		panic("forecast: an implementation needs an id and a builder")
+	}
+	if _, dup := byID[impl.ID]; dup {
+		panic("forecast: algorithm " + impl.ID + " is registered twice")
+	}
+	if impl.Version == "" {
+		impl.Version = "1"
+	}
+	if impl.ImplVersion == "" {
+		impl.ImplVersion = ImplVersion
+	}
+	if impl.Params == nil {
+		impl.Params = []ParamSpec{}
+	}
+	byID[impl.ID] = len(registry)
+	registry = append(registry, impl)
+}
+
+func num(v float64) *float64 { return &v }
+
+func recurrentParams() []ParamSpec {
+	return []ParamSpec{
+		{Name: "lags", Type: "int", Default: 24, Min: num(2), Max: num(500), Unit: "steps", Description: "输入窗口长度（步数）。"},
+		{Name: "hidden_size", Type: "int", Default: 8, Min: num(1), Max: num(128), Description: "隐藏单元数；越大越慢，历史只有几千点时 8–16 足够。"},
+		{Name: "epochs", Type: "int", Default: 15, Min: num(1), Max: num(500), Description: "训练轮数。"},
+		{Name: "learning_rate", Type: "float", Default: 0.01, Min: num(0.0001), Max: num(1), Description: "Adam 学习率。"},
+		{Name: "max_samples", Type: "int", Default: 1000, Min: num(16), Max: num(100000), Description: "只用最近多少个训练窗口。"},
+		{Name: "calendar_features", Type: "bool", Default: false, Description: "是否把 UTC 日/周周期的正余弦作为输入通道。"},
+		{Name: "use_covariates", Type: "bool", Default: true, Description: "是否把其他参与指标作为输入通道（只用目标步之前的值）。"},
+		{Name: "seed", Type: "int", Default: 42, Min: num(0), Max: num(1000000), Description: "随机种子（初始化与样本顺序），固定后结果可复现。"},
+	}
+}
+
+var builtinDefinitions = []Definition{
+	{ID: "naive", Category: "baseline", Baseline: true, Description: "持续值：以最后一个观测值作为所有未来步的预测，所有算法的最低对照。"},
+	{ID: "seasonal_naive", Category: "baseline", Baseline: true, Description: "季节持续：重复一个周期之前的值；需要至少一个完整周期的历史。", Params: []ParamSpec{
+		{Name: "season_length_steps", Type: "int", Required: true, Min: num(2), Unit: "steps", Description: "周期长度，按采样步数计，不能硬编码 24=一天；一天 = 86400 秒 / 步长秒数。"},
+	}},
+	{ID: "ewma", Category: "statistical", Description: "指数加权移动平均：水平平滑后平推，低成本统计基线。", Params: []ParamSpec{
+		{Name: "alpha", Type: "float", Default: 0.3, Min: num(0.001), Max: num(1), Description: "平滑系数，越大越贴近最新值；取值 (0,1]。与 span 二选一。"},
+		{OmitWhenDefault: true, Name: "span", Type: "int", Default: 0, Min: num(0), Max: num(100000), Unit: "steps", Description: "用跨度表示平滑：alpha = 2/(span+1)。0 表示不使用，改用 alpha；两者不能同时给出。"},
+		{OmitWhenDefault: true, Name: "bias_correction", Type: "bool", Default: false, Description: "偏差修正：按 (1-alpha)^龄 加权后除以权重和，而不是以第一个观测值起算，短历史上更不受首个值影响。"},
+	}},
+	{ID: "macd_trend", Category: "technical", Description: "趋势动量（MACD 结构）：快、慢 EMA 之差给出趋势斜率，信号线 EMA 确认动量，在快 EMA 水平上外推并限幅。只用作资源趋势修正，不产生任何买卖信号。", Params: []ParamSpec{
+		{Name: "fast_span", Type: "int", Default: 12, Min: num(2), Max: num(100000), Unit: "steps", Description: "快 EMA 跨度，必须小于慢 EMA 跨度。"},
+		{Name: "slow_span", Type: "int", Default: 26, Min: num(3), Max: num(100000), Unit: "steps", Description: "慢 EMA 跨度。"},
+		{Name: "signal_span", Type: "int", Default: 9, Min: num(2), Max: num(100000), Unit: "steps", Description: "信号线 EMA 跨度，对 MACD 线再做平滑；动量与信号线同向时才采用完整斜率，否则减半。"},
+		{Name: "max_adjustment", Type: "float", Default: 0.5, Min: num(0), Max: num(5), Description: "趋势修正相对当前水平的上限（0.5 = 最多偏离 50%）；预测值不会低于 0。"},
+	}},
+	{ID: "hist_percentile", Category: "statistical", Description: "衰减直方图百分位（Kubernetes VPA / Google Autopilot 的推荐器）：把历史按指数衰减加权，取加权百分位作为平推预测；不建模未来，对内存与 OOM 保护最稳妥。", Params: []ParamSpec{
+		{Name: "percentile", Type: "float", Default: 95.0, Min: num(1), Max: num(100), Description: "取第几百分位，如 95、99；越大越保守。"},
+		{Name: "half_life_hours", Type: "float", Default: 24.0, Min: num(0), Max: num(24 * 180), Unit: "hours", Description: "半衰期：这么久之前的样本只算一半权重；0 表示不衰减。CPU 常取 12–24 小时，内存常取 48 小时。"},
+		{Name: "safety_margin", Type: "float", Default: 0.0, Min: num(0), Max: num(5), Description: "安全边际：结果再乘 (1+边际)。"},
+	}},
+	{ID: "random_forest", Category: "machine_learning", Description: "随机森林：多棵在自助样本和随机特征子集上训练的回归树取平均，使用滞后、日历和参与指标的滞后特征，递归多步预测；固定随机种子，结果可复现。树模型无法外推到训练目标范围之外。", Params: []ParamSpec{
+		{Name: "lags", Type: "int", Required: true, Min: num(1), Max: num(2000), Unit: "steps", Description: "滞后步数，仅使用目标步之前的值。"},
+		{Name: "calendar_features", Type: "bool", Default: false, Description: "是否加入 UTC 日/周周期的正余弦特征。"},
+		{Name: "n_estimators", Type: "int", Default: 50, Min: num(1), Max: num(500), Description: "树的数量。"},
+		{Name: "max_depth", Type: "int", Default: 6, Min: num(1), Max: num(12), Description: "单棵树最大深度。"},
+		{Name: "min_samples_leaf", Type: "int", Default: 5, Min: num(1), Description: "叶子最少样本数。"},
+		{Name: "feature_ratio", Type: "float", Default: 0.6, Min: num(0.05), Max: num(1), Description: "每棵树可用于分裂的特征比例。"},
+		{Name: "sample_ratio", Type: "float", Default: 0.8, Min: num(0.05), Max: num(1), Description: "每棵树自助采样的样本比例。"},
+		{Name: "training_window_steps", Type: "int", Default: 0, Min: num(0), Unit: "steps", Description: "只用最近多少个样本训练；0 = 全部历史。"},
+		{Name: "covariate_lags", Type: "int", Default: 3, Min: num(1), Max: num(48), Unit: "steps", Description: "每个参与指标取最近多少步的值作为特征（只用目标步之前的值）；没有其他参与指标时忽略。"},
+		{Name: "seed", Type: "int", Default: 42, Min: num(0), Max: num(1000000), Description: "随机种子，固定后同样的历史给出同样的预测。"},
+	}},
+	{ID: "knn", Category: "machine_learning", Description: "K 近邻（相似窗口回归）：把最近一段与历史上每段相同长度的窗口比较，取最相似的 K 段之后发生的值加权平均；可按窗口均值做相对化，使低负载时见过的形态仍能匹配。", Params: []ParamSpec{
+		{Name: "window", Type: "int", Default: 48, Min: num(2), Max: num(5000), Unit: "steps", Description: "比较窗口长度。"},
+		{Name: "k", Type: "int", Default: 5, Min: num(1), Max: num(200), Description: "取最相似的几段。"},
+		{Name: "normalize", Type: "string", Default: "relative", Enum: []string{"relative", "none"}, Description: "relative = 窗口除以自身均值后比较，再缩放回当前水平；none = 直接比较原值。"},
+	}},
+	{ID: "naive_bayes", Category: "machine_learning", Description: "朴素贝叶斯：把目标和每个特征切成分位数桶，学习“类别先验 + 各特征桶在该类别下的概率”，预测下一步落在哪个类别并取类别均值（或后验期望），递归多步预测。分辨率受桶宽限制。", Params: []ParamSpec{
+		{Name: "lags", Type: "int", Default: 3, Min: num(1), Max: num(200), Unit: "steps", Description: "滞后步数。"},
+		{Name: "bins", Type: "int", Default: 8, Min: num(2), Max: num(64), Description: "目标与特征的分桶数。"},
+		{Name: "covariate_lags", Type: "int", Default: 1, Min: num(1), Max: num(24), Unit: "steps", Description: "每个参与指标取最近多少步的值作为特征；没有其他参与指标时忽略。"},
+		{Name: "calendar_features", Type: "bool", Default: true, Description: "是否加入 UTC 日/周周期特征。"},
+		{Name: "output", Type: "string", Default: "expectation", Enum: []string{"expectation", "mode"}, Description: "expectation = 后验加权的类别均值；mode = 最可能类别的均值。"},
+		{Name: "training_window_steps", Type: "int", Default: 0, Min: num(0), Unit: "steps", Description: "只用最近多少个样本训练；0 = 全部历史。"},
+	}},
+	{ID: "rnn", Category: "deep_learning", Description: "循环神经网络（Elman RNN）：读取最近一段窗口（目标、参与指标、可选日历位置）预测下一步，随后递归多步；纯 Go 进程内训练，受训练时间预算限制。", Params: recurrentParams()},
+	{ID: "gru", Category: "deep_learning", Description: "门控循环单元（GRU）：比 RNN 更容易学到较长的依赖；纯 Go 进程内训练，受训练时间预算限制。", Params: recurrentParams()},
+	{ID: "lstm", Category: "deep_learning", Description: "长短期记忆网络（LSTM）：带遗忘门与记忆单元，适合带周期与突发的负载；纯 Go 进程内训练，受训练时间预算限制。", Params: recurrentParams()},
+	{ID: "holt_winters", Category: "statistical", Description: "Holt-Winters（加性 ETS 族）：水平、可选阻尼趋势、可选加性季节；平滑系数为 0 时在小网格内按样本内单步误差自动选择。", Params: []ParamSpec{
+		{Name: "season_length_steps", Type: "int", Default: 0, Min: num(0), Unit: "steps", Description: "周期长度（步数）；0 表示不含季节项，启用季节项需要至少两个完整周期。"},
+		{Name: "trend", Type: "bool", Default: true, Description: "是否包含趋势项。"},
+		{Name: "damped", Type: "bool", Default: false, Description: "趋势是否阻尼，避免长 horizon 无限外推。"},
+		{Name: "alpha", Type: "float", Default: 0.0, Min: num(0), Max: num(1), Description: "水平平滑系数；0 = 自动选择。"},
+		{Name: "beta", Type: "float", Default: 0.0, Min: num(0), Max: num(1), Description: "趋势平滑系数；0 = 自动选择。"},
+		{Name: "gamma", Type: "float", Default: 0.0, Min: num(0), Max: num(1), Description: "季节平滑系数；0 = 自动选择。"},
+	}},
+	{ID: "ridge_ar", Category: "machine_learning", Description: "岭回归自回归：滞后值与可选日历特征，递归多步预测，特征与目标标准化。", Params: []ParamSpec{
+		{Name: "lags", Type: "int", Required: true, Min: num(1), Max: num(2000), Unit: "steps", Description: "滞后步数，仅使用目标步之前的值。"},
+		{Name: "calendar_features", Type: "bool", Default: false, Description: "是否加入 UTC 日/周周期的正余弦特征（时间戳已知，不泄漏未来）。"},
+		{Name: "l2_lambda", Type: "float", Default: 0.01, Min: num(0), Description: "L2 正则强度，相对样本数缩放。"},
+		{Name: "training_window_steps", Type: "int", Default: 0, Min: num(0), Unit: "steps", Description: "只用最近多少个样本训练；0 = 全部历史。"},
+		{OmitWhenDefault: true, Name: "covariate_lags", Type: "int", Default: 3, Min: num(1), Max: num(48), Unit: "steps", Description: "输入指标集里每个协变量取最近多少步的值作为特征（仅用目标步之前的值；未来步沿用最后观测值）。没有协变量时忽略。"},
+	}},
+	{ID: "gbdt", Category: "machine_learning", Description: "梯度提升回归树：滞后与日历特征，直方图分裂，递归多步预测；支持平方误差或分位数（pinball）目标。树模型无法外推到训练目标范围之外。", Params: []ParamSpec{
+		{Name: "lags", Type: "int", Required: true, Min: num(1), Max: num(2000), Unit: "steps", Description: "滞后步数，仅使用目标步之前的值。"},
+		{Name: "calendar_features", Type: "bool", Default: false, Description: "是否加入 UTC 日/周周期的正余弦特征。"},
+		{Name: "n_estimators", Type: "int", Default: 100, Min: num(1), Max: num(1000), Description: "树的数量。"},
+		{Name: "learning_rate", Type: "float", Default: 0.1, Min: num(0.001), Max: num(1), Description: "每棵树的收缩系数。"},
+		{Name: "max_depth", Type: "int", Default: 3, Min: num(1), Max: num(8), Description: "单棵树最大深度。"},
+		{Name: "min_samples_leaf", Type: "int", Default: 5, Min: num(1), Description: "叶子最少样本数。"},
+		{Name: "objective", Type: "string", Default: "squared", Enum: []string{"squared", "quantile"}, Description: "squared = 平方误差点预测；quantile = alpha 分位数，用于峰值/容量保护，需单独验证覆盖率。"},
+		{Name: "alpha", Type: "float", Default: 0.9, Min: num(0.01), Max: num(0.99), Description: "分位数目标的分位点，仅 objective=quantile 时使用。"},
+		{Name: "training_window_steps", Type: "int", Default: 5000, Min: num(0), Unit: "steps", Description: "只用最近多少个样本训练，限制训练耗时；0 = 全部历史。"},
+		{OmitWhenDefault: true, Name: "covariate_lags", Type: "int", Default: 3, Min: num(1), Max: num(48), Unit: "steps", Description: "输入指标集里每个协变量取最近多少步的值作为特征（仅用目标步之前的值；未来步沿用最后观测值）。没有协变量时忽略。"},
+	}},
+}
+
+// notes holds the cost and data requirements shown in the algorithm center, by algorithm id.
+var notes = map[string][2]string{
+	"naive":           {"O(h) per forecast, no training", "1 observation"},
+	"seasonal_naive":  {"O(h) per forecast, no training", "season_length_steps observations (one full season)"},
+	"ewma":            {"O(n) per forecast, no training", "2 observations"},
+	"holt_winters":    {"O(n) per smoothing pass, a small grid search when coefficients are automatic", "2 x season_length_steps with a seasonal term, else 4 observations"},
+	"ridge_ar":        {"O(n*lags^2) to fit, O(h*lags) to forecast; retrained on every run", "lags + 2 x feature width + 1 observations (feature width = lags, plus 4 with calendar features)"},
+	"gbdt":            {"O(trees*n*lags*bins) to fit, retrained on every run; bounded by training_window_steps", "lags + 4 x min_samples_leaf + 1 observations"},
+	"macd_trend":      {"O(n) per forecast, no training", "slow_span + signal_span observations"},
+	"hist_percentile": {"O(n log n) per forecast, no training", "4 observations"},
+	"random_forest":   {"O(trees*n*lags*bins) to fit, retrained on every run; bounded by training_window_steps", "lags + 4 x min_samples_leaf + 1 observations"},
+	"knn":             {"O(n*window) per forecast, no training", "window + k + 1 observations, and k earlier windows followed by the horizon"},
+	"naive_bayes":     {"O(n*features) to fit, retrained on every run", "lags + 4 x bins + 1 observations"},
+	"rnn":             {"O(epochs*samples*lags*hidden^2) to train on every run; bounded by max_samples and the training time budget", "lags + 30 observations"},
+	"gru":             {"O(epochs*samples*lags*hidden^2) to train on every run; bounded by max_samples and the training time budget", "lags + 30 observations"},
+	"lstm":            {"O(epochs*samples*lags*hidden^2) to train on every run; bounded by max_samples and the training time budget", "lags + 30 observations"},
+}
+
+// covariateAlgorithms are the algorithms that read the covariates of an input set.
+var covariateAlgorithms = map[string]bool{"ridge_ar": true, "gbdt": true, "random_forest": true, "naive_bayes": true, "rnn": true, "gru": true, "lstm": true}
+
+func init() {
+	for i := range builtinDefinitions {
+		d := builtinDefinitions[i]
+		d.Covariates = covariateAlgorithms[d.ID]
+		if n, ok := notes[d.ID]; ok {
+			d.Complexity, d.MinHistory = n[0], n[1]
+		}
+		build, ok := builtinBuilders[d.ID]
+		if !ok {
+			panic("forecast: algorithm " + d.ID + " has no builder")
+		}
+		Register(Implementation{Definition: d, Build: build, Check: builtinChecks[d.ID]})
+	}
+	registerFormula()
+}
+
+// Definitions returns the registered algorithms in a stable order: the built-in ones, then the custom ones by id.
+func Definitions() []Definition {
+	out := make([]Definition, 0, len(registry))
+	for _, impl := range registry {
+		out = append(out, impl.Definition)
+	}
+	return append(out, customDefinitions()...)
+}
+
+// find returns the implementation of a built-in or custom algorithm.
+func find(id string) (Implementation, bool) {
+	if i, ok := byID[id]; ok {
+		return registry[i], true
+	}
+	return findCustom(id)
+}
+
+// Lookup returns the definition of an algorithm.
+func Lookup(id string) (Definition, bool) {
+	impl, ok := find(id)
+	return impl.Definition, ok
+}
+
+// Normalize validates raw parameters against the definition of a registered algorithm and returns them with defaults
+// filled in. Unknown names, wrong types, out-of-range values and missing required values are errors.
+func Normalize(id string, raw map[string]any) (map[string]any, error) {
+	impl, ok := find(id)
+	if !ok {
+		return nil, fmt.Errorf("unknown algorithm %q", id)
+	}
+	if impl.Dynamic {
+		return nil, fmt.Errorf("algorithm %q takes its parameter schema from the setting that uses it", id)
+	}
+	if impl.Check != nil {
+		if err := impl.Check(raw); err != nil {
+			return nil, err
+		}
+	}
+	return NormalizeSpecs(impl.Params, raw, id)
+}
+
+// NormalizeSpecs validates raw parameters against a parameter schema and returns them with the defaults filled in.
+// It is what Normalize does for a registered algorithm and what a formula algorithm uses with the schema its author
+// gave. Unknown names, wrong types, out-of-range values and missing required values are errors.
+func NormalizeSpecs(specs []ParamSpec, raw map[string]any, label string) (map[string]any, error) {
+	known := map[string]ParamSpec{}
+	for _, p := range specs {
+		known[p.Name] = p
+	}
+	for name := range raw {
+		if _, ok := known[name]; !ok {
+			return nil, fmt.Errorf("unknown parameter %q for %s", name, label)
+		}
+	}
+	out := map[string]any{}
+	for _, spec := range specs {
+		v, given := raw[spec.Name]
+		if !given || v == nil {
+			if spec.Required {
+				return nil, fmt.Errorf("parameter %q is required", spec.Name)
+			}
+			out[spec.Name] = spec.Default
+			continue
+		}
+		checked, err := checkParam(spec, v)
+		if err != nil {
+			return nil, err
+		}
+		out[spec.Name] = checked
+	}
+	return out, nil
+}
+
+// ValidateSpecs checks a parameter schema an author wrote: names, types, defaults and ranges have to be coherent, so
+// that a setting made from it can never fail on the schema itself.
+func ValidateSpecs(specs []ParamSpec) error {
+	seen := map[string]bool{}
+	for _, p := range specs {
+		if !paramName.MatchString(p.Name) {
+			return fmt.Errorf("parameter name %q must be a lowercase identifier (letters, digits and underscore, starting with a letter)", p.Name)
+		}
+		if seen[p.Name] {
+			return fmt.Errorf("parameter %q is declared twice", p.Name)
+		}
+		seen[p.Name] = true
+		switch p.Type {
+		case "int", "float", "bool", "string":
+		default:
+			return fmt.Errorf("parameter %q has type %q: it must be int, float, bool or string", p.Name, p.Type)
+		}
+		if p.Type == "string" && len(p.Enum) == 0 {
+			return fmt.Errorf("parameter %q is a string and needs its allowed values (enum)", p.Name)
+		}
+		if p.Min != nil && p.Max != nil && *p.Min > *p.Max {
+			return fmt.Errorf("parameter %q has a minimum above its maximum", p.Name)
+		}
+		if p.Default == nil && !p.Required {
+			return fmt.Errorf("parameter %q needs a default value or must be required", p.Name)
+		}
+		if p.Default != nil {
+			if _, err := checkParam(p, p.Default); err != nil {
+				return fmt.Errorf("the default of %w", err)
+			}
+		}
+		if strings.TrimSpace(p.Description) == "" {
+			return fmt.Errorf("parameter %q needs a description: it is what the help mark of the form shows", p.Name)
+		}
+	}
+	return nil
+}
+
+var paramName = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)
+
+func checkParam(spec ParamSpec, v any) (any, error) {
+	switch spec.Type {
+	case "bool":
+		b, ok := v.(bool)
+		if !ok {
+			return nil, fmt.Errorf("parameter %q must be a boolean", spec.Name)
+		}
+		return b, nil
+	case "string":
+		s, ok := v.(string)
+		if !ok {
+			return nil, fmt.Errorf("parameter %q must be a string", spec.Name)
+		}
+		if len(spec.Enum) > 0 {
+			found := false
+			for _, e := range spec.Enum {
+				found = found || e == s
+			}
+			if !found {
+				return nil, fmt.Errorf("parameter %q must be one of %v", spec.Name, spec.Enum)
+			}
+		}
+		return s, nil
+	case "int", "float":
+		var f float64
+		switch n := v.(type) {
+		case float64:
+			f = n
+		case float32:
+			f = float64(n)
+		case int:
+			f = float64(n)
+		case int64:
+			f = float64(n)
+		default:
+			return nil, fmt.Errorf("parameter %q must be a number", spec.Name)
+		}
+		if math.IsNaN(f) || math.IsInf(f, 0) {
+			return nil, fmt.Errorf("parameter %q must be finite", spec.Name)
+		}
+		if spec.Type == "int" {
+			if f != math.Trunc(f) {
+				return nil, fmt.Errorf("parameter %q must be an integer", spec.Name)
+			}
+		}
+		if spec.Min != nil && f < *spec.Min {
+			return nil, fmt.Errorf("parameter %q must be at least %v", spec.Name, *spec.Min)
+		}
+		if spec.Max != nil && f > *spec.Max {
+			return nil, fmt.Errorf("parameter %q must be at most %v", spec.Name, *spec.Max)
+		}
+		if spec.Type == "int" {
+			return int(f), nil
+		}
+		return f, nil
+	}
+	return nil, fmt.Errorf("parameter %q has unsupported type %q", spec.Name, spec.Type)
+}
+
+// Build validates the parameters and returns a configured model of a registered algorithm.
+func Build(id string, raw map[string]any) (Model, error) {
+	p, err := Normalize(id, raw)
+	if err != nil {
+		return nil, err
+	}
+	impl, _ := find(id)
+	return impl.Build(p)
+}
+
+// IDs returns the ids of the built-in algorithms that are algorithms on their own, sorted (the system creates a
+// setting for each of them; custom algorithms are created by an administrator). A dynamic implementation
+// (formula) is not one: each custom algorithm built on it has its own id and its own definition.
+func IDs() []string {
+	ids := make([]string, 0, len(registry))
+	for _, d := range registry {
+		if !d.Dynamic {
+			ids = append(ids, d.ID)
+		}
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+// Canonical returns the parameters of a registered algorithm in the form that is stored and hashed: the normalized
+// values without the parameters that were added later and still have their default (see ParamSpec.OmitWhenDefault).
+func Canonical(id string, normalized map[string]any) map[string]any {
+	def, ok := Lookup(id)
+	if !ok {
+		return normalized
+	}
+	return CanonicalSpecs(def.Params, normalized)
+}
+
+// CanonicalSpecs is Canonical for an explicit parameter schema.
+func CanonicalSpecs(specs []ParamSpec, normalized map[string]any) map[string]any {
+	out := make(map[string]any, len(normalized))
+	for k, v := range normalized {
+		out[k] = v
+	}
+	for _, spec := range specs {
+		if spec.OmitWhenDefault && fmt.Sprint(out[spec.Name]) == fmt.Sprint(spec.Default) {
+			delete(out, spec.Name)
+		}
+	}
+	return out
+}

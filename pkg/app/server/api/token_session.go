@@ -46,14 +46,9 @@ func (h *AuthRouter) tokenDurations(ctx context.Context) (accessMinutes, refresh
 	return
 }
 
-// ClientTypeWeb / ClientTypeTMA identify which surface a RefreshTokenSession
-// was issued to, for single-session-per-surface enforcement and for the
-// operation log's page/tma split. Kept as exported constants since both
-// token_session.go (web) and handle_telegram.go (tma) need the same values.
-const (
-	ClientTypeWeb = "web"
-	ClientTypeTMA = "tma"
-)
+// ClientTypeWeb identifies the surface a RefreshTokenSession was issued to, for single-session-per-surface
+// enforcement.
+const ClientTypeWeb = "web"
 
 // sessionConflictInfo is what gets sent back to a login request when the
 // account already has an active session on this client type — enough for
@@ -71,8 +66,7 @@ type sessionConflictInfo struct {
 // force is true, it instead revokes that existing session (tagged "kicked"
 // so the other tab/device's next request can say why) and lets login
 // proceed. Shared as a free function (rather than a method on AuthRouter)
-// since TelegramRouter's Login needs the exact same check against its own
-// RefreshDAO field.
+// so every login flow can use it.
 func checkSessionConflict(c *gin.Context, refreshDAO *rdb.RefreshTokenSessionDAO, userID uint, clientType string, force bool) (*sessionConflictInfo, error) {
 	existing, err := refreshDAO.HasActiveByClientType(c.Request.Context(), userID, clientType)
 	if err != nil {

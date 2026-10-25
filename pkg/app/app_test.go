@@ -17,7 +17,7 @@ func TestHTTPServerStartsAndShutsDownWithContext(t *testing.T) {
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- NewHTTPServer(ctx, nil) }()
+	go func() { done <- NewHTTPServer(ctx) }()
 	time.Sleep(30 * time.Millisecond)
 	cancel()
 	select {

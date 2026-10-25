@@ -30,9 +30,6 @@ type Payload struct {
 	Content   string            `json:"content"`
 	Buttons   []template.Button `json:"buttons,omitempty"`
 
-	// SendAccountID names the Telegram user account that sends (0 = automatic).
-	SendAccountID int64 `json:"send_account_id,omitempty"`
-
 	// Optional engine controls: severity drives escalation (P0/P1), DedupKey
 	// suppresses repeats, EscalateChannel is used when a P0/P1 is not ACKed.
 	Severity        string `json:"severity,omitempty"`

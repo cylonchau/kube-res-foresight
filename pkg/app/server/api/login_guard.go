@@ -12,15 +12,57 @@ import (
 	"github.com/cylonchau/kubeforecast/pkg/model"
 	"github.com/gin-gonic/gin"
 	"html"
+	"strconv"
 	"strings"
 	"time"
 )
 
 const (
-	loginFailureThreshold = 3
-	loginFailureWindow    = 15 * time.Minute
-	captchaLifetime       = 5 * time.Minute
+	// Defaults of the lockout policy; sys.auth.login_failure_threshold / sys.auth.login_failure_window_minutes
+	// override them without a restart.
+	defaultLoginFailureThreshold = 3
+	defaultLoginFailureWindow    = 15 * time.Minute
+	captchaLifetime              = 5 * time.Minute
+
+	configLoginFailureThreshold = "sys.auth.login_failure_threshold"
+	configLoginFailureWindow    = "sys.auth.login_failure_window_minutes"
+
+	loginMethodPassword = "password"
+	loginMethodLDAP     = "ldap"
+	loginMethodOTP      = "otp"
+
+	loginReasonOK                 = "ok"
+	loginReasonInvalidCredentials = "invalid_credentials"
+	loginReasonCaptchaRequired    = "captcha_required"
+	loginReasonUserDisabled       = "user_disabled"
+	loginReasonOTPInvalid         = "otp_invalid"
 )
+
+// loginPolicy is how many failures within which window require a captcha for the account and address.
+type loginPolicy struct {
+	threshold int
+	window    time.Duration
+}
+
+// loginPolicy reads the lockout settings on every attempt so an administrator's change applies at once. Missing
+// or invalid values fall back to the defaults; values outside a sane range are clamped.
+func (h *AuthRouter) loginPolicy(ctx context.Context) loginPolicy {
+	policy := loginPolicy{threshold: defaultLoginFailureThreshold, window: defaultLoginFailureWindow}
+	if h.ConfigDAO == nil {
+		return policy
+	}
+	if cfg, err := h.ConfigDAO.GetByKey(ctx, configLoginFailureThreshold); err == nil && cfg != nil {
+		if n, err := strconv.Atoi(strings.TrimSpace(cfg.ConfigValue)); err == nil && n >= 1 && n <= 100 {
+			policy.threshold = n
+		}
+	}
+	if cfg, err := h.ConfigDAO.GetByKey(ctx, configLoginFailureWindow); err == nil && cfg != nil {
+		if n, err := strconv.Atoi(strings.TrimSpace(cfg.ConfigValue)); err == nil && n >= 1 && n <= 24*60 {
+			policy.window = time.Duration(n) * time.Minute
+		}
+	}
+	return policy
+}
 
 func loginAttemptKey(c *gin.Context, username string) string {
 	return strings.ToLower(strings.TrimSpace(username)) + "|" + c.ClientIP()
@@ -30,7 +72,7 @@ func loginAttemptKey(c *gin.Context, username string) string {
 // threshold. DB errors fail closed (captcha required) rather than silently
 // disabling the lockout.
 func (h *AuthRouter) loginCaptchaRequired(c *gin.Context, key string) bool {
-	required, err := h.SecurityDAO.CaptchaRequired(c.Request.Context(), key, loginFailureThreshold)
+	required, err := h.SecurityDAO.CaptchaRequired(c.Request.Context(), key, h.loginPolicy(c.Request.Context()).threshold)
 	if err != nil {
 		logger.Error("failed to check login captcha requirement", logger.Err(err), logger.String("key", key))
 		return true
@@ -38,28 +80,30 @@ func (h *AuthRouter) loginCaptchaRequired(c *gin.Context, key string) bool {
 	return required
 }
 
-func (h *AuthRouter) loginFailed(c *gin.Context, key, username string) {
-	count, err := h.SecurityDAO.RegisterFailure(c.Request.Context(), key, loginFailureWindow)
+func (h *AuthRouter) loginFailed(c *gin.Context, key, username, method, reason string) {
+	policy := h.loginPolicy(c.Request.Context())
+	count, err := h.SecurityDAO.RegisterFailure(c.Request.Context(), key, policy.window)
 	if err != nil {
 		logger.Error("failed to register login failure", logger.Err(err), logger.String("key", key))
 	}
-	h.recordLoginAudit(c, username, false)
+	h.recordLoginAudit(c, username, false, method, reason)
 	query.UnauthorizedWithData(c, query.ErrInvalidCredentials, gin.H{
-		"captcha_required": count >= loginFailureThreshold,
+		"captcha_required": count >= policy.threshold,
 	})
 }
 
 // recordLoginAudit appends to the append-only login history used by the
-// Telegram /report weekly summary's "suspicious logins" figure (see
+// login history used by the login-log page and the admin user list (see
 // pkg/dao/rdb.LoginAuditLogDAO — distinct from SecurityDAO's rolling
 // lockout counter, which gets pruned/overwritten and can't answer "how many
 // failures happened in the last 7 days"). Best-effort: a logging failure
 // must never block or fail the login response itself.
-func (h *AuthRouter) recordLoginAudit(c *gin.Context, username string, success bool) {
+func (h *AuthRouter) recordLoginAudit(c *gin.Context, username string, success bool, method, reason string) {
 	if h.LoginAuditDAO == nil {
 		return
 	}
-	if err := h.LoginAuditDAO.Record(c.Request.Context(), username, c.ClientIP(), success); err != nil {
+	entry := &model.LoginAuditLog{Username: username, ClientIP: c.ClientIP(), Success: success, Method: method, Reason: reason, UserAgent: c.Request.UserAgent()}
+	if err := h.LoginAuditDAO.RecordEntry(c.Request.Context(), entry); err != nil {
 		logger.Error("failed to record login audit log", logger.Err(err), logger.String("username", username))
 	}
 }

@@ -14,7 +14,7 @@ func TestKubeForecastCommandExposesArchitectureModules(t *testing.T) {
 	}
 
 	assert.Equal(t, "kubeforecast", root.Name())
-	assert.ElementsMatch(t, []string{"all", "platform", "job", "server", "notify", "version"}, names)
+	assert.ElementsMatch(t, []string{"all", "platform", "job", "server", "notify", "operator", "version"}, names)
 }
 
 func TestKubeForecastCommandWithoutSubcommandPrintsHelp(t *testing.T) {

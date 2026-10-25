@@ -34,7 +34,6 @@ func (t *Task) Execute(ctx context.Context, job *model.Job) error {
 			Title:          payload.Title,
 			Content:        payload.Content,
 			Buttons:        payload.Buttons,
-			SendAccountID:  payload.SendAccountID,
 
 			Severity:        payload.Severity,
 			DedupKey:        payload.DedupKey,
@@ -51,7 +50,5 @@ func (t *Task) Execute(ctx context.Context, job *model.Job) error {
 		Title:   payload.Title,
 		Content: payload.Content,
 		Buttons: payload.Buttons,
-
-		SendAccountID: payload.SendAccountID,
 	})
 }

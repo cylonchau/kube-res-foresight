@@ -22,8 +22,8 @@ func TestEnqueueCreatesIdempotentNotificationJob(t *testing.T) {
 	dao := rdb.NewJobDAO(db)
 	enqueue := Enqueue(dao, &model.Job{ID: 42, JobType: "source"})
 	msg := notify.Message{Title: "Alert", Content: "BTC", Buttons: []template.Button{{Label: "Open", ActionType: "url", ActionTarget: "https://example.com"}}}
-	require.NoError(t, enqueue(context.Background(), "telegram", "100", msg))
-	require.NoError(t, enqueue(context.Background(), "telegram", "100", msg))
+	require.NoError(t, enqueue(context.Background(), "webhook", "100", msg))
+	require.NoError(t, enqueue(context.Background(), "webhook", "100", msg))
 	var jobs []model.Job
 	require.NoError(t, db.Find(&jobs).Error)
 	require.Len(t, jobs, 1)

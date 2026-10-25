@@ -1,5 +1,5 @@
 // Package notify is the generic notification-channel abstraction. Concrete
-// channels (Telegram today, potentially email/webhook/DingTalk later)
+// channels (webhook and voice today, potentially email later)
 // implement Notifier and register themselves here; callers that want to
 // notify people never talk to a specific channel — they call Broadcast,
 // which asks every registered channel for its current recipients and
@@ -15,28 +15,23 @@ import (
 )
 
 // Message is a channel-agnostic notification payload. Buttons is a flat
-// list of interactive buttons (rendered from a NotifyTemplate — see
-// pkg/notify/template); a channel renders each on its own row (or ignores
+// list of interactive buttons (see pkg/notify/template); a channel renders each on its own row (or ignores
 // them entirely if it can't render buttons at all).
 type Message struct {
 	Title   string
 	Content string
 	Buttons []template.Button
-
-	// SendAccountID optionally names the Telegram user account that sends; 0 lets
-	// the channel choose. Other channels ignore it.
-	SendAccountID int64
 }
 
 // Notifier is implemented by one notification channel.
 type Notifier interface {
-	// Channel returns the channel's stable identifier (e.g. "telegram"),
+	// Channel returns the channel's stable identifier (e.g. "webhook"),
 	// used to route notify jobs back to the right Notifier and as the
 	// job payload's channel field.
 	Channel() string
 
 	// Recipients returns who currently wants to receive broadcasts on this
-	// channel (e.g. every user with an active Telegram binding). An empty
+	// channel (e.g. every configured webhook endpoint). An empty
 	// slice (not an error) means the channel is configured but has nobody
 	// to notify right now.
 	Recipients(ctx context.Context) ([]string, error)
@@ -61,12 +56,7 @@ func Get(channel string) (Notifier, bool) {
 
 // EnqueueFunc persists one notify job for a single (channel, recipient)
 // delivery. It's a plain function type rather than a concrete DAO
-// dependency so this package stays free of pkg/dao/rdb — pkg/dao/rdb
-// already depends on pkg/telegram (for TelegramUser), and pkg/telegram
-// would need to depend on this package if a channel adapter lived there,
-// which would form a cycle back through pkg/dao/rdb. Keeping notify.Broadcast
-// dependency-free avoids that regardless of where channel adapters end up
-// living.
+// dependency, so this package stays free of the database layer and channel adapters can live anywhere.
 type EnqueueFunc func(ctx context.Context, channel, recipient string, msg Message) error
 
 // Broadcast asks every registered channel for its current recipients and

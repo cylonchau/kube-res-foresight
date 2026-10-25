@@ -19,7 +19,6 @@ func (dao *UserDAO) GetByUsername(ctx context.Context, username string) (*model.
 	var user model.User
 	err := dao.db.WithContext(ctx).
 		Preload("Roles.Permissions").
-		Preload("TelegramBinding").
 		Where("username = ?", username).
 		First(&user).Error
 	if err != nil {
@@ -34,7 +33,7 @@ func (dao *UserDAO) Create(ctx context.Context, user *model.User) error {
 }
 
 // GetFirstActiveWithPermissions returns the first active user (by primary
-// key order), preloading roles and permissions. Used by the Telegram mock
+// key order), preloading roles and permissions.
 // login path to pick a default account in local/dev environments.
 func (dao *UserDAO) GetFirstActiveWithPermissions(ctx context.Context) (*model.User, error) {
 	var user model.User
@@ -45,7 +44,7 @@ func (dao *UserDAO) GetFirstActiveWithPermissions(ctx context.Context) (*model.U
 // GetByID queries user by ID
 func (dao *UserDAO) GetByID(ctx context.Context, id uint) (*model.User, error) {
 	var user model.User
-	err := dao.db.WithContext(ctx).Preload("Roles.Permissions").Preload("TelegramBinding").First(&user, id).Error
+	err := dao.db.WithContext(ctx).Preload("Roles.Permissions").First(&user, id).Error
 	return &user, err
 }
 
@@ -69,7 +68,7 @@ func (dao *UserDAO) List(ctx context.Context, username, nickName string, status 
 		return nil, 0, err
 	}
 
-	err := db.Preload("Roles").Preload("TelegramBinding").Offset(offset).Limit(limit).Find(&users).Error
+	err := db.Preload("Roles").Offset(offset).Limit(limit).Find(&users).Error
 	return users, total, err
 }
 

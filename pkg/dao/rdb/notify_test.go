@@ -28,7 +28,7 @@ func TestNotificationDAORecordAndAck(t *testing.T) {
 	record := &model.NotificationDelivery{
 		NotificationID:  "notif_1001",
 		DedupKey:        "flash_crash_btc_20260929",
-		Channel:         "telegram",
+		Channel:         "webhook",
 		Recipient:       "12345678",
 		Title:           "BTC Flash Crash Alert",
 		Content:         "Price fell >7% in 1 minute",
@@ -100,7 +100,7 @@ func TestNotificationDAOUnackedEscalationQuery(t *testing.T) {
 	unacked := &model.NotificationDelivery{
 		NotificationID:  "notif_p0_unacked",
 		DedupKey:        "p0_key",
-		Channel:         "telegram",
+		Channel:         "webhook",
 		Recipient:       "8888",
 		Title:           "Systemic Shock",
 		Content:         "Global Kill Switch Activated",
@@ -141,7 +141,7 @@ func TestNotificationDAOPaginationAndStats(t *testing.T) {
 		}
 		require.NoError(t, dao.RecordDelivery(ctx, &model.NotificationDelivery{
 			NotificationID: "n_" + string(rune('0'+i)),
-			Channel:        "telegram",
+			Channel:        "webhook",
 			Recipient:      "user1",
 			Title:          "Alert",
 			Severity:       sev,
@@ -150,7 +150,7 @@ func TestNotificationDAOPaginationAndStats(t *testing.T) {
 		}))
 	}
 
-	rows, total, err := dao.ListDeliveriesPaginated(ctx, 1, 2, "telegram", "", "", "Alert")
+	rows, total, err := dao.ListDeliveriesPaginated(ctx, 1, 2, "webhook", "", "", "Alert")
 	require.NoError(t, err)
 	assert.Equal(t, int64(5), total)
 	assert.Len(t, rows, 2)
@@ -181,14 +181,14 @@ func TestDeliverySearchKeywordCombinesWithTheOtherFilters(t *testing.T) {
 	dao, db := notifyTestDAO(t)
 	ctx := context.Background()
 	for i, row := range []model.NotificationDelivery{
-		{NotificationID: "n1", Channel: "telegram", Recipient: "alice", Title: "BTC crash", Content: "x", Severity: "P0", Status: "SENT"},
+		{NotificationID: "n1", Channel: "webhook", Recipient: "alice", Title: "BTC crash", Content: "x", Severity: "P0", Status: "SENT"},
 		{NotificationID: "n2", Channel: "discord", Recipient: "bob", Title: "BTC crash", Content: "x", Severity: "P0", Status: "SENT"},
-		{NotificationID: "n3", Channel: "telegram", Recipient: "alice", Title: "ETH funding", Content: "btc mentioned", Severity: "INFO", Status: "ACKED"},
+		{NotificationID: "n3", Channel: "webhook", Recipient: "alice", Title: "ETH funding", Content: "btc mentioned", Severity: "INFO", Status: "ACKED"},
 	} {
 		row.DedupKey = row.NotificationID
 		require.NoError(t, db.Create(&row).Error, i)
 	}
-	rows, total, err := dao.ListDeliveriesPaginated(ctx, 1, 20, "telegram", "", "SENT", "btc")
+	rows, total, err := dao.ListDeliveriesPaginated(ctx, 1, 20, "webhook", "", "SENT", "btc")
 	require.NoError(t, err)
 	assert.EqualValues(t, 1, total, "the keyword narrows the other filters, it does not widen them")
 	require.Len(t, rows, 1)
@@ -206,11 +206,11 @@ func TestUnackedFilterAndBatchAck(t *testing.T) {
 	dao, db := notifyTestDAO(t)
 	ctx := context.Background()
 	for _, row := range []model.NotificationDelivery{
-		{NotificationID: "a", Channel: "telegram", Title: "t", Content: "c", Severity: "P0", Status: "SENT"},
-		{NotificationID: "b", Channel: "telegram", Title: "t", Content: "c", Severity: "INFO", Status: "PENDING"},
+		{NotificationID: "a", Channel: "webhook", Title: "t", Content: "c", Severity: "P0", Status: "SENT"},
+		{NotificationID: "b", Channel: "webhook", Title: "t", Content: "c", Severity: "INFO", Status: "PENDING"},
 		{NotificationID: "c", Channel: "discord", Title: "t", Content: "c", Severity: "P1", Status: "ESCALATED"},
-		{NotificationID: "d", Channel: "telegram", Title: "t", Content: "c", Severity: "P0", Status: "FAILED"},
-		{NotificationID: "e", Channel: "telegram", Title: "t", Content: "c", Severity: "P0", Status: "ACKED"},
+		{NotificationID: "d", Channel: "webhook", Title: "t", Content: "c", Severity: "P0", Status: "FAILED"},
+		{NotificationID: "e", Channel: "webhook", Title: "t", Content: "c", Severity: "P0", Status: "ACKED"},
 	} {
 		row.DedupKey = row.NotificationID
 		require.NoError(t, db.Create(&row).Error)
@@ -225,7 +225,7 @@ func TestUnackedFilterAndBatchAck(t *testing.T) {
 	n, err := dao.AckMany(ctx, []string{"a", "d", "e"})
 	require.NoError(t, err)
 	assert.EqualValues(t, 1, n, "only deliveries still waiting change")
-	n, err = dao.AckMatching(ctx, "telegram", "", "")
+	n, err = dao.AckMatching(ctx, "webhook", "", "")
 	require.NoError(t, err)
 	assert.EqualValues(t, 0, n, "b is only information, so a bulk acknowledge of what needs attention leaves it")
 	_, total, _ = dao.ListDeliveriesPaginated(ctx, 1, 20, "", "", StatusUnacked, "")
