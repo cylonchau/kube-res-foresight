@@ -1,15 +1,15 @@
-# Scrape target for the operator business metrics (kubeforecast_operator_*). The controller-runtime metrics
+# Scrape target for the operator business metrics (kube_resource_fcst_operator_*). The controller-runtime metrics
 # endpoint serves them next to its own on the manager's metrics port.
 apiVersion: v1
 kind: Service
 metadata:
-  name: kubeforecast-operator-metrics
-  namespace: kubeforecast-system
+  name: kube-resource-fcst-operator-metrics
+  namespace: kube-resource-fcst-system
   labels:
-    app.kubernetes.io/name: kubeforecast-operator
+    app.kubernetes.io/name: kube-resource-fcst-operator
 spec:
   selector:
-    app.kubernetes.io/name: kubeforecast-operator
+    app.kubernetes.io/name: kube-resource-fcst-operator
   ports:
     - name: metrics
       port: 8080
@@ -19,12 +19,12 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: kubeforecast-operator
-  namespace: kubeforecast-system
+  name: kube-resource-fcst-operator
+  namespace: kube-resource-fcst-system
 spec:
   selector:
     matchLabels:
-      app.kubernetes.io/name: kubeforecast-operator
+      app.kubernetes.io/name: kube-resource-fcst-operator
   endpoints:
     - port: metrics
       interval: 30s

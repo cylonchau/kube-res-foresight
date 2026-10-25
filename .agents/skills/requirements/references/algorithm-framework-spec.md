@@ -2,7 +2,7 @@
 
 对应 2026-10-25 的「Kubernetes 预测扩缩容系统优化需求（精简分类后）」。在 [module-algorithm-spec](module-algorithm-spec.md)（模块 → 自动关联所有启用算法）的基础上补充：可扩展算法框架、自定义公式算法、训练记录、模块数据集、数据周期、拆分后的评分页面。与之冲突处以本文为准。
 
-系统结构：**模块管理 → Prometheus 指标数据集 → 算法框架 → 自动训练/预测 → 算法评估排名 → 预测结果 → Controller/Kyverno 执行**。
+系统结构：**模块管理 → Metrics 数据集 → 算法框架 → 自动训练/预测 → 算法评估排名 → 预测结果 → Controller/Kyverno 执行**。
 
 ## 1. 算法框架
 
@@ -19,7 +19,7 @@
 
 平台**不保存模型权重**：统计、树、神经网络算法每次都在历史窗口上重新拟合（固定随机种子，结果可复现）。取而代之的是**训练记录 + 可复现版本**：每个算法在每个指标上的每次运行写一条 `forecast_training_run`——历史窗口（起止、样本数、步长）、预测步数与产出点数、实现版本与模型版本（实现、参数、数据来源的哈希）、参数 JSON、自定义算法当时的公式与参数 Schema、协变量及未能提供的原因、耗时、状态（成功/跳过/失败）与原因。预测值本身按 `forecast_prediction` 持久化。同一实现版本、参数与历史窗口得到同一组预测。记录保留 30 天（`Retention.Trainings`），可经 `GET /training-runs`（分页、按模块/指标/算法/状态/时间筛选）与 `GET /training-runs/:id` 读取，页面「预测与训练记录」。
 
-## 3. Prometheus 指标数据集
+## 3. Metrics 数据集
 
 数据集属于模块，所有启用的算法共用，不允许每个算法另维护一套。每个指标来源（`metric_source`）新增：
 
@@ -56,7 +56,7 @@
 
 ## 6. 菜单与迁移
 
-新增页面：算法评分（`forecast_score-records`）、当前排名（`forecast_ranking`）、历史排名（`forecast_ranking-history`）、预测与训练记录（`forecast-results_runs`）、Prometheus 指标数据集（`monitoring_datasets`）。退役：`forecast_scores`（授权带到前三者）、`forecast-modules_sources`（授权带到 `monitoring_datasets`）；`monitoring_metrics` 仍是指标目录。升级用 AutoMigrate 加列并保持原行为：旧来源得到 scale 1、precision 6、avg、interpolate，模块 `step_seconds`/`min_points`/`run_interval_minutes` 为 0，`algorithm_config` 的公式字段为空，`forecast_training_run` 表新建。端到端升级测试（上一版结构的库）覆盖这些默认值与授权带走。
+新增页面：算法评分（`forecast_score-records`）、当前排名（`forecast_ranking`）、历史排名（`forecast_ranking-history`）、预测与训练记录（`forecast-results_runs`）、Metrics 数据集（`monitoring_datasets`）。退役：`forecast_scores`（授权带到前三者）、`forecast-modules_sources`（授权带到 `monitoring_datasets`）；`monitoring_metrics` 仍是指标目录。升级用 AutoMigrate 加列并保持原行为：旧来源得到 scale 1、precision 6、avg、interpolate，模块 `step_seconds`/`min_points`/`run_interval_minutes` 为 0，`algorithm_config` 的公式字段为空，`forecast_training_run` 表新建。端到端升级测试（上一版结构的库）覆盖这些默认值与授权带走。
 
 ## 7. 验证状态与限制
 
@@ -74,3 +74,57 @@
 - **预测结果页面**：趋势对比与指标曲线拆成图表、摘要卡片（每条曲线一张，预测卡片标出峰值相对实测的偏差）、分页的数据点三个独立区域（`metric-analysis.vue`）。训练记录页加运行概览（`GET /training-runs/summary`：成功/跳过/失败、各算法、未产出预测的常见原因），菜单名改为「训练记录」；用途：算法是否按时运行、没有预测时为什么、一个预测怎么得到并可复现。
 - **审计导出**：主页面只留导出历史；导出类型、模块、范围在「导出」按钮打开的弹窗里选择。
 - **发现并修复**：`page.forecast.auditExports.help` 含 `@`，vue-i18n 把它当作链接消息，编译失败，整页空白；locales 测试现在对每条消息跑一遍 vue-i18n 编译，这类问题在测试里就会失败。
+
+## 9. 问题修复版（列表规范、真实历史、K 线对比、指标查询测试）
+
+### 9.1 全局页面规范（所有列表与图表页）
+
+- **列表**：统一用 `ListSearchCard` + `ListTablePanel`（或排名用 `RankList`），支持搜索、筛选、分页、复选框、批量操作；不在页面里直接放裸表格。操作列固定在右侧、`small` 按钮、编辑为 primary ghost、删除为 error ghost、居中，宽度按按钮实际所需，不留白、不溢出（e2e 逐页检查）。
+- **批量操作**（`BatchActions`）：模块与算法有启用/停用/删除（`POST /modules/batch`、`POST /algorithms/batch`，逐项返回成功数与未处理原因）；记录类列表（评分、回测、实测评估、训练、执行、准入）只有批量删除（`POST /records/batch-delete`，白名单 `scores backtests evaluations trainings executions admissions`；推荐快照与降级回退是审计链路，没有批量删除）；排名、历史排名、算法实测排名、历史数据、指标曲线的批量操作是导出所选为 CSV；指标目录只有“数据映射”行可批量删除。删除无实际用途的操作：模块列表的“运行”（采集/预测/回测/评分/评估/推荐由调度任务与各结果页触发）已删。
+- **时间筛选**：统一为开始时间、结束时间选择器（`TimeRangeField`，附 1h/6h/24h/7d/30d 快捷项），参数为 `from`、`to`（RFC3339），不再用“最近 N 小时”作为唯一方式。资源推荐快照与降级回退按要求本版不改。
+- **数值与单位**（`utils/format.ts`）：预测值、图表值最多 3 位小数；字节自动换算（67108864 → 64 MiB），CPU 不足 1 核显示 mCPU，其余显示核；比例显示百分比；列表与提示里不再写 `CPU (cpu)`、`副本数 (replicas)` 这类重复括号。
+- **滚动**：排名列表、数据点列表自带滚动区与分页；图表页整页可滚动，e2e 检查无横向滚动。
+
+### 9.2 数据口径与时间对齐规则
+
+1. **实际值来自 Prometheus，不来自平台已采集的样本**：`GET /modules/:id/compare` 与历史/曲线页在请求时刻按模块数据集的映射（同一命名空间、同一工作负载）向 Prometheus 查询所选区间，包括模块创建之前已有的历史；查询经过与采集相同的整形（步长、换算系数、精度、聚合）。
+2. **历史缺失的判定**：只有 Prometheus 在整个区间没有任何样本才是“历史缺失”（`missing=true`）；区间内个别步长没有样本只算缺口，在质量报告里列出。
+3. **同一对象**：实际指标、实际副本数（模块里 kind=replicas 的来源）与预测都属于同一个模块的同一组 Pod，不混用其他对象的数据。
+4. **时间网格**：网格步长 = 模块数据集步长；展示桶 = 整数个步长，使点数不超过上限（`bucket_seconds` 随响应返回）；每个点标在桶的**起始**时刻。实际值是桶内的开/高/低/收/均（K 线）；预测值是落在桶内的各目标时刻预测的均值。
+5. **预测的取舍**：一个目标时间有多次预测时取**预测时间不晚于目标时间的最新一次**（晚于目标时间做的预测是事后诸葛，丢弃）；只用中位数（分位 500）。
+6. **预测副本数**：只对 CPU 预测、且模块声明了每 Pod CPU 请求（动态副本 + Pod CPU request）时给出：`ceil(预测值 × 余量 ÷ (Pod CPU request × 目标利用率))`，夹在模块最小/最大副本之间；否则为空，并在 `replica_basis` 说明原因。预测副本数是推导值，不是执行结果；实际副本数是 Prometheus 里的观测值。
+7. **评分与实测排名**使用同一份历史：只取所有被测算法都有实测值的指标按权重归一，各算法因此可比；覆盖所有已启用且有有效实测的算法（动态读取，不写死个数）。
+8. **指标查询测试**（`POST /metric-queries/test`）：先校验模板变量与层级，再由 Prometheus 解析和执行；`stage` 为 template / datasource / syntax / query / empty / ok，原样给出 Prometheus 的错误；结果按换算系数与精度整形，与数据集存储的值一致，窗口最长 7 天，不写库。新增自定义 PromQL 必须先通过测试才能保存。
+
+### 9.3 各页面的操作权限范围
+
+权限沿用 RBAC：读 = `GET /api/v1/*`（`sys:all:read` 或页面菜单权限），写 = `POST/PUT/DELETE`（`sys:all:write`），运行时接口有各自的按钮权限（`forecast:operator:use`、`forecast:admission:read`、`forecast:audit:export`、`forecast:query:test`）。
+
+| 页面 | 只读可做 | 需要写权限 | 说明 |
+|---|---|---|---|
+| 模块列表 | 查看、跳转数据集 | 新增、编辑、克隆、固定周期、旁路/恢复、删除、批量启用/停用/删除 | 删除前必须先停用 |
+| Metrics 数据集 | 查看、查询测试（`forecast:query:test`） | 新增/编辑/删除指标、数据周期、批量删除 | 自定义 PromQL 保存前必须测试通过 |
+| 指标目录 | 查看、测试查询 | 映射的新增/编辑/删除/批量删除、从模板添加 | 模板与平台导出只读 |
+| 指标曲线 | 全部 | — | 只读，数据来自 Prometheus |
+| 算法管理 | 查看、详情 | 新增、编辑、启用/停用、删除、批量启停/删除 | 内置算法只能停用不能删除 |
+| 算法评分 / 历史排名 | 查看、详情、导出所选 | 批量删除评分记录 | |
+| 当前排名 | 查看、导出所选 | 立即评分 | |
+| 历史数据 / 预测趋势对比 | 全部 | — | 只读 |
+| 滚动回测 / 实测评估 / 训练记录 | 查看、详情、概览 | 批量删除 | |
+| 算法实测排名 | 全部（导出所选） | — | |
+| 资源推荐快照 / 降级与回退 | 查看 | — | 本版不改 |
+| 扩缩容执行记录 / 准入记录 | 查看、详情 | 批量删除 | 准入记录页不再带审计导出入口 |
+| 审计导出 | 查看导出历史 | 导出（`forecast:audit:export`） | 导出在弹窗里选类型与范围 |
+
+### 9.4 验收标准与完成判定
+
+完成 = 下列全部成立，且 `scripts/e2e/modules-algorithms.mjs` 全绿、`go test`、`vue-tsc`、lint、locales 测试通过：
+
+1. 每个列表页都能搜索、筛选、分页、勾选，批量操作按 9.1 的表格工作；时间筛选是起止选择器。
+2. 模块表单里最小/最大/兜底副本与恢复周期是模块配置，“安全边界”里不再有副本上下限；operator 读取的就是这些值。
+3. 历史数据页能显示模块创建之前的 Prometheus 历史；区间内无任何样本才显示“历史缺失”；K 线、算法多选对比、预测/实际值与副本数的逐时间点提示与 9.2 一致。
+4. 趋势对比覆盖所有已启用且有预测的算法，没有预测摘要；数值最多三位小数，单位可读。
+5. 训练记录的统计（命中率、成功/跳过/失败及其含义）全部来自 `forecast_training_run`；记录能对应到模块、数据集（指标来源）、训练时间、模型版本。
+6. 新增或修改数据集指标时可以直接测试 PromQL，看到错误、数值与曲线后再保存。
+7. 排名区域可滚动；数值精度、单位换算、无横向滚动由 e2e 检查。
+8. 验证范围以 e2e/测试的实际结果为准；指标评分排行榜的有数据路径在浏览器里用拦截的 API 应答验证（浏览器里没有可对比的实测值）。

@@ -1,4 +1,4 @@
-# KubeForecast 实施计划与执行进度
+# kube-resource-fcst 实施计划与执行进度
 
 更新日期：2026-10-25。当前里程碑：P1～P6 的非真实环境部分与「预测系统优化」8 项需求（M1～M7）与「预测系统功能与页面优化」6 部分（R1～R8）均已实现并通过自动化测试与浏览器验收；真实环境验证仍缺。
 
@@ -266,3 +266,16 @@ all ten management pages and the shared product title. Screenshots were inspecte
 - 发现并修复：审计导出的帮助文案含 `@`，vue-i18n 编译失败使该页整页空白（已存在的 bug）；locales 测试现在对每条消息跑编译。
 - 验证：go build/vet/gofmt 干净，go test 通过（全量并行跑时 api 包编译被内存挤掉，单独 -p 1 通过）；vue-tsc、locales 测试通过，生产构建通过；浏览器 modules-algorithms.mjs 141/141（全新 SQLite 库，模拟 Prometheus；指标评分的排行榜用拦截的 API 应答验证，因为浏览器里没有可对比的实测值）；Docker Desktop 集群上 module 驱动的 operator 真实 2→4、改 max 后 4→3。
 - 未验证：Helm chart 未渲染（本机无 helm）；MySQL/PostgreSQL（新列、`PreviousScores` 的 SQL）；运行中 operator 的重启后冷却重新计时；其余旧页（权限/系统/任务中心）只统一了操作按钮，没有迁到新的列表组件。
+
+2026-10-26（问题修复版：列表规范、真实历史、K 线对比、指标查询测试，规格与验收见 [algorithm-framework-spec.md](../.agents/skills/requirements/references/algorithm-framework-spec.md) 第 9 节）：
+- 全局：各列表统一 ListSearchCard + ListTablePanel（排名用 RankList），复选框与批量操作（模块/算法启用停用删除，记录类批量删除，排名/历史类导出所选），起止时间选择器替代“最近 N 小时”，三位小数与单位换算（`utils/format.ts`），操作列统一；模块列表删除“运行”，数据集/克隆/固定周期/旁路收进“数据集”按钮与“更多”。
+- 模块：最小/最大/默认及故障回退副本数与恢复周期在同一个“副本”配置段，“安全边界”不再有副本上下限。
+- 算法：列表复选框、批量与删除；详情显示实际保存的参数值，并按模块列出关联的数据集（含 PromQL）、评分与各指标表现。
+- 排名：当前排名的综合结果与标准指标排名是两个独立的、可滚动分页勾选的列表，覆盖所有已启用且有结果的算法；历史排名有复选框、导出所选与起止时间。
+- 历史数据：改名“历史数据”；新增 `GET /modules/:id/compare`，实际值与实际副本数在请求时从 Prometheus 查询（含模块创建前的历史），只有整个区间没有样本才判定缺失；K 线、多算法预测对比、预测副本数、逐时间点提示（9.2 数据口径与时间对齐）。趋势对比同一组件，删除预测摘要；指标曲线改为真实 Prometheus K 线，删除序列摘要。
+- 回测/实测/训练：起止时间、复选框与批量删除（`POST /records/batch-delete`）；实测详情可选精度/WAPE/MAE/RMSE/偏差/峰值低估/覆盖率并说明计算；训练记录增加数据集列与命中率及状态含义，统计全部来自训练记录。
+- 准入记录：补 limits、模式、算法、工作负载类型（新列），详情给出请求值的前后变化。
+- Metrics 数据集：改名；新增 `POST /metric-queries/test` 与查询测试弹窗（模板校验、Prometheus 语法/执行错误、曲线预览、单位/精度/换算），新增自定义 PromQL 必须先测试；指标目录支持批量删除映射与测试查询。
+- 发现并修复：SQLite 以文本存时间且带各自偏移，起止时间筛选在跨时区时比较错误（结束时间筛不出刚产生的记录）——SQLite 统一以 UTC 写入，筛选边界转 UTC。
+- 验证：go build/vet/gofmt，go test -p 1 ./... 全部通过（pkg/app/server/api 新增 compare、批量、查询测试用例）；vue-tsc、lint（0 错误）、locales 编译测试；浏览器 e2e `modules-algorithms.mjs`（全新 SQLite 库 + 模拟 Prometheus）168/168。指标评分排行榜的有数据路径用拦截的 API 应答验证。
+- 未验证/未做：真实 Prometheus 上的 K 线对比与查询测试（只在模拟 Prometheus 上跑）；MySQL/PostgreSQL（新增列与 SQL）；SQLite 中旧行仍是本地时区偏移，旧数据上的起止筛选在跨时区时可能不准，新写入的行是 UTC；资源推荐快照与降级回退按要求未改，仍用原来的“最近 N 小时”筛选。

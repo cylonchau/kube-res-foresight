@@ -1,14 +1,14 @@
 
-app_name: kubeforecast
+app_name: kube-resource-fcst
 database_driver: sqlite
 sqlite:
-  file: kubeforecast.db
+  file: kube-resource-fcst.db
   max_open_connection: "20"
   max_idle_connection: "10"
 
 server:
   port: 20001
-  # jwt_secret: change-me-to-a-long-random-value # required in production; also settable via KUBEFORECAST_SERVER_JWT_SECRET
+  # jwt_secret: change-me-to-a-long-random-value # required in production; also settable via KUBE_RESOURCE_FCST_SERVER_JWT_SECRET
   # dev_mode is accepted for older configuration files and has no effect.
   dev_mode: true
   # Only needed when a frontend dev server on a different origin talks to

@@ -6,7 +6,7 @@
 ## Agent 工作准则
 1. 所有开发任务先读 [requirements](.agents/skills/requirements/SKILL.md) 及其 [代码地图](.agents/skills/requirements/references/repository-map.md)，再按下方索引读取专项技能和对应 references。`docs/` 是保留的调研原稿，融合与未决事项见 [融合约定](.agents/skills/requirements/references/integration-decisions.md)。缺乏证据不得自行发明 Kubernetes 原生 API 参数。
 2. 使用 `.agents/skills/*/SKILL.md` 分工实现模块；所有新增算法必须具备输入约束、参数 schema、warm-up、预测窗口、输出单位、离线回测、失效回退和版本信息。
-3. **工作负载的 replicas 仅允许一个控制器拥有写权限**；选择 kubeforecast-operator（PredictiveScaler CRD，替代 HPA/KEDA）后不得再由 HPA/KEDA 同时控制同一 Deployment 副本。可以保留 HPA 作为未来可切换的执行后端，切换时先释放字段所有权。
+3. **工作负载的 replicas 仅允许一个控制器拥有写权限**；选择 kube-resource-fcst-operator（PredictiveScaler CRD，替代 HPA/KEDA）后不得再由 HPA/KEDA 同时控制同一 Deployment 副本。可以保留 HPA 作为未来可切换的执行后端，切换时先释放字段所有权。
 4. 预测/指标输出不得直接等同于真实最大承载能力；永远区分观测值、推断值、算法预测值和执行结果。
 5. Webhook 决不等待 Kafka、Prometheus 长查询或模型推理；仅读取最新已验证、未过期的推荐快照；异常即保留原资源配置。`failurePolicy: Ignore` 是网络/调用失败保护，不是错误推荐的数值保护。
 6. 不修改 kubelet 二进制。准入是 Kubernetes API Server 的 Admission Webhook；运行中资源修改须通过 Kubernetes API（版本适配）和 Operator 完成。
@@ -15,7 +15,7 @@
 9. 不在未经回测、安全检查和授权的情况下自动调低内存 limits；按 Observe→Recommend→Admission→Auto 渐进上线。
 
 ## 技术栈基线（设计选型，非现成产品事实）
-- 控制层：Go；kubeforecast-operator 使用 Operator SDK / Kubebuilder（controller-runtime）实现；Kubernetes CRD、Admission Webhook；Metrics 内置于 Platform。
+- 控制层：Go；kube-resource-fcst-operator 使用 Operator SDK / Kubebuilder（controller-runtime）实现；Kubernetes CRD、Admission Webhook；Metrics 内置于 Platform。
 - 算法层：纯 Go 实现，在 Platform 进程内运行，不引入 Python 或外部模型服务；首期 Naive/SeasonalNaive、EWMA/Holt-Winters 统计基线与岭回归/GBDT 机器学习候选；按真实负载滚动回测晋升。金融技术指标不进入正式算法目录；唯一例外是 macd_trend，它只借用 MACD 的“快/慢/信号 EMA 差分”结构做单变量资源趋势修正（有上限，不产生买卖信号，不引入价格/OHLCV），仍须在回测中胜过基线才晋升，详见 algorithm-library。
 - 指标：Prometheus HTTP API（`query`, `query_range`），可扩展 Thanos/Mimir。
 - 异步事件：Kafka；业务与审计数据复用现有 GORM ORM 和数据库配置，兼容 SQLite、MySQL、PostgreSQL，由部署配置选择；模型产物对象存储；可视化管理控制台。
@@ -32,7 +32,7 @@
 
 ## 当前代码基线
 
-当前为 KubeForecast：管理底座（系统管理、授权管理、任务中心；工作流引擎与 Telegram 已移除，退役表仅在显式 --upgrade 时清理）之上，已实现数据源与指标映射、历史采集与质量、纯 Go 预测算法与滚动回测、决策与推荐快照、实测回填与排行榜、Platform 指标与 /readyz、LDAP 认证（配置在系统管理→系统参数的 LDAP 分类）、算法管理（每个目录算法一份平台级设置：启用、参数、权重、采用门槛，对所有模块统一生效）、模块（一个 Kubernetes 工作负载，自带多指标来源与阈值、历史窗口、预测周期，自动使用所有已启用算法，无需创建实例或绑定，见 requirements/references/module-algorithm-spec.md）、算法框架（forecast.Register 注册表 + 公式算法 + 训练记录，见 requirements/references/algorithm-framework-spec.md）、Prometheus 指标数据集与数据周期、算法评分/当前排名/历史排名、动态副本上限、OOM 地板/JVM 堆压力/分层降级记录、kubeforecast-operator（控制器逻辑与 CRD/RBAC 清单）、准入推荐接口与 Kyverno 参考策略草稿；后端 Go/Gin/GORM，前端 Vue/Naive UI。以上均只在 SQLite、合成数据、模拟 Prometheus/Kubernetes/LDAP 上验证：真实 Prometheus、真实集群（operator 扩缩容、CRD 安装、RBAC）、Kyverno、MySQL/PostgreSQL、真实 LDAP 的 StartTLS 以及真实负载上的预测准确率都未验证，admission 与 auto 模式默认由系统设置关闭。新增功能应沿用现有分层、任务调度、权限与前端模式；不能将技术栈设计和研究示例当成现成实现。
+当前为 kube-resource-fcst：管理底座（系统管理、授权管理、任务中心；工作流引擎与 Telegram 已移除，退役表仅在显式 --upgrade 时清理）之上，已实现数据源与指标映射、历史采集与质量、纯 Go 预测算法与滚动回测、决策与推荐快照、实测回填与排行榜、Platform 指标与 /readyz、LDAP 认证（配置在系统管理→系统参数的 LDAP 分类）、算法管理（每个目录算法一份平台级设置：启用、参数、权重、采用门槛，对所有模块统一生效）、模块（一个 Kubernetes 工作负载，自带多指标来源与阈值、历史窗口、预测周期，自动使用所有已启用算法，无需创建实例或绑定，见 requirements/references/module-algorithm-spec.md）、算法框架（forecast.Register 注册表 + 公式算法 + 训练记录，见 requirements/references/algorithm-framework-spec.md）、Prometheus 指标数据集与数据周期、算法评分/当前排名/历史排名、动态副本上限、OOM 地板/JVM 堆压力/分层降级记录、kube-resource-fcst-operator（控制器逻辑与 CRD/RBAC 清单）、准入推荐接口与 Kyverno 参考策略草稿；后端 Go/Gin/GORM，前端 Vue/Naive UI。以上均只在 SQLite、合成数据、模拟 Prometheus/Kubernetes/LDAP 上验证：真实 Prometheus、真实集群（operator 扩缩容、CRD 安装、RBAC）、Kyverno、MySQL/PostgreSQL、真实 LDAP 的 StartTLS 以及真实负载上的预测准确率都未验证，admission 与 auto 模式默认由系统设置关闭。新增功能应沿用现有分层、任务调度、权限与前端模式；不能将技术栈设计和研究示例当成现成实现。
 
 系统设置、认证授权、用户、角色、权限、菜单及操作日志均复用现有模型、DAO、API、页面和权限体系，只做必要增量扩展，不重新建设或调整既有菜单归属。预测业务与审计新增模型同样接入现有 GORM 和显式迁移，保持 SQLite/MySQL/PostgreSQL 三种数据库兼容，不以 PostgreSQL 为唯一或强制后端。
 

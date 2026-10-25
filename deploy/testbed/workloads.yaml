@@ -1,4 +1,4 @@
-# Test workloads for trying the KubeForecast loop on a local cluster. Each one burns CPU with a shell loop whose duty
+# Test workloads for trying the kube-resource-fcst loop on a local cluster. Each one burns CPU with a shell loop whose duty
 # cycle follows a pattern, so Prometheus (cAdvisor) records a real, forecastable usage curve:
 #   web-diurnal  smooth wave, period 30 minutes (stands in for the daily cycle)
 #   batch-spike  nearly idle, a burst every 10 minutes

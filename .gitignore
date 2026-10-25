@@ -10,6 +10,7 @@
 .aws/
 docs/*
 !docs/platform-progress.md
+!docs/renaming.md
 **/node_modules/
 **/dist/
 !pkg/app/router/dist/

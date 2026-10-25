@@ -1,6 +1,6 @@
 ---
 name: model-evaluation
-description: 用于 KubeForecast 准确率、时间滚动回测、算法排行榜、模型晋升和预测/准入/伸缩审计，实现可复现误差和执行效果评估时使用。
+description: 用于 kube-resource-fcst 准确率、时间滚动回测、算法排行榜、模型晋升和预测/准入/伸缩审计，实现可复现误差和执行效果评估时使用。
 ---
 
 # 回测、评估与领域审计

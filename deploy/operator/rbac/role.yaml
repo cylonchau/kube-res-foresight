@@ -2,7 +2,7 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: kubeforecast-operator
+  name: kube-resource-fcst-operator
 rules:
 - apiGroups:
   - ""
@@ -44,7 +44,7 @@ rules:
   - list
   - watch
 - apiGroups:
-  - autoscaling.kubeforecast.io
+  - autoscaling.kube-resource-fcst.io
   resources:
   - predictivescalers
   verbs:
@@ -52,7 +52,7 @@ rules:
   - list
   - watch
 - apiGroups:
-  - autoscaling.kubeforecast.io
+  - autoscaling.kube-resource-fcst.io
   resources:
   - predictivescalers/status
   verbs:

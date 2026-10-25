@@ -11,7 +11,7 @@ Not production manifests: they exist to try the loop module -> forecast -> decis
 | `cycle.sh` | runs collect/predict/recommend (and every 5th round backtest + score) for the test modules every minute |
 
 Needs: the platform on `127.0.0.1:20001`, Prometheus on `127.0.0.1:30090`, the operator installed (`deploy/operator`), a
-developer credential with only "Operator Decisions" in the Secret `forecast-test/kubeforecast-platform`, and the system
+developer credential with only "Operator Decisions" in the Secret `forecast-test/kube-resource-fcst-platform`, and the system
 setting `forecast.allow_auto_mode` = true with the modules in `auto` mode (the decision API refuses otherwise).
 
 The cAdvisor series of this cluster have no `container` label, so the metric mappings drop the container filter of the presets.
@@ -21,7 +21,7 @@ Capacity per pod is 100m request x 60% target = 60m, so replicas = ceil(peak CPU
 
 `load-web` scaler:
 ```yaml
-apiVersion: autoscaling.kubeforecast.io/v1alpha1
+apiVersion: autoscaling.kube-resource-fcst.io/v1alpha1
 kind: PredictiveScaler
 metadata: {name: load-web, namespace: forecast-test}
 spec:
@@ -34,21 +34,21 @@ spec:
   behavior: {scaleUp: {maxStep: 3, cooldown: 1m}, scaleDown: {maxStep: 1, cooldown: 2m}}
   decision:
     source: PlatformAPI
-    platformAPI: {url: "http://host.docker.internal:20001", module: load-web, accessKeySecretRef: {name: kubeforecast-platform, key: token}, timeoutSeconds: 5}
+    platformAPI: {url: "http://host.docker.internal:20001", module: load-web, accessKeySecretRef: {name: kube-resource-fcst-platform, key: token}, timeoutSeconds: 5}
 ```
 
 ## Admission (Kyverno): requests and limits of new Pods
 
-`deploy/kyverno/kubeforecast-requests.yaml` (ClusterPolicy `kubeforecast-resources`, verified on Kyverno 1.19.1) sets the requests
+`deploy/kyverno/kube-resource-fcst-requests.yaml` (ClusterPolicy `kube-resource-fcst-resources`, verified on Kyverno 1.19.1) sets the requests
 of new Pods and, for a module with `limit_cpu_ratio` / `limit_memory_ratio`, the limits. Modules in `admission` **or** `auto` mode
 are served. A workload without a module, a platform that is down, a wrong credential and an expired recommendation all leave the
 Pod as declared; none of them fails the Pod.
 
 ```sh
 python deploy/testbed/seed_platform.py --platform http://127.0.0.1:20001 --mode admission --limit-cpu-ratio 2 --limit-memory-ratio 2 --credentials-dir .
-kubectl -n kyverno create secret generic kubeforecast-admission --from-file=credential=admission.cred
+kubectl -n kyverno create secret generic kube-resource-fcst-admission --from-file=credential=admission.cred
 kubectl apply -f deploy/testbed/kyverno-credential.yaml
-sed 's#PLATFORM_URL#http://host.docker.internal:20001#' deploy/kyverno/kubeforecast-requests.yaml | kubectl apply -f -
+sed 's#PLATFORM_URL#http://host.docker.internal:20001#' deploy/kyverno/kube-resource-fcst-requests.yaml | kubectl apply -f -
 kubectl -n forecast-test rollout restart deploy/steady-api     # running Pods keep their values until the workload rolls
 ```
 

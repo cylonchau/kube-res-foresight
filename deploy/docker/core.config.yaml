@@ -1,14 +1,14 @@
 
-app_name: kubeforecast
+app_name: kube-resource-fcst
 database_driver: mysql
 
-# Values are overridden by KUBEFORECAST_MYSQL_* in compose.core.yml.
+# Values are overridden by KUBE_RESOURCE_FCST_MYSQL_* in compose.core.yml.
 mysql:
   # Inside Docker, host.docker.internal resolves to the Docker host gateway.
   host: host.docker.internal
   port: 3306
-  database: kubeforecast
-  username: kubeforecast
+  database: kube-resource-fcst
+  username: kube-resource-fcst
   password: change-me
   max_open_connection: "100"
   max_idle_connection: "50"

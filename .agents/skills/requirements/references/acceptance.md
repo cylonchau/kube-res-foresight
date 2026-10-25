@@ -12,7 +12,7 @@
 模块绑定算法、默认副本与资源值、有效期、故障回退、特殊日期窗固定配置；确保时间窗内完全绕过相关模型值；各模式 observe/recommend/admission/auto 可切换。所有切换写入审计。
 
 ## 阶段 4：准入与 Operator
-Webhook 只读有 TTL 快照；Webhook 断连/超时、Kafka/Prometheus/算法故障时仍成功发布且使用明确 fallback；上线 kubeforecast-operator 按 CRD 自动扩缩容，并阻止与 HPA 同时写同一对象；提供独立 `/metrics`。
+Webhook 只读有 TTL 快照；Webhook 断连/超时、Kafka/Prometheus/算法故障时仍成功发布且使用明确 fallback；上线 kube-resource-fcst-operator 按 CRD 自动扩缩容，并阻止与 HPA 同时写同一对象；提供独立 `/metrics`。
 
 ## 阶段 5：闭环评估
 每次计算：保留原特征窗口、所有算法候选、选中的算法及权重、推荐的 requests/limits、目标副本、决策解释、执行结果、实际 Ready 时间、预测与真实误差；历史查询和导出；可按 MAE/WAPE、P90 覆盖率、burst 召回率、错报率、SLO 违规、容量成本评估模型。

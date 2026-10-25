@@ -73,7 +73,7 @@
 ### M5 Operator 与 Metrics 补齐
 
 **交付**：
-- Operator 业务指标（经 controller-runtime metrics 端点，kubeforecast_operator_ 前缀）：对账次数与耗时、扩缩容动作计数（按 direction/result）、期望/当前/Ready 副本、决策年龄与有效性、冲突（按来源）、平台调用错误；Operator 事件与状态保持现状。
+- Operator 业务指标（经 controller-runtime metrics 端点，kube_resource_fcst_operator_ 前缀）：对账次数与耗时、扩缩容动作计数（按 direction/result）、期望/当前/Ready 副本、决策年龄与有效性、冲突（按来源）、平台调用错误；Operator 事件与状态保持现状。
 - Operator 决策来源补 **Prometheus 来源**（读取一条已存在的指标作为期望副本）；Adapter 来源仍不做，需在文档说明。
 - Platform 指标补全：采集成功/失败/耗时、各数据源状态与延迟、预测任务耗时、回测次数、实测评估延迟（见 M6 指标目录）。
 **验收**：
@@ -134,7 +134,7 @@
 | 前端 | views/workflow（pipelines 1,155 行、instances 433 行、flowchart 498 行）、components/business/workflow-instance-drawer.vue（885 行）、utils/workflow.ts、use-stats-stream 中的工作流事件、路由与类型、locale 中 workflow 段 |
 | 菜单/路由 | 目录 workflow、workflow_pipelines、workflow_instances；**默认首页 workflow_pipelines**（handle_route.go、migration、前端 routes、e2e 脚本）需改为 forecast_modules |
 | 权限种子 | 迁移 seedPlatformPermissions 中对应项；IsPlatformRoute 白名单；旧路由 404；retiredRouteCodes 清单 |
-| 文档语义 | AGENTS.md、CLAUDE.md、skills（requirements、kubeforecast-development、repository-map）、platform-progress、docs 中的"工作流引擎/Pipeline/流程工单"表述（约 17 处）；"四个管理模块"改为"数据源/预测/任务中心/系统/授权" |
+| 文档语义 | AGENTS.md、CLAUDE.md、skills（requirements、kube-resource-fcst-development、repository-map）、platform-progress、docs 中的"工作流引擎/Pipeline/流程工单"表述（约 17 处）；"四个管理模块"改为"数据源/预测/任务中心/系统/授权" |
 | 测试与脚本 | handle_workflow_integration_test、workflow 包测试、scripts/e2e/platform.mjs（期望 workflow 菜单与首页）需改写 |
 
 ### 3.2 Telegram（按假设 A 整体删除）

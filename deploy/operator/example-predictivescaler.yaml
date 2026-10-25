@@ -1,11 +1,11 @@
-# Example: scale Deployment prod/api from the replicas the KubeForecast platform recommends for module "api".
+# Example: scale Deployment prod/api from the replicas the kube-resource-fcst platform recommends for module "api".
 # Start in Observe mode; switch to Auto only after the status shows the decisions you expect.
 # The workload must not also be targeted by an HPA or a KEDA ScaledObject: the operator then does nothing and
 # reports a Conflict condition.
 apiVersion: v1
 kind: Secret
 metadata:
-  name: kubeforecast-platform
+  name: kube-resource-fcst-platform
   namespace: prod
 type: Opaque
 stringData:
@@ -13,7 +13,7 @@ stringData:
   # "Operator Decisions (read, report)".
   token: "REPLACE_ACCESS_KEY:REPLACE_ACCESS_SECRET"
 ---
-apiVersion: autoscaling.kubeforecast.io/v1alpha1
+apiVersion: autoscaling.kube-resource-fcst.io/v1alpha1
 kind: PredictiveScaler
 metadata:
   name: api
@@ -38,9 +38,9 @@ spec:
   decision:
     source: PlatformAPI
     platformAPI:
-      url: https://kubeforecast.example.com
+      url: https://kube-resource-fcst.example.com
       module: api
       accessKeySecretRef:
-        name: kubeforecast-platform
+        name: kube-resource-fcst-platform
         key: token
       timeoutSeconds: 5

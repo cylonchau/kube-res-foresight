@@ -14,14 +14,15 @@ RUN go mod download
 COPY . .
 COPY --from=admin-builder /src/web/dist/ ./pkg/app/router/dist/
 ARG VERSION=dev
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/cylonchau/kubeforecast/pkg/version.Version=${VERSION}" -o /out/kubeforecast ./cmd && \n    CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/cylonchau/kubeforecast/pkg/version.Version=${VERSION}" -o /out/kubeforecast-operator ./cmd/operator
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/cylonchau/kube-resource-fcst/pkg/version.Version=${VERSION}" -o /out/kube-resource-fcst ./cmd && \
+    CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/cylonchau/kube-resource-fcst/pkg/version.Version=${VERSION}" -o /out/kube-resource-fcst-operator ./cmd/operator
 FROM alpine:3.22 AS runtime-base
-RUN apk add --no-cache ca-certificates tzdata && addgroup -S kubeforecast && adduser -S -G kubeforecast kubeforecast
+RUN apk add --no-cache ca-certificates tzdata && addgroup -S kube-resource-fcst && adduser -S -G kube-resource-fcst kube-resource-fcst
 WORKDIR /app
-USER kubeforecast
-FROM runtime-base AS kubeforecast
-COPY --from=builder /out/kubeforecast /usr/local/bin/kubeforecast
-ENTRYPOINT ["kubeforecast"]
+USER kube-resource-fcst
+FROM runtime-base AS kube-resource-fcst
+COPY --from=builder /out/kube-resource-fcst /usr/local/bin/kube-resource-fcst
+ENTRYPOINT ["kube-resource-fcst"]
 FROM runtime-base AS operator
-COPY --from=builder /out/kubeforecast-operator /usr/local/bin/kubeforecast-operator
-ENTRYPOINT ["kubeforecast-operator"]
+COPY --from=builder /out/kube-resource-fcst-operator /usr/local/bin/kube-resource-fcst-operator
+ENTRYPOINT ["kube-resource-fcst-operator"]

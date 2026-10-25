@@ -1,10 +1,10 @@
-# KubeForecast 代码接入地图
+# kube-resource-fcst 代码接入地图
 
 路径以仓库根目录为基准，来自融合时源码检查，实施仍需核对最新代码。研究组件名不代表已存在的目录或服务。
 
 | 领域 | 当前实现 / 最近示例 | 接入规则 |
 |---|---|---|
-| 入口 | cmd/main.go（平台）、cmd/operator/main.go（kubeforecast-operator）；pkg/cmd | Cobra + bootstrap 生命周期，复用配置 |
+| 入口 | cmd/main.go（平台）、cmd/operator/main.go（kube-resource-fcst-operator）；pkg/cmd | Cobra + bootstrap 生命周期，复用配置 |
 | HTTP | pkg/app/app.go、pkg/app/router/router.go | Gin /api/v1，显式构造 handler 注入 DAO；受保护路由在 JWT/Casbin/操作日志中间件后注册 |
 | 分层 | pkg/apis → pkg/app/server/api → pkg/dao/rdb → pkg/model | 找最近 CRUD 扩展；算法/控制逻辑不能塞进 handler |
 | 数据库 | pkg/store/rdb_store.go、pkg/migration/migration.go | 已支持 SQLite/MySQL/PostgreSQL；模型注册并接显式 --migration/--upgrade，普通启动不做破坏迁移 |
@@ -14,7 +14,7 @@
 | 数据源 | pkg/model/datasource.go、metric_mapping.go；pkg/promclient；handle_datasource.go、handle_metric_mapping.go；web/src/views/datasource | P1-01 已实现连接管理与指标映射，复用其扩展 P1-02 采集；Prometheus 访问统一经 pkg/promclient |
 | 预测流水线 | pkg/collector（模板渲染、分段、质量）、pkg/forecast（算法与参数 schema）、pkg/backtest（滚动回测与晋升）、pkg/decision（推荐决策，纯函数）、pkg/forecastsvc（编排、实测回填、排行榜、Prometheus 指标）；pkg/model/forecast.go；pkg/dao/rdb/forecast_module.go、forecast_data.go；handle_forecast.go、handle_runtime.go、handle_audit.go；pkg/job/tasks/forecasttask | 新增算法在 forecast 包实现并注册，保持无状态、可取消，配单测与回测断言；定时任务 forecast.run/backtest/evaluate 由迁移种子创建 |
 | Operator | pkg/operator/api/v1alpha1（CRD 类型）、pkg/operator/controller（MakePlan、Reconciler、Decider、PrometheusDecider、Metrics）、pkg/cmd/operator；deploy/operator（CRD、RBAC、manager、示例、monitoring） | controller-gen 生成 deepcopy/CRD/RBAC；规则改动同步 plan_test.go；只用 fake client 测过 |
-| 准入 | deploy/kyverno/kubeforecast-requests.yaml、handle_runtime.go 的 Admission | Kyverno 策略为未验证草稿；接口只回 requests |
+| 准入 | deploy/kyverno/kube-resource-fcst-requests.yaml、handle_runtime.go 的 Admission | Kyverno 策略为未验证草稿；接口只回 requests |
 | LDAP | pkg/ldapauth（Directory 接口、go-ldap 客户端、store.go 读写 ldap.* 系统参数、Service：登录/映射/同步）、pkg/model/ldap.go、handle_ldap.go、pkg/job/tasks/ldaptask；web/src/components/business/ldap-settings-panel.vue，在系统管理→系统参数的 LDAP 分类里显示 | 本地账号永远本地认证；明文 ldap:// 被拒绝；测试服务器见 pkg/ldapauth/testserver_test.go |
 | 预设与演示 | pkg/preset（只读 PromQL 预设库，含来源/限制，均标未验证）、pkg/demo（合成数据生成器，识别预设的序列名）、forecastsvc/demo.go（一键创建/删除演示，重放过去 12 个预测周期后跑全流水线）、handle_preset.go；web/src/views/datasource/presets | 演示数据源 type=demo，只由演示创建，不可编辑；映射保存 preset_id |
 | 算法框架与数据集 | pkg/forecast/{registry,builders,formula,custom}.go（注册表、内置实现、公式引擎、自定义算法注册）、pkg/collector/shape.go（栅格聚合/换算/精度）、forecastsvc/{custom,requirements,metricscore}.go、handle_{algorithm_custom,dataset,training,scoring}.go、model/training.go；web/src/components/{advanced/{duration-input,param-schema-editor},business/{custom-algorithm-form,formula-preview,score-breakdown,record-detail-modal}}.vue、views/monitoring/datasets | 算法只经 forecast.Register 进入平台；公式在保存前真实试算；数据集栅格与来源形态变化会重建序列；见 requirements/references/algorithm-framework-spec.md |
@@ -23,7 +23,7 @@
 | 前端预测页 | web/src/views/forecast-modules/modules、monitoring/datasets、web/src/views/forecast/{algorithms,score-records,ranking,ranking-history}、forecast-results/{history,backtests,evaluations,leaderboard,trends,runs}、forecast-actions/{recommendations,executions,fallbacks,admissions,audit-exports}、monitoring/metrics；共享件 components/business/{list-search-card,list-table-panel,metric-series-chart,recommendation-explain}.vue、hooks/business/{use-paged-list,use-forecast-modules}.ts、components/advanced/algorithm-params-editor.vue、service/api/forecast.ts | 列表页用 ListSearchCard + ListTablePanel + usePagedList；参数编辑器由 /algorithms 的 schema 驱动；浏览器验收脚本 scripts/e2e/{multimetric,optimization,platform}.mjs |
 | 多指标、评分与保护 | pkg/model/metric_source.go（MetricSource、AlgorithmScore、AdmissionDecision）、module_run_state.go、pkg/multimetric（每来源统计→需求/阈值比→按资源合并→加权压力，表驱动单测）、pkg/scoring（回放窗口的副本/CPU/内存/GPU 准确度、OOM 扣分、完整度→0-100 综合分）、forecastsvc/{inputs,score,recommend,protect}.go（来源装载、评分、按分数×权重排名与切换滞后、资格门槛、动态上限 expandCeiling、降级原因码）、dao/rdb/{metric_source,run_state,forecast_audit}.go、pkg/migration/forecast_sources.go（旧绑定→实例、旧映射槽→来源，退役模板与输入集表） | 选择：评分≥min_score 且预测新鲜且已晋升（基线除外）；领先者需超过 switch_margin 并连续 switch_cycles 次评估才取代在用者；降级按字段独立（bypass > 固定周期 > 算法 > 模块 Fallback > 保持原值），OOM 地板对除 bypass 外所有来源生效；恢复需 recover_cycles 个连续健康周期；最大副本数 dynamic 时有效上限每周期至多上调 expand_step_ratio、需评分≥expand_min_score、永不超过 hard_max_replicas |
 | 指标 | pkg/metrics/metrics.go、pkg/forecastsvc/metrics.go | Registry/Factory；metrics.listen 提供 /metrics、/healthz、/readyz；预测状态由 forecastsvc.Collector 在抓取时读库（缓存 10 秒，标签仅 module/metric/algorithm/resource/source） |
-| 配置 | pkg/config、handle_sys_config.go、handle_secret_key.go | 复用 Viper/KUBEFORECAST_ 环境变量和密钥保护；未来集群凭据另定义 Secret 接入 |
+| 配置 | pkg/config、handle_sys_config.go、handle_secret_key.go | 复用 Viper/KUBE_RESOURCE_FCST_ 环境变量和密钥保护；未来集群凭据另定义 Secret 接入 |
 | UI | web/src/views；web/package.json | Vue3/TypeScript/Naive UI/Pinia/i18n/ElegantRouter，沿用页面模式 |
 | 页面示例 | web/src/views/authorization/user/index.vue、web/src/views/system/config/index.vue、web/src/views/task-center/definition/index.vue、web/src/views/datasource/metric-mappings/index.vue | 找最近列表/表单，不独立重设计 |
 | 表格 | web/src/components/advanced/expandable-data-table.vue、table-header-operation.vue、table-column-setting.vue；web/src/hooks/business/use-table-column-config.ts | 复用用户列配置；大数据分页、检索、排序在服务端 |

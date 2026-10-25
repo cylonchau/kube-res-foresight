@@ -1,6 +1,6 @@
-# KubeForecast
+# kube-resource-fcst
 
-开发、排查、评审和规划本项目时，使用 [kubeforecast-development](.claude/skills/kubeforecast-development/SKILL.md) 技能。
+开发、排查、评审和规划本项目时，使用 [kube-resource-fcst-development](.claude/skills/kube-resource-fcst-development/SKILL.md) 技能。
 
 项目规则见 [AGENTS.md](AGENTS.md)，专项技能在 `.agents/skills/` 与 `.claude/skills/` 双向同步；Claude 入口按任务读取 `.claude/skills/`。执行状态见 [docs/platform-progress.md](docs/platform-progress.md)。
 

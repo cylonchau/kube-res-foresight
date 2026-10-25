@@ -1,25 +1,25 @@
-name: kubeforecast-core
+name: kube-resource-fcst-core
 
 x-core-environment: &core-environment
-  KUBEFORECAST_DATABASE_DRIVER: mysql
-  KUBEFORECAST_MYSQL_HOST: ${MYSQL_HOST:-host.docker.internal}
-  KUBEFORECAST_MYSQL_PORT: ${MYSQL_PORT:-3306}
-  KUBEFORECAST_MYSQL_DATABASE: ${MYSQL_DATABASE:-kubeforecast}
-  KUBEFORECAST_MYSQL_USERNAME: ${MYSQL_USER:-kubeforecast}
-  KUBEFORECAST_MYSQL_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD in deploy/docker/.env}
-  KUBEFORECAST_SERVER_JWT_SECRET: ${KUBEFORECAST_JWT_SECRET:?set KUBEFORECAST_JWT_SECRET in deploy/docker/.env}
+  KUBE_RESOURCE_FCST_DATABASE_DRIVER: mysql
+  KUBE_RESOURCE_FCST_MYSQL_HOST: ${MYSQL_HOST:-host.docker.internal}
+  KUBE_RESOURCE_FCST_MYSQL_PORT: ${MYSQL_PORT:-3306}
+  KUBE_RESOURCE_FCST_MYSQL_DATABASE: ${MYSQL_DATABASE:-kube-resource-fcst}
+  KUBE_RESOURCE_FCST_MYSQL_USERNAME: ${MYSQL_USER:-kube-resource-fcst}
+  KUBE_RESOURCE_FCST_MYSQL_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD in deploy/docker/.env}
+  KUBE_RESOURCE_FCST_SERVER_JWT_SECRET: ${KUBE_RESOURCE_FCST_JWT_SECRET:?set KUBE_RESOURCE_FCST_JWT_SECRET in deploy/docker/.env}
 
 x-db-hosts: &db-hosts
   - "host.docker.internal:host-gateway"
 
 x-server-image: &server-image
-  image: ${KUBEFORECAST_IMAGE:-kubeforecast:local}
+  image: ${KUBE_RESOURCE_FCST_IMAGE:-kube-resource-fcst:local}
   build:
     context: ../..
     dockerfile: deploy/docker/Dockerfile
-    target: kubeforecast
+    target: kube-resource-fcst
     args:
-      VERSION: ${KUBEFORECAST_VERSION:-dev}
+      VERSION: ${KUBE_RESOURCE_FCST_VERSION:-dev}
 
 services:
   # The built-in MySQL service is intentionally disabled. This stack connects
@@ -28,8 +28,8 @@ services:
   #   image: mysql:8.4
   #   restart: unless-stopped
   #   environment:
-  #     MYSQL_DATABASE: kubeforecast
-  #     MYSQL_USER: kubeforecast
+  #     MYSQL_DATABASE: kube-resource-fcst
+  #     MYSQL_USER: kube-resource-fcst
   #     MYSQL_PASSWORD: ${MYSQL_PASSWORD}
   #     MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
   #   volumes:
@@ -38,24 +38,24 @@ services:
   migrate:
     <<: *server-image
     restart: "no"
-    command: ["server", "--config=/etc/kubeforecast/config.yaml", "--sql-driver=mysql", "--migration"]
+    command: ["server", "--config=/etc/kube-resource-fcst/config.yaml", "--sql-driver=mysql", "--migration"]
     environment: *core-environment
     extra_hosts: *db-hosts
     volumes:
-      - ./core.config.yaml:/etc/kubeforecast/config.yaml:ro
+      - ./core.config.yaml:/etc/kube-resource-fcst/config.yaml:ro
     networks:
       - core
 
   server:
     <<: *server-image
     restart: unless-stopped
-    command: ["server", "--config=/etc/kubeforecast/config.yaml", "--sql-driver=mysql"]
+    command: ["server", "--config=/etc/kube-resource-fcst/config.yaml", "--sql-driver=mysql"]
     environment: *core-environment
     extra_hosts: *db-hosts
     volumes:
-      - ./core.config.yaml:/etc/kubeforecast/config.yaml:ro
+      - ./core.config.yaml:/etc/kube-resource-fcst/config.yaml:ro
     ports:
-      - "${KUBEFORECAST_SERVER_BIND:-0.0.0.0}:${KUBEFORECAST_SERVER_PORT:-10000}:10000"
+      - "${KUBE_RESOURCE_FCST_SERVER_BIND:-0.0.0.0}:${KUBE_RESOURCE_FCST_SERVER_PORT:-10000}:10000"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:10000/ping"]
       interval: 10s
@@ -73,14 +73,14 @@ services:
     restart: unless-stopped
     command:
       - job
-      - --config=/etc/kubeforecast/config.yaml
+      - --config=/etc/kube-resource-fcst/config.yaml
       - --sql-driver=mysql
-      - --max-workers=${KUBEFORECAST_JOB_WORKERS:-10}
-      - --poll-interval=${KUBEFORECAST_JOB_POLL_INTERVAL:-100ms}
+      - --max-workers=${KUBE_RESOURCE_FCST_JOB_WORKERS:-10}
+      - --poll-interval=${KUBE_RESOURCE_FCST_JOB_POLL_INTERVAL:-100ms}
     environment: *core-environment
     extra_hosts: *db-hosts
     volumes:
-      - ./core.config.yaml:/etc/kubeforecast/config.yaml:ro
+      - ./core.config.yaml:/etc/kube-resource-fcst/config.yaml:ro
     depends_on:
       migrate:
         condition: service_completed_successfully

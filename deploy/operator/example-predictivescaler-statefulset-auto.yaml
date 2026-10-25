@@ -7,7 +7,7 @@
 apiVersion: v1
 kind: Secret
 metadata:
-  name: kubeforecast-ca
+  name: kube-resource-fcst-ca
   namespace: prod
 type: Opaque
 stringData:
@@ -17,7 +17,7 @@ stringData:
     REPLACE_WITH_THE_PEM_OF_YOUR_CA
     -----END CERTIFICATE-----
 ---
-apiVersion: autoscaling.kubeforecast.io/v1alpha1
+apiVersion: autoscaling.kube-resource-fcst.io/v1alpha1
 kind: PredictiveScaler
 metadata:
   name: queue-consumer
@@ -41,12 +41,12 @@ spec:
   decision:
     source: PlatformAPI
     platformAPI:
-      url: https://kubeforecast.example.com
+      url: https://kube-resource-fcst.example.com
       module: queue-consumer
       accessKeySecretRef:
-        name: kubeforecast-platform # see example-predictivescaler.yaml
+        name: kube-resource-fcst-platform # see example-predictivescaler.yaml
         key: token
       caBundleSecretRef:
-        name: kubeforecast-ca
+        name: kube-resource-fcst-ca
         key: ca.crt
       timeoutSeconds: 5
