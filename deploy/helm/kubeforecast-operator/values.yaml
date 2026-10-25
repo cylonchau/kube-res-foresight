@@ -1,0 +1,89 @@
+# Values of the kubeforecast-operator chart. It has not been installed in a real cluster yet.
+
+# The operator image (deploy/docker/Dockerfile, target "operator"). There is no public image: build and push one.
+image:
+  repository: "" # required, for example registry.example.com/kubeforecast-operator
+  tag: "" # defaults to the chart appVersion
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+# Two replicas are safe: leader election lets only one of them scale.
+replicaCount: 2
+
+nameOverride: ""
+fullnameOverride: ""
+
+operator:
+  # Leader election must stay on while replicaCount > 1.
+  leaderElect: true
+  # Watch only this namespace; empty watches every namespace.
+  watchNamespace: ""
+  # Run the PredictiveScaler controller. Turn it off (and install the chart with --skip-crds) when the platform modules
+  # below are the only configuration: then no PredictiveScaler object exists to keep in step with the module.
+  predictiveScalerCRD: true
+  # Extra arguments of the operator command.
+  extraArgs: []
+
+# Platform-driven scaling. With a url the operator reads the platform's auto modules (namespace, workload, bounds, fallback,
+# pace) and scales their workloads through the scale subresource: the module is the only configuration.
+platform:
+  url: "" # for example https://kubeforecast.example.com
+  syncInterval: 30s
+  # Secret holding the developer credential "<access key>:<access secret>" (only "Operator Decisions (read, report)").
+  credentialSecret:
+    name: ""
+    key: credential
+  # Optional Secret holding a PEM CA bundle of the platform certificate.
+  caSecret:
+    name: ""
+    key: ca.crt
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  # Create the ClusterRole and its binding. Turn it off only when you bind a role of your own.
+  create: true
+
+metrics:
+  port: 8080
+  service:
+    enabled: true
+  # Needs the Prometheus Operator CRDs.
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    labels: {}
+
+probes:
+  port: 8081
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    memory: 256Mi
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+priorityClassName: ""
+
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]

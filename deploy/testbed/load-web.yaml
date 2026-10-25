@@ -1,0 +1,60 @@
+# load-web: a workload whose TOTAL CPU demand is set by a knob and shared by its pods, like real traffic is.
+# Every pod counts the ready endpoints of the headless Service (nslookup) and burns demand/replicas of a core, so the
+# workload's total CPU stays equal to the demand whatever the replica count is. Scaling out therefore lowers the CPU
+# per pod instead of raising the total, and the forecast target does not feed back on itself.
+# Change the demand (millicores of CPU for the whole workload) with deploy/testbed/load.sh or:
+#   kubectl -n forecast-test patch cm load-web-load --type merge -p '{"data":{"millicores":"400"}}'
+# A ConfigMap volume refreshes in up to about a minute.
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: load-web-load, namespace: forecast-test}
+data:
+  millicores: "150"
+---
+apiVersion: v1
+kind: Service
+metadata: {name: load-web, namespace: forecast-test}
+spec:
+  clusterIP: None
+  selector: {app: load-web}
+  ports: [{port: 80}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: load-web, namespace: forecast-test}
+spec:
+  replicas: 2
+  selector: {matchLabels: {app: load-web}}
+  template:
+    metadata: {labels: {app: load-web}}
+    spec:
+      containers:
+        - name: app
+          image: curlimages/curl:latest
+          imagePullPolicy: IfNotPresent
+          resources: {requests: {cpu: 100m, memory: 32Mi}, limits: {cpu: 500m, memory: 128Mi}}
+          volumeMounts: [{name: load, mountPath: /cfg}]
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              # centiseconds since boot, read without forking (this busybox date has no %N)
+              cs() { read u _ < /proc/uptime; echo "${u%.*}${u#*.}"; }
+              n=2; tick=0
+              while true; do
+                # recount the replicas every 10 s
+                if [ $(( tick % 10 )) -eq 0 ]; then
+                  c=$(nslookup load-web.forecast-test.svc.cluster.local 2>/dev/null | grep -c '^Address.*\.' )
+                  c=$(( c - 1 )); [ $c -ge 1 ] && n=$c
+                fi
+                m=$(cat /cfg/millicores 2>/dev/null); m=${m:-100}
+                # this pod's share of the demand, in centiseconds of CPU per second (1 cs = 10 millicores)
+                # spread over 10 s (Bresenham) so the share is exact even when it is below one 10 ms step
+                k=$(( tick % 10 )); busy=$(( m * (k + 1) / (n * 10) - m * k / (n * 10) )); [ $busy -gt 95 ] && busy=95
+                end=$(( $(cs) + busy ))
+                while [ "$(cs)" -lt "$end" ]; do :; done
+                sleep 0.$(printf '%02d' $(( 100 - busy > 99 ? 99 : 100 - busy )))
+                tick=$(( tick + 1 ))
+              done
+      volumes:
+        - name: load
+          configMap: {name: load-web-load}

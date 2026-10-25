@@ -1,0 +1,66 @@
+# One PredictiveScaler per test workload, in Observe mode: the operator reads the platform decision and reports it in
+# the status, but does not change the replicas. Switch spec.mode to Auto to let it scale.
+# The platform runs on the host; Docker Desktop reaches it as host.docker.internal.
+---
+apiVersion: autoscaling.kubeforecast.io/v1alpha1
+kind: PredictiveScaler
+metadata: {name: web-diurnal, namespace: forecast-test}
+spec:
+  scaleTargetRef: {kind: Deployment, name: web-diurnal}
+  mode: Observe
+  minReplicas: 1
+  maxReplicas: 8
+  fallbackReplicas: 2
+  evaluationInterval: 30s
+  behavior:
+    scaleUp: {maxStep: 2, cooldown: 1m}
+    scaleDown: {maxStep: 1, cooldown: 3m}
+  decision:
+    source: PlatformAPI
+    platformAPI:
+      url: http://host.docker.internal:20001
+      module: web-diurnal
+      accessKeySecretRef: {name: kubeforecast-platform, key: token}
+      timeoutSeconds: 5
+---
+apiVersion: autoscaling.kubeforecast.io/v1alpha1
+kind: PredictiveScaler
+metadata: {name: batch-spike, namespace: forecast-test}
+spec:
+  scaleTargetRef: {kind: Deployment, name: batch-spike}
+  mode: Observe
+  minReplicas: 1
+  maxReplicas: 6
+  fallbackReplicas: 1
+  evaluationInterval: 30s
+  behavior:
+    scaleUp: {maxStep: 2, cooldown: 1m}
+    scaleDown: {maxStep: 1, cooldown: 3m}
+  decision:
+    source: PlatformAPI
+    platformAPI:
+      url: http://host.docker.internal:20001
+      module: batch-spike
+      accessKeySecretRef: {name: kubeforecast-platform, key: token}
+      timeoutSeconds: 5
+---
+apiVersion: autoscaling.kubeforecast.io/v1alpha1
+kind: PredictiveScaler
+metadata: {name: steady-api, namespace: forecast-test}
+spec:
+  scaleTargetRef: {kind: Deployment, name: steady-api}
+  mode: Observe
+  minReplicas: 1
+  maxReplicas: 8
+  fallbackReplicas: 3
+  evaluationInterval: 30s
+  behavior:
+    scaleUp: {maxStep: 2, cooldown: 1m}
+    scaleDown: {maxStep: 1, cooldown: 3m}
+  decision:
+    source: PlatformAPI
+    platformAPI:
+      url: http://host.docker.internal:20001
+      module: steady-api
+      accessKeySecretRef: {name: kubeforecast-platform, key: token}
+      timeoutSeconds: 5

@@ -1,0 +1,93 @@
+# kubeforecast-operator: namespace, identity, permissions and the manager Deployment.
+# Reference manifests: build and push the "operator" image (deploy/docker/Dockerfile, --target operator), then replace IMAGE.
+# The Helm chart in deploy/helm/kubeforecast-operator installs the same objects, with the CRD.
+# Apply deploy/operator/crd/*.yaml and deploy/operator/rbac/role.yaml first.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kubeforecast-system
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kubeforecast-operator
+  namespace: kubeforecast-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kubeforecast-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kubeforecast-operator
+subjects:
+  - kind: ServiceAccount
+    name: kubeforecast-operator
+    namespace: kubeforecast-system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kubeforecast-operator
+  namespace: kubeforecast-system
+  labels:
+    app.kubernetes.io/name: kubeforecast-operator
+spec:
+  # Two replicas are safe: leader election (on by default) lets only one of them scale.
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kubeforecast-operator
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kubeforecast-operator
+    spec:
+      serviceAccountName: kubeforecast-operator
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: manager
+          image: IMAGE
+          # the image is the "operator" target of deploy/docker/Dockerfile: its entrypoint is kubeforecast-operator
+          args:
+            - --leader-elect=true
+            - --metrics-bind-address=:8080
+            - --health-probe-bind-address=:8081
+            # Platform-driven scaling (no PredictiveScaler objects, no CRD): the operator reads the platform's auto
+            # modules and scales their workloads. Mount the credential Secret ("<access key>:<access secret>") and
+            # turn the CRD controller off if the CRD is not installed.
+            # - --platform-url=https://kubeforecast.example.com
+            # - --platform-credential-file=/etc/kubeforecast/platform/credential
+            # - --predictivescaler-crd=false
+          ports:
+            - name: metrics
+              containerPort: 8080
+            - name: probes
+              containerPort: 8081
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: probes
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: probes
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]

@@ -1,0 +1,17 @@
+The KubeForecast operator is installed in namespace {{ .Release.Namespace }}.
+
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "kubeforecast-operator.fullname" . }}
+  kubectl get crd predictivescalers.autoscaling.kubeforecast.io
+
+{{- if .Values.platform.url }}
+Platform-driven scaling is on: the operator reads the auto modules from {{ .Values.platform.url }} every {{ .Values.platform.syncInterval }}
+and scales their workloads. Replicas, bounds, fallback and pace are configured on the module in the platform;
+no PredictiveScaler object is needed.
+{{- end }}
+
+Next: create a Secret with the platform credential and a PredictiveScaler in Observe mode
+(see deploy/operator/example-predictivescaler.yaml). Switch it to Auto only after its status shows the decisions you
+expect, and only after the system setting forecast.allow_auto_mode has been opened on the platform.
+
+The CRD comes from the crds/ directory of the chart: Helm installs it once and never upgrades or deletes it.
+After a chart upgrade that changes the CRD, apply it yourself: kubectl apply -f deploy/operator/crd/

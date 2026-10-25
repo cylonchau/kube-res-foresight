@@ -1,0 +1,30 @@
+# Scrape target for the operator business metrics (kubeforecast_operator_*). The controller-runtime metrics
+# endpoint serves them next to its own on the manager's metrics port.
+apiVersion: v1
+kind: Service
+metadata:
+  name: kubeforecast-operator-metrics
+  namespace: kubeforecast-system
+  labels:
+    app.kubernetes.io/name: kubeforecast-operator
+spec:
+  selector:
+    app.kubernetes.io/name: kubeforecast-operator
+  ports:
+    - name: metrics
+      port: 8080
+      targetPort: metrics
+---
+# Requires the Prometheus Operator CRDs. Without them, scrape the Service above with a plain scrape config.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: kubeforecast-operator
+  namespace: kubeforecast-system
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kubeforecast-operator
+  endpoints:
+    - port: metrics
+      interval: 30s

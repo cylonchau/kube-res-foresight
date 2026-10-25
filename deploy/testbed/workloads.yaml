@@ -1,0 +1,89 @@
+# Test workloads for trying the KubeForecast loop on a local cluster. Each one burns CPU with a shell loop whose duty
+# cycle follows a pattern, so Prometheus (cAdvisor) records a real, forecastable usage curve:
+#   web-diurnal  smooth wave, period 30 minutes (stands in for the daily cycle)
+#   batch-spike  nearly idle, a burst every 10 minutes
+#   steady-api   constant moderate load
+# They only use the image curlimages/curl (present on a Docker Desktop cluster that ran this repo's checks).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: forecast-test
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: web-diurnal, namespace: forecast-test}
+spec:
+  replicas: 2
+  selector: {matchLabels: {app: web-diurnal}}
+  template:
+    metadata: {labels: {app: web-diurnal}}
+    spec:
+      containers:
+        - name: app
+          image: curlimages/curl:latest
+          imagePullPolicy: IfNotPresent
+          resources: {requests: {cpu: 100m, memory: 32Mi}, limits: {cpu: 500m, memory: 128Mi}}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              # duty cycle 5%..65% of every second, period 1800 s
+              # centiseconds since boot, read without forking (this busybox date has no %N)
+              cs() { read u _ < /proc/uptime; echo "${u%.*}${u#*.}"; }
+              burn() { end=$(( $(cs) + $1 )); while [ "$(cs)" -lt "$end" ]; do :; done; }
+              while true; do
+                t=$(date +%s); p=$(( t % 1800 ))
+                if [ $p -lt 900 ]; then d=$(( 5 + p * 60 / 900 )); else d=$(( 65 - (p - 900) * 60 / 900 )); fi
+                burn $d
+                sleep 0.$(printf '%02d' $(( 100 - d > 99 ? 99 : 100 - d )))
+              done
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: batch-spike, namespace: forecast-test}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: batch-spike}}
+  template:
+    metadata: {labels: {app: batch-spike}}
+    spec:
+      containers:
+        - name: app
+          image: curlimages/curl:latest
+          imagePullPolicy: IfNotPresent
+          resources: {requests: {cpu: 100m, memory: 32Mi}, limits: {cpu: 1000m, memory: 128Mi}}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              # a 90 s burst at the start of every 10 minutes, idle otherwise
+              # centiseconds since boot, read without forking (this busybox date has no %N)
+              cs() { read u _ < /proc/uptime; echo "${u%.*}${u#*.}"; }
+              burn() { end=$(( $(cs) + $1 )); while [ "$(cs)" -lt "$end" ]; do :; done; }
+              while true; do
+                p=$(( $(date +%s) % 600 ))
+                if [ $p -lt 90 ]; then burn 90; sleep 0.1; else sleep 5; fi
+              done
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: steady-api, namespace: forecast-test}
+spec:
+  replicas: 3
+  selector: {matchLabels: {app: steady-api}}
+  template:
+    metadata: {labels: {app: steady-api}}
+    spec:
+      containers:
+        - name: app
+          image: curlimages/curl:latest
+          imagePullPolicy: IfNotPresent
+          resources: {requests: {cpu: 100m, memory: 32Mi}, limits: {cpu: 300m, memory: 128Mi}}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              # centiseconds since boot, read without forking (this busybox date has no %N)
+              cs() { read u _ < /proc/uptime; echo "${u%.*}${u#*.}"; }
+              burn() { end=$(( $(cs) + $1 )); while [ "$(cs)" -lt "$end" ]; do :; done; }
+              while true; do
+                burn 30
+                sleep 0.7
+              done

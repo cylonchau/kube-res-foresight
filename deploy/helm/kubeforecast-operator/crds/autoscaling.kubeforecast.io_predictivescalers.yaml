@@ -1,0 +1,391 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.19.0
+  name: predictivescalers.autoscaling.kubeforecast.io
+spec:
+  group: autoscaling.kubeforecast.io
+  names:
+    categories:
+    - autoscaling
+    kind: PredictiveScaler
+    listKind: PredictiveScalerList
+    plural: predictivescalers
+    shortNames:
+    - ps
+    singular: predictivescaler
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.mode
+      name: Mode
+      type: string
+    - jsonPath: .status.currentReplicas
+      name: Current
+      type: integer
+    - jsonPath: .status.desiredReplicas
+      name: Desired
+      type: integer
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: PredictiveScaler controls the replicas of one workload from predictions.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: PredictiveScalerSpec is the desired behavior. It replaces
+              an HPA or KEDA ScaledObject for the target.
+            properties:
+              behavior:
+                description: Behavior holds the per-direction rules.
+                properties:
+                  scaleDown:
+                    description: ScaleRule limits how fast replicas change in one
+                      direction.
+                    properties:
+                      cooldown:
+                        description: Cooldown is the minimum time since the last scaling
+                          action before this direction may act again.
+                        type: string
+                      maxStep:
+                        description: MaxStep is the most replicas added or removed
+                          by one scaling action; 0 means no limit.
+                        format: int32
+                        minimum: 0
+                        type: integer
+                    type: object
+                  scaleUp:
+                    description: ScaleRule limits how fast replicas change in one
+                      direction.
+                    properties:
+                      cooldown:
+                        description: Cooldown is the minimum time since the last scaling
+                          action before this direction may act again.
+                        type: string
+                      maxStep:
+                        description: MaxStep is the most replicas added or removed
+                          by one scaling action; 0 means no limit.
+                        format: int32
+                        minimum: 0
+                        type: integer
+                    type: object
+                type: object
+              decision:
+                description: Decision selects and configures the source of the desired
+                  replicas.
+                properties:
+                  platformAPI:
+                    description: PlatformAPIDecision reads the replicas of a platform
+                      module.
+                    properties:
+                      accessKeySecretRef:
+                        description: AccessKeySecretRef holds the developer credential
+                          as "<access key>:<access secret>".
+                        properties:
+                          key:
+                            default: token
+                            type: string
+                          name:
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      caBundleSecretRef:
+                        description: CABundleSecretRef optionally holds a PEM CA bundle
+                          used to verify the platform certificate.
+                        properties:
+                          key:
+                            default: token
+                            type: string
+                          name:
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      module:
+                        description: Module is the name of the platform module that
+                          decides this workload.
+                        minLength: 1
+                        type: string
+                      timeoutSeconds:
+                        default: 5
+                        description: TimeoutSeconds bounds one request to the platform.
+                        format: int32
+                        maximum: 60
+                        minimum: 1
+                        type: integer
+                      url:
+                        description: URL is the base URL of the KubeForecast platform,
+                          for example https://kubeforecast.example.com.
+                        type: string
+                    required:
+                    - accessKeySecretRef
+                    - module
+                    - url
+                    type: object
+                  prometheus:
+                    description: |-
+                      PrometheusDecision reads the desired replicas from a Prometheus instant query. The query must return exactly one
+                      series; the value is rounded up to a whole number of replicas.
+                    properties:
+                      bearerTokenSecretRef:
+                        description: BearerTokenSecretRef optionally holds a bearer
+                          token sent to Prometheus.
+                        properties:
+                          key:
+                            default: token
+                            type: string
+                          name:
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      caBundleSecretRef:
+                        description: CABundleSecretRef optionally holds a PEM CA bundle
+                          used to verify the Prometheus certificate.
+                        properties:
+                          key:
+                            default: token
+                            type: string
+                          name:
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      maxStalenessSeconds:
+                        default: 120
+                        description: |-
+                          MaxStalenessSeconds is how old the sample may be before the decision counts as expired; it is also how long
+                          the decision stays valid after the sample time.
+                        format: int32
+                        minimum: 5
+                        type: integer
+                      query:
+                        description: Query is an instant query returning a single
+                          series whose value is the desired replica count.
+                        minLength: 1
+                        type: string
+                      timeoutSeconds:
+                        default: 5
+                        description: TimeoutSeconds bounds one request.
+                        format: int32
+                        maximum: 60
+                        minimum: 1
+                        type: integer
+                      url:
+                        description: URL is the base URL of the Prometheus-compatible
+                          API, for example http://prometheus.monitoring:9090.
+                        type: string
+                    required:
+                    - query
+                    - url
+                    type: object
+                  source:
+                    description: DecisionSource selects where the desired replicas
+                      come from.
+                    enum:
+                    - Static
+                    - PlatformAPI
+                    - Prometheus
+                    type: string
+                  static:
+                    description: StaticDecision is a fixed replica count.
+                    properties:
+                      replicas:
+                        format: int32
+                        minimum: 0
+                        type: integer
+                    required:
+                    - replicas
+                    type: object
+                required:
+                - source
+                type: object
+              evaluationInterval:
+                description: EvaluationInterval is how often the decision is read
+                  and applied.
+                type: string
+              fallbackReplicas:
+                description: |-
+                  FallbackReplicas is used when the decision is unavailable or expired; without it the operator
+                  freezes the current replicas. A fallback below the current replicas never scales down.
+                format: int32
+                minimum: 0
+                type: integer
+              maxReplicas:
+                format: int32
+                minimum: 1
+                type: integer
+              minReplicas:
+                format: int32
+                minimum: 0
+                type: integer
+              mode:
+                default: Observe
+                description: Mode selects whether the operator only reports what it
+                  would do or also scales.
+                enum:
+                - Observe
+                - Auto
+                type: string
+              scaleTargetRef:
+                description: TargetRef identifies the workload whose replicas are
+                  controlled.
+                properties:
+                  apiVersion:
+                    description: APIVersion defaults to apps/v1.
+                    type: string
+                  kind:
+                    enum:
+                    - Deployment
+                    - StatefulSet
+                    type: string
+                  name:
+                    minLength: 1
+                    type: string
+                required:
+                - kind
+                - name
+                type: object
+            required:
+            - decision
+            - maxReplicas
+            - minReplicas
+            - scaleTargetRef
+            type: object
+          status:
+            description: PredictiveScalerStatus is the observed state.
+            properties:
+              conditions:
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              currentReplicas:
+                format: int32
+                type: integer
+              desiredReplicas:
+                description: DesiredReplicas is the bounded value the operator wants
+                  after safety checks.
+                format: int32
+                type: integer
+              lastDecision:
+                description: DecisionStatus records the last decision used.
+                properties:
+                  algorithm:
+                    description: Algorithm and Score are the algorithm instance
+                      behind a platform decision and its score.
+                    type: string
+                  reason:
+                    type: string
+                  replicas:
+                    format: int32
+                    type: integer
+                  score:
+                    type: string
+                  source:
+                    type: string
+                  validUntil:
+                    format: date-time
+                    type: string
+                  version:
+                    format: int64
+                    type: integer
+                required:
+                - replicas
+                - source
+                type: object
+              lastScaleTime:
+                format: date-time
+                type: string
+              observedGeneration:
+                format: int64
+                type: integer
+              readyReplicas:
+                format: int32
+                type: integer
+            required:
+            - currentReplicas
+            - desiredReplicas
+            - readyReplicas
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

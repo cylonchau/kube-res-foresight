@@ -1,0 +1,160 @@
+# KubeForecast admission policy for Kyverno (tested on Kyverno 1.19.1, Docker Desktop kubeadm cluster).
+#
+# For a Pod created by a workload that a platform module manages (module mode admission or auto), sets the container
+# requests (CPU, memory, GPU) to what the platform recommends and, when the module manages them (limit_cpu_ratio,
+# limit_memory_ratio), the limits too. It never touches replicas: those belong to the operator (PredictiveScaler).
+#
+# It does NOT fail when:
+#   - no module manages the workload       the platform answers 200 "apply: false" and nothing is patched;
+#   - the module is in observe / recommend mode, in bypass, or its recommendation expired -> same answer;
+#   - the platform is unreachable or the credential is wrong -> the apiCall default below is {"apply": false};
+#   - Kyverno itself fails -> failurePolicy Ignore, the Pod is admitted unchanged.
+#
+# Needs (see deploy/testbed/kyverno-credential.yaml for the Secret and the RBAC that lets Kyverno read only that Secret):
+#   - the system setting forecast.allow_admission_mode = true on the platform;
+#   - a developer credential holding "Admission Recommendations (read)" in Secret kyverno/kubeforecast-admission,
+#     key "credential" = "<access key>:<access secret>".
+# Replace PLATFORM_URL below with the address of the platform as seen from the Kyverno pods.
+#
+# Only NEW Pods are changed: a running Pod keeps its values until its workload rolls (kubectl rollout restart).
+# The platform matches the module by namespace, kind and name; the Deployment name is the ReplicaSet name without its hash.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: kubeforecast-resources
+  annotations:
+    policies.kyverno.io/title: KubeForecast recommended requests and limits
+    policies.kyverno.io/description: >-
+      Sets container requests (and managed limits) from KubeForecast recommendations of admission/auto modules.
+spec:
+  failurePolicy: Ignore
+  webhookTimeoutSeconds: 5
+  background: false
+  rules:
+    - name: apply-recommended-resources
+      match:
+        any:
+          - resources:
+              kinds: ["Pod"]
+              operations: ["CREATE"]
+      exclude:
+        any:
+          - resources:
+              namespaces: ["kube-system", "kube-public", "kube-node-lease", "kyverno", "kubeforecast-system", "monitoring"]
+      preconditions:
+        all:
+          - key: "{{ request.object.metadata.ownerReferences[0].kind || '' }}"
+            operator: AnyIn
+            value: ["ReplicaSet", "StatefulSet", "DaemonSet"]
+      context:
+        - name: ownerKind
+          variable:
+            jmesPath: request.object.metadata.ownerReferences[0].kind
+        - name: workloadKind
+          variable:
+            jmesPath: "ownerKind == 'ReplicaSet' && 'Deployment' || ownerKind"
+        - name: workload
+          variable:
+            jmesPath: >-
+              ownerKind == 'ReplicaSet' && regex_replace_all('-[a-z0-9]{5,10}$', request.object.metadata.ownerReferences[0].name, '') || request.object.metadata.ownerReferences[0].name
+        - name: credential
+          apiCall:
+            urlPath: /api/v1/namespaces/kyverno/secrets/kubeforecast-admission
+            jmesPath: data.credential | base64_decode(@)
+            default: ""
+        - name: recommendation
+          apiCall:
+            method: GET
+            service:
+              url: >-
+                PLATFORM_URL/api/v1/admission/recommendations?namespace={{request.namespace}}&kind={{workloadKind}}&workload={{workload}}&container={{request.object.spec.containers[0].name}}
+              headers:
+                - key: Authorization
+                  value: "KubeForecast-AK {{ credential }}"
+            default:
+              apply: false
+            jmesPath: data
+      mutate:
+        foreach:
+          - list: request.object.spec.containers
+            preconditions:
+              all:
+                - key: "{{ recommendation.apply || false }}"
+                  operator: Equals
+                  value: true
+                - key: "{{ recommendation.resources.cpu_milli || `0` }}"
+                  operator: GreaterThan
+                  value: 0
+            patchStrategicMerge:
+              spec:
+                containers:
+                  - (name): "{{ element.name }}"
+                    resources:
+                      requests:
+                        cpu: "{{ recommendation.resources.cpu_milli }}m"
+          - list: request.object.spec.containers
+            preconditions:
+              all:
+                - key: "{{ recommendation.apply || false }}"
+                  operator: Equals
+                  value: true
+                - key: "{{ recommendation.resources.memory_bytes || `0` }}"
+                  operator: GreaterThan
+                  value: 0
+            patchStrategicMerge:
+              spec:
+                containers:
+                  - (name): "{{ element.name }}"
+                    resources:
+                      requests:
+                        memory: "{{ recommendation.resources.memory_bytes }}"
+          - list: request.object.spec.containers
+            preconditions:
+              all:
+                - key: "{{ recommendation.apply || false }}"
+                  operator: Equals
+                  value: true
+                - key: "{{ recommendation.limits.cpu_milli || `0` }}"
+                  operator: GreaterThan
+                  value: 0
+            patchStrategicMerge:
+              spec:
+                containers:
+                  - (name): "{{ element.name }}"
+                    resources:
+                      limits:
+                        cpu: "{{ recommendation.limits.cpu_milli }}m"
+          - list: request.object.spec.containers
+            preconditions:
+              all:
+                - key: "{{ recommendation.apply || false }}"
+                  operator: Equals
+                  value: true
+                - key: "{{ recommendation.limits.memory_bytes || `0` }}"
+                  operator: GreaterThan
+                  value: 0
+            patchStrategicMerge:
+              spec:
+                containers:
+                  - (name): "{{ element.name }}"
+                    resources:
+                      limits:
+                        memory: "{{ recommendation.limits.memory_bytes }}"
+          - list: request.object.spec.containers
+            preconditions:
+              all:
+                - key: "{{ recommendation.apply || false }}"
+                  operator: Equals
+                  value: true
+                - key: "{{ recommendation.resources.gpu || `0` }}"
+                  operator: GreaterThan
+                  value: 0
+            patchStrategicMerge:
+              spec:
+                containers:
+                  - (name): "{{ element.name }}"
+                    resources:
+                      requests:
+                        nvidia.com/gpu: "{{ recommendation.resources.gpu }}"
+                      limits:
+                        nvidia.com/gpu: "{{ recommendation.resources.gpu }}"
