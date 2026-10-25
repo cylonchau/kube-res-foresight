@@ -51,18 +51,18 @@ try {
       await loginPage.goto(`${base}/login`);
       await loginPage.evaluate(language => localStorage.setItem('SOY_lang', JSON.stringify(language)), lang);
       await loginPage.reload();
-      await expect(loginPage.locator('.login-brand-top')).toContainText('KubeForecast');
+      await expect(loginPage.locator('.login-brand-top')).toContainText('kube-resource-fcst');
       await expect(loginPage.locator('.login-slogan')).toContainText('Kubernetes');
       await expect(loginPage.locator('.login-slogan')).toContainText('Pod');
-      await expect(loginPage).toHaveTitle(/KubeForecast/);
+      await expect(loginPage).toHaveTitle(/kube-resource-fcst/);
       assert.ok(!/hermes/i.test(await loginPage.locator('body').innerText()));
       assert.ok(await loginPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'login overflows viewport');
       await loginPage.screenshot({ path: `${output}/brand-login-${width}-${lang}.png`, fullPage: true, animations: 'disabled' });
     }
   } finally { await loginContext.close(); }
-  const logo = await fetch(`${base}/kubeforecast-logo.svg`);
+  const logo = await fetch(`${base}/kube-resource-fcst-logo.svg`);
   assert.equal(logo.status, 200);
-  assert.match(await logo.text(), /KubeForecast/);
+  assert.match(await logo.text(), /kube-resource-fcst/);
   for (const path of pages) {
     await page.goto(`${base}/${path}`);
     await page.locator('.n-menu').first().waitFor({ state: 'visible' });
@@ -71,7 +71,7 @@ try {
     await expect(page.locator('.n-data-table-loading-wrapper')).toHaveCount(0);
     assert.ok(!page.url().includes('/login'), `${path} redirected to login`);
     const text = await page.locator('body').innerText();
-    assert.ok(text.includes('KubeForecast') && !/hermes/i.test(text), `product identity on ${path}`);
+    assert.ok(text.includes('kube-resource-fcst') && !/hermes/i.test(text), `product identity on ${path}`);
     assert.ok(!/量化|市场数据|链上雷达|策略中心|交易与风控/.test(text), path);
     assert.ok(!/page\.(forecast|datasource|system|authorization|task|job)\./.test(text), `unresolved locale key on ${path}`);
     await page.screenshot({ path: `${output}/${path.replaceAll('/', '-')}.png`, fullPage: true, animations: 'disabled' });

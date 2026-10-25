@@ -154,6 +154,15 @@ const records = await call('GET', `/algorithm-scores?module_id=${moduleId}&page_
 check('a score record carries the module name and its breakdown', records.data.list[0].module_name === 'NGS APP' && records.data.list[0].breakdown.length >= 1);
 check('the metric scores compare every algorithm against the actuals', (await call('GET', `/modules/${moduleId}/metric-scores`, token)).data.metrics !== undefined);
 
+// ---- 3e. a PromQL is tested against the datasource before it is saved
+const goodQuery = { datasource_id: ds.data.id, metric: 'cpu', level: 'workload', module_id: moduleId, step_seconds: 60, query: 'sum(rate(cpu_usage{namespace="{{namespace}}",pod=~"{{workload}}-.*"}[{{range}}]))' };
+const tested = await call('POST', '/metric-queries/test', token, goodQuery);
+check('the query test runs the PromQL for the workload of the module and shapes the values', tested.data.ok === true && tested.data.stage === 'ok' && tested.data.samples > 0 && tested.data.rendered.includes('namespace="prod"') && tested.data.points.length > 0, JSON.stringify(tested.data).slice(0, 200));
+check('the query test refuses a template that does not fit before it asks Prometheus', (await call('POST', '/metric-queries/test', token, { ...goodQuery, query: 'sum(up{x="{{nope}}"})' })).data.stage === 'template');
+check('history before the module existed comes from Prometheus: nothing is missing in a window of a month ago', (await call('GET', `/modules/${moduleId}/compare?metric=cpu&predictions=false&from=${new Date(Date.now() - 31 * 864e5).toISOString()}&to=${new Date(Date.now() - 30 * 864e5).toISOString()}`, token)).data.actual.missing === false);
+const batch = await call('POST', '/algorithms/batch', token, { action: 'enable', ids: ['naive', 'ghost'] });
+check('a batch reports what it did and what it refused', batch.data.done === 1 && batch.data.failed.length === 1);
+
 // ---- 4. the pages ---------------------------------------------------------------------------------------------------
 const browser = await chromium.launch({ headless: true, ...(chrome ? { executablePath: chrome } : { channel: 'chromium' }) });
 try {
@@ -203,12 +212,13 @@ try {
   check('modules: the module is listed with its kind and status', (await bodyText()).includes('NGS APP') && (await bodyText()).includes('Deployment'));
   await operateFits('modules');
   const moduleButtons = await page.locator('.n-data-table-td--fixed-right').first().locator('button').allInnerTexts();
-  check('modules: the operate column is one row of edit, dataset, run and more', moduleButtons.map(x => x.trim()).join() === '编辑,数据集,运行,更多', moduleButtons.join());
+  check('modules: the operate column is one row of edit, dataset, delete and more', moduleButtons.map(x => x.trim()).join() === '编辑,数据集,删除,更多', moduleButtons.join());
   await page.getByRole('button', { name: '更多' }).first().click();
   await page.waitForTimeout(300);
   const moreMenu = await page.locator('.n-dropdown-menu').innerText();
-  check('modules: the rarely used actions are in the more menu', ['克隆', '固定周期', '旁路', '删除'].every(v => moreMenu.includes(v)), moreMenu.replace(/\n/g, ' '));
+  check('modules: the rarely used actions are in the more menu', ['克隆', '固定周期', '旁路'].every(v => moreMenu.includes(v)) && !moreMenu.includes('运行'), moreMenu.replace(/\n/g, ' '));
   await page.keyboard.press('Escape');
+  check('modules: the list has check boxes and a batch menu', (await page.locator('.n-data-table-th--selection, .n-data-table-td--selection').count()) > 0 && (await bodyText()).includes('批量操作'));
   await page.getByRole('button', { name: '新增' }).first().click();
   await page.waitForTimeout(500);
   const form = await page.locator('.n-modal').innerText();
@@ -216,6 +226,7 @@ try {
     form.includes('工作负载类型') && form.includes('历史窗口') && form.includes('预测周期') && form.includes('采样粒度') && form.includes('执行频率') && form.includes('最少数据量') && !form.includes('同一资源的合并方式') && !form.includes('最短历史') && !form.includes('算法评分'),
     form.replace(/\n/g, ' ').slice(0, 200));
   check('module form: the pace of the replica changes is configured on the module', ['副本调整节奏', '扩容单次最大步长', '缩容冷却'].every(v => form.includes(v)));
+  check('module form: min, max and fallback replicas and the recovery are module settings, not part of the safety bounds', ['最小副本数', '最大副本数', '默认及故障回退副本数', '恢复启用所需周期数'].every(v => form.includes(v)) && !form.includes('副本上限') && !form.includes('副本下限'), form.replace(/\n/g, ' ').slice(0, 120));
   await shot('modules-form');
   await page.keyboard.press('Escape');
 
@@ -332,6 +343,15 @@ try {
   const addSource = await page.locator('.n-modal').innerText();
   check('datasets: adding a metric offers categories, a custom PromQL, scale, precision, aggregation and missing-data handling',
     ['分类', '自定义 PromQL', '换算系数', '精度', '聚合方式', '缺失处理'].every(v => addSource.includes(v)), addSource.replace(/\n/g, ' ').slice(0, 200));
+  await page.getByRole('radio', { name: '自定义 PromQL' }).click().catch(() => {});
+  await page.getByText('自定义 PromQL', { exact: true }).last().click().catch(() => {});
+  await page.waitForTimeout(300);
+  await page.locator('.n-modal').getByRole('button', { name: '测试查询' }).first().click();
+  await page.waitForTimeout(800);
+  const testerText = await page.locator('.n-modal').last().innerText();
+  check('datasets: a PromQL is tested in a dialog with the query, the unit, the precision and the range', ['测试 PromQL 查询', '执行查询', '换算系数', '精度', '时间范围'].every(v => testerText.includes(v)), testerText.replace(/\n/g, ' ').slice(0, 160));
+  await shot('query-test');
+  await page.keyboard.press('Escape');
   await shot('datasets-add');
   await page.keyboard.press('Escape');
 
@@ -347,21 +367,14 @@ try {
   check('catalog: the PromQL can be typed by hand', (await page.locator('.n-modal textarea').first().inputValue()) === 'sum(up)');
   await page.keyboard.press('Escape');
   await page.waitForTimeout(300);
-  await page.getByPlaceholder('搜索指标名称、PromQL 或含义').fill('usage_cpu_cores');
-  await page.getByRole('button', { name: '搜索' }).last().click();
-  await page.waitForTimeout(600);
-  await page.getByRole('button', { name: '查看曲线' }).first().click();
-  await page.waitForURL(/monitoring\/curves/);
-  await page.waitForTimeout(1500);
-  check('monitoring: the curve has a page of its own that opens from the catalog', page.url().includes('/monitoring/curves?name='));
-  check('curves: the chart is drawn', (await page.locator('canvas').count()) > 0);
-  await shot('curves');
+  check('catalog: the rows can be checked for a batch and a mapping can be tested', (await page.locator('.n-data-table-th--selection').count()) > 0 && (await bodyText()).includes('测试查询'));
+  await shot('catalog');
 
   await visit(`forecast/ranking?module_id=${moduleId}`);
   const rankingText = await bodyText();
   check('menu: the scores are split into the records, the current ranking and the ranking history', ['算法评分', '当前排名', '历史排名'].every(v => rankingText.includes(v)));
   check('ranking: the current ranking shows each algorithm with its score and the best one', rankingText.includes('naive') && rankingText.includes('最优') && rankingText.includes('立即评分'));
-  check('ranking: the algorithms are lanes with score bars, not a table', (await page.locator('.rank-lane').count()) >= 2 && (await page.locator('.n-data-table').count()) === 0);
+  check('ranking: the algorithms are lanes with score bars, not a table', (await page.locator('.rank-lane').count()) >= 2 && (await page.locator('.n-data-table').count()) === 0 && (await page.locator('.rank-list').count()) === 1 && (await page.locator('.rank-list .n-checkbox').count()) >= 2);
   await shot('ranking');
   await page.getByText('指标评分（对比 Prometheus 实际值）').click();
   await page.waitForTimeout(1200);
@@ -376,9 +389,9 @@ try {
     metrics: [metricScoreRow('naive', 0.8), metricScoreRow('ewma', 0.92)] } }) }));
   await page.getByRole('button', { name: '刷新' }).first().click();
   await page.waitForTimeout(1000);
-  check('ranking: the metric scores are lanes grouped by metric, the best accuracy first, without a table',
-    (await page.locator('.metric-group .rank-lane').count()) === 2 && (await page.locator('.rank-lane').count()) === 4 && (await page.locator('.n-data-table').count()) === 0 &&
-    (await page.locator('.metric-group .rank-lane__name').first().innerText()) === 'ewma');
+  check('ranking: the composite result and the standard metric ranking are two separate lists with check boxes, without a table',
+    (await page.locator('.rank-list').count()) === 2 && (await page.locator('.rank-list .rank-lane').count()) === 4 && (await page.locator('.rank-list .n-checkbox').count()) >= 4 && (await page.locator('.n-data-table').count()) === 0 &&
+    (await page.locator('.rank-list').first().locator('.rank-lane__name').first().innerText()) === 'ewma');
   await page.unroute('**/metric-scores*');
   await shot('ranking-metrics');
   await visit('forecast/ranking-history');
@@ -398,7 +411,7 @@ try {
   await visit(`forecast-results/runs`);
   check('runs: the training records are listed with the status', (await bodyText()).includes('成功'));
   const runsText = await bodyText();
-  check('runs: the overview says how many runs there were, how each algorithm fared and why runs did not forecast', ['运行概览', '成功率', '各算法运行情况', '未产出预测的常见原因'].every(v => runsText.includes(v)), runsText.replace(/\s+/g, ' ').slice(0, 200));
+  check('runs: the overview says how many runs there were, how each algorithm fared and why runs did not forecast', ['运行概览', '命中率', '各算法运行情况', '未产出预测的常见原因'].every(v => runsText.includes(v)), runsText.replace(/\s+/g, ' ').slice(0, 200));
   await operateFits('runs');
   await page.getByRole('button', { name: '详情' }).first().click();
   await page.waitForTimeout(600);
@@ -407,6 +420,8 @@ try {
   await shot('runs-detail');
   await page.keyboard.press('Escape');
 
+  const TIME_FILTERED = ['forecast/score-records', 'forecast/ranking', 'forecast/ranking-history', 'forecast-results/runs', 'forecast-results/history', 'forecast-results/backtests', 'forecast-results/evaluations', 'forecast-results/leaderboard', 'forecast-results/trends', 'forecast-actions/executions', 'forecast-actions/admissions'];
+  const CHECKABLE = ['forecast/score-records', 'forecast/ranking-history', 'forecast-results/runs', 'forecast-results/backtests', 'forecast-results/evaluations', 'forecast-results/leaderboard', 'forecast-actions/executions', 'forecast-actions/admissions'];
   for (const route of ['forecast/score-records', 'forecast/ranking', 'forecast/ranking-history', 'forecast-results/runs', 'monitoring/datasets', 'forecast-results/history', 'forecast-results/backtests', 'forecast-results/evaluations', 'forecast-results/leaderboard',
     'forecast-results/trends', 'forecast-actions/recommendations', 'forecast-actions/executions', 'forecast-actions/fallbacks', 'forecast-actions/admissions', 'forecast-actions/audit-exports']) {
     await visit(route);
@@ -414,15 +429,20 @@ try {
     check(`${route} renders without unresolved text`, !/page\.(forecast|datasource)\./.test(text) && !page.url().includes('/login'));
     await operateFits(route);
     await noSideScroll(route);
+    if (TIME_FILTERED.includes(route)) check(`${route}: filtered by a start and an end time`, (await page.locator('.n-date-picker').count()) > 0 && !(await bodyText()).includes('最近 168 小时'));
+    if (CHECKABLE.includes(route)) check(`${route}: rows have check boxes`, (await page.locator('.n-data-table-th--selection, .rank-lane .n-checkbox').count()) > 0);
     if (['forecast-results/backtests', 'forecast-results/trends', 'forecast-actions/recommendations'].includes(route)) await shot(route.replace('/', '-'));
   }
   await visit('forecast-results/trends');
   const trendsText = await bodyText();
-  check('trends: the chart, the forecast summary and the data points are separate sections', ['预测与实测曲线', '预测摘要', '数据点'].every(v => trendsText.includes(v)) && (await page.locator('.analysis > *').count()) === 3, trendsText.replace(/\s+/g, ' ').slice(0, 160));
+  check('trends: the chart and the point by point list, no forecast summary', ['预测与实测曲线', '逐时间点'].every(v => trendsText.includes(v)) && !trendsText.includes('预测摘要') && (await page.locator('canvas').count()) > 0, trendsText.replace(/\s+/g, ' ').slice(0, 160));
+  check('trends: the filters are module, metric, algorithms and a start and end time', (await page.locator('.n-date-picker').count()) > 0 && (await page.getByText('全部有预测的算法').count()) > 0);
   await shot('trends');
   await visit('monitoring/curves');
   const curvesText = await bodyText();
-  check('curves: the filters, the chart, the summary cards and the data points are separate sections', ['曲线', '序列摘要', '数据点'].every(v => curvesText.includes(v)) && (await page.locator('.analysis > *').count()) === 3);
+  check('curves: the filters, the chart and the paged values, no series summary', ['曲线', '数据点', '来自 Prometheus'].every(v => curvesText.includes(v)) && !curvesText.includes('序列摘要') && (await page.locator('canvas').count()) > 0);
+  const actualCandles = await call('GET', `/modules/${moduleId}/compare?metric=cpu&predictions=false`, token);
+  check('curves: the values are read from Prometheus when the page opens, not from what was collected', actualCandles.data.actual.candles.length > 0 && actualCandles.data.actual.query.includes('cpu_usage'));
   await shot('curves-page');
   await visit('forecast-actions/audit-exports');
   const exportsText = await bodyText();
@@ -437,7 +457,8 @@ try {
   check('results: the backtests of the algorithms are listed for the module', (await bodyText()).includes('naive') && (await bodyText()).includes('ewma'));
   await page.getByRole('button', { name: '详情' }).first().click();
   await page.waitForTimeout(600);
-  check('backtests: a row opens its detail with the metrics', (await page.locator('.n-modal').innerText()).includes('指标明细'));
+  const modalText = await page.locator('.n-modal').innerText();
+  check('backtests: a row opens its detail with the metrics', ['选择要查看的指标', '精度', '覆盖率'].every(v => modalText.includes(v)));
   await page.keyboard.press('Escape');
   await visit('forecast-results/evaluations');
   if ((await page.getByRole('button', { name: '详情' }).count()) > 0) {
