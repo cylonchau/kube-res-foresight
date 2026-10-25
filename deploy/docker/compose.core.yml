@@ -13,11 +13,11 @@ x-db-hosts: &db-hosts
   - "host.docker.internal:host-gateway"
 
 x-server-image: &server-image
-  image: ${KUBEFORECAST_SERVER_IMAGE:-kubeforecast-server:local}
+  image: ${KUBEFORECAST_IMAGE:-kubeforecast:local}
   build:
     context: ../..
     dockerfile: deploy/docker/Dockerfile
-    target: server
+    target: kubeforecast
     args:
       VERSION: ${KUBEFORECAST_VERSION:-dev}
 
@@ -38,7 +38,7 @@ services:
   migrate:
     <<: *server-image
     restart: "no"
-    command: ["--config=/etc/kubeforecast/config.yaml", "--sql-driver=mysql", "--migration"]
+    command: ["server", "--config=/etc/kubeforecast/config.yaml", "--sql-driver=mysql", "--migration"]
     environment: *core-environment
     extra_hosts: *db-hosts
     volumes:
@@ -49,7 +49,7 @@ services:
   server:
     <<: *server-image
     restart: unless-stopped
-    command: ["--config=/etc/kubeforecast/config.yaml", "--sql-driver=mysql"]
+    command: ["server", "--config=/etc/kubeforecast/config.yaml", "--sql-driver=mysql"]
     environment: *core-environment
     extra_hosts: *db-hosts
     volumes:
@@ -69,15 +69,10 @@ services:
       - core
 
   job:
-    image: ${KUBEFORECAST_JOB_IMAGE:-kubeforecast-job:local}
-    build:
-      context: ../..
-      dockerfile: deploy/docker/Dockerfile
-      target: job
-      args:
-        VERSION: ${KUBEFORECAST_VERSION:-dev}
+    <<: *server-image
     restart: unless-stopped
     command:
+      - job
       - --config=/etc/kubeforecast/config.yaml
       - --sql-driver=mysql
       - --max-workers=${KUBEFORECAST_JOB_WORKERS:-10}

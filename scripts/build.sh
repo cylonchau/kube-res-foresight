@@ -36,7 +36,7 @@ elif [ -f "${PROJECT_ROOT}/cmd/${RAW_NAME}.go" ]; then
 elif [ -f "${PROJECT_ROOT}/cmd/${CLEAN_NAME}.go" ]; then
     SRC_PATH="${PROJECT_ROOT}/cmd/${CLEAN_NAME}.go"
     MODULE_KEY="${CLEAN_NAME}"
-elif [ "$RAW_NAME" == "kubeforecast" ] || [ "$RAW_NAME" == "server" ] || [ "$RAW_NAME" == "main.go" ] || [ "$RAW_NAME" == "main" ]; then
+elif [ "$RAW_NAME" == "kubeforecast" ] || [ "$RAW_NAME" == "main.go" ] || [ "$RAW_NAME" == "main" ]; then
     MODULE_KEY="kubeforecast"
     if [ -d "${PROJECT_ROOT}/cmd" ]; then
         SRC_PATH="${PROJECT_ROOT}/cmd"
@@ -55,11 +55,9 @@ fi
 
 [ -d "${PROJECT_ROOT}/${OUT_DIR}" ] || mkdir -p "${PROJECT_ROOT}/${OUT_DIR}"
 
-# 确定最终编译输出的二进制名称（例如 kubeforecast-server、kubeforecast-job）
+# 确定最终编译输出的二进制名称（kubeforecast 或 kubeforecast-operator）
 if [ "$MODULE_KEY" == "kubeforecast" ]; then
     TARGET_BINARY_NAME="kubeforecast"
-elif [ "$MODULE_KEY" == "server" ]; then
-    TARGET_BINARY_NAME="kubeforecast-server"
 elif [[ "$MODULE_KEY" == kubeforecast-* ]]; then
     TARGET_BINARY_NAME="${MODULE_KEY}"
 else
@@ -90,8 +88,8 @@ else
 fi
 
 # 复制前端编译产物 (Embed)
-if [ "${MODULE_KEY}" == "kubeforecast" ] || [ "${MODULE_KEY}" == "server" ]; then
-    echo "Packaging frontend assets for kubeforecast (server)..."
+if [ "${MODULE_KEY}" == "kubeforecast" ]; then
+    echo "Packaging frontend assets for kubeforecast..."
     if [ ! -d "${PROJECT_ROOT}/web/dist" ] && [ -f "${PROJECT_ROOT}/web/package.json" ]; then
         if ! command -v pnpm >/dev/null 2>&1; then
             echo "Error: 'pnpm' is required to build the embedded frontend."

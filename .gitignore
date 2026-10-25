@@ -1,12 +1,12 @@
 # Local state, credentials and build outputs
 .idea/
 .vscode/
-.agents/
+.agents/*
+!.agents/skills/
 .codex/
 .claude/*
 !.claude/skills/
-.claude/skills/*
-!.claude/skills/quant-system-development/
+!.claude/settings.json
 .aws/
 docs/*
 !docs/platform-progress.md

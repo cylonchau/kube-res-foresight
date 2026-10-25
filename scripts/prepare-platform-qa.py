@@ -22,8 +22,6 @@ server:
   dev_mode: true
 redis:
   addr: ""
-telegram:
-  enabled: false
 ''',encoding='utf-8')
 embed=(root/'pkg/app/router/dist').resolve()
 assert embed.is_relative_to(root) and embed.name=='dist'
