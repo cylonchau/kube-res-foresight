@@ -18,13 +18,14 @@ const login = await fetch(`${base}/api/v1/auth/login`, {
 assert.equal(login.code, 10000, JSON.stringify(login));
 const headers = { Authorization: `Bearer ${login.data.token}` };
 const routes = await fetch(`${base}/api/v1/route/get-user-routes`, { headers }).then(r => r.json());
-assert.equal(routes.data.home, 'workflow_pipelines');
+assert.equal(routes.data.home, 'forecast-modules_modules');
 assert.deepEqual(routes.data.routes.filter(r => !r.meta.hideInMenu).map(r => r.name).sort(),
-  ['authorization', 'system', 'task-center', 'workflow']);
+  ['authorization', 'datasource', 'forecast', 'forecast-actions', 'forecast-modules', 'forecast-results', 'monitoring', 'system', 'task-center']);
 for (const path of ['/market/tickers', '/scanner/status', '/trade/dashboard', '/collector/sources']) {
   assert.equal((await fetch(`${base}/api/v1${path}`, { headers })).status, 404);
 }
-const browser = await chromium.launch({ headless: true, channel: 'chromium' });
+const chrome = process.env.E2E_CHROME; // optional path of a Chromium executable
+const browser = await chromium.launch({ headless: true, ...(chrome ? { executablePath: chrome } : { channel: 'chromium' }) });
 const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
 await context.addInitScript(({ token, refreshToken }) => {
   localStorage.setItem('SOY_token', JSON.stringify(token));
@@ -38,7 +39,7 @@ page.on('request', req => { if (req.url().includes('/api/')) pending.add(req); }
 page.on('requestfinished', req => pending.delete(req));
 page.on('requestfailed', req => pending.delete(req));
 page.on('pageerror', err => errors.push(err.message));
-const pages = ['workflow/pipelines', 'workflow/instances', 'system/config', 'system/operation-log', 'system/secret-keys',
+const pages = ['forecast-modules/modules', 'monitoring/datasets', 'forecast/algorithms', 'forecast/score-records', 'forecast/ranking', 'forecast/ranking-history', 'forecast-results/runs', 'monitoring/metrics', 'forecast-results/backtests', 'system/config', 'system/operation-log', 'system/secret-keys',
   'authorization/user', 'authorization/role', 'authorization/menu', 'task-center/definition', 'task-center/audit'];
 try {
   const loginContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
@@ -72,7 +73,7 @@ try {
     const text = await page.locator('body').innerText();
     assert.ok(text.includes('KubeForecast') && !/hermes/i.test(text), `product identity on ${path}`);
     assert.ok(!/量化|市场数据|链上雷达|策略中心|交易与风控/.test(text), path);
-    assert.ok(!/page\.(workflow|system|authorization|task|job)\./.test(text), `unresolved locale key on ${path}`);
+    assert.ok(!/page\.(forecast|datasource|system|authorization|task|job)\./.test(text), `unresolved locale key on ${path}`);
     await page.screenshot({ path: `${output}/${path.replaceAll('/', '-')}.png`, fullPage: true, animations: 'disabled' });
     console.log('Verified', path);
   }
