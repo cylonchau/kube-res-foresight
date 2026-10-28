@@ -31,6 +31,9 @@ type SnapshotFilter struct {
 	Sort        string
 	Dir         string
 	WithoutBody bool // leave the stored detail out: a list does not need it
+	// CoversVersion keeps the snapshots a recommendation version belongs to: the newest snapshot at or before it (a version that
+	// repeats an unchanged recommendation is not a snapshot of its own, it is part of the span of the one before it).
+	CoversVersion int
 }
 
 // SearchSnapshots lists the snapshots (never the repeats of an unchanged recommendation), newest first unless sorted.
@@ -45,11 +48,17 @@ func (dao *PredictionDAO) SearchSnapshots(ctx context.Context, f SnapshotFilter,
 	if f.Until != nil {
 		q = q.Where("created_at <= ?", *f.Until)
 	}
+	if f.CoversVersion > 0 {
+		q = q.Where("version <= ?", f.CoversVersion)
+	}
 	var total int64
 	if err := q.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 	order := "created_at DESC, id DESC"
+	if f.CoversVersion > 0 {
+		order = "version DESC, id DESC" // the newest snapshot at or before the version comes first
+	}
 	switch f.Sort {
 	case "version", "cpu_milli", "memory_bytes", "replicas", "valid_until", "resource_version":
 		dir := "DESC"

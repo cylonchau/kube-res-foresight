@@ -72,7 +72,8 @@ func (r *ForecastRouter) ListSnapshots(c *gin.Context) {
 		query.BadRequest(c, fmt.Errorf("unknown state %q", state))
 		return
 	}
-	f := rdb.SnapshotFilter{ModuleID: uint(moduleID), Since: timeQuery(c, "from"), Until: timeQuery(c, "to"), Sort: c.Query("sort_by"), Dir: c.Query("sort_order"), WithoutBody: true}
+	covers, _ := strconv.Atoi(c.Query("covers_version"))
+	f := rdb.SnapshotFilter{ModuleID: uint(moduleID), Since: timeQuery(c, "from"), Until: timeQuery(c, "to"), Sort: c.Query("sort_by"), Dir: c.Query("sort_order"), WithoutBody: true, CoversVersion: covers}
 	ctx := c.Request.Context()
 	now := time.Now()
 	if state == "" {

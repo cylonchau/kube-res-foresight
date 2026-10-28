@@ -141,3 +141,20 @@ func TestTheHistoryIsBackfilledOnceForAnInstallationFromBeforeSnapshots(t *testi
 	require.NoError(t, err)
 	assert.Zero(t, again, "repeating changes nothing")
 }
+
+// An execution says which recommendation version it acted on, and most versions are repeats of an unchanged recommendation: the
+// snapshot that covers a version is the newest one at or before it, so the page can open the right snapshot in place.
+func TestTheSnapshotThatCoversAVersionIsTheNewestOneAtOrBeforeIt(t *testing.T) {
+	dao, _ := snapshotDB(t)
+	ctx := context.Background()
+	t0 := time.Date(2026, 3, 1, 8, 0, 0, 0, time.UTC)
+	for i := 0; i < 8; i++ {
+		addRec(t, dao, 1, t0.Add(time.Duration(i)*5*time.Minute), 3, i == 0 || i == 4) // snapshots: versions 1 and 5
+	}
+	for version, want := range map[int]int{1: 1, 4: 1, 5: 5, 7: 5} {
+		list, _, err := dao.SearchSnapshots(ctx, SnapshotFilter{ModuleID: 1, CoversVersion: version, WithoutBody: true}, 1, 1)
+		require.NoError(t, err)
+		require.Len(t, list, 1)
+		assert.Equal(t, want, list[0].Version, "version %d", version)
+	}
+}
