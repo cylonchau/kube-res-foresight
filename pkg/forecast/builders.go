@@ -17,7 +17,11 @@ var builtinBuilders = map[string]Builder{
 	},
 	"holt_winters": func(p map[string]any) (Model, error) {
 		return HoltWinters{Season: pInt(p, "season_length_steps"), Trend: pBool(p, "trend"), Damped: pBool(p, "damped"),
-			Alpha: pFloat(p, "alpha"), Beta: pFloat(p, "beta"), Gamma: pFloat(p, "gamma")}, nil
+			Alpha: pFloat(p, "alpha"), Beta: pFloat(p, "beta"), Gamma: pFloat(p, "gamma"),
+			Multiplicative: p["seasonal_mode"].(string) == "multiplicative", DampingPhi: pFloat(p, "damping_phi"), NonNegative: pBool(p, "non_negative")}, nil
+	},
+	"theta": func(p map[string]any) (Model, error) {
+		return Theta{Season: pInt(p, "season_length_steps"), Alpha: pFloat(p, "alpha")}, nil
 	},
 	"hist_percentile": func(p map[string]any) (Model, error) {
 		return HistPercentile{Percentile: pFloat(p, "percentile"), HalfLifeHours: pFloat(p, "half_life_hours"), SafetyMargin: pFloat(p, "safety_margin")}, nil
@@ -39,12 +43,13 @@ var builtinBuilders = map[string]Builder{
 	"lstm": recurrent("lstm"),
 	"ridge_ar": func(p map[string]any) (Model, error) {
 		return RidgeAR{Lags: pInt(p, "lags"), Calendar: pBool(p, "calendar_features"), L2Lambda: pFloat(p, "l2_lambda"), MaxTrainRows: pInt(p, "training_window_steps"),
-			CovLags: pInt(p, "covariate_lags")}, nil
+			CovLags: pInt(p, "covariate_lags"), Direct: p["multi_step"].(string) == "direct", DirectAnchors: pInt(p, "direct_anchors")}, nil
 	},
 	"gbdt": func(p map[string]any) (Model, error) {
 		return GBDT{Lags: pInt(p, "lags"), Calendar: pBool(p, "calendar_features"), Trees: pInt(p, "n_estimators"), LearningRate: pFloat(p, "learning_rate"),
 			MaxDepth: pInt(p, "max_depth"), MinLeaf: pInt(p, "min_samples_leaf"), Quantile: p["objective"].(string) == "quantile",
-			Alpha: pFloat(p, "alpha"), MaxTrainRows: pInt(p, "training_window_steps"), CovLags: pInt(p, "covariate_lags")}, nil
+			Alpha: pFloat(p, "alpha"), MaxTrainRows: pInt(p, "training_window_steps"), CovLags: pInt(p, "covariate_lags"),
+			Direct: p["multi_step"].(string) == "direct", DirectAnchors: pInt(p, "direct_anchors")}, nil
 	},
 }
 
@@ -62,6 +67,14 @@ var builtinChecks = map[string]func(raw map[string]any) error{
 		span, hasSpan := rawNum(raw, "span")
 		if hasAlpha && hasSpan && span > 0 {
 			return fmt.Errorf("alpha and span are two ways to give the same smoothing; set only one")
+		}
+		return nil
+	},
+	"holt_winters": func(raw map[string]any) error {
+		if mode, _ := raw["seasonal_mode"].(string); mode == "multiplicative" {
+			if season, ok := rawNum(raw, "season_length_steps"); !ok || season < 2 {
+				return fmt.Errorf("multiplicative seasonality needs season_length_steps of at least 2")
+			}
 		}
 		return nil
 	},

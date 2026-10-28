@@ -159,13 +159,20 @@ var builtinDefinitions = []Definition{
 	{ID: "rnn", Category: "deep_learning", Description: "循环神经网络（Elman RNN）：读取最近一段窗口（目标、参与指标、可选日历位置）预测下一步，随后递归多步；纯 Go 进程内训练，受训练时间预算限制。", Params: recurrentParams()},
 	{ID: "gru", Category: "deep_learning", Description: "门控循环单元（GRU）：比 RNN 更容易学到较长的依赖；纯 Go 进程内训练，受训练时间预算限制。", Params: recurrentParams()},
 	{ID: "lstm", Category: "deep_learning", Description: "长短期记忆网络（LSTM）：带遗忘门与记忆单元，适合带周期与突发的负载；纯 Go 进程内训练，受训练时间预算限制。", Params: recurrentParams()},
-	{ID: "holt_winters", Category: "statistical", Description: "Holt-Winters（加性 ETS 族）：水平、可选阻尼趋势、可选加性季节；平滑系数为 0 时在小网格内按样本内单步误差自动选择。", Params: []ParamSpec{
+	{ID: "holt_winters", Category: "statistical", ImplVersion: "2", Description: "Holt-Winters（ETS 族）：水平、可选阻尼趋势、可选加性或乘性季节；平滑系数为 0 时在小网格内按样本内单步误差自动选择。预测不会低于 0。", Params: []ParamSpec{
 		{Name: "season_length_steps", Type: "int", Default: 0, Min: num(0), Unit: "steps", Description: "周期长度（步数）；0 表示不含季节项，启用季节项需要至少两个完整周期。"},
 		{Name: "trend", Type: "bool", Default: true, Description: "是否包含趋势项。"},
 		{Name: "damped", Type: "bool", Default: false, Description: "趋势是否阻尼，避免长 horizon 无限外推。"},
 		{Name: "alpha", Type: "float", Default: 0.0, Min: num(0), Max: num(1), Description: "水平平滑系数；0 = 自动选择。"},
 		{Name: "beta", Type: "float", Default: 0.0, Min: num(0), Max: num(1), Description: "趋势平滑系数；0 = 自动选择。"},
 		{Name: "gamma", Type: "float", Default: 0.0, Min: num(0), Max: num(1), Description: "季节平滑系数；0 = 自动选择。"},
+		{OmitWhenDefault: true, Name: "seasonal_mode", Type: "string", Default: "additive", Enum: []string{"additive", "multiplicative"}, Description: "季节形式：additive = 每个季节位置加一个固定量；multiplicative = 按比例放大缩小（负载越高日内波动越大的资源用它）。乘性要求历史严格大于 0，触到 0 的序列会被拒绝，请改用加性。"},
+		{OmitWhenDefault: true, Name: "damping_phi", Type: "float", Default: 0.98, Min: num(0.8), Max: num(1), Description: "趋势阻尼系数，仅 damped=true 时使用；越小趋势衰减越快，1 = 不阻尼。"},
+		{OmitWhenDefault: true, Name: "non_negative", Type: "bool", Default: true, Description: "预测是否下限取 0：资源量不会为负，加性趋势可能外推到 0 以下。"},
+	}},
+	{ID: "theta", Category: "statistical", Description: "Theta 方法（M3 竞赛冠军）：指数平滑的水平加上线性趋势斜率的一半作为漂移，对短而有噪声的序列很难被打败。有季节时先做经典季节分解。预测不会低于 0。", Params: []ParamSpec{
+		{Name: "season_length_steps", Type: "int", Default: 0, Min: num(0), Unit: "steps", Description: "周期长度（步数）；0 表示不含季节项，启用需要至少两个完整周期。历史全为正时按比例分解，否则按加性分解。"},
+		{Name: "alpha", Type: "float", Default: 0.0, Min: num(0), Max: num(1), Description: "水平平滑系数；0 = 按样本内单步误差自动选择。"},
 	}},
 	{ID: "ridge_ar", Category: "machine_learning", Description: "岭回归自回归：滞后值与可选日历特征，递归多步预测，特征与目标标准化。", Params: []ParamSpec{
 		{Name: "lags", Type: "int", Required: true, Min: num(1), Max: num(2000), Unit: "steps", Description: "滞后步数，仅使用目标步之前的值。"},
@@ -173,6 +180,8 @@ var builtinDefinitions = []Definition{
 		{Name: "l2_lambda", Type: "float", Default: 0.01, Min: num(0), Description: "L2 正则强度，相对样本数缩放。"},
 		{Name: "training_window_steps", Type: "int", Default: 0, Min: num(0), Unit: "steps", Description: "只用最近多少个样本训练；0 = 全部历史。"},
 		{OmitWhenDefault: true, Name: "covariate_lags", Type: "int", Default: 3, Min: num(1), Max: num(48), Unit: "steps", Description: "输入指标集里每个协变量取最近多少步的值作为特征（仅用目标步之前的值；未来步沿用最后观测值）。没有协变量时忽略。"},
+		{OmitWhenDefault: true, Name: "multi_step", Type: "string", Default: "recursive", Enum: []string{"recursive", "direct"}, Description: "多步预测方式：recursive = 一个模型逐步往前滚，把上一步的预测当下一步的输入（误差会累积，视野越长越向均值收敛）；direct = 每个锚点步长各训练一个模型，直接预测那一步，只用已观测的值，不累积误差，但训练成本约为锚点数倍。"},
+		{OmitWhenDefault: true, Name: "direct_anchors", Type: "int", Default: 8, Min: num(2), Max: num(60), Description: "直接多步时有多少个步长拥有自己的模型（从第 1 步到最后一步均匀取点，中间的步长线性插值）；视野不超过它时每一步都有自己的模型。仅 multi_step=direct 时使用。"},
 	}},
 	{ID: "gbdt", Category: "machine_learning", Description: "梯度提升回归树：滞后与日历特征，直方图分裂，递归多步预测；支持平方误差或分位数（pinball）目标。树模型无法外推到训练目标范围之外。", Params: []ParamSpec{
 		{Name: "lags", Type: "int", Required: true, Min: num(1), Max: num(2000), Unit: "steps", Description: "滞后步数，仅使用目标步之前的值。"},
@@ -185,6 +194,8 @@ var builtinDefinitions = []Definition{
 		{Name: "alpha", Type: "float", Default: 0.9, Min: num(0.01), Max: num(0.99), Description: "分位数目标的分位点，仅 objective=quantile 时使用。"},
 		{Name: "training_window_steps", Type: "int", Default: 5000, Min: num(0), Unit: "steps", Description: "只用最近多少个样本训练，限制训练耗时；0 = 全部历史。"},
 		{OmitWhenDefault: true, Name: "covariate_lags", Type: "int", Default: 3, Min: num(1), Max: num(48), Unit: "steps", Description: "输入指标集里每个协变量取最近多少步的值作为特征（仅用目标步之前的值；未来步沿用最后观测值）。没有协变量时忽略。"},
+		{OmitWhenDefault: true, Name: "multi_step", Type: "string", Default: "recursive", Enum: []string{"recursive", "direct"}, Description: "多步预测方式：recursive = 一个模型逐步往前滚，把上一步的预测当下一步的输入（误差会累积，视野越长越向均值收敛）；direct = 每个锚点步长各训练一个模型，直接预测那一步，只用已观测的值，不累积误差，但训练成本约为锚点数倍。"},
+		{OmitWhenDefault: true, Name: "direct_anchors", Type: "int", Default: 8, Min: num(2), Max: num(60), Description: "直接多步时有多少个步长拥有自己的模型（从第 1 步到最后一步均匀取点，中间的步长线性插值）；视野不超过它时每一步都有自己的模型。仅 multi_step=direct 时使用。"},
 	}},
 }
 
@@ -194,6 +205,7 @@ var notes = map[string][2]string{
 	"seasonal_naive":  {"O(h) per forecast, no training", "season_length_steps observations (one full season)"},
 	"ewma":            {"O(n) per forecast, no training", "2 observations"},
 	"holt_winters":    {"O(n) per smoothing pass, a small grid search when coefficients are automatic", "2 x season_length_steps with a seasonal term, else 4 observations"},
+	"theta":           {"O(n) per forecast (a small grid for the smoothing coefficient), no training", "2 x season_length_steps with a seasonal term, else 4 observations"},
 	"ridge_ar":        {"O(n*lags^2) to fit, O(h*lags) to forecast; retrained on every run", "lags + 2 x feature width + 1 observations (feature width = lags, plus 4 with calendar features)"},
 	"gbdt":            {"O(trees*n*lags*bins) to fit, retrained on every run; bounded by training_window_steps", "lags + 4 x min_samples_leaf + 1 observations"},
 	"macd_trend":      {"O(n) per forecast, no training", "slow_span + signal_span observations"},
@@ -220,7 +232,13 @@ func init() {
 		if !ok {
 			panic("forecast: algorithm " + d.ID + " has no builder")
 		}
-		Register(Implementation{Definition: d, Build: build, Check: builtinChecks[d.ID]})
+		check := builtinChecks[d.ID]
+		if !d.Baseline {
+			// every forecasting algorithm can be asked for a quantile instead of the middle; a baseline stays what it is
+			d.Params = append(append([]ParamSpec(nil), d.Params...), conformalParams()...)
+			build, check = withConformal(build), withQuantileCheck(check)
+		}
+		Register(Implementation{Definition: d, Build: build, Check: check})
 	}
 	registerFormula()
 }

@@ -157,3 +157,20 @@ func (m EWMA) Forecast(_ context.Context, in Input, horizon int) ([]float64, err
 	}
 	return out, finite(out)
 }
+
+// HorizonMinimum is implemented by a model whose history requirement grows with the horizon (KNN needs analogue windows
+// that are each followed by a whole horizon). A backtest uses it so no cutoff is chosen at which the model cannot run.
+type HorizonMinimum interface {
+	MinSamplesFor(horizon int) int
+}
+
+// MinSamplesFor is the shortest history the model accepts when it has to forecast horizon steps.
+func MinSamplesFor(m Model, horizon int) int {
+	min := m.MinSamples()
+	if h, ok := m.(HorizonMinimum); ok {
+		if v := h.MinSamplesFor(horizon); v > min {
+			min = v
+		}
+	}
+	return min
+}

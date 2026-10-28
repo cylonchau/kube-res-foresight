@@ -101,3 +101,7 @@ func (m KNN) Forecast(ctx context.Context, in Input, horizon int) ([]float64, er
 	}
 	return out, finite(out)
 }
+
+// MinSamplesFor adds the horizon: the K nearest windows must each be followed by horizon values, so there have to be K
+// windows ending at least horizon steps before the last one.
+func (m KNN) MinSamplesFor(horizon int) int { return m.Window + m.K + horizon - 1 }

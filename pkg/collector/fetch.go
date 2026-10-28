@@ -101,7 +101,11 @@ func Fetch(ctx context.Context, q RangeQuerier, query string, start, end time.Ti
 	results := make([][]Point, len(segs))
 	errs := make([]error, len(segs))
 
-	sem := make(chan struct{}, opt.Concurrency)
+	workers := opt.Concurrency // never more requests at once than segments to fetch, however high the setting is
+	if workers > len(segs) {
+		workers = len(segs)
+	}
+	sem := make(chan struct{}, max(workers, 1))
 	var wg sync.WaitGroup
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()

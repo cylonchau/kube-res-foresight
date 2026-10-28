@@ -9,7 +9,7 @@ import (
 
 const gbdtBins = 32
 
-// GBDT is gradient-boosted regression trees on lag and calendar features, forecast recursively. The
+// GBDT is gradient-boosted regression trees on lag and calendar features, forecast recursively (or, with Direct, one ensemble per step ahead). The
 // objective is squared error, or the alpha-quantile (pinball) loss. Trees are deterministic (no sampling), so
 // the same history always yields the same forecast. Trees cannot extrapolate beyond the range of the training
 // targets, which is why the backtest compares this model with the baselines before it can be promoted.
@@ -24,6 +24,10 @@ type GBDT struct {
 	Alpha        float64
 	MaxTrainRows int
 	CovLags      int // past values of each covariate used as features; 0 = ignore covariates
+	// Direct fits one ensemble per anchor step ahead instead of rolling one forward (see directSteps); DirectAnchors is how many
+	// steps get their own ensemble, 0 = DefaultDirectAnchors.
+	Direct        bool
+	DirectAnchors int
 }
 
 func (GBDT) ID() string { return "gbdt" }
@@ -33,6 +37,16 @@ func (m GBDT) spec() featureSpec {
 }
 
 func (m GBDT) MinSamples() int { return m.Lags + 4*m.MinLeaf + 1 }
+
+// MinSamplesFor adds the steps a direct ensemble looks ahead: the one of step h is trained on targets h-1 steps after the origin
+// of its features.
+func (m GBDT) MinSamplesFor(horizon int) int {
+	min := m.MinSamples()
+	if m.Direct && horizon > 1 {
+		min += horizon - 1
+	}
+	return min
+}
 
 type treeNode struct {
 	feature     int
@@ -198,24 +212,32 @@ func (m GBDT) validate() error {
 	if m.MinLeaf < 1 {
 		return fmt.Errorf("min_samples_leaf must be at least 1")
 	}
+	if m.Direct && m.DirectAnchors != 0 && m.DirectAnchors < 2 {
+		return fmt.Errorf("direct_anchors must be at least 2")
+	}
 	if m.Quantile && (m.Alpha <= 0 || m.Alpha >= 1) {
 		return fmt.Errorf("alpha must be in (0, 1) for the quantile objective")
 	}
 	return nil
 }
 
-func (m GBDT) Forecast(ctx context.Context, in Input, horizon int) ([]float64, error) {
-	if err := m.validate(); err != nil {
-		return nil, err
+// gbdtFit is a fitted ensemble: the starting value and the shrunk trees.
+type gbdtFit struct {
+	base  float64
+	lr    float64
+	trees []*treeNode
+}
+
+func (f *gbdtFit) predict(feat []float64) float64 {
+	v := f.base
+	for _, tree := range f.trees {
+		v += f.lr * tree.predict(feat)
 	}
-	if err := checkInput(m, in, horizon); err != nil {
-		return nil, err
-	}
-	spec, err := m.spec().withCovariates(in)
-	if err != nil {
-		return nil, err
-	}
-	x, y := spec.training(in, m.MaxTrainRows)
+	return v
+}
+
+// fit boosts trees on the design matrix x and targets y.
+func (m GBDT) fit(ctx context.Context, x [][]float64, y []float64) (*gbdtFit, error) {
 	if len(x) < 2*m.MinLeaf {
 		return nil, fmt.Errorf("%w: gbdt needs %d training rows, got %d", ErrInsufficientHistory, 2*m.MinLeaf, len(x))
 	}
@@ -267,18 +289,55 @@ func (m GBDT) Forecast(ctx context.Context, in Input, horizon int) ([]float64, e
 			pred[i] += m.LearningRate * tree.predict(x[i])
 		}
 	}
+	return &gbdtFit{base: base, lr: m.LearningRate, trees: trees}, nil
+}
 
-	history := append([]float64(nil), in.Values...)
-	out := make([]float64, horizon)
-	feat := make([]float64, 0, spec.width())
-	for h := 0; h < horizon; h++ {
-		feat = spec.row(history, in.TimeAt(len(in.Values)+h), feat)
-		v := base
-		for _, tree := range trees {
-			v += m.LearningRate * tree.predict(feat)
+func (m GBDT) Forecast(ctx context.Context, in Input, horizon int) ([]float64, error) {
+	if err := m.validate(); err != nil {
+		return nil, err
+	}
+	if err := checkInput(m, in, horizon); err != nil {
+		return nil, err
+	}
+	if m.Direct && len(in.Values) < m.MinSamplesFor(horizon) {
+		return nil, fmt.Errorf("%w: gbdt direct needs %d samples for a horizon of %d, got %d", ErrInsufficientHistory, m.MinSamplesFor(horizon), horizon, len(in.Values))
+	}
+	spec, err := m.spec().withCovariates(in)
+	if err != nil {
+		return nil, err
+	}
+
+	var out []float64
+	if m.Direct {
+		// one ensemble per anchor step ahead: each learns to look that far itself from observed values only, so the error of
+		// a step is not fed into the next; the steps between the anchors are interpolated
+		steps := directSteps(horizon, m.DirectAnchors)
+		vals := make([]float64, len(steps))
+		feat := make([]float64, 0, spec.width())
+		for i, h := range steps {
+			x, y := spec.trainingDirect(in, m.MaxTrainRows, h)
+			fit, err := m.fit(ctx, x, y)
+			if err != nil {
+				return nil, err
+			}
+			feat = spec.row(in.Values, in.TimeAt(len(in.Values)+h-1), feat)
+			vals[i] = fit.predict(feat)
 		}
-		out[h] = v
-		history = append(history, v)
+		out = interpolateSteps(steps, vals, horizon)
+	} else {
+		x, y := spec.training(in, m.MaxTrainRows)
+		fit, err := m.fit(ctx, x, y)
+		if err != nil {
+			return nil, err
+		}
+		history := append([]float64(nil), in.Values...)
+		out = make([]float64, horizon)
+		feat := make([]float64, 0, spec.width())
+		for h := 0; h < horizon; h++ {
+			feat = spec.row(history, in.TimeAt(len(in.Values)+h), feat)
+			out[h] = fit.predict(feat)
+			history = append(history, out[h])
+		}
 	}
 	if err := finite(out); err != nil {
 		return nil, err

@@ -166,3 +166,67 @@ func quantile(values []float64, q float64) float64 {
 	frac := pos - float64(lo)
 	return values[lo]*(1-frac) + values[hi]*frac
 }
+
+// DefaultDirectAnchors is how many steps ahead get a model of their own in a direct forecast.
+const DefaultDirectAnchors = 8
+
+// directSteps are the steps ahead (1-based) that get their own model: all of them when the horizon is short, else
+// anchors spread evenly from the first to the last; the steps between are interpolated (see interpolateSteps).
+func directSteps(horizon, anchors int) []int {
+	if anchors <= 0 {
+		anchors = DefaultDirectAnchors
+	}
+	if horizon <= anchors {
+		out := make([]int, horizon)
+		for i := range out {
+			out[i] = i + 1
+		}
+		return out
+	}
+	out := make([]int, 0, anchors)
+	for i := 0; i < anchors; i++ {
+		s := 1 + int(math.Round(float64(i)*float64(horizon-1)/float64(anchors-1)))
+		if len(out) == 0 || s > out[len(out)-1] {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// interpolateSteps spreads the values of the anchor steps over the whole horizon, linearly between neighbouring anchors.
+func interpolateSteps(steps []int, vals []float64, horizon int) []float64 {
+	out := make([]float64, horizon)
+	for h := 1; h <= horizon; h++ {
+		j := sort.SearchInts(steps, h)
+		switch {
+		case j < len(steps) && steps[j] == h:
+			out[h-1] = vals[j]
+		case j == 0:
+			out[h-1] = vals[0]
+		case j == len(steps):
+			out[h-1] = vals[len(steps)-1]
+		default:
+			lo, hi := steps[j-1], steps[j]
+			f := float64(h-lo) / float64(hi-lo)
+			out[h-1] = vals[j-1]*(1-f) + vals[j]*f
+		}
+	}
+	return out
+}
+
+// trainingDirect builds the design matrix of the model of the step h ahead: the features are those of an origin t (the
+// lags and covariates are values before t) and the target is the value h-1 steps after it, so the model learns to look
+// h steps ahead itself instead of one step that is rolled forward. The calendar features are those of the target time,
+// which is known for any future step. At h = 1 it is the same matrix as training. At most maxRows of the latest rows.
+func (f featureSpec) trainingDirect(in Input, maxRows, h int) (x [][]float64, y []float64) {
+	first := f.Lags
+	last := len(in.Values) - h
+	if maxRows > 0 && last-first+1 > maxRows {
+		first = last - maxRows + 1
+	}
+	for t := first; t <= last; t++ {
+		x = append(x, f.row(in.Values[:t], in.TimeAt(t+h-1), make([]float64, 0, f.width())))
+		y = append(y, in.Values[t+h-1])
+	}
+	return x, y
+}

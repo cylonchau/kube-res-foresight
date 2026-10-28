@@ -250,3 +250,16 @@ func TestFetchReportsTheRealFailureNotTheCancellationItCaused(t *testing.T) {
 	assert.ErrorIs(t, err, ErrPermanent)
 	assert.NotErrorIs(t, err, context.Canceled)
 }
+
+// A concurrency setting far above the number of requests needed is harmless: the fetch never runs more at once than it has
+// segments, and the result is the same as with a small setting.
+func TestFetchWithAVeryHighConcurrencySettingStillWorks(t *testing.T) {
+	end := t0.Add(6 * time.Hour)
+	small, err := Fetch(context.Background(), &fakeQuerier{}, "q", t0, end, time.Minute, Options{MaxPointsPerRequest: 100, Concurrency: 2})
+	require.NoError(t, err)
+	q := &fakeQuerier{}
+	big, err := Fetch(context.Background(), q, "q", t0, end, time.Minute, Options{MaxPointsPerRequest: 100, Concurrency: 1_000_000})
+	require.NoError(t, err)
+	assert.Equal(t, small, big)
+	assert.LessOrEqual(t, int(q.peak), len(Segments(t0, end, time.Minute, 100)), "no more requests at once than segments")
+}
