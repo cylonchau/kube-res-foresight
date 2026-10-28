@@ -37,9 +37,11 @@ type Definition struct {
 	MinHistory string `json:"min_history"`
 	// Covariates says whether the algorithm can use the other metrics of an input set; one that cannot is refused
 	// an input set with covariates rather than silently ignoring them.
-	Covariates  bool        `json:"covariates"`
-	Description string      `json:"description"`
-	Params      []ParamSpec `json:"params"`
+	Covariates  bool   `json:"covariates"`
+	Description string `json:"description"`
+	// Method is the calculation in words and as a formula (see methods.go): what is done with the history to get a forecast.
+	Method string      `json:"method,omitempty"`
+	Params []ParamSpec `json:"params"`
 	// Dynamic marks an implementation whose parameter schema is not fixed: it comes from the setting that uses it (the
 	// formula implementation). Its Params here is empty.
 	Dynamic bool `json:"dynamic"`
@@ -233,6 +235,7 @@ func init() {
 			panic("forecast: algorithm " + d.ID + " has no builder")
 		}
 		check := builtinChecks[d.ID]
+		d.Method = methodOf(d.ID)
 		if !d.Baseline {
 			// every forecasting algorithm can be asked for a quantile instead of the middle; a baseline stays what it is
 			d.Params = append(append([]ParamSpec(nil), d.Params...), conformalParams()...)
