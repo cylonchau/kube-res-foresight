@@ -153,6 +153,26 @@ var builtinDefinitions = []Definition{
 		{Name: "daily_season_steps", Type: "int", Required: true, Min: num(2), Unit: "steps", Description: "一天的步数 = 86400 / 步长秒数（1 分钟一步是 1440，5 分钟一步是 288）。"},
 		{Name: "weekly_season_steps", Type: "int", Default: 0, Min: num(0), Unit: "steps", Description: "一周的步数 = 7 × 一天的步数；0 = 只做日季节。必须大于一天的步数。启用周季节至少需要两周历史。"},
 	}},
+	{ID: "seasonal_profile", Category: "statistical", Description: "周期画像分位数：把历史按「周几 + 几点」分桶，每个桶取带时间衰减的百分位（P90、P95）作为这个时刻的预测，是 VPA / Autopilot 百分位推荐器加上时钟。每天九点的高峰就预测成九点的高峰，周日夜里就预测成安静的夜里；一次异常的一天只是许多天里的一票，不像 seasonal_naive 那样被原样复制。某个桶样本太少时退到「每天同一时刻」，再不够退到整段历史的百分位。", Params: []ParamSpec{
+		{Name: "percentile", Type: "float", Default: 90.0, Min: num(1), Max: num(100), Description: "取第几百分位，如 90、95；越大越保守。"},
+		{Name: "bucket_minutes", Type: "int", Default: 60, Min: num(1), Max: num(720), Unit: "minutes", Description: "时间桶的长度（分钟），必须能整除一天（1440）：60 = 每小时一个桶，15 = 每 15 分钟一个桶。"},
+		{Name: "by_weekday", Type: "bool", Default: true, Description: "是否区分周几：true = 周一九点和周六九点是两个桶（至少需要两周历史才有各自的数据，不够时退到每天同一时刻）；false = 只看一天中的时刻。"},
+		{Name: "half_life_days", Type: "float", Default: 14.0, Min: num(0), Max: num(365), Unit: "days", Description: "半衰期：这么多天之前的样本只算一半权重；0 表示不衰减。"},
+		{Name: "min_samples_per_bucket", Type: "int", Default: 6, Min: num(1), Max: num(100000), Description: "一个桶至少有多少个样本才被信任；不够就退到上一级（每天同一时刻，再退到整段历史）。"},
+		{Name: "utc_offset_minutes", Type: "int", Default: 0, Min: num(-720), Max: num(840), Unit: "minutes", Description: "时区偏移（相对 UTC，分钟）：东八区填 480，这样「九点」是当地九点。"},
+		{Name: "safety_margin", Type: "float", Default: 0.0, Min: num(0), Max: num(5), Description: "安全边际：结果再乘 (1+边际)。"},
+	}},
+	{ID: "peak_envelope", Category: "statistical", Description: "峰值包络趋势：先取滚动最大值作包络线，再用 Theil-Sen（所有点对斜率的中位数）稳健地拟合直线并外推，预测的是峰值而不是均值。适合内存工作集这种「锯齿叠加缓慢上涨」（泄漏、缓存增长）的负载，均值类算法会低估它。预测不会低于当前的包络，也不会为负；还能算出包络「预计多久触顶」。", Params: []ParamSpec{
+		{Name: "envelope_window_steps", Type: "int", Default: 30, Min: num(2), Max: num(100000), Unit: "steps", Description: "滚动最大值的窗口（步数）：要大于一个锯齿的周期（一次 GC 或缓存淘汰的间隔），否则包络还是锯齿。"},
+		{Name: "fit_steps", Type: "int", Default: 0, Min: num(0), Unit: "steps", Description: "只拟合包络最近的这么多步；0 = 全部。负载的增长速度变过时用它只看最近的趋势。"},
+		{Name: "allow_decline", Type: "bool", Default: false, Description: "是否允许预测下降：false（默认）= 下降的斜率按平处理，预测不低于当前包络，用于防 OOM；true = 照直线走，也可能低于当前峰值。"},
+		{Name: "safety_margin", Type: "float", Default: 0.0, Min: num(0), Max: num(5), Description: "安全边际：结果再乘 (1+边际)。"},
+	}},
+	{ID: "combination", Category: "statistical", Description: "组合预测：把几个算法的预测合在一起，取每一步的中位数，或按各成员最近误差的倒数加权平均。不同类型的模型组合起来在预测竞赛（M4）里很难被单个算法打败，一个成员错在某个方向会被其他成员抵消，而且不需要训练。成员用各自的默认参数运行，所以只能选不需要必填参数的算法；它和其他算法一样被回测、评分和晋升，不是默认比它们好。", Params: []ParamSpec{
+		{Name: "members", Type: "string", Default: defaultCombinationMembers, Description: "成员算法的 id，用逗号分隔，2 到 6 个，如 ewma,holt_winters,theta。只能选不需要必填参数的算法（ewma、holt_winters、theta、hist_percentile、knn、naive 等），不能选 combination 自己。成员按各自的默认参数运行，不读取算法管理页里给它们设置的参数。"},
+		{Name: "mode", Type: "string", Default: "inverse_error", Enum: []string{"inverse_error", "median"}, Description: "inverse_error = 按每个成员在这个负载最近几个窗口里的平均绝对误差的倒数加权；median = 每一步取成员预测的中位数。"},
+		{Name: "error_windows", Type: "int", Default: 4, Min: num(1), Max: num(20), Description: "测各成员误差用最近多少个预测视野；越多越稳，也越慢。仅 mode=inverse_error 时使用，历史不够时按等权。"},
+	}},
 	{ID: "ridge_ar", Category: "machine_learning", Description: "岭回归自回归：滞后值与可选日历特征，递归多步预测，特征与目标标准化。", Params: []ParamSpec{
 		{Name: "lags", Type: "int", Required: true, Min: num(1), Max: num(2000), Unit: "steps", Description: "滞后步数，仅使用目标步之前的值。"},
 		{Name: "calendar_features", Type: "bool", Default: false, Description: "是否加入 UTC 日/周周期的正余弦特征（时间戳已知，不泄漏未来）。"},
@@ -180,17 +200,20 @@ var builtinDefinitions = []Definition{
 
 // notes holds the cost and data requirements shown in the algorithm center, by algorithm id.
 var notes = map[string][2]string{
-	"naive":           {"O(h) per forecast, no training", "1 observation"},
-	"seasonal_naive":  {"O(h) per forecast, no training", "season_length_steps observations (one full season)"},
-	"ewma":            {"O(n) per forecast, no training", "2 observations"},
-	"holt_winters":    {"O(n) per smoothing pass, a small grid search when coefficients are automatic", "2 x season_length_steps with a seasonal term, else 4 observations"},
-	"theta":           {"O(n) per forecast (a small grid for the smoothing coefficient), no training", "2 x season_length_steps with a seasonal term, else 4 observations"},
-	"mstl":            {"O(n x periods x 3 passes) per forecast, no training", "2 x the longest season: 2 x daily_season_steps, or 2 x weekly_season_steps when a weekly season is set"},
-	"ridge_ar":        {"O(n*lags^2) to fit, O(h*lags) to forecast; retrained on every run", "lags + 2 x feature width + 1 observations (feature width = lags, plus 4 with calendar features)"},
-	"gbdt":            {"O(trees*n*lags*bins) to fit, retrained on every run; bounded by training_window_steps", "lags + 4 x min_samples_leaf + 1 observations"},
-	"hist_percentile": {"O(n log n) per forecast, no training", "4 observations"},
-	"random_forest":   {"O(trees*n*lags*bins) to fit, retrained on every run; bounded by training_window_steps", "lags + 4 x min_samples_leaf + 1 observations"},
-	"knn":             {"O(n*window) per forecast, no training", "k x window + 1 observations with the exclusion zone (window + k + 1 without it), and k separate earlier windows followed by the horizon"},
+	"naive":            {"O(h) per forecast, no training", "1 observation"},
+	"seasonal_naive":   {"O(h) per forecast, no training", "season_length_steps observations (one full season)"},
+	"ewma":             {"O(n) per forecast, no training", "2 observations"},
+	"holt_winters":     {"O(n) per smoothing pass, a small grid search when coefficients are automatic", "2 x season_length_steps with a seasonal term, else 4 observations"},
+	"theta":            {"O(n) per forecast (a small grid for the smoothing coefficient), no training", "2 x season_length_steps with a seasonal term, else 4 observations"},
+	"mstl":             {"O(n x periods x 3 passes) per forecast, no training", "2 x the longest season: 2 x daily_season_steps, or 2 x weekly_season_steps when a weekly season is set"},
+	"seasonal_profile": {"O(n + horizon) per forecast, no training", "4 observations; with by_weekday two weeks of history for the weekday buckets, otherwise it falls back to the time of day and then to the whole history"},
+	"peak_envelope":    {"O(n + points^2) per forecast with at most 300 envelope points, no training", "envelope_window_steps + 10 observations"},
+	"combination":      {"the members' forecasts plus error_windows more forecasts per member, no training", "the shortest of the members; a member that needs more is left out"},
+	"ridge_ar":         {"O(n*lags^2) to fit, O(h*lags) to forecast; retrained on every run", "lags + 2 x feature width + 1 observations (feature width = lags, plus 4 with calendar features)"},
+	"gbdt":             {"O(trees*n*lags*bins) to fit, retrained on every run; bounded by training_window_steps", "lags + 4 x min_samples_leaf + 1 observations"},
+	"hist_percentile":  {"O(n log n) per forecast, no training", "4 observations"},
+	"random_forest":    {"O(trees*n*lags*bins) to fit, retrained on every run; bounded by training_window_steps", "lags + 4 x min_samples_leaf + 1 observations"},
+	"knn":              {"O(n*window) per forecast, no training", "k x window + 1 observations with the exclusion zone (window + k + 1 without it), and k separate earlier windows followed by the horizon"},
 }
 
 // covariateAlgorithms are the algorithms that read the covariates of an input set.
@@ -211,8 +234,8 @@ func init() {
 		d.Method = methodOf(d.ID)
 		if !d.Baseline {
 			// every forecasting algorithm can be asked for a quantile instead of the middle; a baseline stays what it is
-			d.Params = append(append([]ParamSpec(nil), d.Params...), conformalParams()...)
-			build, check = withConformal(build), withQuantileCheck(check)
+			d.Params = append(append(append([]ParamSpec(nil), d.Params...), regimeParams()...), conformalParams()...)
+			build, check = withConformal(withRegime(build)), withQuantileCheck(check)
 		}
 		Register(Implementation{Definition: d, Build: build, Check: check})
 	}

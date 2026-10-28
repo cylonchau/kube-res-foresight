@@ -446,7 +446,7 @@ P0：指标模板管理与模块关联（模块里不写死任何指标）。P1�
 - 新增指标说明只需在 `metricHelp` 增加键；组件按键取说明，没有说明的指标只显示名称。
 
 ### 18.3 算法清单与 Naive
-- 已实现并注册的内置算法 11 个（测试 `TestTheRegistryHoldsTheImplementedAlgorithms` 固定这份清单）：naive、seasonal_naive、ewma、hist_percentile、holt_winters、theta、mstl、ridge_ar、knn、random_forest、gbdt；另有 formula（管理员自写公式算法的基础，不算独立算法）。R15 移除了 macd_trend、naive_bayes、rnn、gru、lstm（见 19.3）；A3 保形分位数是每个非基线算法的参数，A5 直接多步是 ridge_ar 与 gbdt 的参数，A6 是 knn 的参数，A7 是 mstl，都不是独立条目。
+- 已实现并注册的内置算法 14 个（测试 `TestTheRegistryHoldsTheImplementedAlgorithms` 固定这份清单）：naive、seasonal_naive、ewma、hist_percentile、seasonal_profile、peak_envelope、combination、holt_winters、theta、mstl、ridge_ar、knn、random_forest、gbdt；另有 formula（管理员自写公式算法的基础，不算独立算法）。R15 移除了 macd_trend、naive_bayes、rnn、gru、lstm（见 19.3）；A3 保形分位数是每个非基线算法的参数，A5 直接多步是 ridge_ar 与 gbdt 的参数，A6 是 knn 的参数，A7 是 mstl，A10～A12 是新算法 seasonal_profile、peak_envelope、combination；A13 变点后重置是每个非基线算法的参数 reset_on_change（与 A3 同样的做法），不是独立条目。
 - 计划里的实现情况：A0 基线测量、A1 回测公平、A2 低估敏感评分、A4 Holt-Winters 补强与 Theta（**theta 是新注册的算法**）、A3 保形分位数（做成每个非基线算法的参数 `quantile_level`、`calibration_windows`，不是单独的算法条目）、A5 直接多步（`ridge_ar`、`gbdt` 的参数 `multi_step`）已完成；A6 KNN 互斥区与时刻约束（knn 的参数，ImplVersion 2）、A7 MSTL（新算法 mstl）已完成；**未实现**：A8 全局模型（只做设计，不实现）、A9 小型时序基础模型离线评估。算法管理页只显示已注册的算法：线上平台要用新二进制重启并升级后才会出现 theta（`EnsureAlgorithms` 在启动与首次请求时补齐配置行，新算法默认是否启用见 `DefaultEnabled`）。
 - 每个基线与统计类算法有 `Definition.Method`（`pkg/forecast/methods.go`），算法详情里的「计算过程与依据」显示：计算过程、公式、意义。naive：ŷ(T+h) = y(T)，只用最后一个观测值，是所有算法的最低对照（基线），候选算法必须在同样的起点上胜过它。
 

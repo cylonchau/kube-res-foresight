@@ -9,7 +9,7 @@ import (
 
 // The algorithms the platform has, as a list a person can check the algorithm page against. Adding an algorithm means adding it here.
 func TestTheRegistryHoldsTheImplementedAlgorithms(t *testing.T) {
-	want := []string{"naive", "seasonal_naive", "ewma", "hist_percentile", "holt_winters", "theta", "mstl", "ridge_ar", "knn",
+	want := []string{"naive", "seasonal_naive", "ewma", "hist_percentile", "seasonal_profile", "peak_envelope", "combination", "holt_winters", "theta", "mstl", "ridge_ar", "knn",
 		"random_forest", "gbdt"}
 	var have []string
 	for _, d := range Definitions() {
@@ -24,7 +24,7 @@ func TestTheRegistryHoldsTheImplementedAlgorithms(t *testing.T) {
 // An algorithm that shows only a forecast time and a number cannot be checked: the baselines and the statistical algorithms say how
 // they compute, and naive says what it is for.
 func TestTheBaselinesExplainTheirCalculation(t *testing.T) {
-	for _, id := range []string{"naive", "seasonal_naive", "ewma", "hist_percentile", "holt_winters", "theta", "mstl"} {
+	for _, id := range []string{"naive", "seasonal_naive", "ewma", "hist_percentile", "holt_winters", "theta", "mstl", "seasonal_profile", "peak_envelope", "combination"} {
 		d, ok := Lookup(id)
 		require.True(t, ok, id)
 		assert.NotEmpty(t, d.Method, id)

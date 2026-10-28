@@ -23,6 +23,22 @@ var builtinBuilders = map[string]Builder{
 	"mstl": func(p map[string]any) (Model, error) {
 		return MSTL{Daily: pInt(p, "daily_season_steps"), Weekly: pInt(p, "weekly_season_steps")}, nil
 	},
+	"seasonal_profile": func(p map[string]any) (Model, error) {
+		return SeasonalProfile{Percentile: pFloat(p, "percentile"), BucketMinutes: pInt(p, "bucket_minutes"), ByWeekday: pBool(p, "by_weekday"),
+			HalfLifeDays: pFloat(p, "half_life_days"), MinPerBucket: pInt(p, "min_samples_per_bucket"), UTCOffsetMinutes: pInt(p, "utc_offset_minutes"),
+			SafetyMargin: pFloat(p, "safety_margin")}, nil
+	},
+	"peak_envelope": func(p map[string]any) (Model, error) {
+		return PeakEnvelope{EnvelopeWindow: pInt(p, "envelope_window_steps"), FitSteps: pInt(p, "fit_steps"), AllowDecline: pBool(p, "allow_decline"),
+			SafetyMargin: pFloat(p, "safety_margin")}, nil
+	},
+	"combination": func(p map[string]any) (Model, error) {
+		members, err := ParseMembers(p["members"].(string))
+		if err != nil {
+			return nil, err
+		}
+		return Combination{Members: members, Mode: p["mode"].(string), Windows: pInt(p, "error_windows")}, nil
+	},
 	"hist_percentile": func(p map[string]any) (Model, error) {
 		return HistPercentile{Percentile: pFloat(p, "percentile"), HalfLifeHours: pFloat(p, "half_life_hours"), SafetyMargin: pFloat(p, "safety_margin")}, nil
 	},
@@ -56,6 +72,20 @@ var builtinChecks = map[string]func(raw map[string]any) error{
 			return fmt.Errorf("alpha and span are two ways to give the same smoothing; set only one")
 		}
 		return nil
+	},
+	"seasonal_profile": func(raw map[string]any) error {
+		if v, ok := rawNum(raw, "bucket_minutes"); ok && (v < 1 || v > 720 || v != float64(int(v)) || 1440%int(v) != 0) {
+			return fmt.Errorf("bucket_minutes must be a divisor of 1440 (a day) between 1 and 720")
+		}
+		return nil
+	},
+	"combination": func(raw map[string]any) error {
+		list, ok := raw["members"].(string)
+		if !ok {
+			list = defaultCombinationMembers
+		}
+		_, err := ParseMembers(list)
+		return err
 	},
 	"holt_winters": func(raw map[string]any) error {
 		if mode, _ := raw["seasonal_mode"].(string); mode == "multiplicative" {

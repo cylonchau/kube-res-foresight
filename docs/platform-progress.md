@@ -73,7 +73,7 @@ P0 的结果应落入技能与 schema；P1 数据接入可在边界明确的部�
 | P4B 副本执行 | P4B-01 CRD/schema/RBAC；P4B-02 决策来源；P4B-03 reconcile/status；P4B-04 扩缩容演练 | kubeforecast-operator 按 PredictiveScaler CRD 执行扩缩容，动态参数在硬边界内执行，冷却/限幅/Ready/恢复对账 | P0-03、P3 通过 | 状态：P4B-01～03 已实现（fake client 测试）；P4B-04 扩缩容演练未做，Prometheus 来源已实现（httptest 验证），Adapter 来源有意不做；阶段验收未满足 |
 | P5 闭环与运维 | P5-01 实测回填/排行榜；P5-02 Platform Metrics；P5-03 审计导出；P5-04 发布验证 | 关联预测/推荐/准入/执行/Ready；业务指标、健康诊断、部署与回滚文档 | P2 起持续建设，执行评估依赖 P4 | 状态：P5-01 实测回填与排行榜、P5-02 指标与 /readyz、P5-03 CSV 审计导出、数据保留清理已实现；P5-04 部署说明见 deploy/README.md，灰度与故障演练报告未做；执行效果评估（Pod-hours、SLO）未实现 |
 | P6 完整需求与增强 | P6-01 LDAP；P6-02 增强算法；P6-03 其他决策来源 | LDAP/禁用同步/应急管理员；其他 Go 实现的 challenger 算法；其余决策适配器 | 基础闭环稳定，数据和预算具备 | 状态：P6-01 LDAP 已实现；P6-02 增强算法未做；P6-03 中 Prometheus 决策来源已实现，Adapter 有意不做 |
-| P7 算法质量 | A0 基线测量；A1 回测公平；A2 低估敏感评分；A3 保形分位数；A4 Holt-Winters 补强与 Theta；A5 直接多步；A6 KNN 修正；A7 MSTL；A8 全局模型设计 | 先量化现状，再修评估，再补算法；每个包有单测与无泄漏回测；四类主力算法（季节朴素+分位数基线、ETS/Holt-Winters、Theta、GBDT 直接多步分位数）的现状与缺口逐项对应工作包，见改进计划 2.1 | P2 回测与评分已存在 | 状态：A0～A7 已完成（A6 KNN 互斥区与时刻约束、A7 MSTL，见 [改进计划](../.agents/skills/algorithm-library/references/improvement-plan.md) 第 4 节与 [A0 基线](../.agents/skills/algorithm-library/references/baseline-a0.md)）；A8 未开始；准确率结论只来自测试环境约 2.9 小时的数据，不是生产结论 |
+| P7 算法质量 | A0 基线测量；A1 回测公平；A2 低估敏感评分；A3 保形分位数；A4 Holt-Winters 补强与 Theta；A5 直接多步；A6 KNN 修正；A7 MSTL；A8 全局模型设计；A9 小型时序基础模型离线评估；A10 周期画像分位数；A11 峰值包络趋势；A12 组合预测；A13 变点后重置 | 先量化现状，再修评估，再补算法；每个包有单测与无泄漏回测；四类主力算法（季节朴素+分位数基线、ETS/Holt-Winters、Theta、GBDT 直接多步分位数）的现状与缺口逐项对应工作包，见改进计划 2.1 | P2 回测与评分已存在 | 状态：A0～A7、A10～A13 已完成（A6 KNN 互斥区与时刻约束、A7 MSTL、A10 周期画像分位数、A11 峰值包络趋势、A12 组合预测、A13 变点后重置，见 [改进计划](../.agents/skills/algorithm-library/references/improvement-plan.md) 第 4 节与 [A0 基线](../.agents/skills/algorithm-library/references/baseline-a0.md)）；A8、A9 未开始；准确率结论只来自测试环境约 2.9 小时的数据，不是生产结论 |
 
 P4A 与 P4B 在 P3 后可独立推进，但新工作负载先 Observe，再 Recommend，分别验证 Admission/Auto 才开放相应写入。P5 的模型评估和审计从 P2/P3 起建设，不能拖到执行上线后补证据。
 
@@ -429,3 +429,12 @@ all ten management pages and the shared product title. Screenshots were inspecte
 - **类别**：「技术指标」「深度学习」两个类别没有算法了，前端分类选项与语言包里已去掉；公式算法的基础类别改为 custom，新建自定义算法默认类别是 statistical。
 - **升级**：迁移删除这五个算法的设置、预测、评估、回测、训练、评分数据，以及以它们为基础的自定义算法；推荐记录里的算法名保留。注意：已把它们设为「启用」的模块在升级前不会再运行这些算法（未注册的内置设置不被运行）。
 - **验证**：`go vet`、`go test ./pkg/... ./cmd/...` 通过（清单测试 11 个；删除了只测这些算法的单测）；前端 `vue-tsc`、locale 测试通过。**未验证**：浏览器里的算法管理页。
+
+### R16：P7 A10～A13 四个新算法（2026-10-28）
+
+- **A10 `seasonal_profile` 周期画像分位数**：按「周几 + 几点」分桶，每桶带时间衰减的 P90/P95 作为该时刻的预测；桶样本少退到每天同一时刻、再退到整段历史的百分位。补的缺口：hist_percentile 是平线、seasonal_naive 会把一次异常的一天原样复制。
+- **A11 `peak_envelope` 峰值包络趋势**：滚动最大值作包络，Theil-Sen 稳健外推，默认不低于当前包络、不为负；`TimeToLimit` 算包络到上限的时间（**只是函数，页面和 OOM 说明里还没有显示**）。补的缺口：内存工作集是锯齿叠加缓慢上涨，均值类算法会低估。
+- **A12 `combination` 组合预测**：成员各自预测，取中位数或按近期误差倒数加权。**与你给的计划不同**：成员用各自的默认参数运行（只能选不需要必填参数的算法），权重来自这份历史自己的滚动误差，不读平台的晋升状态和算法页给成员设置的参数；组合和别的算法一样被回测、评分、晋升。要按晋升状态配权重，得把组合做进预测流水线，没有做。
+- **A13 变点后重置**：做成每个非基线算法的参数 `reset_on_change`（默认关）、`change_threshold`、`change_min_shift`，与 A3 保形分位数同样的做法，所以 holt_winters、theta、mstl 等都能用；不是一个单独的算法条目。平稳上升不算突变，突变后至少 6 步才确认，永远给算法够它所需的历史。
+- **前端**：算法参数编辑器支持文本参数（组合的 `members`）；其余算法页读注册表，不用改。
+- **验证**：`go vet`、`go test ./pkg/... ./cmd/...` 通过；新增单测见 `profile_envelope_combination_regime_test.go`、`new_cost_test.go`（一个月 1 分钟步 43200 点一次预测：组合约 53 ms、变点重置约 16 ms、周期画像约 14 ms、峰值包络约 10 ms）。**没有验证**：真实数据上的准确率——测试平台只有约 2.9 小时历史，周期画像区分周几要两周、变点要足够长的历史，所以这四个只在合成信号上证实，效果要用 A0 的方法在更长的历史上重测；浏览器里的算法管理页没看过。内置算法由 11 个变成 14 个；线上要用新二进制重启后才会出现。

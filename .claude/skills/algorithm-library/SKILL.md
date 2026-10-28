@@ -11,7 +11,7 @@ description: 用于 kube-resource-fcst 算法注册、动态参数编辑、特�
 
 1. 区分特征、预测模型与控制策略。定义 AlgorithmDefinition 的 ID、类别、版本、输入、JSON Schema、最小样本、warm-up、训练窗口、horizon、输出单位、超时、回退和评估指标。
 2. 核实来源、粒度、单位、NaN/缺样、采样间隔与窗口；Service RPS 不冒充单 Pod 真值。参数提供中文解释、默认值来源、边界、依赖和 schema 版本。
-3. 算法纯 Go 实现（已实现 Naive、SeasonalNaive、EWMA、Holt-Winters（加性/乘性季节、阻尼系数、非负截断）、Theta、MSTL（日+周双季节，季节分量为固定形状，不是 LOESS）、KNN（互斥区，选中窗口两两相隔不小于窗口长度）、岭回归 AR、GBDT、随机森林、历史分位数等；naive_bayes、RNN/GRU/LSTM 与 macd_trend 已移除）、进程内运行，不引入 Python 或外部模型服务。首期实现 Naive/SeasonalNaive、EWMA/Holt-Winters 与岭回归/GBDT 对照；深度时序、预训练模型和 Prophet 不在范围内。自研实现须配单测与已知输出对照，目录字段是平台参数，由 Go 校验。
+3. 算法纯 Go 实现（已实现 Naive、SeasonalNaive、EWMA、Holt-Winters（加性/乘性季节、阻尼系数、非负截断）、Theta、MSTL（日+周双季节，季节分量为固定形状，不是 LOESS）、KNN（互斥区，选中窗口两两相隔不小于窗口长度）、岭回归 AR、GBDT、随机森林、历史分位数、周期画像分位数（seasonal_profile）、峰值包络趋势（peak_envelope，Theil-Sen）、组合预测（combination，成员用默认参数）等；变点后重置是每个非基线算法的参数 reset_on_change；naive_bayes、RNN/GRU/LSTM 与 macd_trend 已移除）、进程内运行，不引入 Python 或外部模型服务。首期实现 Naive/SeasonalNaive、EWMA/Holt-Winters 与岭回归/GBDT 对照；深度时序、预训练模型和 Prophet 不在范围内。自研实现须配单测与已知输出对照，目录字段是平台参数，由 Go 校验。
 4. 多算法独立保存参数、权重、优先级、条件和频率，记录所有候选和选择原因。失败转候补，全部失败或样本不足使用已验证模块固定默认值，融合结果仍需安全校验。
 5. 评估与晋升读 [model-evaluation](../model-evaluation/SKILL.md)；算法不能直接改 Pod 或副本，扩缩容只由 kube-resource-fcst-operator 按 CRD 执行。
 
