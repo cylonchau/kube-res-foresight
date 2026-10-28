@@ -112,6 +112,27 @@ const ConfigSnapshotMax = "forecast.snapshot_max_per_module"
 // ConfigScoreMax is the system parameter that caps how many algorithm evaluations a module keeps.
 const ConfigScoreMax = "forecast.score_max_per_module"
 
+// ConfigHistoryDays is the system parameter that sets how many days the history is kept: predictions, trainings, backtests, evaluations,
+// recommendations, the operator's reports, the admission records and the scale-up records. 0 keeps the built-in periods (30 days for the
+// bulky ones, 180 for the summaries).
+const ConfigHistoryDays = "forecast.history_retention_days"
+
+// ConfigEvaluationMax is the system parameter that caps how many measured evaluations (the comparison of a finished forecast with the
+// load that came) a module keeps.
+const ConfigEvaluationMax = "forecast.evaluation_max_per_module"
+
+// HistoryDays is the number of days the history is kept when the system parameter sets it, else fallback.
+func (s *Service) HistoryDays(ctx context.Context, fallback int) int {
+	if s.Config != nil {
+		if v, err := s.Config.GetValueOrDefault(ctx, ConfigHistoryDays, ""); err == nil {
+			if n, err := strconv.Atoi(v); err == nil && n >= 1 && n <= 3650 {
+				return n
+			}
+		}
+	}
+	return fallback
+}
+
 // RetentionPolicy is the retention in force: the defaults, with the snapshot cap of the system parameters. A parameter that
 // is missing or not a number leaves the default.
 func (s *Service) RetentionPolicy(ctx context.Context) rdb.Retention {
@@ -120,6 +141,15 @@ func (s *Service) RetentionPolicy(ctx context.Context) rdb.Retention {
 		if v, err := s.Config.GetValueOrDefault(ctx, ConfigSnapshotMax, ""); err == nil {
 			if n, err := strconv.Atoi(v); err == nil && n >= 1 && n <= 100000 {
 				r.Snapshots = n
+			}
+		}
+		if days := s.HistoryDays(ctx, 0); days > 0 {
+			d := time.Duration(days) * 24 * time.Hour
+			r.Predictions, r.Backtests, r.Recommendations, r.Evaluations, r.Trainings = d, d, d, d, d
+		}
+		if v, err := s.Config.GetValueOrDefault(ctx, ConfigEvaluationMax, ""); err == nil {
+			if n, err := strconv.Atoi(v); err == nil && n >= 100 && n <= 10000000 {
+				r.EvaluationsPerModule = n
 			}
 		}
 		if v, err := s.Config.GetValueOrDefault(ctx, ConfigScoreMax, ""); err == nil {

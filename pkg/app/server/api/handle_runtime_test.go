@@ -403,3 +403,47 @@ func TestOperatorModulesListsTheWorkloadsTheOperatorMayScaleStraightFromTheModul
 	assert.False(t, allowed)
 	assert.Empty(t, modules)
 }
+
+// A record is a deployment, an update or a creation that reached the admission policy: the first Pod of a revision the platform had
+// not seen. The further Pods of that revision (the operator scaling up, a replaced Pod) are answered but not kept, unless asked for.
+func TestOnlyARolloutAndTheCreationOfAWorkloadAreKeptAsAdmissionRecords(t *testing.T) {
+	r, cpu := forecastTestRouter(t)
+	m := seedModule(t, cpu.ID, model.ModeAdmission, nil)
+	seedRecommendation(t, m, nil)
+	base := "/admission/recommendations?namespace=prod&workload=api&container=app"
+	ask := func(url string) {
+		rec := performJSON(t, r, http.MethodGet, url, "", nil)
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	}
+	records := func() []any {
+		rec := performJSON(t, r, http.MethodGet, "/admissions?module_id="+itoa(int(m.ID))+"&sort_by=created_at&sort_order=asc", "", nil)
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		return decodeData(t, rec.Body.Bytes())["list"].([]any)
+	}
+
+	ask("/admission/recommendations?namespace=prod&workload=api&container=-&kind=Deployment") // the Deployment is created
+	ask(base + "&revision=abc")                                                               // first Pod of a revision: a rollout
+	ask(base + "&revision=abc")                                                               // the operator scales up
+	ask(base + "&revision=abc")                                                               // a Pod is replaced
+	list := records()
+	require.Len(t, list, 2, "the scaling Pods are not records")
+	assert.Equal(t, "deploy", list[0].(map[string]any)["origin"])
+	assert.Equal(t, "rollout", list[1].(map[string]any)["origin"])
+
+	ask(base + "&revision=def") // the Deployment is updated: a new revision
+	ask(base + "&revision=def")
+	list = records()
+	require.Len(t, list, 3)
+	assert.Equal(t, "rollout", list[2].(map[string]any)["origin"])
+
+	// asked for, the Pods of a known revision are kept too, and marked
+	require.NoError(t, model.DB.Create(&model.SysConfig{ConfigKey: ConfigAdmissionRecordScaling, ConfigValue: "true", ConfigName: "x"}).Error)
+	ask(base + "&revision=def")
+	list = records()
+	require.Len(t, list, 4)
+	assert.Equal(t, "scale", list[3].(map[string]any)["origin"])
+
+	// a caller that sends no revision keeps one record per request, as before
+	ask(base)
+	assert.Len(t, records(), 5)
+}

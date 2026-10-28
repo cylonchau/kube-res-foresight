@@ -16,6 +16,10 @@
 #     key "credential" = "<access key>:<access secret>".
 # Replace PLATFORM_URL below with the address of the platform as seen from the Kyverno pods.
 #
+# The platform keeps an admission record for the first Pod of each revision (a deployment or an update: the pod-template-hash of a
+# Deployment, the controller revision of a StatefulSet or DaemonSet, sent as `revision`). The further Pods of a revision, which scaling
+# or a replaced Pod creates, are answered the same but not recorded unless forecast.admission_record_scaling is true.
+#
 # Only NEW Pods are changed: a running Pod keeps its values until its workload rolls (kubectl rollout restart).
 # The platform matches the module by namespace, kind and name; the Deployment name is the ReplicaSet name without its hash.
 apiVersion: kyverno.io/v1
@@ -57,6 +61,10 @@ spec:
           variable:
             jmesPath: >-
               ownerKind == 'ReplicaSet' && regex_replace_all('-[a-z0-9]{5,10}$', request.object.metadata.ownerReferences[0].name, '') || request.object.metadata.ownerReferences[0].name
+        - name: revision
+          variable:
+            jmesPath: >-
+              request.object.metadata.labels."pod-template-hash" || request.object.metadata.labels."controller-revision-hash" || ''
         - name: credential
           apiCall:
             urlPath: /api/v1/namespaces/kyverno/secrets/kube-resource-fcst-admission
@@ -67,7 +75,7 @@ spec:
             method: GET
             service:
               url: >-
-                PLATFORM_URL/api/v1/admission/recommendations?namespace={{request.namespace}}&kind={{workloadKind}}&workload={{workload}}&container={{request.object.spec.containers[0].name}}
+                PLATFORM_URL/api/v1/admission/recommendations?namespace={{request.namespace}}&kind={{workloadKind}}&workload={{workload}}&container={{request.object.spec.containers[0].name}}&revision={{revision}}
               headers:
                 - key: Authorization
                   value: "kube-resource-fcst-AK {{ credential }}"

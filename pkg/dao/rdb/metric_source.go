@@ -2,6 +2,7 @@ package rdb
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -97,10 +98,22 @@ func (dao *PredictionDAO) SaveAdmission(ctx context.Context, d *model.AdmissionD
 	return dao.db.WithContext(ctx).Create(d).Error
 }
 
+// LatestAdmission is the newest admission record of a module, nil when it has none.
+func (dao *PredictionDAO) LatestAdmission(ctx context.Context, moduleID uint) (*model.AdmissionDecision, error) {
+	var d model.AdmissionDecision
+	err := dao.db.WithContext(ctx).Where("module_id = ?", moduleID).Order("id DESC").Limit(1).Take(&d).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &d, err
+}
+
 // AdmissionFilter narrows the admission records.
+
 type AdmissionFilter struct {
 	ModuleID uint
 	Applied  *bool
+	Origin   string
 	Keyword  string
 	Since    *time.Time
 	Until    *time.Time
@@ -122,6 +135,9 @@ func (dao *PredictionDAO) SearchAdmissions(ctx context.Context, f AdmissionFilte
 	if kw := strings.TrimSpace(f.Keyword); kw != "" {
 		like := "%" + kw + "%"
 		q = q.Where("namespace LIKE ? OR workload LIKE ? OR reason LIKE ?", like, like, like)
+	}
+	if f.Origin != "" {
+		q = q.Where("origin = ?", f.Origin)
 	}
 	if f.Since != nil {
 		q = q.Where("created_at >= ?", *f.Since)

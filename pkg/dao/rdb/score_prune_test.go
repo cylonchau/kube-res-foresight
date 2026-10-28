@@ -79,3 +79,23 @@ func TestTheModuleSummaryCarriesTheCurrentConfiguration(t *testing.T) {
 	assert.Nil(t, none.CPUMilli)
 	assert.Nil(t, none.ActualReplicas)
 }
+
+func TestMeasuredEvaluationsAreCappedPerModuleKeepingTheNewest(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:evalprune?mode=memory&cache=shared"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.PredictionEvaluation{}))
+	dao := NewPredictionDAO(db)
+	for module := uint(1); module <= 2; module++ {
+		for i := 0; i < 130; i++ {
+			require.NoError(t, db.Create(&model.PredictionEvaluation{ModuleID: module, Metric: "cpu", AlgorithmID: "naive", ModelVersion: "v",
+				PredictionTime: time.Unix(int64(1000+i), 0).UTC(), QuantilePermille: 500, Points: 1, Expected: 1}).Error)
+		}
+	}
+	removed, err := dao.Prune(context.Background(), time.Now().UTC(), Retention{EvaluationsPerModule: 100})
+	require.NoError(t, err)
+	assert.EqualValues(t, 60, removed["evaluations"])
+	var left []model.PredictionEvaluation
+	require.NoError(t, db.Where("module_id = ?", 1).Order("id ASC").Find(&left).Error)
+	require.Len(t, left, 100)
+	assert.Equal(t, time.Unix(1030, 0).UTC(), left[0].PredictionTime.UTC(), "the oldest 30 went")
+}

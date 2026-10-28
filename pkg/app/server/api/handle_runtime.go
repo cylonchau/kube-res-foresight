@@ -7,6 +7,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cylonchau/kube-resource-fcst/pkg/app/query"
@@ -27,6 +28,8 @@ type RuntimeRouter struct {
 	RunStates *rdb.RunStateDAO
 	// Config holds the switches that open the modes writing to the cluster. Without it every mode is closed.
 	Config *rdb.SysConfigDAO
+	// admissionMu serialises the decision about an admission request and its record (see recordAdmission).
+	admissionMu sync.Mutex
 	// Fresh makes the recommendation of a module again, on the load as it is, when the stored one is older than the operator should
 	// act on. Without it the operator reads what the scheduled task stored.
 	Fresh interface {
@@ -355,6 +358,39 @@ type AdmissionAnswer struct {
 	Score     float64 `json:"score,omitempty"`
 }
 
+// ConfigAdmissionRecordScaling makes the platform also keep a record for the Pods that scaling or a replacement creates in a revision
+// it has already seen; by default only the first Pod of a new revision (a rollout) and the creation of the workload are kept.
+const ConfigAdmissionRecordScaling = "forecast.admission_record_scaling"
+
+// recordAdmission keeps the record of an admission request, unless the request is one more Pod of a revision the platform already
+// answered for (scaling up, or a replaced Pod): that is a real admission of the Kyverno policy, but not a deployment, update or
+// creation, and an operator that scales a workload every few minutes would otherwise fill the page with them. The decision about a
+// request and its record are made under one lock, so the Pods of one rollout that arrive together are one rollout, not several.
+func (r *RuntimeRouter) recordAdmission(c *gin.Context, m *model.ForecastModule, namespace, workload, container string, out *AdmissionAnswer, original [2]int64) {
+	ctx := c.Request.Context()
+	revision := clip(strings.TrimSpace(c.Query("revision")), 64)
+	r.admissionMu.Lock()
+	defer r.admissionMu.Unlock()
+	origin := ""
+	switch {
+	case container == "-":
+		origin = model.AdmissionDeploy
+	case revision != "":
+		origin = model.AdmissionRollout
+		if last, err := r.Predictions.LatestAdmission(ctx, m.ID); err == nil && last != nil && last.Revision == revision {
+			origin = model.AdmissionScale
+			if !r.modeOpen(c, ConfigAdmissionRecordScaling) {
+				return
+			}
+		}
+	}
+	_ = r.Predictions.SaveAdmission(ctx, &model.AdmissionDecision{ModuleID: m.ID, Namespace: clip(namespace, 253),
+		Workload: clip(workload, 253), Container: clip(container, 253), Applied: out.Apply, Reason: clip(out.Reason, 512), Version: out.Version,
+		CPUMilli: out.Resources.CPUMilli, MemoryBytes: out.Resources.MemoryBytes, GPU: out.Resources.GPU,
+		OriginalCPUMilli: original[0], OriginalMemoryBytes: original[1], LimitCPUMilli: out.Limits.CPUMilli, LimitMemoryBytes: out.Limits.MemoryBytes,
+		WorkloadKind: clip(c.Query("kind"), 16), Mode: m.Mode, Algorithm: clip(out.Algorithm, 40), Revision: revision, Origin: origin})
+}
+
 // Admission answers GET /admission/recommendations?namespace=&workload=&container= with the requests a new Pod
 // of that workload may be given. It never answers with replicas; limits only for a module that manages them. The caller may pass the
 // container's current limits (limit_cpu_milli, limit_memory_bytes); a request above a limit is dropped, since
@@ -371,11 +407,7 @@ func (r *RuntimeRouter) Admission(c *gin.Context) {
 	// answer sends the answer and keeps a record of it, so every admission can be audited afterwards
 	answer := func() {
 		if found != nil && r.Predictions != nil {
-			_ = r.Predictions.SaveAdmission(c.Request.Context(), &model.AdmissionDecision{ModuleID: found.ID, Namespace: clip(namespace, 253),
-				Workload: clip(workload, 253), Container: clip(container, 253), Applied: out.Apply, Reason: clip(out.Reason, 512), Version: out.Version,
-				CPUMilli: out.Resources.CPUMilli, MemoryBytes: out.Resources.MemoryBytes, GPU: out.Resources.GPU,
-				OriginalCPUMilli: original[0], OriginalMemoryBytes: original[1], LimitCPUMilli: out.Limits.CPUMilli, LimitMemoryBytes: out.Limits.MemoryBytes,
-				WorkloadKind: clip(c.Query("kind"), 16), Mode: found.Mode, Algorithm: clip(out.Algorithm, 40)})
+			r.recordAdmission(c, found, namespace, workload, container, &out, original)
 		}
 		query.SuccessResponse(c, nil, out)
 	}

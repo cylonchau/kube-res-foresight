@@ -472,3 +472,12 @@ all ten management pages and the shared product title. Screenshots were inspecte
 - **验证**：`go vet`、`go test ./pkg/... ./cmd/...` 通过（新增：提前量实测／配置／偏晚变长／封顶、可信度加权共识、结算扩缩与实时兜底、效果判定、窗口与步数；forecastsvc 里窗口与提前量、实测负载触发紧急、重复决策只记一条、效果评价及时、偏晚影响下一次提前量；operator 对 urgent 跳过冷却与单步限制）；前端 `vue-tsc`、oxlint、eslint、`node --test` 通过。
 - **没有验证**：真实集群上的就绪时间、节点扩容时间与及时率；浏览器页面；新参数默认值（60 秒、0.75、0.9）只是起点，需要用真实扩容的实测结果调。operator 镜像需重建才认识 `urgent`；平台用新二进制重启后建表和写入参数。
 - **没做**：缩容档位（operator 每次最多减几个、冷却多久）仍是模块配置；效果评估只记向上的决策，向下的不评；模块级（而非全局）的 Pod 就绪时间设置没有做，靠实测覆盖。
+
+### R20：历史保留配置、准入记录只留真实的部署／更新、界面精简（2026-10-29）
+
+- **准入记录的排查结论**（用户库副本，148 条，最新到 10-28 19:36 UTC）：写 `admission_decision` 的只有 `GET /admission/recommendations` 一处，预测、周期计算、副本决策都不会写。逐条对时间：02:58（18:58 UTC）、03:03、03:06、03:07 的记录，和 operator 同一秒的 `ScaleUp` 执行记录完全对得上——是 operator 扩容建出新 Pod，Kyverno 对每个新 Pod 都问了平台。它们是真实的 Pod 准入，但不是「部署／更新」，扩缩容一多就把准入页铺满。另外，一次新版本发布的多个 Pod 会写多条。
+- **修复**：Kyverno 策略多传 `revision`（Deployment 的 pod-template-hash，StatefulSet/DaemonSet 的 controller-revision-hash）。平台对一个模块：创建工作负载时的询问（`container=-`）记为「创建」；某个版本的第一个 Pod 记为「部署／更新」；同一版本其余的 Pod（扩容、被替换）照常回答但默认不记录，系统参数 `forecast.admission_record_scaling=true` 才记，记成「扩容／替换」。判断与写入在一把锁里，同时到达的同一次发布只记一条。没传 `revision` 的旧策略仍是每个请求一条。新增列 `revision`、`origin`；页面加「来源」列与筛选，帮助文字改了。
+- **历史保留**：`forecast.history_retention_days`（默认 0＝沿用内置：预测、训练、扫描报告、记录 30 天，回测、评估、推荐 180 天；填 N 则预测、训练、回测、实测评估、推荐、operator 报告、准入记录、扩容记录都保留 N 天）；`forecast.evaluation_max_per_module`（默认 20000，至少 100，每个模块只留最新的 N 条实测评估）。每小时的评估任务清理，快照、算法评分仍由各自的参数限制。
+- **界面**：排行榜去掉「#」（改「排名」）并收窄各列；决策说明里的「#」同样改了；资源推荐的「决策说明」「快照历史」两个按钮同为主题色次要按钮；扩缩容记录的操作列只写「决策说明」，版本列是普通文字，不再是按钮；降级与回退记录的创建时间列和后端列元数据的 `created_at` 合成一个键，不再出现两列。
+- **验证**：`go vet`、`go test ./pkg/... ./cmd/...` 通过（新增：只记创建与每版本第一个 Pod、打开开关后记扩容 Pod、无 revision 保持旧行为；实测评估按模块保留最新）；前端 `vue-tsc`、oxlint、`node --test` 通过。
+- **没验证**：浏览器页面；Kyverno 策略在真实集群里取到 `revision`（JMESPath 对带连字符标签的写法没有在 Kyverno 上试过，请先在测试环境应用后看一条记录的「来源」）。**没做**：已在库里的旧准入记录没有被清理或回填来源（它们的「来源」为空）；若要删，可用页面的批量删除。

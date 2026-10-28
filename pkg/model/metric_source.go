@@ -296,6 +296,19 @@ type AdmissionDecision struct {
 	// The values the Pod asked for, when the caller sent them.
 	OriginalCPUMilli    int64 `gorm:"not null;default:0" json:"original_cpu_milli" column_setting:"false"`
 	OriginalMemoryBytes int64 `gorm:"not null;default:0" json:"original_memory_bytes" column_setting:"false"`
+	// Revision is the revision of the workload the Pod belongs to (the pod-template-hash of a Deployment, the controller revision of a
+	// StatefulSet or DaemonSet) when the caller sent it; Origin says what the request was: a rollout (the first Pod of a revision the
+	// platform had not seen), a scale (a further Pod of a revision it had: scaling or replacing a Pod), a deploy (the question
+	// asked when the workload object itself is created) or empty (the caller did not say).
+	Revision string `gorm:"type:varchar(64)" json:"revision" column_setting:"false"`
+	Origin   string `gorm:"type:varchar(12)" json:"origin" column_setting:"true"`
 }
+
+// Origins of an admission request.
+const (
+	AdmissionRollout = "rollout"
+	AdmissionScale   = "scale"
+	AdmissionDeploy  = "deploy"
+)
 
 func (AdmissionDecision) TableName() string { return "admission_decision" }

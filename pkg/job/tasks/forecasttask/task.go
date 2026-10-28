@@ -71,13 +71,14 @@ func (t *Run) Execute(ctx context.Context, _ *model.Job) error {
 		}
 	}
 	// operator reports are an audit trail, not an archive
-	if _, err := t.Service.Predictions.PruneOutcomes(ctx, time.Now().UTC().AddDate(0, 0, -executionRetentionDays)); err != nil {
+	execDays, admDays := t.Service.HistoryDays(ctx, executionRetentionDays), t.Service.HistoryDays(ctx, admissionRetentionDays)
+	if _, err := t.Service.Predictions.PruneOutcomes(ctx, time.Now().UTC().AddDate(0, 0, -execDays)); err != nil {
 		logger.Warn("pruning scale outcomes failed", logger.Err(err))
 	}
-	if _, err := t.Service.Predictions.PruneExecutions(ctx, time.Now().UTC().AddDate(0, 0, -executionRetentionDays)); err != nil {
+	if _, err := t.Service.Predictions.PruneExecutions(ctx, time.Now().UTC().AddDate(0, 0, -execDays)); err != nil {
 		logger.Warn("pruning scaling executions failed", logger.Err(err))
 	}
-	if _, err := t.Service.Predictions.PruneAdmissions(ctx, time.Now().UTC().AddDate(0, 0, -admissionRetentionDays)); err != nil {
+	if _, err := t.Service.Predictions.PruneAdmissions(ctx, time.Now().UTC().AddDate(0, 0, -admDays)); err != nil {
 		logger.Warn("pruning admission decisions failed", logger.Err(err))
 	}
 	return joinFailures(failed)

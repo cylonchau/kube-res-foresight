@@ -498,7 +498,12 @@ type Retention struct {
 	// Scores caps the algorithm evaluations kept per module (the newest ones; one evaluation scores every algorithm of the
 	// module at one time). 0 = no cap.
 	Scores int
+	// EvaluationsPerModule caps the measured evaluations kept per module (the newest ones). 0 = no cap.
+	EvaluationsPerModule int
 }
+
+// DefaultEvaluationsPerModule is how many measured evaluations a module keeps unless the system parameter says otherwise.
+const DefaultEvaluationsPerModule = 20000
 
 // DefaultScoresPerModule is how many algorithm evaluations a module keeps unless the system parameter says otherwise.
 const DefaultScoresPerModule = 300
@@ -517,6 +522,7 @@ var DefaultRetention = Retention{
 	RecommendationVersions: 20,
 	Snapshots:              DefaultSnapshotsPerModule,
 	Scores:                 DefaultScoresPerModule,
+	EvaluationsPerModule:   DefaultEvaluationsPerModule,
 }
 
 // Prune deletes records older than their retention and reports how many of each were removed. The latest
@@ -542,6 +548,19 @@ func (dao *PredictionDAO) Prune(ctx context.Context, now time.Time, r Retention)
 	}
 	if err := del("evaluations", &model.PredictionEvaluation{}, r.Evaluations, "created_at < ?"); err != nil {
 		return removed, err
+	}
+	if r.EvaluationsPerModule > 0 {
+		var evaluated []uint
+		if err := dao.db.WithContext(ctx).Model(&model.PredictionEvaluation{}).Distinct().Pluck("module_id", &evaluated).Error; err != nil {
+			return removed, err
+		}
+		for _, id := range evaluated {
+			n, err := dao.PruneEvaluations(ctx, id, r.EvaluationsPerModule)
+			removed["evaluations"] += n
+			if err != nil {
+				return removed, err
+			}
+		}
 	}
 	if r.Scores > 0 {
 		var scored []uint
@@ -593,6 +612,23 @@ func (dao *PredictionDAO) Prune(ctx context.Context, now time.Time, r Retention)
 		}
 	}
 	return dao.pruneSnapshots(ctx, modules, r.Snapshots, removed)
+}
+
+// PruneEvaluations keeps the newest keep measured evaluations of a module and deletes the rest.
+func (dao *PredictionDAO) PruneEvaluations(ctx context.Context, moduleID uint, keep int) (int64, error) {
+	if keep <= 0 {
+		return 0, nil
+	}
+	var cut []uint
+	if err := dao.db.WithContext(ctx).Model(&model.PredictionEvaluation{}).Where("module_id = ?", moduleID).
+		Order("id DESC").Offset(keep).Limit(1).Pluck("id", &cut).Error; err != nil {
+		return 0, err
+	}
+	if len(cut) == 0 {
+		return 0, nil
+	}
+	res := dao.db.WithContext(ctx).Where("module_id = ? AND id <= ?", moduleID, cut[0]).Delete(&model.PredictionEvaluation{})
+	return res.RowsAffected, res.Error
 }
 
 // pruneSnapshots keeps the newest max snapshots of each module; the newest recommendation of a module is never removed.
