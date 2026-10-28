@@ -28,6 +28,9 @@ const (
 	ConfigConsensusDown = "forecast.consensus_down_quantile"
 	// ConfigEmergencyScaleUp lets the load measured now raise the replicas above the forecast.
 	ConfigEmergencyScaleUp = "forecast.emergency_scale_up"
+	// ConfigLeadCoverFactor is how many times the lead the forecast has to reach ahead: the lead window is looked at, and then as much
+	// again, so a rise that starts when the replicas become Ready is seen too. 1 makes the forecast end where the lead ends.
+	ConfigLeadCoverFactor = "forecast.lead_cover_factor"
 )
 
 // Defaults of the scale-ahead parameters.
@@ -36,6 +39,7 @@ const (
 	DefaultLeadNode      = 0
 	DefaultConsensusUp   = 0.75
 	DefaultConsensusDown = 0.9
+	DefaultLeadCover     = 2.0
 	operatorPollSeconds  = 30 // how often the operator asks for a decision
 	outcomeHistory       = 20 // finished scale-ups the lead is learned from
 	liveMaxAgeSteps      = 3  // a sample older than this many steps is not the load of now
@@ -46,11 +50,12 @@ type aheadSettings struct {
 	Up, Down       float64
 	Emergency      bool
 	DecisionWait   float64
+	LeadCover      float64
 }
 
 // aheadSettings reads the parameters; a missing or invalid value is replaced by its default.
 func (s *Service) aheadSettings(ctx context.Context) aheadSettings {
-	out := aheadSettings{PodReady: DefaultLeadPodReady, Node: DefaultLeadNode, Up: DefaultConsensusUp, Down: DefaultConsensusDown, Emergency: true}
+	out := aheadSettings{PodReady: DefaultLeadPodReady, Node: DefaultLeadNode, Up: DefaultConsensusUp, Down: DefaultConsensusDown, Emergency: true, LeadCover: DefaultLeadCover}
 	out.DecisionWait = s.DecisionMaxAge(ctx).Seconds() + operatorPollSeconds
 	if s.Config == nil {
 		return out
@@ -68,6 +73,7 @@ func (s *Service) aheadSettings(ctx context.Context) aheadSettings {
 	num(ConfigLeadNodeProvision, 0, 3600, &out.Node)
 	num(ConfigConsensusUp, 0.5, 1, &out.Up)
 	num(ConfigConsensusDown, 0.5, 1, &out.Down)
+	num(ConfigLeadCoverFactor, 1, 6, &out.LeadCover)
 	if b, err := s.Config.GetBool(ctx, ConfigEmergencyScaleUp, true); err == nil {
 		out.Emergency = b
 	}
@@ -110,9 +116,20 @@ type OutcomeSummary struct {
 	Open     int `json:"open"`
 }
 
+// ReachDetail says how far ahead the forecasts of the module reach and why: the forecast period it is configured with, and the longer
+// reach the lead asks for.
+type ReachDetail struct {
+	ConfiguredMinutes int `json:"configured_minutes"`
+	EffectiveMinutes  int `json:"effective_minutes"`
+	// Extended is true when the configured forecast period is shorter than what the lead needs and the forecasts were made longer.
+	Extended bool   `json:"extended"`
+	Reason   string `json:"reason"`
+}
+
 // AheadDetail is stored with the recommendation: how far ahead it looked, what each algorithm asked for in each window, how they were
 // brought to one number, what the load measured now said, and how the earlier scale-ups of the module went.
 type AheadDetail struct {
+	Reach      ReachDetail         `json:"reach"`
 	Lead       decision.Lead       `json:"lead"`
 	Windows    []WindowDetail      `json:"windows"`
 	Up         decision.Consensus  `json:"up"`
@@ -124,6 +141,48 @@ type AheadDetail struct {
 	Notes      []string            `json:"notes,omitempty"`
 	// Leader is the algorithm the replica count is credited to.
 	Leader string `json:"leader,omitempty"`
+}
+
+// readyAndLate are the measured ready times of the judged scale-ups and how late the late ones were.
+func readyAndLate(recent []*model.ScaleOutcome) (ready, late []float64) {
+	for _, o := range recent {
+		if !o.Final {
+			continue
+		}
+		if o.ReadySeconds > 0 {
+			ready = append(ready, o.ReadySeconds)
+		}
+		if o.Verdict == decision.VerdictLate && o.LateSeconds > 0 {
+			late = append(late, o.LateSeconds)
+		}
+	}
+	return ready, late
+}
+
+// leadCoverMinutes is how far ahead the forecasts of a module have to reach: the lead (the time from a scale-up decision until the
+// replicas take load, learned from the module's own scale-ups) times the cover factor, in whole minutes. 0 when there is no scale-up to
+// plan for (a module that does not scale replicas) or the store cannot be read.
+func (s *Service) leadCoverMinutes(ctx context.Context, m *model.ForecastModule) int {
+	if !m.HasReplicas() || s.Predictions == nil {
+		return 0
+	}
+	set := s.aheadSettings(ctx)
+	recent, err := s.Predictions.RecentOutcomes(ctx, m.ID, outcomeHistory, true)
+	if err != nil {
+		return 0
+	}
+	ready, late := readyAndLate(recent)
+	step := float64(m.StepSeconds)
+	if step <= 0 {
+		step = 60
+	}
+	lead := decision.ComputeLead(decision.LeadInputs{ReadySeconds: ready, ConfiguredReadySeconds: set.PodReady, NodeSeconds: set.Node, DecisionSeconds: set.DecisionWait,
+		LateSeconds: late, StepSeconds: step})
+	cover := int(math.Ceil(lead.Seconds * set.LeadCover / 60))
+	if cover > 24*60 {
+		cover = 24 * 60 // the longest forecast period a module may have
+	}
+	return cover
 }
 
 // stepOf is the sampling step of the forecasts: the module's own, or the step of the first forecast source.
@@ -189,7 +248,7 @@ func (s *Service) scaleAhead(ctx context.Context, m *model.ForecastModule, bs bo
 	if err != nil {
 		return nil, err
 	}
-	var ready, late []float64
+	ready, late := readyAndLate(recent)
 	for _, o := range recent {
 		switch {
 		case !o.Final:
@@ -203,12 +262,6 @@ func (s *Service) scaleAhead(ctx context.Context, m *model.ForecastModule, bs bo
 			d.Outcomes.Unneeded++
 		}
 		d.Outcomes.Judged++
-		if o.ReadySeconds > 0 {
-			ready = append(ready, o.ReadySeconds)
-		}
-		if o.Verdict == decision.VerdictLate && o.LateSeconds > 0 {
-			late = append(late, o.LateSeconds)
-		}
 	}
 	horizonSteps := 0
 	for _, c := range calcs {
@@ -225,6 +278,13 @@ func (s *Service) scaleAhead(ctx context.Context, m *model.ForecastModule, bs bo
 	d.Lead = decision.ComputeLead(decision.LeadInputs{ReadySeconds: ready, ConfiguredReadySeconds: set.PodReady, NodeSeconds: set.Node, DecisionSeconds: set.DecisionWait,
 		LateSeconds: late, StepSeconds: step.Seconds(), HorizonSeconds: horizon.Seconds()})
 	leadSteps := decision.StepsIn(time.Duration(d.Lead.Seconds)*time.Second, step, horizonSteps)
+	d.Reach = ReachDetail{ConfiguredMinutes: m.HorizonMinutes, EffectiveMinutes: int(horizon / time.Minute)}
+	d.Reach.Extended = d.Reach.EffectiveMinutes > m.HorizonMinutes
+	d.Reach.Reason = fmt.Sprintf("the forecasts reach %d min ahead", d.Reach.EffectiveMinutes)
+	if d.Reach.Extended {
+		d.Reach.Reason = fmt.Sprintf("the forecast period of %d min is shorter than what the lead of %.0fs needs (it is looked at, and as much again): the forecasts reach %d min ahead",
+			m.HorizonMinutes, d.Lead.Seconds, d.Reach.EffectiveMinutes)
+	}
 
 	credibility := map[string]float64{}
 	for _, st := range states {

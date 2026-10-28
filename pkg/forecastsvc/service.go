@@ -146,6 +146,11 @@ func (s *Service) runsOf(ctx context.Context, m *model.ForecastModule) ([]*model
 		}
 		runs = append(runs, model.NewRun(m, c))
 	}
+	cover, short := s.leadCoverMinutes(ctx, m), s.shortTermSettings(ctx)
+	for _, r := range runs {
+		r.LeadCoverMinutes = cover
+		r.ShortTermRecentMinutes, r.ShortTermTrigger, r.ShortTermFadeMinutes, r.ShortTermDownShare = short.RecentMinutes, short.Trigger, short.FadeMinutes, short.DownShare
+	}
 	return runs, nil
 }
 

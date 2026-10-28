@@ -37,7 +37,8 @@ var builtinBuilders = map[string]Builder{
 		if err != nil {
 			return nil, err
 		}
-		return Combination{Members: members, Mode: p["mode"].(string), Windows: pInt(p, "error_windows")}, nil
+		return Combination{Members: members, Mode: p["mode"].(string), Windows: pInt(p, "error_windows"), UnderWeight: pFloat(p, "under_weight"),
+			Sharpness: pFloat(p, "sharpness"), TrimRatio: pFloat(p, "trim_ratio"), RecentSteps: pInt(p, "recent_steps")}, nil
 	},
 	"hist_percentile": func(p map[string]any) (Model, error) {
 		return HistPercentile{Percentile: pFloat(p, "percentile"), HalfLifeHours: pFloat(p, "half_life_hours"), SafetyMargin: pFloat(p, "safety_margin")}, nil

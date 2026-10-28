@@ -195,6 +195,9 @@ func instanceSignature(b *model.AlgorithmRun, def forecast.Definition) string {
 			parts = append(parts, "src:"+strings.Join(keys, ","))
 		}
 	}
+	if cfg := shortTermOf(b, def); cfg.Enabled() {
+		parts = append(parts, fmt.Sprintf("st:%g/%g/%g/%g", cfg.RecentMinutes, cfg.Trigger, cfg.FadeMinutes, cfg.DownShare))
+	}
 	if b.WindowSteps > 0 {
 		parts = append(parts, fmt.Sprintf("win:%d", b.WindowSteps))
 	}

@@ -89,6 +89,7 @@ func forecastTestRouter(t *testing.T) (*gin.Engine, *model.MetricMapping) {
 	r.GET("/modules/:id/compare", h.ModuleCompare)
 	r.POST("/modules/:id/collect", h.ModuleCollect)
 	r.POST("/modules/:id/predict", h.ModulePredict)
+	r.GET("/modules/:id/delay-report", h.ModuleDelayReport)
 	r.POST("/modules/:id/run", h.ModuleRun)
 	r.POST("/modules/:id/backtest", h.ModuleBacktest)
 	r.GET("/modules/:id/backtests", h.ModuleBacktests)
@@ -1065,4 +1066,26 @@ func TestAModulePredictsOnlyOnceItIsSwitchedOnAndItsModeIsChecked(t *testing.T) 
 	require.Equal(t, http.StatusOK, put(map[string]any{"predict_mode": "dynamic"}))
 	got = decodeData(t, performJSON(t, r, http.MethodGet, fmt.Sprintf("/modules/%d", id), "", nil).Body.Bytes())
 	assert.Equal(t, "", got["predict_algorithm"])
+}
+
+func TestTheDelayReportIsServedWithItsIndicatorsAndTargets(t *testing.T) {
+	r, _ := forecastTestRouter(t)
+	id := createModule(t, r, map[string]any{"name": "dr", "namespace": "prod", "workload": "dr"})
+	rec := performJSON(t, r, http.MethodGet, fmt.Sprintf("/modules/%d/delay-report?since_hours=48", id), "", nil)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	got := decodeData(t, rec.Body.Bytes())
+	assert.EqualValues(t, 48, got["hours"])
+	assert.Equal(t, "insufficient", got["verdict"], "no scale-up has been judged on a new module")
+	indicators, _ := got["indicators"].([]any)
+	keys := map[string]bool{}
+	for _, raw := range indicators {
+		i := raw.(map[string]any)
+		keys[i["key"].(string)] = true
+		assert.NotEmpty(t, i["op"])
+		assert.NotNil(t, i["target"])
+	}
+	for _, k := range []string{"timely_rate", "late_p90_seconds", "emergency_share", "peak_under_p90", "reach_over_lead", "decision_wait_seconds"} {
+		assert.True(t, keys[k], k)
+	}
+	assert.Equal(t, http.StatusNotFound, performJSON(t, r, http.MethodGet, "/modules/9999/delay-report", "", nil).Code)
 }

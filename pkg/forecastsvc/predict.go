@@ -95,6 +95,13 @@ func bind(b *model.AlgorithmRun) (*boundModel, error) {
 	if err != nil {
 		return nil, err
 	}
+	if cfg := shortTermOf(b, def); cfg.Enabled() {
+		if c, ok := m.(forecast.Combination); ok {
+			m = c.WithShortTerm(cfg)
+		} else {
+			m = forecast.ShortTerm{Inner: m, Cfg: cfg}
+		}
+	}
 	version := ModelVersion(def, canonical)
 	if sig := instanceSignature(b, def); sig != "" {
 		version = ModelVersion(def, canonical+"|"+sig)

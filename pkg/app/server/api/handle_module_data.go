@@ -420,6 +420,25 @@ func (r *ForecastRouter) ModulePredict(c *gin.Context) {
 	query.SuccessResponse(c, nil, outcomes)
 }
 
+// ModuleDelayReport serves the acceptance of the prediction delay of a module: how late it asks for capacity, over the last hours
+// (since_hours, 24 by default), as indicators with their targets.
+// @Summary Prediction delay acceptance of a module
+// @Tags Forecast
+// @Router /api/v1/modules/{id}/delay-report [get]
+func (r *ForecastRouter) ModuleDelayReport(c *gin.Context) {
+	id, ok := parseUintParam(c, "id")
+	if !ok {
+		return
+	}
+	hours, _ := strconv.Atoi(c.Query("since_hours"))
+	rep, err := r.Service.DelayReport(c.Request.Context(), id, hours)
+	if err != nil {
+		r.writeError(c, err)
+		return
+	}
+	query.SuccessResponse(c, nil, rep)
+}
+
 // ModuleRun collects and predicts in one call, as the scheduled task does.
 func (r *ForecastRouter) ModuleRun(c *gin.Context) {
 	id, ok := parseUintParam(c, "id")

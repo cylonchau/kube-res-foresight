@@ -213,7 +213,7 @@ func (s *Service) scoreInstance(ctx context.Context, m *model.ForecastModule, in
 			end = in.End
 		}
 	}
-	horizon := time.Duration(inst.HorizonMinutes) * time.Minute
+	horizon := time.Duration(inst.CoverMinutes()) * time.Minute // the stretch the algorithm forecasts is the stretch it is graded on
 
 	type windowSpec struct{ start, end time.Time }
 	var specs []windowSpec

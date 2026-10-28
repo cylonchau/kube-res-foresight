@@ -59,3 +59,10 @@ func (dao *PredictionDAO) PruneOutcomes(ctx context.Context, before time.Time) (
 	res := dao.db.WithContext(ctx).Where("final = ? AND decided_at < ?", true, before).Delete(&model.ScaleOutcome{})
 	return res.RowsAffected, res.Error
 }
+
+// OutcomesSince are the scale-ups a module decided at or after a time, oldest first.
+func (dao *PredictionDAO) OutcomesSince(ctx context.Context, moduleID uint, since time.Time) ([]*model.ScaleOutcome, error) {
+	var list []*model.ScaleOutcome
+	err := dao.db.WithContext(ctx).Where("module_id = ? AND decided_at >= ?", moduleID, since).Order("decided_at ASC").Find(&list).Error
+	return list, err
+}

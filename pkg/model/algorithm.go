@@ -104,6 +104,15 @@ type AlgorithmRun struct {
 
 	LookbackHours  int
 	HorizonMinutes int
+	// LeadCoverMinutes is how far ahead the forecast has to reach for the replicas to be asked for in time: a multiple of the lead (the
+	// time from the decision until the replicas take load), so a module whose horizon is shorter than that still sees the load that
+	// its scale-up has to meet. 0 when it is not known. See CoverMinutes.
+	LeadCoverMinutes int
+	// ShortTerm* set the quick correction put around the algorithms that remember long (see forecast.ShortTerm); a zero recent window is off.
+	ShortTermRecentMinutes float64
+	ShortTermTrigger       float64
+	ShortTermFadeMinutes   float64
+	ShortTermDownShare     float64
 	// RunIntervalMinutes is how often the module is forecast (0 = every cycle of the scheduled task).
 	RunIntervalMinutes int
 	MaxFillSteps       int
@@ -139,18 +148,23 @@ func NewRun(m *ForecastModule, c *AlgorithmConfig) *AlgorithmRun {
 const DefaultRunCycleMinutes = 5
 
 // CoverMinutes is how far ahead a forecast has to reach: the forecast period of the module, but never less than the time
-// until the next forecast is made. A forecast that stops before the next one starts leaves the time in between without any
-// prediction (a gap in the chart, and a recommendation that has nothing to say until the next run), so a horizon shorter
-// than the run interval is lengthened to it.
+// until the next forecast is made, and never less than the lead cover. A forecast that stops before the next one starts leaves the
+// time in between without any prediction (a gap in the chart, and a recommendation that has nothing to say until the next run), so a
+// horizon shorter than the run interval is lengthened to it. A forecast that stops before the lead is over cannot see the load the
+// replicas asked for now are for, so it is lengthened to the lead cover too.
 func (a *AlgorithmRun) CoverMinutes() int {
 	run := a.RunIntervalMinutes
 	if run <= 0 {
 		run = DefaultRunCycleMinutes
 	}
-	if a.HorizonMinutes > run {
-		return a.HorizonMinutes
+	cover := a.HorizonMinutes
+	if run > cover {
+		cover = run
 	}
-	return run
+	if a.LeadCoverMinutes > cover {
+		cover = a.LeadCoverMinutes
+	}
+	return cover
 }
 
 // Key is the name under which the algorithm's results are stored.

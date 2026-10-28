@@ -177,6 +177,7 @@ func RegisteredRouter(e *gin.Engine) {
 	moduleGroup.GET("/:id/compare", forecastHandler.ModuleCompare)
 	moduleGroup.POST("/:id/collect", forecastHandler.ModuleCollect)
 	moduleGroup.POST("/:id/predict", forecastHandler.ModulePredict)
+	moduleGroup.GET("/:id/delay-report", forecastHandler.ModuleDelayReport)
 	moduleGroup.POST("/:id/run", forecastHandler.ModuleRun)
 	moduleGroup.POST("/:id/backtest", forecastHandler.ModuleBacktest)
 	moduleGroup.GET("/:id/backtests", forecastHandler.ModuleBacktests)

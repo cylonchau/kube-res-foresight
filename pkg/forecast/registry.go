@@ -168,10 +168,14 @@ var builtinDefinitions = []Definition{
 		{Name: "allow_decline", Type: "bool", Default: false, Description: "是否允许预测下降：false（默认）= 下降的斜率按平处理，预测不低于当前包络，用于防 OOM；true = 照直线走，也可能低于当前峰值。"},
 		{Name: "safety_margin", Type: "float", Default: 0.0, Min: num(0), Max: num(5), Description: "安全边际：结果再乘 (1+边际)。"},
 	}},
-	{ID: "combination", Category: "statistical", Description: "组合预测：把几个算法的预测合在一起，取每一步的中位数，或按各成员最近误差的倒数加权平均。不同类型的模型组合起来在预测竞赛（M4）里很难被单个算法打败，一个成员错在某个方向会被其他成员抵消，而且不需要训练。成员用各自的默认参数运行，所以只能选不需要必填参数的算法；它和其他算法一样被回测、评分和晋升，不是默认比它们好。", Params: []ParamSpec{
+	{ID: "combination", Category: "statistical", ImplVersion: "2", Description: "组合预测：把几个算法的预测合在一起，取每一步的中位数，或按各成员最近误差的倒数加权平均。不同类型的模型组合起来在预测竞赛（M4）里很难被单个算法打败，一个成员错在某个方向会被其他成员抵消，而且不需要训练。成员用各自的默认参数运行，所以只能选不需要必填参数的算法；它和其他算法一样被回测、评分和晋升，不是默认比它们好。", Params: []ParamSpec{
 		{Name: "members", Type: "string", Default: defaultCombinationMembers, Description: "成员算法的 id，用逗号分隔，2 到 6 个，如 ewma,holt_winters,theta。只能选不需要必填参数的算法（ewma、holt_winters、theta、hist_percentile、knn、naive 等），不能选 combination 自己。成员按各自的默认参数运行，不读取算法管理页里给它们设置的参数。"},
 		{Name: "mode", Type: "string", Default: "inverse_error", Enum: []string{"inverse_error", "median"}, Description: "inverse_error = 按每个成员在这个负载最近几个窗口里的平均绝对误差的倒数加权；median = 每一步取成员预测的中位数。"},
 		{Name: "error_windows", Type: "int", Default: 4, Min: num(1), Max: num(20), Description: "测各成员误差用最近多少个预测视野；越多越稳，也越慢。仅 mode=inverse_error 时使用，历史不够时按等权。"},
+		{OmitWhenDefault: true, Name: "under_weight", Type: "float", Default: 2.0, Min: num(1), Max: num(5), Description: "量成员误差时，预测低于实际的部分算几倍（与评分里“少给比多给代价更大”的倍数一致）。1 = 普通平均绝对误差；默认 2，使组合偏向少给得少的成员。仅 mode=inverse_error 时使用。"},
+		{OmitWhenDefault: true, Name: "sharpness", Type: "float", Default: 2.0, Min: num(1), Max: num(6), Description: "权重 = (1/误差) 的这个次方。1 = 与误差成反比（最差的成员仍占相当的权重）；越大越偏向最近最好的成员，6 接近只选最好的。默认 2。仅 mode=inverse_error 时使用。"},
+		{OmitWhenDefault: true, Name: "recent_steps", Type: "int", Default: 3, Min: num(0), Max: num(20), Description: "除了最近几个预测视野，再把最新的这几步也算进成员的误差：刚刚跟上一次变化的成员比一小时前才对的成员更值得信。0 = 不算。默认 3。仅 mode=inverse_error 时使用。"},
+		{OmitWhenDefault: true, Name: "trim_ratio", Type: "float", Default: 3.0, Min: num(0), Max: num(20), Description: "误差超过最好成员这个倍数的成员不参与（权重为 0）。0 = 不剔除；默认 3。仅 mode=inverse_error 时使用，历史不够时所有成员按等权。"},
 	}},
 	{ID: "ridge_ar", Category: "machine_learning", Description: "岭回归自回归：滞后值与可选日历特征，递归多步预测，特征与目标标准化。", Params: []ParamSpec{
 		{Name: "lags", Type: "int", Required: true, Min: num(1), Max: num(2000), Unit: "steps", Description: "滞后步数，仅使用目标步之前的值。"},
