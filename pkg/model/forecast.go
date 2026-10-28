@@ -554,6 +554,9 @@ type Recommendation struct {
 	// repeated every cycle: they keep the current recommendation valid and are dropped soon after. SnapshotReason says why.
 	Snapshot       bool   `gorm:"not null;default:false;index" json:"snapshot" column_setting:"true"`
 	SnapshotReason string `gorm:"type:varchar(200)" json:"snapshot_reason" column_setting:"false"`
+	// Urgent says the replicas came from the load measured now because the forecast was behind it: the operator acts at once, without
+	// the cooldown or the step limit of a scale-up.
+	Urgent bool `gorm:"not null;default:false" json:"urgent" column_setting:"false"`
 }
 
 func (Recommendation) TableName() string { return "recommendation" }

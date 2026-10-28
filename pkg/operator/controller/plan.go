@@ -25,6 +25,9 @@ type Decision struct {
 	// stated. A decision outside them is pulled back, whatever the spec allows.
 	MinReplicas     int32
 	HardMaxReplicas int32
+	// Urgent says the platform raised the replicas because the load measured now needs more than its forecast gave: a scale-up to it
+	// does not wait for the cooldown and is not limited to the step.
+	Urgent bool
 }
 
 // Action is what a reconcile does to the target.
@@ -149,7 +152,11 @@ func MakePlan(in PlanInput) Plan {
 	if p.Action == ActionDown {
 		rule = spec.Behavior.ScaleDown
 	}
-	if !boundsForced && rule.Cooldown != nil && in.LastScale != nil {
+	urgent := p.Action == ActionUp && p.DecisionValid && in.Decision != nil && in.Decision.Urgent
+	if urgent {
+		p.Reason += "; urgent: the load is above the forecast, no cooldown and no step limit"
+	}
+	if !boundsForced && !urgent && rule.Cooldown != nil && in.LastScale != nil {
 		if since := in.Now.Sub(*in.LastScale); since < rule.Cooldown.Duration {
 			p.Blocked = fmt.Sprintf("cooldown: %s since the last scaling action, %s required", since.Round(time.Second), rule.Cooldown.Duration)
 			p.Desired, p.Action = in.Current, ActionNone
@@ -161,7 +168,7 @@ func MakePlan(in PlanInput) Plan {
 	if diff < 0 {
 		diff = -diff
 	}
-	if rule.MaxStep > 0 && diff > rule.MaxStep {
+	if rule.MaxStep > 0 && diff > rule.MaxStep && !urgent {
 		if p.Action == ActionUp {
 			target = in.Current + rule.MaxStep
 		} else {

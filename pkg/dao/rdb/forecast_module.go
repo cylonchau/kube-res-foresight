@@ -183,7 +183,7 @@ func (dao *ModuleDAO) Delete(ctx context.Context, id uint) error {
 			}
 		}
 		for _, table := range []interface{}{&model.MetricSeries{}, &model.MetricSource{}, &model.ModulePeriod{}, &model.ModuleRunState{}, &model.AlgorithmScore{},
-			&model.Recommendation{}, &model.Prediction{}, &model.PredictionEvaluation{}, &model.BacktestRun{}, &model.TrainingRun{}} {
+			&model.Recommendation{}, &model.Prediction{}, &model.PredictionEvaluation{}, &model.BacktestRun{}, &model.TrainingRun{}, &model.ScaleOutcome{}} {
 			if err := tx.Where("module_id = ?", id).Delete(table).Error; err != nil {
 				return err
 			}

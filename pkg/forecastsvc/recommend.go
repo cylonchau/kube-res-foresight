@@ -114,6 +114,8 @@ type RecommendDetail struct {
 	Expansion *ExpansionDetail    `json:"expansion,omitempty"`
 	// Replica explains the dynamic replica solve; nil in fixed mode.
 	Replica *ReplicaDetail `json:"replica,omitempty"`
+	// Ahead explains the forward-looking part of the replica decision: the lead, the windows, the vote of every algorithm, the live load.
+	Ahead *AheadDetail `json:"ahead,omitempty"`
 	// Degraded maps a field that fell back (module fallback or the original value) to the reason code, and
 	// DegradeNotes to the sentence behind it. Empty when every field came from a usable forecast.
 	Degraded     map[string]string `json:"degraded,omitempty"`
@@ -173,8 +175,10 @@ func (st *instanceState) hasUsableForecast() bool {
 type instanceCalc struct {
 	st  *instanceState
 	res multimetric.Result
-	// values are the values each source was calculated from; their count is how many forecast steps it rests on.
+	// values are the values each source was calculated from; their count is how many forecast steps it rests on. why is, for the
+	// sources that had none, the reason.
 	values map[string][]float64
+	why    map[string]string
 }
 
 // weight is what the algorithm's config multiplies its score by when the module ranks the algorithms.
@@ -484,7 +488,7 @@ func (s *Service) recommend(ctx context.Context, moduleID uint, failed map[strin
 			}
 		}
 		res := multimetric.Compute(cfg, calcInputs(st.inst, values, why))
-		calcs = append(calcs, instanceCalc{st, res, values})
+		calcs = append(calcs, instanceCalc{st, res, values, why})
 	}
 
 	// the sources a resource would need, to tell "no forecast expected" from "a forecast failed"
@@ -494,6 +498,7 @@ func (s *Service) recommend(ctx context.Context, moduleID uint, failed map[strin
 			expected[field] = true
 		}
 	}
+	urgent := false
 	current := s.currentReplicas(ctx, m.ID, now)
 	if current == 0 {
 		if rs := bs.firstOfKind("replicas"); rs != nil {
@@ -564,8 +569,9 @@ func (s *Service) recommend(ctx context.Context, moduleID uint, failed map[strin
 	rec := decision.Decide(in)
 
 	if m.HasReplicas() && m.ReplicaMode == model.ReplicaModeDynamic && top != nil && !held["replicas"] {
-		series, notes := s.solverSeries(ctx, m, calcs, now)
-		replica, plans, err := s.solveReplicas(ctx, m, bs, series, notes, now, heap, in.PressureReplicas, in.PressureReason, top.st.inst.Key(), current, ceiling)
+		cache := uncertaintyCache{}
+		series, notes := s.solverSeries(ctx, m, calcs, now, cache)
+		replica, plans, solverCfg, err := s.solveReplicas(ctx, m, bs, series, notes, now, heap, in.PressureReplicas, in.PressureReason, top.st.inst.Key(), current, ceiling)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -575,6 +581,27 @@ func (s *Service) recommend(ctx context.Context, moduleID uint, failed map[strin
 			plan := plans[0]
 			rec.Replicas = decision.Field{Set: true, Value: int64(plan.Replicas), Source: decision.SourceAlgorithm, Detail: plan.Algorithm,
 				Reason: plan.Reason, Clamped: plan.Clamped}
+			// every algorithm votes on the replicas the look-ahead window needs; the top-ranked one is not followed alone
+			ahead, err := s.scaleAhead(ctx, m, bs, states, calcs, plans, solverCfg, current, ceiling, now, advance)
+			if err != nil {
+				return nil, nil, err
+			}
+			if ahead != nil {
+				detail.Ahead = ahead
+				if st := ahead.Settlement; st.Replicas > 0 {
+					who, reason := ahead.Leader, st.Reason+"; "+describeAhead(ahead)
+					for _, p := range plans {
+						if p.Algorithm == who {
+							reason += "; " + p.Reason
+						}
+					}
+					if who == "" || who == "live" {
+						who = plan.Algorithm
+					}
+					rec.Replicas = decision.Field{Set: true, Value: int64(st.Replicas), Source: decision.SourceAlgorithm, Detail: who, Reason: reason}
+					urgent = st.Emergency
+				}
+			}
 		}
 	}
 
@@ -643,7 +670,7 @@ func (s *Service) recommend(ctx context.Context, moduleID uint, failed map[strin
 		GPUSet: rec.GPU.Set, GPU: int(rec.GPU.Value), GPUSource: string(rec.GPU.Source),
 		Algorithm: detail.Algorithm, Score: detail.Score, EffectiveMaxReplicas: effectiveMax,
 		Detail: marshal(detail), Degraded: len(detail.Degraded) > 0, OOMFloor: rec.MemoryBytes.Floored,
-		ResourceVersion: spec.Version, ResourceChangedAt: spec.ChangedAt, ResourceHeld: spec.Held,
+		ResourceVersion: spec.Version, ResourceChangedAt: spec.ChangedAt, ResourceHeld: spec.Held, Urgent: urgent && rec.Replicas.Source == decision.SourceAlgorithm,
 	}
 	if len(detail.Degraded) > 0 {
 		row.DegradeReasons = marshal(detail.Degraded)
@@ -667,6 +694,11 @@ func (s *Service) recommend(ctx context.Context, moduleID uint, failed map[strin
 	if err := s.Predictions.SaveRecommendation(ctx, row); err != nil {
 		// a concurrent run may have taken the version; one retry resolves it
 		if err2 := s.Predictions.SaveRecommendation(ctx, row); err2 != nil {
+			return nil, nil, err
+		}
+	}
+	if advance && row.ReplicasSet && row.ReplicasSource == string(decision.SourceAlgorithm) {
+		if err := s.recordOutcome(ctx, m, row, detail.Ahead, now); err != nil {
 			return nil, nil, err
 		}
 	}

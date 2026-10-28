@@ -93,6 +93,7 @@ type platformEnvelope struct {
 		Score           float64    `json:"score"`
 		MinReplicas     int32      `json:"min_replicas"`
 		HardMaxReplicas int32      `json:"hard_max_replicas"`
+		Urgent          bool       `json:"urgent"`
 	} `json:"data"`
 }
 
@@ -224,7 +225,7 @@ func (d *PlatformDecider) Decide(ctx context.Context, ps *v1alpha1.PredictiveSca
 		return nil, errors.New("platform returned a negative replica count")
 	}
 	return &Decision{Replicas: env.Data.Replicas, Source: "platform:" + env.Data.Source, Version: env.Data.Version, ValidUntil: env.Data.ValidUntil, CreatedAt: env.Data.CreatedAt, Reason: env.Data.Reason,
-		Algorithm: env.Data.Algorithm, Score: env.Data.Score, MinReplicas: env.Data.MinReplicas, HardMaxReplicas: env.Data.HardMaxReplicas}, nil
+		Algorithm: env.Data.Algorithm, Score: env.Data.Score, MinReplicas: env.Data.MinReplicas, HardMaxReplicas: env.Data.HardMaxReplicas, Urgent: env.Data.Urgent}, nil
 }
 
 // Report implements Reporter.

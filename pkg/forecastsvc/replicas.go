@@ -193,7 +193,10 @@ func (s *Service) allWorkloadLevel(ctx context.Context, a *model.AlgorithmRun, k
 // solverSeries turns the multi-metric calculation of each usable instance into the series the replica solver takes:
 // per resource, the combined demand of the instance over the horizon, with the measured uncertainty of the algorithm
 // on the source behind it. Resources whose sources are not workload totals cannot give a replica count and are left out.
-func (s *Service) solverSeries(ctx context.Context, m *model.ForecastModule, calcs []instanceCalc, now time.Time) (decision.ReplicaInputs, []string) {
+//
+// cache keeps the measured uncertainty of an algorithm between calls, so the look-ahead windows of one decision do not measure it
+// again for each window; nil measures every time.
+func (s *Service) solverSeries(ctx context.Context, m *model.ForecastModule, calcs []instanceCalc, now time.Time, cache uncertaintyCache) (decision.ReplicaInputs, []string) {
 	var in decision.ReplicaInputs
 	var notes []string
 	noted := map[string]bool{}
@@ -234,7 +237,7 @@ func (s *Service) solverSeries(ctx context.Context, m *model.ForecastModule, cal
 			}
 			sc := decision.SeriesCandidate{Algorithm: algo, Values: values}
 			if m.ReplicaMode == model.ReplicaModeDynamic {
-				if u, source, raw, err := s.uncertainty(ctx, c.st.inst.ID, rv.Sources[0], algo, now); err == nil {
+				if u, source, raw, err := s.cachedUncertainty(ctx, cache, c.st.inst.ID, rv.Sources[0], algo, now); err == nil {
 					sc.Uncertainty, sc.UncertaintySource = u, source
 					if note := uncertaintyCapNote(algo, raw); note != "" && !noted["cap:"+algo+spec.resource] {
 						noted["cap:"+algo+spec.resource] = true
@@ -248,9 +251,33 @@ func (s *Service) solverSeries(ctx context.Context, m *model.ForecastModule, cal
 	return in, notes
 }
 
-// solveReplicas runs the dynamic replica solver over the eligible series. Nothing here changes stored state.
+// uncertaintyCache holds measured uncertainties by instance, source and algorithm.
+type uncertaintyCache map[string]uncertaintyResult
+
+type uncertaintyResult struct {
+	u      *float64
+	source string
+	raw    float64
+	err    error
+}
+
+func (s *Service) cachedUncertainty(ctx context.Context, cache uncertaintyCache, instanceID uint, metric, algorithm string, now time.Time) (*float64, string, float64, error) {
+	if cache == nil {
+		return s.uncertainty(ctx, instanceID, metric, algorithm, now)
+	}
+	key := fmt.Sprintf("%d/%s/%s", instanceID, metric, algorithm)
+	if r, ok := cache[key]; ok {
+		return r.u, r.source, r.raw, r.err
+	}
+	u, source, raw, err := s.uncertainty(ctx, instanceID, metric, algorithm, now)
+	cache[key] = uncertaintyResult{u, source, raw, err}
+	return u, source, raw, err
+}
+
+// solveReplicas runs the dynamic replica solver over the eligible series. Nothing here changes stored state. It also returns the
+// solver configuration it used (with the capacity), which the look-ahead windows are solved with.
 func (s *Service) solveReplicas(ctx context.Context, m *model.ForecastModule, bs boundSet, in decision.ReplicaInputs, notes []string, now time.Time, heap HeapPressure,
-	pressure int, pressureWhy, pressureAlgorithm string, current, ceiling int) (*ReplicaDetail, []decision.ReplicaPlan, error) {
+	pressure int, pressureWhy, pressureAlgorithm string, current, ceiling int) (*ReplicaDetail, []decision.ReplicaPlan, decision.SolverConfig, error) {
 	detail := &ReplicaDetail{Mode: model.ReplicaModeDynamic, Capacity: CapacityDetail{Source: decision.CapacityNone}, Plans: []decision.ReplicaPlan{}, Notes: notes}
 	cfg := decision.SolverConfig{
 		PodCPUCores: float64(m.PodCPURequestMilli) / 1000, PodMemoryBytes: float64(m.PodMemoryRequestBytes),
@@ -287,5 +314,5 @@ func (s *Service) solveReplicas(ctx context.Context, m *model.ForecastModule, bs
 	if len(plans) > 0 {
 		detail.Selected = plans[0].Algorithm
 	}
-	return detail, plans, nil
+	return detail, plans, cfg, nil
 }

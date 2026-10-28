@@ -458,3 +458,17 @@ all ten management pages and the shared product title. Screenshots were inspecte
 - **识别落后的算法**：对每个可用的算法，取最近 10 步里「平台在该时刻之前最后一次的预测」与「该时刻测到的值」比（`Tracking`：WAPE、偏差、步数）。至少 3 步且 WAPE 超过 50% 就是落后，只要还有别的算法没有落后，落后的这一轮不参与选择（`dropLagging`），不管它的评分多高，也不需要等切换轮数；全部都落后时不动，仍按评分。决策说明的选算法表多一列「最近跟踪误差」，落后的标红，原因写「落后：最近 N 步的预测与实际值相差 X%（上限 50%），预测高于/低于实际值，本轮不参与选择」。
 - **验证**：`go vet`、`go test ./pkg/... ./cmd/...` 通过（新增：落后的 top1 不被选、步数太少或全部落后时不动、推荐过期就重做、新鲜不重做、0 关闭、间隔模块与 observe 模块不刷新、并发请求只做一次）；前端类型检查、locale 与单测通过。**未验证**：线上重跑 `stress.sh --mode ramp`，需用新二进制重启平台。
 - **没改**：缩容档位（模块或 PredictiveScaler 的 `scaleDown` maxStep 与 cooldown）和 `forecast.run` 的 5 分钟周期；落后的判定阈值是常数（50%、10 步、至少 3 步），没有做成设置项。刷新会让每次轮询（超过 60 秒）多跑一遍这个模块的全部算法，算法很重的模块应把 `forecast.decision_max_age_seconds` 调大。
+
+### R19：前瞻性副本决策：提前量、多算法投票、实时兜底、扩容及时性（2026-10-29）
+
+- **问题**：决策跟着排名第一的算法走；负载变化时 top1 可能还没反应，别的算法即使对了也进不了决策；副本被要求到真正可用要一段时间，决策却没算这段时间；预测失效时没有实时兜底；没有记录扩容是否赶在负载之前。
+- **提前量**（`decision.ComputeLead`）：Pod 就绪时间＋节点扩容＋决策等待（`forecast.decision_max_age_seconds`＋30 秒轮询）＋近期偏晚扩容的 P90 余量，取整到步长、至少两步、不超过预测范围。就绪时间用本模块已评价扩容的实测 P90（至少 3 次，已含节点扩容），不足时用系统参数 `forecast.lead_pod_ready_seconds`（60）＋`forecast.lead_node_provision_seconds`（0）。
+- **前瞻窗口**：每个算法按提前量、5、10、15……分钟（预测的前 n 步）各算一遍所需副本数（`truncatedCalc` 重算多指标，`windowNeeds` 复用副本求解器）；决策说明页「前瞻决策」列出。
+- **多算法并行与冲突处理**：所有可用算法在提前量窗口上投票，权重＝评分／100 × (1−最近跟踪误差)；用可信度加权分位数取共识（`decision.Reconcile`，扩容 0.75、缩容 0.9，系统参数可调）。可信的算法一致就不被低可信的高要求拖动，可信的算法看到上涨就跟随；不是取最大或最小。
+- **动态风险控制**（`decision.Settle`）：扩容看提前量窗口的共识；缩容需要整个预测范围在更严分位上一致，且当前实测负载放得进更少的副本；仍受原有的最少确认步数、最大/最小副本、动态上限约束。
+- **实时兜底**：实测负载（CPU/内存/请求量，最近两个样本的较低者）需要的副本数超过预测与现有，则直接要求该数并标 `urgent`；operator 对 urgent 的扩容跳过冷却和单步限制，缩容不变。`forecast.emergency_scale_up` 可关。
+- **效果评估**：新表 `scale_outcome`（升级时自动建）；每次向上的决策记一条，之后用就绪副本数序列和实测负载判定及时／偏晚／负载没来，结果回到提前量；`GET /scale-outcomes`，扩缩容记录页「扩容及时性」弹窗。
+- **改了什么文件**：`pkg/decision/ahead.go`、`pkg/forecastsvc/ahead.go`、`recommend.go`、`replicas.go`（不确定度缓存、返回求解配置）、`pkg/model/scale_outcome.go`、`Recommendation.Urgent`、`pkg/dao/rdb/scale_outcome.go`、`handle_runtime.go`、`pkg/operator/controller/{plan,decider}.go`、迁移种子 5 个系统参数；前端 `ahead-explain.vue`、`scale-outcome-modal.vue`、执行记录页、类型与中英文语言包。
+- **验证**：`go vet`、`go test ./pkg/... ./cmd/...` 通过（新增：提前量实测／配置／偏晚变长／封顶、可信度加权共识、结算扩缩与实时兜底、效果判定、窗口与步数；forecastsvc 里窗口与提前量、实测负载触发紧急、重复决策只记一条、效果评价及时、偏晚影响下一次提前量；operator 对 urgent 跳过冷却与单步限制）；前端 `vue-tsc`、oxlint、eslint、`node --test` 通过。
+- **没有验证**：真实集群上的就绪时间、节点扩容时间与及时率；浏览器页面；新参数默认值（60 秒、0.75、0.9）只是起点，需要用真实扩容的实测结果调。operator 镜像需重建才认识 `urgent`；平台用新二进制重启后建表和写入参数。
+- **没做**：缩容档位（operator 每次最多减几个、冷却多久）仍是模块配置；效果评估只记向上的决策，向下的不评；模块级（而非全局）的 Pod 就绪时间设置没有做，靠实测覆盖。

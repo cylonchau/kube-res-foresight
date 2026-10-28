@@ -78,6 +78,9 @@ type OperatorDecision struct {
 	// Refreshed says the platform made this recommendation again for this request, because the stored one was older than the
 	// operator should act on (the decision comes before the action).
 	Refreshed bool `json:"refreshed,omitempty"`
+	// Urgent says the replicas come from the load measured now, because the forecast was behind it: the operator raises to them
+	// at once, without the cooldown or the step limit of a scale-up.
+	Urgent bool `json:"urgent,omitempty"`
 	// MinReplicas is the hard floor, MaxReplicas the ceiling in force now (fixed, or the dynamically expanded one) and
 	// HardMaxReplicas the safety ceiling the expansion never passes. The operator refuses a decision outside them.
 	MinReplicas     int `json:"min_replicas,omitempty"`
@@ -190,6 +193,7 @@ func (r *RuntimeRouter) Decision(c *gin.Context) {
 	out.CreatedAt = &createdAt
 	out.Reason = storedDetail(rec).Replicas.Reason
 	out.Algorithm, out.Score = rec.Algorithm, rec.Score
+	out.Urgent = rec.Urgent
 	out.MinReplicas, out.MaxReplicas, out.HardMaxReplicas = m.MinReplicas, effectiveMax, hardMax
 	query.SuccessResponse(c, nil, out)
 }
@@ -305,6 +309,18 @@ func (r *RuntimeRouter) Report(c *gin.Context) {
 func (r *RuntimeRouter) ListExecutions(c *gin.Context) {
 	page, size := pageParams(c)
 	list, total, err := r.Predictions.SearchExecutions(c.Request.Context(), executionFilter(c), page, size)
+	if err != nil {
+		query.InternalError(c, err)
+		return
+	}
+	query.SuccessResponse(c, nil, gin.H{"list": list, "total": total, "page": page, "pageSize": size})
+}
+
+// ListScaleOutcomes serves GET /scale-outcomes: the scale-ups the platform decided ahead of the load, with whether each was in time.
+func (r *RuntimeRouter) ListScaleOutcomes(c *gin.Context) {
+	page, size := pageParams(c)
+	moduleID, _ := strconv.ParseUint(c.Query("module_id"), 10, 64)
+	list, total, err := r.Predictions.ListOutcomes(c.Request.Context(), uint(moduleID), c.Query("verdict"), page, size)
 	if err != nil {
 		query.InternalError(c, err)
 		return

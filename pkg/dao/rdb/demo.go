@@ -41,7 +41,7 @@ func (dao *MetricMappingDAO) ListByDatasource(ctx context.Context, datasourceID 
 func (dao *PredictionDAO) DeleteModuleData(ctx context.Context, moduleID uint) error {
 	return dao.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		for _, table := range []interface{}{&model.Prediction{}, &model.BacktestRun{}, &model.PredictionEvaluation{}, &model.AlgorithmScore{},
-			&model.Recommendation{}, &model.ScalingExecution{}, &model.AdmissionDecision{}, &model.TrainingRun{}} {
+			&model.Recommendation{}, &model.ScalingExecution{}, &model.AdmissionDecision{}, &model.TrainingRun{}, &model.ScaleOutcome{}} {
 			if err := tx.Where("module_id = ?", moduleID).Delete(table).Error; err != nil {
 				return err
 			}

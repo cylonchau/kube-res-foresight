@@ -7,6 +7,10 @@ description: 用于 kube-resource-fcst 算法注册、动态参数编辑、特�
 
 先读 [代码地图](../requirements/references/repository-map.md)、[算法目录](references/catalog.md)、[调研依据](references/research.md) 和 [融合约定](../requirements/references/integration-decisions.md)。目录是经过适用性筛选的候选能力，不要求一次实现全部。
 
+## 多算法并行（R19）
+
+决策不再只跟排名第一的算法：所有可用算法都在提前量窗口上投票，权重是可信度（评分／100 × (1−最近跟踪误差)），用加权分位数取共识（`decision.Reconcile`）。新增算法不需要为此做任何事；它的预测只要可用就会投票。排名第一的算法只用于展示、指标压力和扩容上限的评分门槛。
+
 ## 实施流程
 
 1. 区分特征、预测模型与控制策略。定义 AlgorithmDefinition 的 ID、类别、版本、输入、JSON Schema、最小样本、warm-up、训练窗口、horizon、输出单位、超时、回退和评估指标。

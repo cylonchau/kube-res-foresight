@@ -213,6 +213,7 @@ func RegisteredRouter(e *gin.Engine) {
 	v1Group.POST("/operator/reports", runtimeHandler.Report)
 	v1Group.GET("/admission/recommendations", runtimeHandler.Admission)
 	v1Group.GET("/scaling-decisions", runtimeHandler.ListExecutions)
+	v1Group.GET("/scale-outcomes", runtimeHandler.ListScaleOutcomes)
 
 	ldapHandler := &v1.LDAPRouter{Service: ldapService}
 	configHandler.LDAP = ldapHandler

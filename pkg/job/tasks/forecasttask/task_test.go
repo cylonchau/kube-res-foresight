@@ -40,7 +40,7 @@ func setup(t *testing.T) *env {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&model.Datasource{}, &model.MetricMapping{}, &model.ForecastModule{}, &model.AlgorithmConfig{},
 		&model.ModulePeriod{}, &model.MetricSeries{}, &model.MetricSample{}, &model.Prediction{}, &model.BacktestRun{}, &model.Recommendation{}, &model.PredictionEvaluation{},
-		&model.MetricSource{}, &model.AlgorithmScore{}, &model.AdmissionDecision{}, &model.TrainingRun{}, &model.ModuleRunState{}, &model.ScalingExecution{}))
+		&model.MetricSource{}, &model.AlgorithmScore{}, &model.AdmissionDecision{}, &model.TrainingRun{}, &model.ScaleOutcome{}, &model.ModuleRunState{}, &model.ScalingExecution{}, &model.ScaleOutcome{}))
 	modules := rdb.NewModuleDAO(db)
 	svc := forecastsvc.New(modules, rdb.NewMetricMappingDAO(db), rdb.NewDatasourceDAO(db), rdb.NewSampleDAO(db), rdb.NewPredictionDAO(db))
 	svc.NewQuerier = func(*model.Datasource) (collector.RangeQuerier, error) { return constQuerier{}, nil }

@@ -40,4 +40,5 @@ PredictiveScaler 只是把模块里已有的内容（工作负载、上下界、
 - 入口 `kube-resource-fcst operator`（pkg/cmd/operator，默认开启 leader election）；清单 deploy/operator。验证只用 controller-runtime fake client：未做 envtest 与真实集群，扩缩容、RBAC、CRD 安装、leader election 切换都未验证。
 
 **operator 只管副本（R10）**：operator 决策接口只回副本数与边界，不回 CPU/内存；Pod 资源由准入设置并保持不变，二者读同一个推荐快照里互不重叠的字段，不会冲突。操作记录里「执行失败」「冲突未执行」属于回退记录，「没有可用决策」属于降级记录（见规格第 16.7 节）。
+- **前瞻决策与紧急扩容（R19）**：动态副本由 `pkg/forecastsvc/ahead.go` 在 `recommend` 里把各算法的副本需求并起来：提前量（实测就绪时间 P90＋节点＋决策等待＋偏晚余量）窗口上的可信度加权分位共识决定扩容，整个预测范围的更严分位共识加当前实测负载决定缩容；实测负载需要的副本数超过预测和现有就直接要求并标 `urgent`，`OperatorDecision.urgent` → `controller.Decision.Urgent` → `MakePlan` 对 `urgent` 的扩容跳过冷却和 maxStep（缩容不受影响）。改任何一环要同步 `ahead_test.go`、`plan_test.go`。未在真实集群验证。
 - **决策先于动作（R18）**：operator 读决策时，平台先保证它不比 `forecast.decision_max_age_seconds`（默认 60 秒，0 = 关）老：过期就由平台重新采集、预测、决策再回答（`FreshRecommendation`，每个模块一次一个，失败读存着的那版，有自己运行间隔的模块不刷新）。operator 不自己判断决策新不新鲜，也不在平台之前动作。

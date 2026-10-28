@@ -173,3 +173,23 @@ func TestThePlatformsHardBoundsHoldEvenWhenTheSpecIsWider(t *testing.T) {
 	d.ValidUntil = &expired
 	assert.False(t, MakePlan(in(8, 8, d)).DecisionValid)
 }
+
+func TestAnUrgentScaleUpIgnoresTheCooldownAndTheStepLimit(t *testing.T) {
+	s := spec()
+	s.Behavior.ScaleUp = v1alpha1.ScaleRule{MaxStep: 2, Cooldown: &metav1.Duration{Duration: 5 * time.Minute}}
+	last := now.Add(-time.Minute)
+	pi := PlanInput{Now: now, Spec: s, Current: 4, Ready: 4, LastScale: &last, Decision: fresh(14)}
+	held := MakePlan(pi)
+	assert.Equal(t, ActionNone, held.Action, "a normal scale-up waits for its cooldown")
+
+	pi.Decision.Urgent = true
+	p := MakePlan(pi)
+	assert.Equal(t, ActionUp, p.Action)
+	assert.EqualValues(t, 14, p.Desired, "all the way, not by the step")
+	assert.Contains(t, p.Reason, "urgent")
+
+	// urgency never loosens a scale-down
+	pi.Current, pi.Ready, pi.Decision = 14, 14, &Decision{Replicas: 4, Urgent: true, ValidUntil: fresh(4).ValidUntil}
+	pi.Spec.Behavior.ScaleDown = v1alpha1.ScaleRule{MaxStep: 1}
+	assert.EqualValues(t, 13, MakePlan(pi).Desired)
+}

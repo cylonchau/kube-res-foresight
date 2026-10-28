@@ -17,7 +17,7 @@ func moduleTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.ForecastModule{}, &model.MetricSource{}, &model.MetricSeries{}, &model.MetricSample{}, &model.ModulePeriod{}, &model.Recommendation{}, &model.Prediction{}, &model.PredictionEvaluation{}, &model.BacktestRun{}, &model.TrainingRun{},
+	require.NoError(t, db.AutoMigrate(&model.ForecastModule{}, &model.MetricSource{}, &model.MetricSeries{}, &model.MetricSample{}, &model.ModulePeriod{}, &model.Recommendation{}, &model.Prediction{}, &model.PredictionEvaluation{}, &model.BacktestRun{}, &model.TrainingRun{}, &model.ScaleOutcome{},
 		&model.ModuleRunState{}, &model.AlgorithmScore{}, &model.AlgorithmConfig{}))
 	return db
 }
