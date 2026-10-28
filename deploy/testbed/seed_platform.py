@@ -2,8 +2,8 @@
 """Seed a kube-resource-fcst platform for the local test bed, through its API (never the database).
 
   python deploy/testbed/seed_platform.py [--platform http://127.0.0.1:20001] [--prometheus http://127.0.0.1:30090]
-         [--password 123456] [--modules web-diurnal,batch-spike,steady-api,load-web] [--mode auto|admission|recommend]
-         [--credentials-dir DIR] [--scale-up-max-step N --scale-down-max-step N --scale-up-cooldown S --scale-down-cooldown S]
+         [--password 123456] [--modules load-web,load-api,load-batch,load-cache] [--mode auto|admission|recommend]
+         [--credentials-dir DIR] [--modules-only] [--scale-up-max-step N --scale-down-max-step N --scale-up-cooldown S --scale-down-cooldown S]
 
 Creates the Prometheus data source, the metric mappings (container-label-free queries: the cAdvisor series of a Docker
 Desktop cluster have no container label), the modules for the test workloads, enables a set of algorithms (with one
@@ -19,10 +19,11 @@ ap = argparse.ArgumentParser()
 ap.add_argument('--platform', default='http://127.0.0.1:20001')
 ap.add_argument('--prometheus', default='http://127.0.0.1:30090')
 ap.add_argument('--password', default='123456')
-ap.add_argument('--modules', default='web-diurnal,batch-spike,steady-api,load-web')
+ap.add_argument('--modules', default='load-web,load-api,load-batch,load-cache')
 ap.add_argument('--mode', default='auto')
 ap.add_argument('--namespace', default='forecast-test')
 ap.add_argument('--credentials-dir', default='.')
+ap.add_argument('--modules-only', action='store_true', help='only the data source, mappings and modules: no algorithm, mode setting or credential is touched')
 ap.add_argument('--limit-cpu-ratio', type=float, default=0)
 ap.add_argument('--limit-memory-ratio', type=float, default=0)
 ap.add_argument('--scale-up-max-step', type=int, default=0, help='replicas one scale-up action may add (0 = no limit)')
@@ -70,26 +71,27 @@ for name, (metric, query) in want.items():
     ids[metric] = m['id']
 print('mappings', ids)
 
-# ---- algorithms
-for alg, body in {
-    'naive': {'enabled': True}, 'ewma': {'enabled': True, 'params': {'alpha': 0.4}},
-    'seasonal_naive': {'enabled': True, 'params': {'season_length_steps': 30}}, 'macd_trend': {'enabled': True},
-    'hist_percentile': {'enabled': True}, 'holt_winters': {'enabled': True, 'params': {'season_length_steps': 30}},
-}.items():
-    call('PUT', f'/algorithms/{alg}', body)
-if call('GET', '/algorithms/peak_margin', ok=False).get('code') != 10000:
-    call('POST', '/algorithms', {
-        'id': 'peak_margin', 'category': 'technical', 'description': 'peak of the last 30 steps times a margin (formula)',
-        'formula': 'smax(x, w) * margin', 'min_samples': 10, 'enabled': True, 'params': {'w': 30, 'margin': 1.1},
-        'param_schema': [{'name': 'w', 'type': 'int', 'default': 30, 'min': 2, 'max': 500, 'unit': 'steps', 'description': 'window of the peak'},
-                         {'name': 'margin', 'type': 'float', 'default': 1.1, 'min': 1, 'max': 3, 'description': 'headroom over the peak'}]})
+if not a.modules_only:
+    # ---- algorithms
+    for alg, body in {
+        'naive': {'enabled': True}, 'ewma': {'enabled': True, 'params': {'alpha': 0.4}},
+        'seasonal_naive': {'enabled': True, 'params': {'season_length_steps': 30}}, 'macd_trend': {'enabled': True},
+        'hist_percentile': {'enabled': True}, 'holt_winters': {'enabled': True, 'params': {'season_length_steps': 30}},
+    }.items():
+        call('PUT', f'/algorithms/{alg}', body)
+    if call('GET', '/algorithms/peak_margin', ok=False).get('code') != 10000:
+        call('POST', '/algorithms', {
+            'id': 'peak_margin', 'category': 'technical', 'description': 'peak of the last 30 steps times a margin (formula)',
+            'formula': 'smax(x, w) * margin', 'min_samples': 10, 'enabled': True, 'params': {'w': 30, 'margin': 1.1},
+            'param_schema': [{'name': 'w', 'type': 'int', 'default': 30, 'min': 2, 'max': 500, 'unit': 'steps', 'description': 'window of the peak'},
+                             {'name': 'margin', 'type': 'float', 'default': 1.1, 'min': 1, 'max': 3, 'description': 'headroom over the peak'}]})
 
-# ---- modes
-for key in ('forecast.allow_auto_mode', 'forecast.allow_admission_mode'):
-    call('PUT', f'/configs/{key}', {'config_value': 'true'})
+    # ---- modes
+    for key in ('forecast.allow_auto_mode', 'forecast.allow_admission_mode'):
+        call('PUT', f'/configs/{key}', {'config_value': 'true'})
 
 # ---- modules: replicas follow the CPU forecast (100m request x 60% target = 60m per pod)
-specs = {'web-diurnal': (2, 8), 'batch-spike': (1, 6), 'steady-api': (3, 8), 'load-web': (2, 10)}
+specs = {'load-web': (2, 10), 'load-api': (2, 10), 'load-batch': (2, 10), 'load-cache': (2, 10)}
 have = {m['name']: m for m in call('GET', '/modules?page=1&page_size=200')['data']['list']}
 for name in [n for n in a.modules.split(',') if n]:
     if name in have:
@@ -109,6 +111,9 @@ for name in [n for n in a.modules.split(',') if n]:
                     {'name': 'memory', 'kind': 'memory', 'mapping_id': ids['memory'], 'stat': 'max'},
                     {'name': 'replicas', 'kind': 'replicas', 'mapping_id': ids['replicas']}]})['data']
     print('module', name, m['id'], a.mode)
+
+if a.modules_only:
+    sys.exit(0)
 
 # ---- credentials
 perms = {}

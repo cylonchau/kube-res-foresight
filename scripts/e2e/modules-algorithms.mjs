@@ -48,6 +48,8 @@ const mapping = async (name, metric, query) => {
 };
 const cpu = await mapping('cpu-workload', 'cpu', 'sum(rate(cpu_usage{namespace="{{namespace}}",pod=~"{{workload}}-.*"}[{{range}}]))');
 const mem = await mapping('mem-workload', 'memory', 'sum(mem_working_set{namespace="{{namespace}}",pod=~"{{workload}}-.*"})');
+// a second CPU template, kept apart from the modules: the module form adds it to NGS APP below
+const cpuExtra = await mapping('cpu-extra', 'cpu', 'sum(rate(cpu_usage{namespace="{{namespace}}",pod=~"{{workload}}-.*"}[{{range}}]))');
 
 // ---- 1. algorithms: one setting per catalog algorithm, applied to every module ----------------------------------------
 const algorithms = await call('GET', '/algorithms?page=1&page_size=100', token);
@@ -55,6 +57,12 @@ ok(algorithms, 'algorithms');
 check('the catalog is listed with its settings and parameter schema', algorithms.data.total >= 14 && algorithms.data.list.every(a => 'enabled' in a && Array.isArray(a.params)));
 check('the baselines start enabled and the heavy algorithms wait', algorithms.data.list.find(a => a.id === 'naive').enabled === true && algorithms.data.list.find(a => a.id === 'lstm').enabled === false);
 check('the list is paged and searched', (await call('GET', '/algorithms?page=1&page_size=3', token)).data.list.length === 3 && (await call('GET', '/algorithms?keyword=holt', token)).data.total === 1);
+const paramNames = id => (algorithms.data.list.find(a => a.id === id)?.params || []).map(p => p.name);
+check('P7 A4: Theta is in the catalog and Holt-Winters has the multiplicative season, damping and non-negative parameters', algorithms.data.list.some(a => a.id === 'theta') && ['seasonal_mode', 'damping_phi', 'non_negative'].every(n => paramNames('holt_winters').includes(n)));
+check('P7 A3: every forecasting algorithm offers the recommendation quantile, a baseline does not', ['ewma', 'holt_winters', 'theta', 'gbdt'].every(id => paramNames(id).includes('quantile_level')) && !paramNames('naive').includes('quantile_level') && !paramNames('seasonal_naive').includes('quantile_level'));
+check('P7 A5: ridge regression and gradient boosting can forecast directly (one model per step ahead), the others cannot', ['ridge_ar', 'gbdt'].every(id => paramNames(id).includes('multi_step') && paramNames(id).includes('direct_anchors')) && !paramNames('ewma').includes('multi_step'));
+check('P7 A5: an unknown multi-step mode is refused', (await call('PUT', '/algorithms/ridge_ar', token, { enabled: false, params: { lags: 6, multi_step: 'sideways' } })).status !== 200);
+check('P7 A3: a quantile level at or below one half is refused', (await call('PUT', '/algorithms/ewma', token, { enabled: true, params: { alpha: 0.5, quantile_level: 0.3 } })).status !== 200);
 ok(await call('PUT', '/algorithms/ewma', token, { enabled: true, params: { alpha: 0.5 } }), 'enable ewma');
 
 // ---- 2. modules: a workload with its own sources and period; no algorithm instance, no binding -----------------------------
@@ -76,12 +84,38 @@ check('every enabled algorithm forecast the module, without being bound to it', 
 for (const metric of ['cpu', 'memory']) ok(await call('POST', `/modules/${moduleId}/backtest`, token, { metric, cutoffs: 3 }), `backtest ${metric}`);
 const backtests = await call('GET', `/backtests?module_id=${moduleId}&page_size=100`, token);
 check('every algorithm is backtested on every source', backtests.data.total >= 4, String(backtests.data.total));
+// P7 A1/A2: the verdict compares like with like, and an underestimate costs more than an overestimate
+const parsed = backtests.data.list.map(r => ({ id: r.algorithm_id, own: JSON.parse(r.metrics), base: JSON.parse(r.baseline_metrics) })).filter(r => !r.own.skipped);
+check('backtests: every scored result carries the underestimate-weighted error and its weight', parsed.length > 0 && parsed.every(r => r.own.under_weight === 3 && r.own.risk_wape >= r.own.wape - 1e-9), JSON.stringify(parsed.slice(0, 1)));
+check('backtests: a candidate and its baseline are scored on the same windows', parsed.filter(r => !r.base.skipped).every(r => r.own.points === r.base.points && r.own.cutoffs === r.base.cutoffs), JSON.stringify(parsed.map(r => [r.id, r.own.cutoffs, r.own.points, r.base.cutoffs, r.base.points])));
 ok(await call('POST', `/modules/${moduleId}/score`, token), 'score');
 const ranking = await call('GET', `/modules/${moduleId}/ranking`, token);
 check('the algorithms are ranked for the module', ranking.data.list.length >= 2 && ranking.data.list.every(r => r.score !== null), JSON.stringify(ranking.data.list.map(r => r.name)));
 const rec = await call('POST', `/modules/${moduleId}/recommend`, token);
 ok(rec, 'recommend');
 check('the recommendation names the algorithm chosen', rec.data.recommendation.cpu_source === 'algorithm' && ['naive', 'ewma'].includes(rec.data.recommendation.algorithm), JSON.stringify(rec.data.recommendation).slice(0, 200));
+
+// R10: the Pod resource spec is rounded to readable steps and kept while the forecast has not moved; replicas are decided apart from it
+const spec1 = rec.data.recommendation;
+check('R10: the CPU request is a whole readable step (10m below a core, 50m from one)', spec1.cpu_milli % (spec1.cpu_milli >= 1000 ? 50 : 10) === 0, String(spec1.cpu_milli));
+check('R10: the memory request is whole MiB in readable steps (10Mi below 1Gi, 64Mi from it)', !spec1.memory_set || (spec1.memory_bytes % (1024 * 1024) === 0 && (spec1.memory_bytes / 1048576) % (spec1.memory_bytes >= 1024 * 1048576 ? 64 : 10) === 0), String(spec1.memory_bytes));
+check('R10: the recommendation carries the version of the Pod spec and the explanation says how it was decided', spec1.resource_version >= 1 && JSON.parse(rec.data.recommendation.detail).resource_spec?.version === spec1.resource_version, JSON.stringify(JSON.parse(spec1.detail).resource_spec || {}).slice(0, 160));
+const rec2 = await call('POST', `/modules/${moduleId}/recommend`, token);
+ok(rec2, 'recommend again');
+check('R10: a second recommendation on the same data keeps the same spec and the same spec version', rec2.data.recommendation.cpu_milli === spec1.cpu_milli && rec2.data.recommendation.memory_bytes === spec1.memory_bytes && rec2.data.recommendation.resource_version === spec1.resource_version, JSON.stringify([spec1.resource_version, rec2.data.recommendation.resource_version]));
+const snapshots = await call('GET', `/snapshots?module_id=${moduleId}&page_size=50`, token);
+ok(snapshots, 'snapshots');
+check('R10: the snapshots are the history, not every repeat: the first one is there and the repeat of the same answer is not', snapshots.data.total >= 1 && snapshots.data.list.every(x => x.snapshot === true) && snapshots.data.list.some(x => x.version === spec1.version) && !snapshots.data.list.some(x => x.version === rec2.data.recommendation.version), JSON.stringify(snapshots.data.list.map(x => [x.version, x.state, x.snapshot_reason])));
+check('R10: every snapshot has a state of the four (plus advisory for a module that only recommends)', snapshots.data.list.every(x => ['pending', 'applied', 'failed', 'expired', 'advisory'].includes(x.state)), JSON.stringify(snapshots.data.list.map(x => x.state)));
+const snapshotDetail = await call('GET', `/snapshots/${snapshots.data.list[0].id}`, token);
+check('R10: a snapshot can be opened with its whole stored decision', snapshotDetail.status === 200 && JSON.parse(snapshotDetail.data.detail).cpu !== undefined, String(snapshotDetail.status));
+const fallbackList = await call('GET', '/fallbacks?kind=degrade&page_size=5', token);
+check('R10: the degradation and rollback records can be listed by kind', fallbackList.status === 200 && (await call('GET', '/fallbacks?kind=rollback&page_size=5', token)).status === 200 && (await call('GET', '/fallbacks?kind=other', token)).status === 400);
+const ds10 = await call('POST', '/datasources', token, { name: 'big-concurrency', base_url: 'http://127.0.0.1:19090', max_concurrency: 64 });
+check('R10: a datasource may be given more than 16 concurrent requests', ds10.status === 200 && ds10.data.max_concurrency === 64, JSON.stringify(ds10).slice(0, 160));
+if (ds10.status === 200) await call('DELETE', `/datasources/${ds10.data.id}`, token);
+const algs10 = await call('GET', '/algorithms?page=1&page_size=100', token);
+check('R10: every algorithm says how far it has got into the pipeline', algs10.data.list.every(a => ['disabled', 'invalid', 'waiting', 'running', 'skipped', 'failed'].includes(a.runtime?.state)) && algs10.data.list.find(a => a.id === 'ewma').runtime.state === 'running', JSON.stringify(algs10.data.list.slice(0, 2).map(a => [a.id, a.runtime])));
 
 // a module created later gets the same algorithms with no step of its own
 const web = await call('POST', '/modules', token, { name: 'web', namespace: 'prod', workload: 'web', mode: 'recommend', lookback_hours: 6, sources: [{ name: 'cpu', kind: 'cpu', mapping_id: cpu }] });
@@ -209,15 +243,16 @@ try {
   check('menu: authorization is a top-level menu of its own', menu.includes('授权管理') && menu.includes('系统管理'));
   check('menu: module management has the module list and no longer the metric sources', menu.includes('模块列表') && !menu.includes('指标来源'));
   check('menu: no binding, instance or catalog page', !menu.includes('绑定关系') && !menu.includes('算法实例') && !menu.includes('算法目录'));
+  check('menu: no separate ranking history page and no audit export page', !menu.includes('历史排名') && !menu.includes('审计导出'));
+  check('the audit export endpoint is gone', (await call('GET', '/audit/export?kind=executions', token)).status === 404);
   check('modules: the module is listed with its kind and status', (await bodyText()).includes('NGS APP') && (await bodyText()).includes('Deployment'));
   await operateFits('modules');
   const moduleButtons = await page.locator('.n-data-table-td--fixed-right').first().locator('button').allInnerTexts();
-  check('modules: the operate column is one row of edit, dataset, delete and more', moduleButtons.map(x => x.trim()).join() === '编辑,数据集,删除,更多', moduleButtons.join());
-  await page.getByRole('button', { name: '更多' }).first().click();
-  await page.waitForTimeout(300);
-  const moreMenu = await page.locator('.n-dropdown-menu').innerText();
-  check('modules: the rarely used actions are in the more menu', ['克隆', '固定周期', '旁路'].every(v => moreMenu.includes(v)) && !moreMenu.includes('运行'), moreMenu.replace(/\n/g, ' '));
-  await page.keyboard.press('Escape');
+  check('modules: the operate column is edit, delete, clone and bypass in one row, with no more menu', moduleButtons.map(x => x.trim()).join() === '编辑,删除,克隆,旁路', moduleButtons.join());
+  const operateBox = await page.locator('.n-data-table-th--fixed-right').first().boundingBox();
+  const buttonBoxes = await page.locator('.n-data-table-td--fixed-right').first().locator('button').evaluateAll(list => list.map(b => b.getBoundingClientRect()));
+  const buttonsSpan = buttonBoxes.length ? buttonBoxes[buttonBoxes.length - 1].right - buttonBoxes[0].left : 0;
+  check('modules: the operate column has no wide blank space around its four buttons', !!operateBox && buttonsSpan > 0 && buttonsSpan <= 220 && operateBox.width - buttonsSpan <= 100,JSON.stringify({ column: operateBox?.width, buttons: buttonsSpan }));
   check('modules: the list has check boxes and a batch menu', (await page.locator('.n-data-table-th--selection, .n-data-table-td--selection').count()) > 0 && (await bodyText()).includes('批量操作'));
   await page.getByRole('button', { name: '新增' }).first().click();
   await page.waitForTimeout(500);
@@ -227,18 +262,99 @@ try {
     form.replace(/\n/g, ' ').slice(0, 200));
   check('module form: the pace of the replica changes is configured on the module', ['副本调整节奏', '扩容单次最大步长', '缩容冷却'].every(v => form.includes(v)));
   check('module form: min, max and fallback replicas and the recovery are module settings, not part of the safety bounds', ['最小副本数', '最大副本数', '默认及故障回退副本数', '恢复启用所需周期数'].every(v => form.includes(v)) && !form.includes('副本上限') && !form.includes('副本下限'), form.replace(/\n/g, ' ').slice(0, 120));
+  check('module form: the metrics the module is calculated from and its fixed periods are sections of the form', ['参与计算的指标', '固定周期', '添加固定周期', '添加指标模板'].every(v => form.includes(v)), form.replace(/\n/g, ' ').slice(0, 120));
+  check('module form: states are an enable / disable choice, not a switch', (await page.locator('.n-modal .n-switch').count()) === 0 && form.includes('启用') && form.includes('禁用'));
   await shot('modules-form');
   await page.keyboard.press('Escape');
+  await page.waitForTimeout(300);
+
+  // ---- a fixed period made in the module form: pinned values win inside the window and the explanation says so
+  await page.locator('.n-data-table-tr', { hasText: 'NGS APP' }).first().getByRole('button', { name: '编辑' }).click();
+  await page.waitForTimeout(900);
+  // a metric template is added to the module like a period: a row with the template, its weight and its state
+  const metricsBefore = (await call('GET', `/modules/${moduleId}/sources`, token)).data.length;
+  await page.getByRole('button', { name: '添加指标模板' }).click();
+  await page.waitForTimeout(300);
+  const metricRow = page.locator('.metric-row').last();
+  await metricRow.locator('.n-select').first().click();
+  await page.keyboard.type('cpu-extra');
+  await page.waitForTimeout(300);
+  await page.locator('.n-base-select-option', { hasText: 'cpu-extra' }).first().click();
+  await metricRow.locator('.n-input-number input').first().fill('2');
+  await page.getByRole('button', { name: '添加固定周期' }).click();
+  await page.waitForTimeout(300);
+  const periodRow = page.locator('.period-row').first();
+  await periodRow.locator('.n-input:not(.n-input-number) input').first().fill('release');
+  const numbers = periodRow.locator('.n-input-number input'); // replicas, CPU cores, memory GiB, priority
+  await numbers.nth(0).fill('2');
+  await numbers.nth(1).fill('4');
+  await numbers.nth(2).fill('2');
+  await numbers.nth(3).fill('5');
+  await shot('modules-periods');
+  await page.locator('.n-modal').getByRole('button', { name: '保存' }).click();
+  await page.waitForTimeout(1500);
+  const savedPeriods = (await call('GET', `/modules/${moduleId}/overrides`, token)).data || [];
+  const sourcesAfter = (await call('GET', `/modules/${moduleId}/sources`, token)).data;
+  const extra = sourcesAfter.find(x => x.mapping_id === cpuExtra);
+  check('module form: a metric template added in the form is saved as a metric of the module, with its weight', sourcesAfter.length === metricsBefore + 1 && !!extra && extra.weight === 2 && extra.kind === 'cpu' && extra.enabled, JSON.stringify(extra));
+  if (extra) await call('DELETE', `/modules/${moduleId}/sources/${extra.id}`, token);
+  const release = savedPeriods.find(x => x.name === 'release');
+  check('fixed period: saved with the module as a window with pinned replicas, CPU and memory', !!release && release.replicas === 2 && release.cpu_milli === 4000 && release.memory_bytes === 2 * 1024 ** 3 && release.priority === 5 && release.enabled && !!release.abs_start && !!release.abs_end, JSON.stringify(release));
+  const pinned = await call('POST', `/modules/${moduleId}/recommend`, token);
+  check('fixed period: inside its window the algorithms do not change the pinned values', pinned.data.recommendation.replicas_source === 'fixed_period' && pinned.data.recommendation.replicas === 2 && pinned.data.recommendation.cpu_source === 'fixed_period' && pinned.data.recommendation.cpu_milli === 4000, JSON.stringify(pinned.data.recommendation).slice(0, 300));
+  const pinnedDetail = pinned.data.detail || {};
+  check('fixed period: the explanation lists the period, whether it applied, and the metric sources', (pinnedDetail.periods || []).some(x => x.name === 'release' && x.active) && (pinnedDetail.sources || []).length > 0, JSON.stringify(pinnedDetail.periods));
+  if (release) {
+    await call('PUT', `/modules/${moduleId}/overrides/${release.id}`, token, { ...release, enabled: false });
+    const freed = await call('POST', `/modules/${moduleId}/recommend`, token);
+    check('fixed period: a disabled period no longer applies and the algorithms decide again', freed.data.recommendation.cpu_source !== 'fixed_period', JSON.stringify(freed.data.recommendation).slice(0, 200));
+    await call('DELETE', `/modules/${moduleId}/overrides/${release.id}`, token);
+  }
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(300);
+  check('module form: the metric preview is not part of the form any more', !form.includes('指标预览'));
+  // the preview is asked for on demand: choose the module and the metric, then the query test dialog runs the PromQL
+  await page.getByRole('button', { name: '指标预览' }).first().click();
+  await page.waitForTimeout(900);
+  const pickText = await page.locator('.n-modal').last().innerText();
+  check('metric preview: a module and one of its metrics are picked first', pickText.includes('指标') && (await page.locator('.n-modal').last().getByRole('button', { name: '指标预览' }).count()) > 0, pickText.replace(/\n/g, ' ').slice(0, 160));
+  await page.locator('.n-modal').last().getByRole('button', { name: '指标预览' }).click();
+  await page.waitForTimeout(900);
+  const previewDialog = await page.locator('.n-modal').last().innerText();
+  check('metric preview: the query test dialog is filled with the metric', ['测试 PromQL 查询', '执行查询', '换算系数'].every(v => previewDialog.includes(v)), previewDialog.replace(/\n/g, ' ').slice(0, 200));
+  await page.waitForTimeout(1500); // the query runs when the dialog opens: nothing is typed again
+  const previewRun = await page.locator('.n-modal').last().innerText();
+  check('metric preview: running it shows the result of Prometheus and the curve', (previewRun.includes('采样') || previewRun.includes('样本') || previewRun.includes('数据点')) && (await page.locator('.n-modal canvas').count()) > 0, previewRun.replace(/\n/g, ' ').slice(0, 300));
+  await shot('modules-metric-preview');
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(300);
 
   await visit('forecast/algorithms');
   const algText = await bodyText();
   check('algorithms: the management page lists the algorithms with their enabled state', ['naive', 'ewma', 'lstm'].every(a => algText.includes(a)) && algText.includes('启用'));
   check('algorithms: no instance, binding or create-instance action', !algText.includes('创建实例') && !algText.includes('绑定'));
+  const algTags = await page.locator('.n-data-table-tbody .n-tag').allInnerTexts();
+  check('algorithms: the enabled state of each row is a tag (启用 / 禁用), not a select or a switch',
+    algTags.some(x => x.trim() === '启用') && algTags.some(x => x.trim() === '禁用') && (await page.locator('.n-data-table-tbody .n-radio-group, .n-data-table-tbody .n-switch').count()) === 0, algTags.join().slice(0, 100));
   check('algorithms: paged', (await page.locator('.n-pagination').count()) > 0);
   await page.getByPlaceholder('搜索算法名称或说明').fill('holt');
   await page.getByRole('button', { name: '搜索' }).last().click();
   await page.waitForTimeout(800);
   check('algorithms: the search narrows the list', (await page.locator('.n-data-table-tbody .n-data-table-tr').count()) === 1);
+  await page.getByPlaceholder('搜索算法名称或说明').fill('');
+  await page.getByRole('button', { name: '搜索' }).last().click();
+  await page.waitForTimeout(500);
+  await page.getByPlaceholder('搜索算法名称或说明').fill('theta');
+  await page.getByRole('button', { name: '搜索' }).last().click();
+  await page.waitForTimeout(800);
+  check('algorithms: Theta is in the catalog', (await page.locator('.n-data-table-tbody .n-data-table-tr').count()) === 1);
+  await page.getByRole('button', { name: '编辑' }).first().click();
+  await page.waitForTimeout(1000);
+  const thetaForm = await bodyText();
+  check('algorithms: a forecasting algorithm offers the recommendation quantile and its calibration windows', thetaForm.includes('quantile_level') && thetaForm.includes('calibration_windows'), thetaForm.replace(/\s+/g, ' ').slice(0, 200));
+  await shot('algorithm-quantile-params');
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(500);
   await page.getByPlaceholder('搜索算法名称或说明').fill('');
   await page.getByRole('button', { name: '搜索' }).last().click();
   await page.waitForTimeout(500);
@@ -324,61 +440,87 @@ try {
     check(`datasets: the dataset shows ${what}`, datasetText.includes(needle), datasetText.replace(/\s+/g, ' ').slice(-600));
   }
   await shot('datasets');
-  await page.getByRole('button', { name: '算法需求' }).click();
-  await page.waitForTimeout(1200);
-  check('datasets: the requirements dialog says what each algorithm needs at this granularity', (await page.locator('.n-modal').innerText()).includes('naive') && (await page.locator('.n-modal').innerText()).includes('足够'));
   await page.keyboard.press('Escape');
   await page.waitForTimeout(400);
-  await page.getByRole('button', { name: '数据周期' }).click();
-  await page.waitForTimeout(500);
-  const periodText = await page.locator('.n-modal').innerText();
-  check('datasets: the period dialog offers the 5m, 15m, 1h, 1d and 30d presets', ['5m', '15m', '1h', '1d', '30d'].every(v => periodText.includes(v)), periodText.replace(/\n/g, ' ').slice(0, 200));
-  await page.locator('.n-modal').getByRole('button', { name: '5m', exact: true }).first().click();
-  await page.locator('.n-modal').getByRole('button', { name: '保存' }).click();
-  await page.waitForTimeout(1200);
-  check('datasets: the period is saved and validated against the rest', (await call('GET', `/modules/${grid.data.id}`, token)).data.step_seconds === 300);
-  await page.keyboard.press('Escape');
+  check('datasets: no period, requirements or collect row any more', !['数据周期', '算法需求', '采集数据集'].some(v => datasetText.includes(v)));
+  // the period of the dataset is a setting of the module
+  await call('PUT', `/modules/${grid.data.id}`, token, { step_seconds: 300 });
+  check('datasets: the period is saved on the module', (await call('GET', `/modules/${grid.data.id}`, token)).data.step_seconds === 300);
   await page.getByRole('button', { name: '新增' }).first().click();
   await page.waitForTimeout(600);
   const addSource = await page.locator('.n-modal').innerText();
-  check('datasets: adding a metric offers categories, a custom PromQL, scale, precision, aggregation and missing-data handling',
-    ['分类', '自定义 PromQL', '换算系数', '精度', '聚合方式', '缺失处理'].every(v => addSource.includes(v)), addSource.replace(/\n/g, ' ').slice(0, 200));
-  await page.getByRole('radio', { name: '自定义 PromQL' }).click().catch(() => {});
-  await page.getByText('自定义 PromQL', { exact: true }).last().click().catch(() => {});
+  check('datasets: adding a metric is one form: category, metric template, scale, precision, aggregation and missing-data handling, no query to type',
+    ['分类', '指标模板', '换算系数', '精度', '聚合方式', '缺失处理'].every(v => addSource.includes(v)) && (await page.locator('.n-modal textarea').count()) === 0, addSource.replace(/\n/g, ' ').slice(0, 200));
+  check('datasets: no custom / mapping choice and no switch in the form', !['自定义 PromQL', '选择数据集映射'].some(v => addSource.includes(v)) && (await page.locator('.n-modal .n-switch').count()) === 0);
+  // a template is picked, and the test renders it for the module of the page and runs it, in the same form
+  await page.locator('.n-modal .template-field .n-select').first().click();
   await page.waitForTimeout(300);
-  await page.locator('.n-modal').getByRole('button', { name: '测试查询' }).first().click();
-  await page.waitForTimeout(800);
-  const testerText = await page.locator('.n-modal').last().innerText();
-  check('datasets: a PromQL is tested in a dialog with the query, the unit, the precision and the range', ['测试 PromQL 查询', '执行查询', '换算系数', '精度', '时间范围'].every(v => testerText.includes(v)), testerText.replace(/\n/g, ' ').slice(0, 160));
+  await page.locator('.n-base-select-option').first().click();
+  await page.waitForTimeout(200);
+  await page.locator('.n-modal').getByRole('button', { name: '执行查询' }).click();
+  await page.waitForTimeout(1800);
+  const inline = await page.locator('.n-modal').innerText();
+  check('datasets: the test renders the template for the module and shows the result in the form, without a second dialog', (await page.locator('.n-modal').count()) === 1 && (inline.includes('采样') || inline.includes('样本')) && (await page.locator('.n-modal canvas').count()) > 0, inline.replace(/\n/g, ' ').slice(-200));
   await shot('query-test');
   await page.keyboard.press('Escape');
-  await shot('datasets-add');
-  await page.keyboard.press('Escape');
+  await page.waitForTimeout(300);
 
-  await visit('monitoring/metrics');
-  const catalogText = await bodyText();
-  check('monitoring: the catalog lists the mappings of the modules, the built-in templates and the platform exports in one place', ['数据映射', '内置模板', 'cpu-workload'].every(v => catalogText.includes(v)) && (await page.locator('canvas').count()) === 0, catalogText.replace(/\s+/g, ' ').slice(0, 200));
-  await operateFits('catalog');
+  // ---- the metric templates: written once on their own page, tested in the same form, chosen by the modules
+  await visit('datasource/metric-mappings');
+  const templatesText = await bodyText();
+  check('metric templates: the page is named for what it holds and lists the templates with their metric, level and state', templatesText.includes('指标模板') && templatesText.includes('cpu-workload') && !templatesText.includes('指标映射'), templatesText.replace(/\s+/g, ' ').slice(0, 160));
+  const tplButtons = await page.locator('.n-data-table-td--fixed-right').first().locator('button').evaluateAll(list => list.map(b => b.getBoundingClientRect()));
+  const tplBox = await page.locator('.n-data-table-th--fixed-right').first().boundingBox();
+  const tplSpan = tplButtons.length ? tplButtons[tplButtons.length - 1].right - tplButtons[0].left : 0;
+  check('metric templates: the operate column is as wide as its two buttons need', !!tplBox && tplSpan > 0 && tplBox.width - tplSpan <= 40, JSON.stringify({ column: tplBox?.width, buttons: tplSpan }));
   await page.getByRole('button', { name: '新增' }).first().click();
   await page.waitForTimeout(800);
-  const mappingForm = await page.locator('.n-modal').innerText();
-  check('catalog: a Prometheus metric can be added with a generated or hand-written PromQL', ['数据源', 'PromQL 模板（自动生成）', 'PromQL 模板', '采样步长'].every(v => mappingForm.includes(v)), mappingForm.replace(/\n/g, ' ').slice(0, 200));
-  await page.locator('.n-modal textarea').first().fill('sum(up)');
-  check('catalog: the PromQL can be typed by hand', (await page.locator('.n-modal textarea').first().inputValue()) === 'sum(up)');
-  await page.keyboard.press('Escape');
+  const tplForm = await page.locator('.n-modal').innerText();
+  check('metric templates: the form has the datasource, metric, level, step, PromQL, a test and a module to preview with', ['模板名称', '数据源', 'PromQL', '执行查询', '用哪个模块预览'].every(v => tplForm.includes(v)), tplForm.replace(/\n/g, ' ').slice(0, 160));
+  await page.locator('.n-modal .n-form-item', { hasText: '模板名称' }).first().locator('input').fill('cpu-ui');
+  // the only datasource is chosen by the form itself
+  await page.locator('.n-modal textarea').first().fill('sum(rate(cpu_usage{namespace="{{namespace}}",pod=~"{{workload}}-.*"}[{{range}}]))');
+  await page.locator('.n-modal .n-form-item', { hasText: '用哪个模块预览' }).first().locator('.n-select').first().click();
+  await page.waitForTimeout(400);
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
   await page.waitForTimeout(300);
-  check('catalog: the rows can be checked for a batch and a mapping can be tested', (await page.locator('.n-data-table-th--selection').count()) > 0 && (await bodyText()).includes('测试查询'));
-  await shot('catalog');
+  await page.locator('.n-modal').getByRole('button', { name: '执行查询' }).click();
+  await page.waitForTimeout(1800);
+  const tplRun = await page.locator('.n-modal').innerText();
+  check('metric templates: the test renders the template for the module and shows its result in the form', (tplRun.includes('采样') || tplRun.includes('样本')) && (await page.locator('.n-modal canvas').count()) > 0, tplRun.replace(/\n/g, ' ').slice(-160));
+  await page.locator('.n-modal').getByRole('button', { name: '保存' }).click();
+  await page.waitForTimeout(1200);
+  const tplList = (await call('GET', '/metric-mappings?page=1&page_size=100', token)).data.list;
+  check('metric templates: the template is saved', tplList.some(x => x.name === 'cpu-ui' && x.metric === 'cpu'), tplList.map(x => x.name).join());
+  await visit('monitoring/datasets');
+  await shot('datasets-add');
+
+  await page.goto(`${base}/monitoring/metrics`);
+  await page.waitForTimeout(2000);
+  check('the metric catalog page is gone (its work is in the Metrics dataset page)', !(await bodyText()).includes('内置模板'));
 
   await visit(`forecast/ranking?module_id=${moduleId}`);
   const rankingText = await bodyText();
-  check('menu: the scores are split into the records, the current ranking and the ranking history', ['算法评分', '当前排名', '历史排名'].every(v => rankingText.includes(v)));
-  check('ranking: the current ranking shows each algorithm with its score and the best one', rankingText.includes('naive') && rankingText.includes('最优') && rankingText.includes('立即评分'));
-  check('ranking: the algorithms are lanes with score bars, not a table', (await page.locator('.rank-lane').count()) >= 2 && (await page.locator('.n-data-table').count()) === 0 && (await page.locator('.rank-list').count()) === 1 && (await page.locator('.rank-list .n-checkbox').count()) >= 2);
+  check('menu: the scores are the records and one ranking page', ['算法评分', '当前排名'].every(v => rankingText.includes(v)));
+  check('ranking: the page shows each algorithm with its score and the best one', rankingText.includes('naive') && rankingText.includes('最优') && rankingText.includes('立即评分'));
+  check('ranking: the algorithms are lanes with score bars and check boxes in one list, nothing stacked below it',
+    (await page.locator('.rank-list').count()) === 1 && (await page.locator('.rank-list .rank-lane').count()) >= 2 && (await page.locator('.rank-list .n-checkbox').count()) >= 2 &&
+    !['按指标排名', '历史变化'].some(v => rankingText.includes(v)));
+  check('ranking: no tabs on the page', (await page.locator('.n-tabs').count()) === 0);
+  check('ranking: one ranking only, no evaluation picker; "in use" is on one algorithm', (await page.getByText('评估时间', { exact: true }).count()) === 0 && (await page.locator('.rank-list .n-tag', { hasText: '使用中' }).count()) <= 1);
+  await page.locator('.rank-list').getByRole('button', { name: '详情' }).first().click();
+  await page.waitForTimeout(500);
+  check('ranking: the detail compares the rank of the algorithm over the evaluations', (await page.locator('.n-modal').innerText()).includes('历史排名对比'));
+  await page.keyboard.press('Escape');
+  const pagerInView = async label => {
+    const box = await page.locator('.n-pagination').first().boundingBox();
+    return !!box && box.y + box.height <= (await page.viewportSize()).height;
+  };
+  check('ranking: the pager of the list is inside the card and the screen (it was clipped away before)', await pagerInView());
+  check('ranking: the list scrolls inside its card, the page does not grow', await page.evaluate(() => document.scrollingElement.scrollHeight <= window.innerHeight + 4));
+  await page.locator('.rank-list').getByRole('checkbox').first().check().catch(() => {});
   await shot('ranking');
-  await page.getByText('指标评分（对比 Prometheus 实际值）').click();
-  await page.waitForTimeout(1200);
-  check('ranking: without measured values the metric scores say so, without a table', (await bodyText()).includes('还没有实测评估') && (await page.locator('.n-data-table').count()) === 0);
   // the forecasts of this scratch run have no measured values yet: the lanes are drawn from an answer of the shape the API gives
   const metricScoreRow = (algorithm, accuracy) => ({ algorithm_id: algorithm, metric: 'cpu', source_name: 'cpu', kind: 'cpu', category: 'cpu', unit: 'cores', source_weight: 1, weight: 1, runs: 6, points: 60,
     mae: 0.05, rmse: 0.07, error: 1 - accuracy, accuracy, bias: 0.01, peak_under: 0.1, coverage: 1, in_composite: true });
@@ -386,86 +528,249 @@ try {
     module_id: moduleId, best: 'ewma', comparable: true, sources: ['cpu'],
     algorithms: [{ algorithm_id: 'ewma', baseline: false, custom: false, accuracy: 0.92, error: 0.08, score: 92, rank: 1, sources: 1, runs: 6, points: 60, best: true, beats_baseline: true },
       { algorithm_id: 'naive', baseline: true, custom: false, accuracy: 0.8, error: 0.2, score: 80, rank: 2, sources: 1, runs: 6, points: 60, best: false }],
-    metrics: [metricScoreRow('naive', 0.8), metricScoreRow('ewma', 0.92)] } }) }));
+    metrics: [metricScoreRow('naive', 0.8), metricScoreRow('ewma', 0.92)],
+    unranked: [{ algorithm_id: 'holt_winters', status: 'skipped', reason: 'insufficient history for the e2e', last_run_at: new Date().toISOString() }] } }) }));
   await page.getByRole('button', { name: '刷新' }).first().click();
   await page.waitForTimeout(1000);
-  check('ranking: the composite result and the standard metric ranking are two separate lists with check boxes, without a table',
-    (await page.locator('.rank-list').count()) === 2 && (await page.locator('.rank-list .rank-lane').count()) === 4 && (await page.locator('.rank-list .n-checkbox').count()) >= 4 && (await page.locator('.n-data-table').count()) === 0 &&
-    (await page.locator('.rank-list').first().locator('.rank-lane__name').first().innerText()) === 'ewma');
+  const mergedText = await bodyText();
+  check('ranking: the measured accuracy is part of the ranking of each algorithm', mergedText.includes('实测准确度'));
   await page.unroute('**/metric-scores*');
   await shot('ranking-metrics');
-  await visit('forecast/ranking-history');
-  check('ranking history: the evaluations are listed with the order of the algorithms', (await bodyText()).includes('#1'));
-  await page.getByRole('button', { name: '详情' }).first().click();
-  await page.waitForTimeout(600);
-  await page.locator('.n-modal').getByRole('button', { name: '评分构成' }).first().click();
-  await page.waitForTimeout(400);
-  check('ranking history: the detail lists the algorithms as lanes and shows the parts of a score', (await page.locator('.n-modal .rank-lane').count()) >= 2 && (await page.locator('.n-modal').innerText()).includes('贡献分'));
+  // the ranking per metric of an algorithm is in its detail
+  await page.locator('.rank-list').getByRole('button', { name: '详情' }).first().click();
+  await page.waitForTimeout(800);
+  check('ranking: the detail of an algorithm has the score parts', (await page.locator('.n-modal').innerText()).includes('综合分'));
   await page.keyboard.press('Escape');
+  await page.waitForTimeout(300);
+  await page.goto(`${base}/forecast/ranking-history`);
+  await page.waitForTimeout(2000);
+  check('ranking history: the old address is not a page any more', !(await bodyText()).includes('各算法评分随时间的变化'));
   await visit('forecast/score-records');
   await page.getByRole('button', { name: '详情' }).first().click();
   await page.waitForTimeout(600);
   const scoreDetail = await page.locator('.n-modal').innerText();
   check('score records: the detail has the error, accuracy, weight and contribution of each part', ['误差', '准确度', '权重', '贡献分', '综合分'].every(v => scoreDetail.includes(v)));
   await page.keyboard.press('Escape');
-  await visit(`forecast-results/runs`);
-  check('runs: the training records are listed with the status', (await bodyText()).includes('成功'));
-  const runsText = await bodyText();
-  check('runs: the overview says how many runs there were, how each algorithm fared and why runs did not forecast', ['运行概览', '命中率', '各算法运行情况', '未产出预测的常见原因'].every(v => runsText.includes(v)), runsText.replace(/\s+/g, ' ').slice(0, 200));
-  await operateFits('runs');
-  await page.getByRole('button', { name: '详情' }).first().click();
-  await page.waitForTimeout(600);
+  await visit('forecast-results/algorithm-runs');
+  await page.waitForTimeout(1200);
+  check('runs: there is no page of training records of its own, the menu has none', !(await page.locator('.n-menu').first().innerText()).includes('训练记录'));
+  await page.getByRole('button', { name: '训练记录' }).first().click();
+  await page.waitForTimeout(1000);
+  const recordsModal = await page.locator('.n-modal').innerText();
+  check('runs: the training records of an algorithm open in a modal over the page, listed with the status', recordsModal.includes('成功') || recordsModal.includes('跳过') || recordsModal.includes('失败'), recordsModal.replace(/\s+/g, ' ').slice(0, 200));
+  check('runs: the URL stays on the algorithm run status', page.url().includes('algorithm-runs'));
+  await page.locator('.n-modal').getByRole('button', { name: '详情' }).first().click();
+  await page.waitForTimeout(800);
   const runDetail = await page.locator('.n-modal').innerText();
-  check('runs: the detail has the window, the parameters and the reproduction hint', runDetail.includes('历史窗口') && runDetail.includes('参数') && runDetail.includes('模型版本'));
+  check('runs: the detail has the status with its meaning, the window, the parameters and the reproduction hint', runDetail.includes('状态说明') && runDetail.includes('历史窗口') && runDetail.includes('参数') && runDetail.includes('模型版本'));
   await shot('runs-detail');
+  check('runs: the detail has no tabs', (await page.locator('.n-modal .n-tabs').count()) === 0);
+  await page.waitForTimeout(1500);
+  check('runs: the training data under the run information draws the samples the run read and the forecast it wrote', (await page.locator('.n-modal canvas').count()) > 0 || (await page.locator('.n-modal').innerText()).includes('没有可显示的数据'));
+  await shot('runs-data');
   await page.keyboard.press('Escape');
 
-  const TIME_FILTERED = ['forecast/score-records', 'forecast/ranking', 'forecast/ranking-history', 'forecast-results/runs', 'forecast-results/history', 'forecast-results/backtests', 'forecast-results/evaluations', 'forecast-results/leaderboard', 'forecast-results/trends', 'forecast-actions/executions', 'forecast-actions/admissions'];
-  const CHECKABLE = ['forecast/score-records', 'forecast/ranking-history', 'forecast-results/runs', 'forecast-results/backtests', 'forecast-results/evaluations', 'forecast-results/leaderboard', 'forecast-actions/executions', 'forecast-actions/admissions'];
-  for (const route of ['forecast/score-records', 'forecast/ranking', 'forecast/ranking-history', 'forecast-results/runs', 'monitoring/datasets', 'forecast-results/history', 'forecast-results/backtests', 'forecast-results/evaluations', 'forecast-results/leaderboard',
-    'forecast-results/trends', 'forecast-actions/recommendations', 'forecast-actions/executions', 'forecast-actions/fallbacks', 'forecast-actions/admissions', 'forecast-actions/audit-exports']) {
+  const TIME_FILTERED = ['forecast/score-records', 'forecast/ranking', 'forecast-results/algorithm-runs', 'forecast-results/history', 'forecast-results/evaluations', 'forecast-results/leaderboard', 'forecast-actions/executions', 'forecast-actions/admissions'];
+  const CHECKABLE = ['forecast/score-records', 'forecast/ranking', 'forecast-results/evaluations', 'forecast-results/leaderboard', 'forecast-actions/executions', 'forecast-actions/admissions'];
+  for (const route of ['forecast/score-records', 'forecast/ranking', 'forecast-results/algorithm-runs', 'monitoring/datasets', 'forecast-results/history', 'forecast-results/evaluations', 'forecast-results/leaderboard',
+    'forecast-actions/recommendations', 'forecast-actions/executions', 'forecast-actions/fallbacks', 'forecast-actions/admissions']) {
     await visit(route);
     const text = await bodyText();
     check(`${route} renders without unresolved text`, !/page\.(forecast|datasource)\./.test(text) && !page.url().includes('/login'));
     await operateFits(route);
     await noSideScroll(route);
-    if (TIME_FILTERED.includes(route)) check(`${route}: filtered by a start and an end time`, (await page.locator('.n-date-picker').count()) > 0 && !(await bodyText()).includes('最近 168 小时'));
+    if (TIME_FILTERED.includes(route)) check(`${route}: filtered by a start and an end time`, (await page.locator('.time-range-field').count()) === 1 && !(await bodyText()).includes('最近 168 小时'));
     if (CHECKABLE.includes(route)) check(`${route}: rows have check boxes`, (await page.locator('.n-data-table-th--selection, .rank-lane .n-checkbox').count()) > 0);
-    if (['forecast-results/backtests', 'forecast-results/trends', 'forecast-actions/recommendations'].includes(route)) await shot(route.replace('/', '-'));
+    if (['forecast-actions/recommendations'].includes(route)) await shot(route.replace('/', '-'));
   }
-  await visit('forecast-results/trends');
-  const trendsText = await bodyText();
-  check('trends: the chart and the point by point list, no forecast summary', ['预测与实测曲线', '逐时间点'].every(v => trendsText.includes(v)) && !trendsText.includes('预测摘要') && (await page.locator('canvas').count()) > 0, trendsText.replace(/\s+/g, ' ').slice(0, 160));
-  check('trends: the filters are module, metric, algorithms and a start and end time', (await page.locator('.n-date-picker').count()) > 0 && (await page.getByText('全部有预测的算法').count()) > 0);
-  await shot('trends');
+  await page.goto(`${base}/forecast-results/trends`);
+  await page.waitForTimeout(2000);
+  check('trends: the separate trend page is gone (its view is the history page)', !(await bodyText()).includes('预测与实测曲线'));
+  check('the menu has no trend comparison entry', !(await page.locator('.n-menu').first().innerText().catch(() => '')).includes('预测趋势对比'));
+  await visit('forecast-results/history');
+  const historyText = await bodyText();
+  check('history: one chart and one list with the state of every enabled algorithm above the chart, no tabs and no overview',
+    historyText.includes('历史数据') && !historyText.includes('已启用算法') && (await page.locator('.n-tabs').count()) === 0 && (await page.locator('canvas').count()) === 1, historyText.replace(/\s+/g, ' ').slice(0, 240));
+  const chartBox = await page.locator('canvas').first().boundingBox();
+  check('history: the chart has room for the legend, the toolbox and a range slider', !!chartBox && chartBox.height >= 400, JSON.stringify(chartBox));
+  await shot('history');
+  // the algorithms are chosen in the legend of the chart (name, latest value and error; a click shows or hides one): there is no
+  // second list or selector above the chart
+  const stateTags = await page.locator('.n-tag').allInnerTexts();
+  check('history: no strip of algorithm tags and no algorithm selector above the chart', !stateTags.some(x => /·\s*WAPE/.test(x)) && (await page.getByText('全部有预测的算法').count()) === 0);
+  const legendBox = await page.locator('canvas').first().boundingBox();
+  check('history: the legend lives inside the chart', !!legendBox && legendBox.height >= 400);
+  const recordRows = await page.locator('.n-data-table-tbody .n-data-table-tr').count();
+  const pager = await page.locator('.n-pagination').count();
+  check('history: the records list has rows and a pager only with rows', recordRows > 0 ? pager > 0 : pager === 0, `${recordRows} rows, ${pager} pagers`);
+  check('history: the filters are module, metric, one time control and the line type', (await page.locator('.time-range-field').count()) === 1);
+  for (const route of ['forecast/algorithms', 'forecast/score-records', 'forecast/ranking', 'forecast-results/history', 'forecast-results/evaluations', 'forecast-results/leaderboard',
+    'forecast-results/algorithm-runs', 'forecast-actions/recommendations', 'forecast-actions/executions', 'forecast-actions/fallbacks', 'forecast-actions/admissions', 'monitoring/datasets', 'monitoring/curves', 'forecast-modules/modules']) {
+    await visit(route);
+    check(`${route}: no tabs`, (await page.locator('.n-tabs').count()) === 0);
+  }
+  // ---- the time filter is the last field of every search row and follows the theme like the fields beside it
+  for (const route of ['forecast/score-records', 'forecast/ranking', 'forecast-results/history', 'forecast-results/evaluations', 'forecast-results/leaderboard',
+    'forecast-results/algorithm-runs', 'forecast-actions/executions', 'forecast-actions/fallbacks', 'forecast-actions/admissions', 'monitoring/curves', 'system/login-log', 'system/operation-log']) {
+    await visit(route);
+    const last = await page.evaluate(() => {
+      const items = [...document.querySelectorAll('.list-search-form .n-form-item')].filter(el => !el.closest('.list-search-actions'));
+      const lastField = items.pop();
+      return { timeIsLast: !!lastField?.querySelector('.time-range-field'), count: document.querySelectorAll('.time-range-field').length };
+    });
+    check(`${route}: the time filter is the last field of the search row`, last.timeIsLast && last.count === 1, JSON.stringify(last));
+  }
+  await visit('forecast-results/algorithm-runs');
+  const timeColors = await page.evaluate(() => {
+    // a transparent background shows the (white) page behind it; anything else has to be light
+    const bg = el => {
+      const [r, g, b, a = 1] = getComputedStyle(el).backgroundColor.match(/[\d.]+/g).map(Number);
+      return { r, g, b, a };
+    };
+    return { button: bg(document.querySelector('.time-range-field')), select: bg(document.querySelector('.list-search-row .n-base-selection')) };
+  });
+  check('the time filter is light in the light theme, like the fields beside it (not black or dark)', timeColors.button.a < 0.2 || (timeColors.button.r > 200 && timeColors.button.g > 200 && timeColors.button.b > 200), JSON.stringify(timeColors));
+  const timeHeight = await page.evaluate(() => ({ button: document.querySelector('.time-range-field').getBoundingClientRect().height, select: document.querySelector('.list-search-row .n-base-selection').getBoundingClientRect().height }));
+  check('the time filter is as tall as the fields beside it', Math.abs(timeHeight.button - timeHeight.select) <= 2, JSON.stringify(timeHeight));
+  const permissionOptions = (await call('GET', '/secret-keys/permission-options', token)).data || [];
+  await call('POST', '/secret-keys', token, { name: 'e2e-operator', server_enabled: true, permission_ids: permissionOptions.filter(x => x.code === 'forecast:operator:use').map(x => x.id), status: true });
+  for (const route of ['datasource/connections', 'system/secret-keys', 'forecast-modules/modules']) {
+    await visit(route);
+    const fit = await page.evaluate(() => {
+      const th = document.querySelector('.n-data-table-th--fixed-right')?.getBoundingClientRect();
+      const buttons = [...(document.querySelector('.n-data-table-td--fixed-right')?.querySelectorAll('button') || [])].map(b => b.getBoundingClientRect());
+      const span = buttons.length ? buttons[buttons.length - 1].right - buttons[0].left : 0;
+      return { column: Math.round(th?.width || 0), buttons: Math.round(span) };
+    });
+    check(`${route}: the operate column is as wide as its buttons need`, fit.buttons > 0 && fit.column - fit.buttons <= 60, JSON.stringify(fit));
+  }
+  await visit('forecast-results/algorithm-runs');
+  const algorithmRunsText = await bodyText();
+  check('algorithm runs: every enabled algorithm with its runs, hit rate and common reasons', ['算法运行情况', '运行次数', 'naive', 'ewma'].every(v => algorithmRunsText.includes(v)), algorithmRunsText.replace(/\s+/g, ' ').slice(0, 200));
   await visit('monitoring/curves');
   const curvesText = await bodyText();
   check('curves: the filters, the chart and the paged values, no series summary', ['曲线', '数据点', '来自 Prometheus'].every(v => curvesText.includes(v)) && !curvesText.includes('序列摘要') && (await page.locator('canvas').count()) > 0);
   const actualCandles = await call('GET', `/modules/${moduleId}/compare?metric=cpu&predictions=false`, token);
   check('curves: the values are read from Prometheus when the page opens, not from what was collected', actualCandles.data.actual.candles.length > 0 && actualCandles.data.actual.query.includes('cpu_usage'));
   await shot('curves-page');
-  await visit('forecast-actions/audit-exports');
-  const exportsText = await bodyText();
-  check('audit exports: the page keeps the export history and the types are chosen in a dialog', exportsText.includes('导出历史') && !exportsText.includes('全部模块') && (await page.locator('.n-modal').count()) === 0);
-  await page.getByRole('button', { name: '导出 CSV' }).first().click();
+  await page.goto(`${base}/forecast-actions/audit-exports`);
+  await page.waitForTimeout(2000);
+  check('audit exports: the page is removed', !(await bodyText()).includes('导出历史'));
+  // ---- R10: history chart (refresh, legend, order, gaps), time quick choices, resource and snapshot pages, degradation and rollback
+  await visit('forecast-results/history');
+  await page.waitForTimeout(2500);
+  check('R10 history: the chart has its own refresh button', (await page.locator('[data-chart-refresh]').count()) === 1);
+  const compareCalls = [];
+  page.on('request', req => { if (req.url().includes('/compare')) compareCalls.push(req.url()); });
+  await page.locator('[data-chart-refresh]').click();
+  await page.waitForTimeout(2500);
+  check('R10 history: the refresh reads the chart again without pressing search', compareCalls.length >= 1, String(compareCalls.length));
+  const order = (await page.locator('[data-series]').first().getAttribute('data-series')) || '';
+  const seriesNames = order.split('|').filter(Boolean);
+  const actualAt = seriesNames.findIndex(n => n === '实际值');
+  const forecastNames = seriesNames.filter(n => n !== '实际值' && n !== '实际副本数');
+  check('R10 history: the forecasts come before the actual values in the legend and the drawing order', forecastNames.length >= 1 && actualAt > 0 && forecastNames.every(n => seriesNames.indexOf(n) < actualAt), order);
+  const chartPlotBox = await page.locator('[data-series]').first().boundingBox();
+  check('R10 history: the chart does not push the page sideways', !!chartPlotBox && chartPlotBox.width <= 1440 && (await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)), JSON.stringify(chartPlotBox));
+  await page.locator('.time-range-field').first().click();
   await page.waitForTimeout(500);
-  const exportModal = await page.locator('.n-modal').innerText();
-  check('audit exports: the dialog offers the five types, the module and the range', ['资源推荐快照', '降级与回退记录', '扩缩容执行记录', '实测评估记录', '预测值', '全部模块'].every(v => exportModal.includes(v)), exportModal.replace(/\n/g, ' ').slice(0, 200));
-  await shot('audit-export-dialog');
+  const quick = await page.locator('.time-range-panel').innerText();
+  check('R10 time: every time filter offers the last 3 hours and the last 12 hours', quick.includes('最近 3 小时') && quick.includes('最近 12 小时'), quick.replace(/s+/g, ' ').slice(0, 160));
   await page.keyboard.press('Escape');
-  await visit('forecast-results/backtests');
-  check('results: the backtests of the algorithms are listed for the module', (await bodyText()).includes('naive') && (await bodyText()).includes('ewma'));
-  await page.getByRole('button', { name: '详情' }).first().click();
-  await page.waitForTimeout(600);
-  const modalText = await page.locator('.n-modal').innerText();
-  check('backtests: a row opens its detail with the metrics', ['选择要查看的指标', '精度', '覆盖率'].every(v => modalText.includes(v)));
+  await visit('forecast/algorithms');
+  check('R10 algorithms: the list says how far each algorithm has got (run state column)', (await bodyText()).includes('运行状态') && (await bodyText()).includes('运行中'));
+  await visit('forecast-actions/recommendations');
+  await page.waitForTimeout(1500);
+  const recText = await bodyText();
+  check('R10 recommendations: the page is the current resource recommendation, in units a person reads', recText.includes('资源推荐') && /d+m|d+(.d+)? 核/.test(recText) && !/d+ MiB/.test(recText) && !/d+ m/.test(recText), recText.replace(/s+/g, ' ').slice(0, 220));
+  check('snapshots: there is no page of snapshots of its own, the menu has none', !(await page.locator('.n-menu').first().innerText()).includes('推荐快照'));
+  await page.getByRole('button', { name: '快照历史' }).first().click();
+  await page.waitForTimeout(1200);
+  const snapText = await page.locator('.n-modal').innerText();
+  check('snapshots: the history opens over the resource recommendation, each version named with its module', /\S+ 快照 V\d+/.test(snapText) && ['待执行', '已执行', '执行失败', '已过期', '仅建议'].some(v => snapText.includes(v)), snapText.replace(/\s+/g, ' ').slice(0, 200));
+  await shot('snapshots');
+  await page.locator('.n-modal').getByRole('button', { name: '决策说明' }).first().click();
+  await page.waitForTimeout(1200);
+  const snapDetail = await page.locator('.n-modal').innerText();
+  check('snapshots: a version shows its module and version, the recommendation, why it exists, and the configuration, apart', ['模块与版本', '推荐结果', '产生原因', '配置内容与计算依据', 'Pod 资源规格'].every(v => snapDetail.includes(v)), snapDetail.replace(/\s+/g, ' ').slice(0, 240));
   await page.keyboard.press('Escape');
+  await visit('forecast-actions/fallbacks');
+  await page.waitForTimeout(1500);
+  const fbText = await bodyText();
+  check('R10 fallbacks: degradation and rollback are two kinds, each with trigger, original, target, result and time', ['触发原因', '原配置', '目标配置', '实际执行结果', '创建时间'].every(v => fbText.includes(v)), fbText.replace(/s+/g, ' ').slice(0, 220));
+  await visit('forecast-results/leaderboard');
+  const boardText = await bodyText();
+  check('leaderboard: ranked by the underestimate-weighted error, shown beside WAPE with its explanation', boardText.includes('低估加权误差'), boardText.replace(/s+/g, ' ').slice(0, 200));
+  await shot('leaderboard-risk');
+  await page.goto(`${base}/forecast-results/backtests`);
+  await page.waitForTimeout(2000);
+  check('the rolling backtest page is gone', !(await bodyText()).includes('滚动回测记录'));
   await visit('forecast-results/evaluations');
   if ((await page.getByRole('button', { name: '详情' }).count()) > 0) {
     await page.getByRole('button', { name: '详情' }).first().click();
     await page.waitForTimeout(500);
     check('evaluations: a row opens its detail', (await page.locator('.n-modal').innerText()).includes('覆盖率'));
     await page.keyboard.press('Escape');
+  }
+  // ---- the users: the account type, the contacts as rows of any type, the roles with the same batch menu
+  const created = await call('POST', '/users', token, { username: 'contact-user', password: 'Passw0rd!x', nick_name: 'contact', status: true, role_ids: [], contacts: [{ type: 'WhatsApp', value: '+8613800000000' }, { type: 'telegram', value: '@contact' }, { type: 'email', value: 'c@example.com' }] });
+  check('a user is created with contacts of any type', created.status === 200, JSON.stringify(created));
+  const listed = (await call('GET', '/users?username=contact-user', token)).data.list[0];
+  check('the contacts come back as rows with lower case types, and the account is local', listed.contacts.length === 3 && listed.contacts.some(c => c.type === 'whatsapp') && listed.source === 'local', JSON.stringify(listed.contacts));
+  await call('PUT', `/users/${listed.id}`, token, { contacts: [{ type: 'slack', value: 'u1' }] });
+  const edited = (await call('GET', '/users?username=contact-user', token)).data.list[0];
+  check('the contacts are replaced as a set', edited.contacts.length === 1 && edited.contacts[0].type === 'slack');
+  check('the account types filter the list', (await call('GET', '/users?source=ldap', token)).data.list.every(u => u.source === 'ldap'));
+  await visit('authorization/user');
+  const userText = await bodyText();
+  check('users: the account type and the contacts are columns, the old phone / email / id / avatar columns are gone', ['用户类型', '联系方式'].every(v => userText.includes(v)) && !userText.includes('头像') && (await page.getByText('批量操作').count()) > 0, userText.replace(/\s+/g, ' ').slice(0, 200));
+  await call('DELETE', `/users/${listed.id}`, token);
+  await visit('authorization/role');
+  check('roles: the same batch menu as every list', (await page.getByText('批量操作').count()) > 0);
+  await page.getByRole('button', { name: '新增' }).first().click();
+  await page.waitForTimeout(700);
+  check('roles: every field of the form has a question mark that explains it', (await page.locator('.n-drawer .n-form-item-label .n-icon, .n-drawer .n-form-item-label svg, .n-drawer .n-form-item-label [class*="help"]').count()) >= 4);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(300);
+  await visit('user-center');
+  const centerText = await bodyText();
+  check('user center: three sections on one page, no tabs, contacts of any type', (await page.locator('.n-tabs').count()) === 0 && ['修改密码', '联系方式'].every(v => centerText.includes(v)), centerText.replace(/\s+/g, ' ').slice(0, 160));
+  const profile = await call('PUT', '/auth/profile', token, { contacts: [{ type: 'Telegram', value: '@admin' }] });
+  const info = await call('GET', '/auth/info', token);
+  check('user center: the profile keeps contacts as rows and mirrors the email', profile.status === 200 && info.data.contacts.some(c => c.type === 'telegram') && info.data.email === '', JSON.stringify(info.data.contacts));
+  check('no stock "请输入" / "请选择" hint is left on the lists', !(await (async () => { await visit('forecast-results/algorithm-runs'); return (await page.locator('input[placeholder="请输入"], .n-base-selection-placeholder:text-is("请选择")').count()) > 0; })()));
+  await visit('system/secret-keys');
+  const keysText = await bodyText();
+  check('cluster credentials: the page is named for what it is for and each credential has a purpose', keysText.includes('用途'));
+  check('cluster credentials: Access Key and Secret Key are named as such, not as a mask or a salt', keysText.includes('Access Key（AK）') && keysText.includes('Secret Key（SK') && !keysText.includes('掩码') && !keysText.includes('盐'), keysText.replace(/\s+/g, ' ').slice(0, 200));
+  const keyOperate = await page.locator('.n-data-table-th--fixed-right').first().boundingBox();
+  check('cluster credentials: the operate column is as wide as its buttons need', !!keyOperate && keyOperate.width <= 190, JSON.stringify(keyOperate));
+  // ---- the directory login is part of the system parameters, with its state, reachable from the page
+  await visit('system/config');
+  // the list is paged and has more parameters than a page: the LDAP ones are found by their key, like any other
+  await page.getByPlaceholder('搜索参数名称、键名、参数值或备注...').fill('ldap.');
+  await page.waitForTimeout(800);
+  const cfgText = await page.locator('.n-data-table').first().innerText();
+  check('system parameters: the LDAP settings are ordinary parameters in the list, with no separate entry or drawer', cfgText.includes('ldap.url') && cfgText.includes('ldap.enabled') && (await page.getByRole('button', { name: 'LDAP 认证配置' }).count()) === 0, cfgText.replace(/s+/g, ' ').slice(0, 160));
+  check('system parameters: the LDAP bind password is shown masked', !cfgText.includes('svc-secret'));
+  const operateButtons = await page.locator('.n-data-table-td--fixed-right .n-button').first().boundingBox();
+  check('lists: the row buttons are tiny, like the task list', !!operateButtons && operateButtons.height <= 24, JSON.stringify(operateButtons));
+  await shot('system-config');
+  for (const route of ['system/login-log', 'system/operation-log']) {
+    await visit(route);
+    check(`${route}: one time control, the same as every list`, (await page.locator('.time-range-field').count()) === 1 && (await page.locator('.n-date-picker').count()) === 0);
+  }
+  await visit('forecast-results/history');
+  await page.locator('.time-range-field').first().click();
+  await page.waitForTimeout(500);
+  const timePanel = await page.locator('.n-popover').last().innerText();
+  check('the time control offers quick windows, a relative window and a fixed range in one panel', ['快捷选择', '相对时间', '固定范围'].every(v => timePanel.includes(v)), timePanel.replace(/\n/g, ' ').slice(0, 120));
+  await page.keyboard.press('Escape');
+  // ---- the pages speak Chinese: no English mode or state words in what the pages show
+  for (const route of ['forecast-modules/modules', 'forecast-actions/admissions', 'forecast-actions/executions', 'forecast-actions/recommendations', 'forecast-results/leaderboard']) {
+    await visit(route);
+    const text = await bodyText();
+    check(`${route}: no English mode or state words`, !/(Observe|Recommend|Admission|Auto|Fallback|Bypass)/.test(text), (text.match(/(Observe|Recommend|Admission|Auto|Fallback|Bypass)/) || [''])[0]);
   }
   check('no page error', errors.length === 0, errors.join(' | '));
 } finally {

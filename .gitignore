@@ -11,12 +11,13 @@
 docs/*
 !docs/platform-progress.md
 !docs/renaming.md
+!docs/汇报与演示.md
 **/node_modules/
 **/dist/
 !pkg/app/router/dist/
 pkg/app/router/dist/*
 !pkg/app/router/dist/.gitkeep
-target/
+target/*
 output/
 logs/
 _scratch/

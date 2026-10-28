@@ -1,0 +1,64 @@
+# kube-resource-fcst admission policy for Kyverno: a workload may only be deployed when a platform module manages it.
+#
+# Applied to the namespaces listed under `namespaces` (the demo uses forecast-test). A Deployment, StatefulSet or DaemonSet
+# CREATE is asked about at the platform (GET /api/v1/admission/recommendations, the same call the resources policy makes):
+#   - managed = false  no module of the platform has this namespace, kind and name   -> REFUSED, kubectl prints the message below
+#   - managed = true   a module exists (any mode, any answer)                         -> admitted; the requests of its Pods are then
+#                      set by kube-resource-fcst-requests.yaml from the module's recommendation, and the platform keeps an
+#                      admission decision record (page "准入决策记录") for every such question
+# It fails open: if the platform is unreachable or the credential is wrong the apiCall default says "managed", and
+# failurePolicy is Ignore, so an outage of the platform never blocks a deployment.
+#
+# Same Secret and platform URL as kube-resource-fcst-requests.yaml. Replace PLATFORM_URL and CREDENTIAL_SECRET
+# (kube-resource-fcst-admission; the local test bed's Secret is named kubeforecast-admission).
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: kube-resource-fcst-require-module
+  annotations:
+    # the rule matches the controllers itself; the Pod autogeneration would add rules that read Pod owner references
+    pod-policies.kyverno.io/autogen-controllers: none
+    policies.kyverno.io/title: kube-resource-fcst requires a module
+    policies.kyverno.io/description: >-
+      Refuses to create a Deployment, StatefulSet or DaemonSet that no kube-resource-fcst module manages.
+spec:
+  failurePolicy: Ignore
+  webhookTimeoutSeconds: 5
+  background: false
+  rules:
+    - name: require-platform-module
+      match:
+        any:
+          - resources:
+              kinds: ["Deployment", "StatefulSet", "DaemonSet"]
+              operations: ["CREATE"]
+              namespaces: ["forecast-test"]
+      context:
+        - name: credential
+          apiCall:
+            urlPath: /api/v1/namespaces/kyverno/secrets/CREDENTIAL_SECRET
+            jmesPath: data.credential | base64_decode(@)
+            default: ""
+        - name: answer
+          apiCall:
+            method: GET
+            service:
+              url: >-
+                PLATFORM_URL/api/v1/admission/recommendations?namespace={{request.namespace}}&kind={{request.object.kind}}&workload={{request.object.metadata.name}}&container=-
+              headers:
+                - key: Authorization
+                  value: "kube-resource-fcst-AK {{ credential }}"
+            default:
+              managed: true
+            jmesPath: data
+      validate:
+        failureAction: Enforce
+        message: >-
+          kube-resource-fcst: {{request.object.kind}} {{request.namespace}}/{{request.object.metadata.name}} 没有在预测平台配置模块，禁止部署。
+          请先在平台「模块管理」创建命名空间、工作负载类型和名称都相同的模块，再重新部署。
+        deny:
+          conditions:
+            all:
+              - key: "{{ answer.managed }}"
+                operator: Equals
+                value: false

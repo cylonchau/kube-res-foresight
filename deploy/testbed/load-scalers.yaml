@@ -1,0 +1,62 @@
+# One PredictiveScaler per load service, all in Auto mode (use Observe to only read the decision and report it in the status).
+# The Secret kubeforecast-platform (the name the local test bed already has; any name works) (key token = "<access key>:<access secret>") must exist in forecast-test.
+---
+apiVersion: autoscaling.kube-resource-fcst.io/v1alpha1
+kind: PredictiveScaler
+metadata: {name: load-web, namespace: forecast-test}
+spec:
+  scaleTargetRef: {kind: Deployment, name: load-web}
+  mode: Auto
+  minReplicas: 1
+  maxReplicas: 10
+  fallbackReplicas: 2
+  evaluationInterval: 30s
+  behavior: {scaleUp: {maxStep: 3, cooldown: 1m}, scaleDown: {maxStep: 1, cooldown: 2m}}
+  decision:
+    source: PlatformAPI
+    platformAPI: {url: "http://host.docker.internal:20001", module: load-web, accessKeySecretRef: {name: kubeforecast-platform, key: token}, timeoutSeconds: 5}
+---
+apiVersion: autoscaling.kube-resource-fcst.io/v1alpha1
+kind: PredictiveScaler
+metadata: {name: load-api, namespace: forecast-test}
+spec:
+  scaleTargetRef: {kind: Deployment, name: load-api}
+  mode: Auto
+  minReplicas: 1
+  maxReplicas: 10
+  fallbackReplicas: 2
+  evaluationInterval: 30s
+  behavior: {scaleUp: {maxStep: 3, cooldown: 1m}, scaleDown: {maxStep: 1, cooldown: 2m}}
+  decision:
+    source: PlatformAPI
+    platformAPI: {url: "http://host.docker.internal:20001", module: load-api, accessKeySecretRef: {name: kubeforecast-platform, key: token}, timeoutSeconds: 5}
+---
+apiVersion: autoscaling.kube-resource-fcst.io/v1alpha1
+kind: PredictiveScaler
+metadata: {name: load-batch, namespace: forecast-test}
+spec:
+  scaleTargetRef: {kind: Deployment, name: load-batch}
+  mode: Auto
+  minReplicas: 1
+  maxReplicas: 10
+  fallbackReplicas: 2
+  evaluationInterval: 30s
+  behavior: {scaleUp: {maxStep: 3, cooldown: 1m}, scaleDown: {maxStep: 1, cooldown: 2m}}
+  decision:
+    source: PlatformAPI
+    platformAPI: {url: "http://host.docker.internal:20001", module: load-batch, accessKeySecretRef: {name: kubeforecast-platform, key: token}, timeoutSeconds: 5}
+---
+apiVersion: autoscaling.kube-resource-fcst.io/v1alpha1
+kind: PredictiveScaler
+metadata: {name: load-cache, namespace: forecast-test}
+spec:
+  scaleTargetRef: {kind: Deployment, name: load-cache}
+  mode: Auto
+  minReplicas: 1
+  maxReplicas: 10
+  fallbackReplicas: 2
+  evaluationInterval: 30s
+  behavior: {scaleUp: {maxStep: 3, cooldown: 1m}, scaleDown: {maxStep: 1, cooldown: 2m}}
+  decision:
+    source: PlatformAPI
+    platformAPI: {url: "http://host.docker.internal:20001", module: load-cache, accessKeySecretRef: {name: kubeforecast-platform, key: token}, timeoutSeconds: 5}

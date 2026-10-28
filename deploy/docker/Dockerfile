@@ -17,9 +17,10 @@ ARG VERSION=dev
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/cylonchau/kube-resource-fcst/pkg/version.Version=${VERSION}" -o /out/kube-resource-fcst ./cmd && \
     CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/cylonchau/kube-resource-fcst/pkg/version.Version=${VERSION}" -o /out/kube-resource-fcst-operator ./cmd/operator
 FROM alpine:3.22 AS runtime-base
-RUN apk add --no-cache ca-certificates tzdata && addgroup -S kube-resource-fcst && adduser -S -G kube-resource-fcst kube-resource-fcst
+RUN apk add --no-cache ca-certificates tzdata && addgroup -S -g 10001 kube-resource-fcst && adduser -S -u 10001 -G kube-resource-fcst kube-resource-fcst
 WORKDIR /app
-USER kube-resource-fcst
+# a numeric user: Kubernetes (runAsNonRoot) cannot verify a user given by name
+USER 10001:10001
 FROM runtime-base AS kube-resource-fcst
 COPY --from=builder /out/kube-resource-fcst /usr/local/bin/kube-resource-fcst
 ENTRYPOINT ["kube-resource-fcst"]

@@ -4,10 +4,10 @@ Not production manifests: they exist to try the loop module -> forecast -> decis
 
 | File | What |
 |---|---|
-| `workloads.yaml` | `web-diurnal` (30 min wave), `batch-spike` (burst every 10 min), `steady-api` (constant): CPU curves for forecasting |
+| `load-services.yaml` | `load-api`, `load-batch`, `load-cache` (and the namespace): three more copies of `load-web`, each with its own demand knob |
 | `load-web.yaml` | `load-web`: its **total** CPU demand is a knob (ConfigMap `load-web-load`) shared by the pods, so scaling out does not raise the total |
-| `predictivescalers.yaml` | Observe-mode scalers for the first three; `load-web` is applied separately in Auto mode (see below) |
-| `load.sh` | `load.sh low|mid|high|spike|<millicores>` sets the demand of `load-web` |
+| `load.sh` | `load.sh [name] low|mid|high|spike|<millicores>` sets the demand of one load service (default `load-web`) |
+| `stress.sh` | stress test of one load service, every number a parameter: `stress.sh --hold 60 --recover 60` is a four-minute **instant** test (the demand jumps to `--high` at once); `stress.sh --mode ramp --steps 4 --step-every 20 --hold 60 --recover 0` climbs in steps. `--low/--high/--hold/--recover/--steps/--step-every/--baseline/--sample/--name/--ns`, and `--dry-run` to change nothing. It ends with the replicas before, the peak, and how many seconds the first scale-up and scale-down took. `stress.sh --help` lists everything |
 | `cycle.sh` | runs collect/predict/recommend (and every 5th round backtest + score) for the test modules every minute |
 
 Needs: the platform on `127.0.0.1:20001`, Prometheus on `127.0.0.1:30090`, the operator installed (`deploy/operator`), a
@@ -49,7 +49,7 @@ python deploy/testbed/seed_platform.py --platform http://127.0.0.1:20001 --mode 
 kubectl -n kyverno create secret generic kube-resource-fcst-admission --from-file=credential=admission.cred
 kubectl apply -f deploy/testbed/kyverno-credential.yaml
 sed 's#PLATFORM_URL#http://host.docker.internal:20001#' deploy/kyverno/kube-resource-fcst-requests.yaml | kubectl apply -f -
-kubectl -n forecast-test rollout restart deploy/steady-api     # running Pods keep their values until the workload rolls
+kubectl -n forecast-test rollout restart deploy/load-api     # running Pods keep their values until the workload rolls
 ```
 
 Replicas are not touched by Kyverno: the operator owns them (a module in `auto` mode gets both).
@@ -68,3 +68,24 @@ go build -o operator.exe ./cmd/operator
 python deploy/testbed/seed_platform.py --modules load-mod --mode auto --scale-up-max-step 3 --scale-down-max-step 1 --scale-down-cooldown 60
 ```
 Keep `--predictivescaler-crd=false` when another operator already runs in the cluster, or both would reconcile the same objects.
+
+## Admission demo: no module, no deployment
+
+`deploy/kyverno/kube-resource-fcst-require-module.yaml` refuses to create a Deployment, StatefulSet or DaemonSet in `forecast-test`
+that no platform module manages; `kube-resource-fcst-requests.yaml` (above) then sets the requests/limits of the Pods of a managed
+workload from its module, and the platform writes an admission decision record for every question.
+
+```sh
+# once: the Kyverno credential Secret (a developer credential with only "Admission Recommendations (read)"), the RBAC, the two policies
+kubectl -n kyverno create secret generic kube-resource-fcst-admission --from-literal=credential='<access key>:<access secret>'
+kubectl apply -f deploy/testbed/kyverno-credential.yaml
+for f in kube-resource-fcst-requests kube-resource-fcst-require-module; do
+  sed -e 's#PLATFORM_URL#http://host.docker.internal:20001#' -e 's#CREDENTIAL_SECRET#kube-resource-fcst-admission#' deploy/kyverno/$f.yaml | kubectl apply -f -
+done
+# the platform setting forecast.allow_admission_mode must be true
+
+kubectl apply -f deploy/testbed/admission-demo.yaml          # refused: demo-unmanaged has no module
+# create a module demo-unmanaged (forecast-test, Deployment) in the platform, apply again: admitted
+kubectl -n forecast-test rollout restart deploy/load-cache    # a managed workload: its new Pods get the module's requests
+```
+(`kube-resource-fcst-requests.yaml` reads the Secret name from its own `urlPath`; replace it there if your Secret has another name.)

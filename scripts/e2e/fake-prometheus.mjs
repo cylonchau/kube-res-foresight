@@ -3,6 +3,9 @@
 import http from 'node:http';
 
 const port = Number(process.env.PORT || 19090);
+// minute of the UTC day where the daily 30 minute hole starts; a run whose lookback holds the hole sees too little contiguous
+// history, so set HOLE_MINUTE to a time far from now (for example the opposite side of the clock) for the chain checks
+const holeStart = Number(process.env.HOLE_MINUTE || 180);
 
 function value(query, ts) {
   const minute = (ts % 86400) / 60;
@@ -56,7 +59,7 @@ http
         for (let ts = start; ts <= end; ts += step) {
           const minuteOfDay = (ts % 86400) / 60;
           // the daily hole; the OOM series is exempt so its single kill is never swallowed by it
-          if (minuteOfDay >= 180 && minuteOfDay < 210 && !query.includes('container_oom_events_total')) continue;
+          if (minuteOfDay >= holeStart && minuteOfDay < holeStart + 30 && !query.includes('container_oom_events_total')) continue;
           values.push([ts, String(value(query, ts))]);
         }
         return send({ status: 'success', data: { resultType: 'matrix', result: values.length ? [{ metric: {}, values }] : [] } });

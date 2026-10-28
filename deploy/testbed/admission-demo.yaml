@@ -1,0 +1,18 @@
+# Admission demo workload: NO platform module has this name, so the policy kube-resource-fcst-require-module refuses it.
+#   kubectl apply -f deploy/testbed/admission-demo.yaml      -> error from Kyverno: "... 没有在预测平台配置模块，禁止部署 ..."
+# Create a module named demo-unmanaged (namespace forecast-test, kind Deployment) in the platform and apply it again: it is admitted.
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: demo-unmanaged, namespace: forecast-test}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: demo-unmanaged}}
+  template:
+    metadata: {labels: {app: demo-unmanaged}}
+    spec:
+      containers:
+        - name: app
+          image: curlimages/curl:latest
+          imagePullPolicy: IfNotPresent
+          command: ["sleep", "3600"]
+          resources: {requests: {cpu: 100m, memory: 32Mi}, limits: {cpu: 500m, memory: 128Mi}}
