@@ -8,10 +8,13 @@ import (
 	"syscall"
 
 	"github.com/cylonchau/kube-resource-fcst/pkg/cmd"
+	"github.com/cylonchau/kube-resource-fcst/pkg/timezone"
 	"github.com/spf13/pflag"
 )
 
 func main() {
+	// UTC+8 unless KUBE_RESOURCE_FCST_TIMEZONE names another zone: log lines and times typed without an offset follow it
+	timezone.Apply()
 	command := cmd.NewKubeResourceFcstCommand(cmd.KubeResourceFcstOptions{})
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

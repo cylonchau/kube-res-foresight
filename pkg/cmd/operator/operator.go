@@ -16,6 +16,7 @@ import (
 
 	"github.com/cylonchau/kube-resource-fcst/pkg/operator/api/v1alpha1"
 	"github.com/cylonchau/kube-resource-fcst/pkg/operator/controller"
+	"github.com/cylonchau/kube-resource-fcst/pkg/timezone"
 	"github.com/cylonchau/kube-resource-fcst/pkg/utils"
 	"github.com/spf13/cobra"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -120,6 +121,7 @@ func platformEndpoint(opts *Options) (*controller.PlatformEndpoint, error) {
 
 // Run starts the manager and blocks until ctx ends.
 func Run(ctx context.Context, opts *Options) error {
+	timezone.Apply() // log lines in the platform's zone
 	ctrl.SetLogger(zap.New(zap.UseDevMode(false)))
 	scheme, err := NewScheme()
 	if err != nil {

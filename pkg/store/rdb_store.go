@@ -5,10 +5,12 @@ import (
 	"context"
 	"fmt"
 	"github.com/cylonchau/kube-resource-fcst/pkg/logger"
+	"github.com/cylonchau/kube-resource-fcst/pkg/timezone"
 	"github.com/glebarez/sqlite"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -110,15 +112,30 @@ func (m *RDBStore) initDatabase() error {
 	return err
 }
 
+// mysqlDSN is the connection string of MySQL. Times are read and written in the zone of the platform (UTC+8 by default), and the session
+// of the connection is told the same offset, so the NOW() of the database and the times Go writes agree.
+func mysqlDSN(username, password, host string, port int, database, zone string) string {
+	return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=%s&time_zone=%s",
+		username, password, host, port, database, url.QueryEscape(zone), url.QueryEscape("'"+mysqlOffset(zone)+"'"))
+}
+
+// mysqlOffset is the offset of a zone as MySQL writes it (+08:00); UTC+8 when the zone is not known.
+func mysqlOffset(zone string) string {
+	loc, err := time.LoadLocation(zone)
+	if err != nil {
+		return "+08:00"
+	}
+	_, seconds := time.Now().In(loc).Zone()
+	sign := "+"
+	if seconds < 0 {
+		sign, seconds = "-", -seconds
+	}
+	return fmt.Sprintf("%s%02d:%02d", sign, seconds/3600, seconds%3600/60)
+}
+
 // initMySQL 初始化MySQL连接
 func (m *RDBStore) initMySQL(config *gorm.Config) error {
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=Local",
-		m.config.Username,
-		m.config.Password,
-		m.config.Host,
-		m.config.Port,
-		m.config.Database,
-	)
+	dsn := mysqlDSN(m.config.Username, m.config.Password, m.config.Host, m.config.Port, m.config.Database, timezone.NameOf())
 
 	var err error
 	m.db, err = gorm.Open(mysql.Open(dsn), config)
@@ -160,13 +177,14 @@ func (m *RDBStore) initPostgreSQL(config *gorm.Config) error {
 		sslMode = "disable"
 	}
 
-	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%d sslmode=%s TimeZone=Asia/Shanghai",
+	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%d sslmode=%s TimeZone=%s",
 		m.config.Host,
 		m.config.Username,
 		m.config.Password,
 		m.config.Database,
 		m.config.Port,
 		sslMode,
+		timezone.NameOf(),
 	)
 
 	var err error

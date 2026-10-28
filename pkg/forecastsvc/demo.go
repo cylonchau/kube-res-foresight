@@ -165,7 +165,7 @@ func (s *Service) CreateDemo(ctx context.Context) (*DemoResult, error) {
 	if m == nil || errors.Is(err, gorm.ErrRecordNotFound) {
 		m = &model.ForecastModule{
 			Name: DemoModuleName, Description: "DEMO: synthetic workload, not a real service.", Enabled: true, PredictEnabled: true, Mode: model.ModeRecommend,
-			Namespace: DemoNamespace, WorkloadKind: model.KindDeployment, Workload: DemoWorkload, Service: DemoWorkload, Container: "app", Timezone: "UTC", TTLSeconds: 900,
+			Namespace: DemoNamespace, WorkloadKind: model.KindDeployment, Workload: DemoWorkload, Service: DemoWorkload, Container: "app", Timezone: model.DefaultTimezone, TTLSeconds: 900,
 			LookbackHours: demoLookbackHours, HorizonMinutes: demoHorizonMin, MaxFillSteps: 3,
 			MinReplicas: 2, MaxReplicas: 30, FallbackReplicas: 3, MinCPUMilli: 100, FallbackCPUMilli: 1000,
 			HeadroomRatio: 1.2, PodCapacityRPS: demo.PodCapacityRPS,

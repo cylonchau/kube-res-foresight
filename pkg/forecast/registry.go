@@ -159,7 +159,7 @@ var builtinDefinitions = []Definition{
 		{Name: "by_weekday", Type: "bool", Default: true, Description: "是否区分周几：true = 周一九点和周六九点是两个桶（至少需要两周历史才有各自的数据，不够时退到每天同一时刻）；false = 只看一天中的时刻。"},
 		{Name: "half_life_days", Type: "float", Default: 14.0, Min: num(0), Max: num(365), Unit: "days", Description: "半衰期：这么多天之前的样本只算一半权重；0 表示不衰减。"},
 		{Name: "min_samples_per_bucket", Type: "int", Default: 6, Min: num(1), Max: num(100000), Description: "一个桶至少有多少个样本才被信任；不够就退到上一级（每天同一时刻，再退到整段历史）。"},
-		{Name: "utc_offset_minutes", Type: "int", Default: 0, Min: num(-720), Max: num(840), Unit: "minutes", Description: "时区偏移（相对 UTC，分钟）：东八区填 480，这样「九点」是当地九点。"},
+		{Name: "utc_offset_minutes", Type: "int", Default: 480, Min: num(-720), Max: num(840), Unit: "minutes", Description: "时区偏移（相对 UTC，分钟），决定「几点」「周几」按哪个时区的钟面分桶。默认 480（UTC+8，平台的时区）：这样「九点」是北京时间九点，周一从北京时间零点开始；部署在别的时区就改成那里的偏移。"},
 		{Name: "safety_margin", Type: "float", Default: 0.0, Min: num(0), Max: num(5), Description: "安全边际：结果再乘 (1+边际)。"},
 	}},
 	{ID: "peak_envelope", Category: "statistical", Description: "峰值包络趋势：先取滚动最大值作包络线，再用 Theil-Sen（所有点对斜率的中位数）稳健地拟合直线并外推，预测的是峰值而不是均值。适合内存工作集这种「锯齿叠加缓慢上涨」（泄漏、缓存增长）的负载，均值类算法会低估它。预测不会低于当前的包络，也不会为负；还能算出包络「预计多久触顶」。", Params: []ParamSpec{

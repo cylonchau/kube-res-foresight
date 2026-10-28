@@ -143,7 +143,7 @@ func TestSeasonalProfileRefusesBadParametersAndIsRegistered(t *testing.T) {
 	assert.Error(t, err, "a bucket that does not divide a day is refused by the registry")
 	m, err := Build("seasonal_profile", nil)
 	require.NoError(t, err)
-	assert.Equal(t, SeasonalProfile{Percentile: 90, BucketMinutes: 60, ByWeekday: true, HalfLifeDays: 14, MinPerBucket: 6}, m)
+	assert.Equal(t, SeasonalProfile{Percentile: 90, BucketMinutes: 60, ByWeekday: true, HalfLifeDays: 14, MinPerBucket: 6, UTCOffsetMinutes: 480}, m, "the clock of the buckets is the platform's, UTC+8")
 }
 
 // ---- peak_envelope

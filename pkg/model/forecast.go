@@ -38,6 +38,9 @@ const (
 // PredictModes lists the prediction modes.
 var PredictModes = []string{PredictNone, PredictFixed, PredictDynamic}
 
+// DefaultTimezone is the zone the weekly fixed periods of a module are read in when it names none: UTC+8, the zone of the platform.
+const DefaultTimezone = "Asia/Shanghai"
+
 // DefaultOOMWeight is the share of the memory score one OOM kill takes away when the OOM weight is switched on and sets no value of its
 // own.
 const DefaultOOMWeight = 0.2
@@ -223,7 +226,7 @@ type ForecastModule struct {
 	PodMemoryRequestBytes int64   `gorm:"not null;default:0" json:"pod_memory_request_bytes" column_setting:"false"`
 	TargetUtilization     float64 `gorm:"not null;default:0" json:"target_utilization" column_setting:"false"`
 
-	Timezone string `gorm:"type:varchar(64);not null;default:'UTC'" json:"timezone" column_setting:"false"` // IANA zone of weekly fixed periods
+	Timezone string `gorm:"type:varchar(64);not null;default:'Asia/Shanghai'" json:"timezone" column_setting:"false"` // IANA zone of weekly fixed periods; UTC+8 unless set
 
 	// Sources are the metric sources of the module (loaded with it, not a column).
 	Sources []*MetricSource `gorm:"-" json:"sources"`
@@ -454,7 +457,7 @@ func (m *ForecastModule) Validate() error {
 		return fmt.Errorf("invalid gpu bounds")
 	}
 	if m.Timezone == "" {
-		m.Timezone = "UTC"
+		m.Timezone = DefaultTimezone
 	}
 	if _, err := time.LoadLocation(m.Timezone); err != nil {
 		return fmt.Errorf("unknown timezone %q", m.Timezone)
