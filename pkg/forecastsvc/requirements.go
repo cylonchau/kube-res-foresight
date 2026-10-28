@@ -21,6 +21,8 @@ type Requirement struct {
 	RequiredSeconds int `json:"required_seconds"`
 	// AvailableSteps is how many steps the history range of the module can hold at that grid.
 	AvailableSteps int `json:"available_steps"`
+	// EffectiveLookbackHours is the history range collected for it: the module's lookback, or longer when the algorithm needs more.
+	EffectiveLookbackHours int `json:"effective_lookback_hours"`
 	// ModuleMinPoints is the module's own floor (min_points).
 	ModuleMinPoints int `json:"module_min_points"`
 	// Horizon is how many steps the forecast covers.
@@ -55,10 +57,6 @@ func (s *Service) Requirements(ctx context.Context, moduleID uint) ([]Requiremen
 			}
 			step := setup.step
 			req.StepSeconds = int(step / time.Second)
-			req.AvailableSteps = int(time.Duration(m.LookbackHours) * time.Hour / step)
-			if m.WindowSteps > 0 && m.WindowSteps < req.AvailableSteps {
-				req.AvailableSteps = m.WindowSteps // the algorithm only sees the training window
-			}
 			req.HorizonSteps = horizonOf(run, step)
 			bm, err := bind(run)
 			if err != nil {
@@ -69,6 +67,12 @@ func (s *Service) Requirements(ctx context.Context, moduleID uint) ([]Requiremen
 			req.MinSamples = forecast.MinSamplesFor(bm.model, req.HorizonSteps) // a direct or calibrated model also needs room for its horizon
 			req.RequiredSeconds = req.MinSamples * req.StepSeconds
 			need := max(req.MinSamples, m.MinPoints)
+			// the range and the window are extended to what the algorithm needs (lookbackFor, windowFor), up to a limit
+			req.EffectiveLookbackHours = lookbackFor(m.LookbackHours, need, step)
+			req.AvailableSteps = int(time.Duration(req.EffectiveLookbackHours) * time.Hour / step)
+			if window := windowFor(m.WindowSteps, need); window > 0 && window < req.AvailableSteps {
+				req.AvailableSteps = window // the algorithm only sees the training window
+			}
 			switch {
 			case req.AvailableSteps < need:
 				req.Reason = fmt.Sprintf("needs %d steps of %ds, the history range or training window holds %d: extend lookback_hours to at least %d (and window_steps to at least %d) or sample more coarsely",

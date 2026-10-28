@@ -36,10 +36,11 @@ func (s *Service) Collect(ctx context.Context, moduleID uint) ([]CollectResult, 
 		return nil, fmt.Errorf("%w: the module has no metric source", ErrNotConfigured)
 	}
 	results := make([]CollectResult, 0, len(metrics))
+	runs := s.runsForCollect(ctx, mod)
 	for _, metric := range metrics {
 		res := CollectResult{Metric: metric}
 		started := time.Now()
-		err := s.collectMetric(ctx, m, metric, &res)
+		err := s.collectMetric(ctx, m, runs, metric, &res)
 		s.Telemetry.recordCollect(metric, time.Since(started), err)
 		if err != nil {
 			res.Error = err.Error()
@@ -49,7 +50,7 @@ func (s *Service) Collect(ctx context.Context, moduleID uint) ([]CollectResult, 
 	return results, nil
 }
 
-func (s *Service) collectMetric(ctx context.Context, m *model.AlgorithmRun, metric string, res *CollectResult) error {
+func (s *Service) collectMetric(ctx context.Context, m *model.AlgorithmRun, runs []*model.AlgorithmRun, metric string, res *CollectResult) error {
 	setup, err := s.setup(ctx, m, metric)
 	if err != nil {
 		return err
@@ -75,11 +76,22 @@ func (s *Service) collectMetric(ctx context.Context, m *model.AlgorithmRun, metr
 
 	now := s.now()
 	to := floorToStep(now, setup.step)
-	from := floorToStep(to.Add(-time.Duration(m.LookbackHours)*time.Hour), setup.step)
+	// the range is the module's lookback, or longer when an enabled algorithm needs more steps than that holds
+	hours := collectLookback(m, runs, setup.step)
+	from := floorToStep(to.Add(-time.Duration(hours)*time.Hour), setup.step)
 	if latest, ok, err := s.Samples.Latest(ctx, series.ID); err != nil {
 		return err
 	} else if ok && latest.After(from) {
 		from = latest // one step of overlap: the newest sample may have been partial
+		// A range that was just extended is not stored yet before its oldest sample: fetch it too, once the older part
+		// exists the continuing collection is enough again (what Prometheus never had is asked for again, cheaply, each run).
+		if hours > m.LookbackHours {
+			if earliest, ok, err := s.Samples.Earliest(ctx, series.ID); err != nil {
+				return err
+			} else if ok && earliest.After(floorToStep(to.Add(-time.Duration(hours)*time.Hour), setup.step).Add(2*setup.step)) {
+				from = floorToStep(to.Add(-time.Duration(hours)*time.Hour), setup.step)
+			}
+		}
 	}
 	res.From, res.To = from, to
 
@@ -109,7 +121,7 @@ func (s *Service) collectMetric(ctx context.Context, m *model.AlgorithmRun, metr
 	}
 	res.Stored = len(samples)
 	res.Quality = collector.Analyze(points, from, to, setup.step, now)
-	pruned, err := s.Samples.PruneBefore(ctx, series.ID, now.Add(-time.Duration(m.LookbackHours)*time.Hour))
+	pruned, err := s.Samples.PruneBefore(ctx, series.ID, now.Add(-time.Duration(hours)*time.Hour))
 	res.Pruned = pruned
 	return err
 }

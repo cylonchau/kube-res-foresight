@@ -399,3 +399,10 @@ all ten management pages and the shared product title. Screenshots were inspecte
 - **乱码根因**：线上 `secret_key` 的 `operator` 备注与对应日志是非 UTF-8（GBK）请求体被解码成 U+FFFD 后入库，原文无法恢复。新增 `UTF8BodyMiddleware` 拒绝这类请求，截断改为字符边界，升级把已损坏的备注换成「请重新填写」的说明。
 - **用户管理**：用户接口补 email/phone/language，列表增加头像、更新时间、邮箱、手机、语言，昵称为空显示用户名。
 - **验证**：`go vet`、`go test ./pkg/... ./cmd/...` 通过（新增窗口明细、latest 端点、UTF-8 中间件、操作识别码、乱码修复、算法清单测试）；前端 `vue-tsc`、eslint（0 错误）、build、`node --test` 通过。**未验证**：浏览器 e2e（已改写、未运行）；operator 新头在集群里的实际效果（operator 镜像需重建部署）。
+
+### R13：历史样本不足的根治（2026-10-28）
+
+- **根因**（线上库副本核对）：load-web 在页面上保存为回看 1 小时、训练窗口 10 步（操作日志 10-27 19:31 起，窗口先 30 后 10），库里最多 60 条样本，算法只看到最近 10 条；训练记录写着 `holt_winters needs 60 samples, got 10`、`knn needs 54 samples, got 10`。其余三个模块是 180 条样本、窗口 0，不受影响。样本没有被删（load-web 60 条连续、最新 1 分钟前）。模块保存只检查数值范围，不检查「启用的算法需要多少步」，`/requirements` 只是诊断，不拦也不补。
+- **修复**：回看范围与训练窗口不再能饿死算法。`pkg/forecastsvc/history_need.go`：算法需要的步数（含预测步长）乘 1.5 留余量，范围 = max(模块回看, 该算法需要)，窗口 = max(模块窗口, 需要)；采集、训练、回测、评分、清理都按这个范围（`collectLookback`/`lookbackFor`/`windowFor`），范围被延长时补采更早的一段（`SampleDAO.Earliest`）。需要超过 30 天的算法不延长，照旧跳过并写明需要多少步。`/requirements` 增加 `effective_lookback_hours`，并按延长后的范围判断。
+- **没有改的**：模块自己存的 lookback_hours / window_steps 不被改写（页面上仍是用户填的值）；真正年轻的模块（采集不足以满足）仍会被跳过并写明「需要 N，只有 M」；连续可用比例（fallback_min_history_ratio）判断未动。
+- **验证**：`go test ./pkg/...` 新增 `TestAnAlgorithmIsNotSkippedForAShortLookbackOrWindow`（不加修复时算法被跳过，加了通过）、`TestTheLookbackAndTheWindowNeverStarveAnAlgorithm`；两个旧测试按新行为改写。**未验证**：线上平台需用新二进制重启后，load-web 才会补采并让这些算法出结果（采集在下一次任务运行时进行）；浏览器未验证。

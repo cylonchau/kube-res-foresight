@@ -95,7 +95,7 @@ func TestTheTrainingWindowKeepsTheNewestStepsAndChangesTheModelVersion(t *testin
 	assert.Equal(t, 120, trained(), "the algorithm trains on the newest 120 steps")
 	assert.NotEqual(t, full, out[0].ModelVersion, "another window is another model")
 
-	// a window shorter than what an algorithm needs is reported by the requirements
+	// A window shorter than what an algorithm needs does not starve it: the window is the one the algorithm needs.
 	f.bind(t, "cpu", "seasonal_naive", map[string]any{"season_length_steps": 240}, 0)
 	needs, err := f.svc.Requirements(ctx, f.module.ID)
 	require.NoError(t, err)
@@ -106,9 +106,23 @@ func TestTheTrainingWindowKeepsTheNewestStepsAndChangesTheModelVersion(t *testin
 		}
 	}
 	require.NotNil(t, seasonal)
-	assert.False(t, seasonal.OK)
-	assert.Equal(t, 120, seasonal.AvailableSteps)
-	assert.Contains(t, seasonal.Reason, "window_steps")
+	assert.True(t, seasonal.OK, seasonal.Reason)
+	assert.Equal(t, 240, seasonal.AvailableSteps, "the window is lifted to the 240 steps the algorithm needs")
+}
+
+// The range and the window of a module are what the user wants to spend; they must never starve an enabled algorithm. A module
+// with a one hour lookback and a window of 10 steps made every algorithm that needs more than 10 steps "insufficient history"
+// until someone edited the module by hand.
+func TestTheLookbackAndTheWindowNeverStarveAnAlgorithm(t *testing.T) {
+	step := time.Minute
+	// holt_winters needs 60 steps: with the room kept over it the range is 2 hours, not 1
+	assert.Equal(t, 2, lookbackFor(1, 60, step))
+	assert.Equal(t, 3, lookbackFor(3, 60, step), "a range that is long enough is left alone")
+	assert.Equal(t, 1, lookbackFor(1, 0, step), "an instance with no algorithm keeps the module's lookback")
+	assert.Equal(t, 1, lookbackFor(1, 60*24*60, step), "what needs more than the limit is not grown without end")
+	assert.Equal(t, 60, windowFor(10, 60), "a window shorter than the need is the need")
+	assert.Equal(t, 0, windowFor(0, 60), "no window stays the whole range")
+	assert.Equal(t, 200, windowFor(200, 60), "a long enough window is left alone")
 }
 
 func TestAWindowShorterThanTheMinimumDataIsRefused(t *testing.T) {
@@ -116,4 +130,26 @@ func TestAWindowShorterThanTheMinimumDataIsRefused(t *testing.T) {
 	assert.ErrorContains(t, m.Validate(), "window_steps")
 	m.WindowSteps = 100
 	assert.NoError(t, m.Validate())
+}
+
+// The cured case end to end: a module with a one hour lookback and a window of 10 steps, and an algorithm that needs 24 steps
+// of 5 minutes. It used to be skipped with "needs 24 samples, got 10"; now the range collected and the window it trains on are
+// the ones the algorithm needs.
+func TestAnAlgorithmIsNotSkippedForAShortLookbackOrWindow(t *testing.T) {
+	f := newFixture(t)
+	f.bind(t, "cpu", "seasonal_naive", map[string]any{"season_length_steps": 24}, 0)
+	require.NoError(t, f.db.Model(&model.ForecastModule{}).Where("id = ?", f.module.ID).
+		Updates(map[string]any{"lookback_hours": 1, "window_steps": 10}).Error)
+	ctx := context.Background()
+	results, err := f.collect(ctx)
+	require.NoError(t, err)
+	require.Empty(t, results[0].Error)
+	assert.Greater(t, results[0].Stored, 12, "more than the one hour of the module is collected: the algorithm needs 24 steps of 5 minutes")
+
+	out, err := f.predict(ctx)
+	require.NoError(t, err)
+	require.Equal(t, StatusOK, out[0].Status, out[0].Reason)
+	var last model.TrainingRun
+	require.NoError(t, f.db.Order("id DESC").First(&last).Error)
+	assert.GreaterOrEqual(t, last.Samples, 24, "it trained on what it needs, not on the 10 steps of the window")
 }

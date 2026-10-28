@@ -58,7 +58,9 @@ func (s *Service) loadTarget(ctx context.Context, m *model.AlgorithmRun, metric 
 	step := time.Duration(series.StepSeconds) * time.Second
 	now := s.now()
 	to := floorToStep(now, step)
-	hours := m.LookbackHours
+	// the range and the window are never shorter than the algorithm of the instance needs (see lookbackFor)
+	need := max(stepsNeeded(m, step), m.MinPoints)
+	hours := lookbackFor(m.LookbackHours, need, step)
 	from := floorToStep(to.Add(-time.Duration(hours)*time.Hour), step)
 	samples, err := s.Samples.Range(ctx, series.ID, from, to)
 	if err != nil {
@@ -89,8 +91,8 @@ func (s *Service) loadTarget(ctx context.Context, m *model.AlgorithmRun, metric 
 		}
 	}
 	// the training window: the newest steps of the history range (the quality above is judged on the whole range)
-	if m.WindowSteps > 0 && len(in.Values) > m.WindowSteps {
-		in.Values = in.Values[len(in.Values)-m.WindowSteps:]
+	if window := windowFor(m.WindowSteps, need); window > 0 && len(in.Values) > window {
+		in.Values = in.Values[len(in.Values)-window:]
 	}
 	return in, series, nil
 }

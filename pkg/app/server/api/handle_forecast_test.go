@@ -656,8 +656,18 @@ func TestDatasetSourcesAreShapedHaveCustomPromQLAndAgreeWithTheModuleStep(t *tes
 	assert.EqualValues(t, 288, need["min_samples"], "one day of 5-minute steps")
 	assert.EqualValues(t, 48*12, need["available_steps"])
 	assert.Equal(t, true, need["ok"])
-	// a longer season than the range holds is reported with how to fix it
+	// a season longer than the range holds is not refused: the range is extended to what the algorithm needs
 	enableAlgorithm(t, r, "seasonal_naive", map[string]any{"season_length_steps": 600})
+	rec = performJSON(t, r, http.MethodGet, mod+"/requirements", "", nil)
+	for _, row := range decodeData2(t, rec.Body.Bytes()) {
+		m := row.(map[string]any)
+		if m["algorithm_id"] == "seasonal_naive" && m["metric"] == "cpu" {
+			assert.Equal(t, true, m["ok"], m["reason"])
+			assert.EqualValues(t, 75, m["effective_lookback_hours"], "600 steps of 5 minutes with the room kept over them")
+		}
+	}
+	// one that needs more than the limit of the extension is reported with how to fix it
+	enableAlgorithm(t, r, "seasonal_naive", map[string]any{"season_length_steps": 10000})
 	rec = performJSON(t, r, http.MethodGet, mod+"/requirements", "", nil)
 	for _, row := range decodeData2(t, rec.Body.Bytes()) {
 		m := row.(map[string]any)

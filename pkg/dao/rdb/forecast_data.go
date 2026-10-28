@@ -102,6 +102,19 @@ func (dao *SampleDAO) Latest(ctx context.Context, seriesID uint) (time.Time, boo
 	return time.Unix(s.TS, 0).UTC(), true, nil
 }
 
+// Earliest returns the oldest stored timestamp, false when the series is empty.
+func (dao *SampleDAO) Earliest(ctx context.Context, seriesID uint) (time.Time, bool, error) {
+	var s model.MetricSample
+	err := dao.db.WithContext(ctx).Where("series_id = ?", seriesID).Order("ts ASC").Limit(1).Take(&s).Error
+	if err == gorm.ErrRecordNotFound {
+		return time.Time{}, false, nil
+	}
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	return time.Unix(s.TS, 0).UTC(), true, nil
+}
+
 // PruneBefore deletes samples older than the retention horizon and returns how many.
 func (dao *SampleDAO) PruneBefore(ctx context.Context, seriesID uint, before time.Time) (int64, error) {
 	res := dao.db.WithContext(ctx).Where("series_id = ? AND ts < ?", seriesID, before.Unix()).Delete(&model.MetricSample{})
