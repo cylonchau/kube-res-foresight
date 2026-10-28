@@ -73,6 +73,8 @@ func TestResolveClientType(t *testing.T) {
 		want                    string
 	}{
 		{"kube-resource-fcstctl CLI over a developer credential", true, "cli", "cli"},
+		{"the operator over a developer credential", true, "operator", "operator"},
+		{"a page session cannot claim to be the operator", false, "operator", "page"},
 		{"a different integration over the same developer credential", true, "", "api"},
 		{"a developer credential with an unrelated X-kube-resource-fcst-Client value", true, "something-else", "api"},
 		{"web admin session (no header, no developer credential)", false, "", "page"},
@@ -83,5 +85,27 @@ func TestResolveClientType(t *testing.T) {
 				t.Errorf("resolveClientType() = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestRequestIDIsTheCallersOrAGeneratedOneAndStaysTheSameForTheRequest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest("POST", "/api/v1/users", nil)
+	c.Request.Header.Set(RequestIDHeader, "caller-123")
+	if got := requestIDOf(c); got != "caller-123" {
+		t.Fatalf("the caller's id is kept, got %q", got)
+	}
+	c2, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c2.Request = httptest.NewRequest("POST", "/api/v1/users", nil)
+	first := requestIDOf(c2)
+	if len(first) < 10 || first != requestIDOf(c2) {
+		t.Fatalf("a generated id is stable within the request: %q", first)
+	}
+	c3, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c3.Request = httptest.NewRequest("POST", "/api/v1/users", nil)
+	c3.Request.Header.Set(RequestIDHeader, string(make([]byte, 80)))
+	if got := requestIDOf(c3); len(got) > 64 {
+		t.Fatalf("an over-long id is replaced, got %d bytes", len(got))
 	}
 }

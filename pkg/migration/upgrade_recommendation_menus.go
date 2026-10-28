@@ -42,3 +42,27 @@ func removeOrphanForecastData(db *gorm.DB) error {
 	}
 	return nil
 }
+
+// brokenTextNote replaces a remark that was stored as garbage: the bytes of a non-UTF-8 request were replaced by U+FFFD when it was
+// saved, so the original text cannot be recovered and has to be written again.
+const brokenTextNote = "(备注因提交时编码错误损坏，请重新填写)"
+
+// repairBrokenRemarks replaces remarks that hold U+FFFD (the mark of text that was not valid UTF-8 when it was saved) with a
+// note that says so, in the tables whose remark an administrator types. It is safe to repeat.
+func repairBrokenRemarks(db *gorm.DB) error {
+	for _, target := range []struct{ table, column string }{
+		{"secret_key", "remark"}, {"datasource", "remark"}, {"sys_config", "remark"}, {"metric_mapping", "remark"},
+	} {
+		if !db.Migrator().HasTable(target.table) || !db.Migrator().HasColumn(target.table, target.column) {
+			continue
+		}
+		if err := db.Exec("UPDATE "+target.table+" SET "+target.column+" = ? WHERE "+target.column+" LIKE ?", brokenTextNote, "%�%").Error; err != nil {
+			return err
+		}
+	}
+	// the log of a request keeps what was received, minus the bytes that are not text
+	if db.Migrator().HasTable("operation_log") {
+		return db.Exec("UPDATE operation_log SET body = ? WHERE body LIKE ?", "(请求内容含无法识别的编码，已省略)", "%�%").Error
+	}
+	return nil
+}

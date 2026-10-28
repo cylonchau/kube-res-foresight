@@ -37,7 +37,7 @@ func (dao *OperationLogDAO) List(ctx context.Context, filter OperationLogListFil
 	}
 	if filter.Keyword != "" {
 		like := "%" + filter.Keyword + "%"
-		q = q.Where("username LIKE ? OR path LIKE ? OR client_ip LIKE ?", like, like, like)
+		q = q.Where("username LIKE ? OR path LIKE ? OR client_ip LIKE ? OR request_id LIKE ? OR client_name LIKE ?", like, like, like, like, like)
 	}
 	if filter.Success != nil {
 		if *filter.Success {

@@ -16,13 +16,19 @@ import "time"
 // interactive login, and "cli" for a command-line client using that developer
 // credential with X-kube-resource-fcst-Client: cli (see middleware.resolveClientType).
 type OperationLog struct {
-	ID         int64     `gorm:"primaryKey;autoIncrement" json:"id" column_setting:"true"`
-	CreatedAt  time.Time `gorm:"index" json:"created_at" column_setting:"true"`
-	ClientType string    `gorm:"type:varchar(16);index" json:"client_type" column_setting:"true"`
-	UserID     uint      `gorm:"index" json:"user_id" column_setting:"false"`
-	Username   string    `gorm:"type:varchar(128);index" json:"username" column_setting:"true"`
-	Method     string    `gorm:"type:varchar(10)" json:"method" column_setting:"true"`
-	Path       string    `gorm:"type:varchar(255);index" json:"path" column_setting:"true"`
+	ID        int64     `gorm:"primaryKey;autoIncrement" json:"id" column_setting:"true"`
+	CreatedAt time.Time `gorm:"index" json:"created_at" column_setting:"true"`
+	// RequestID is the identifier of the operation: the caller's X-Request-Id when it sent one, else generated. It is also
+	// returned in the X-Request-Id response header, so a caller can quote it when it asks what happened to a request.
+	RequestID string `gorm:"type:varchar(64);index" json:"request_id" column_setting:"true"`
+	// ClientType is the kind of caller: page (the web console), api (a developer credential), cli, or operator.
+	ClientType string `gorm:"type:varchar(16);index" json:"client_type" column_setting:"true"`
+	// ClientName names the caller where it says so (the operator's Pod, the CLI's host); empty for the web console.
+	ClientName string `gorm:"type:varchar(128)" json:"client_name" column_setting:"true"`
+	UserID     uint   `gorm:"index" json:"user_id" column_setting:"false"`
+	Username   string `gorm:"type:varchar(128);index" json:"username" column_setting:"true"`
+	Method     string `gorm:"type:varchar(10)" json:"method" column_setting:"true"`
+	Path       string `gorm:"type:varchar(255);index" json:"path" column_setting:"true"`
 	// Module is the first path segment after /api/v1/ (e.g. "users",
 	// "modules", "tasks") — a cheap, curation-free grouping for the
 	// filter UI without needing a hand-maintained action catalog.

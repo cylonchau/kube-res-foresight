@@ -282,3 +282,17 @@ func TestCleanupDropsRetiredWorkflowAndTelegramTablesAfterInventory(t *testing.T
 	}
 	require.True(t, db.Migrator().HasTable("task_definition"))
 }
+
+func TestUpgradeReplacesRemarksThatWereStoredAsGarbage(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(model.Models...))
+	require.NoError(t, db.Exec("INSERT INTO secret_key (name, key_type, status, access_key_hash, encrypted_value, masked_value, remark) VALUES ('good', 'developer', 1, 'h1', 'e', 'm', '读取推荐的凭证'), ('bad', 'developer', 1, 'h2', 'e', 'm', ?)", "��� operator").Error)
+	require.NoError(t, repairBrokenRemarks(db))
+	require.NoError(t, repairBrokenRemarks(db), "safe to repeat")
+	var good, bad model.SecretKey
+	require.NoError(t, db.Where("name = ?", "good").First(&good).Error)
+	require.NoError(t, db.Where("name = ?", "bad").First(&bad).Error)
+	require.Equal(t, "读取推荐的凭证", good.Remark, "a valid remark is left alone")
+	require.Equal(t, brokenTextNote, bad.Remark)
+}

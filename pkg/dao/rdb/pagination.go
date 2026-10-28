@@ -1,12 +1,19 @@
 package rdb
 
-import "strings"
+import (
+	"strings"
+	"unicode/utf8"
+)
 
 func pageBounds(page, pageSize int) (int, int) { return normalizePage(page, pageSize) }
 func like(value string) string                 { return "%" + strings.TrimSpace(value) + "%" }
 func trimTo(value string, n int) string {
 	if len(value) <= n {
 		return value
+	}
+	// at a character boundary: half of a multi-byte character is invalid UTF-8
+	for n > 0 && !utf8.RuneStart(value[n]) {
+		n--
 	}
 	return value[:n]
 }

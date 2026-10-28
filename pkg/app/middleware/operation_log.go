@@ -2,7 +2,10 @@ package middleware
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
 	"github.com/cylonchau/kube-resource-fcst/pkg/logger"
 	"github.com/cylonchau/kube-resource-fcst/pkg/model"
@@ -12,6 +15,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // maxOperationLogBody caps how much of a request body gets captured/stored —
@@ -81,12 +85,15 @@ func OperationLogMiddleware(dao *rdb.OperationLogDAO) gin.HandlerFunc {
 
 		body := captureBody(c)
 		start := time.Now()
+		c.Header(RequestIDHeader, requestIDOf(c))
 
 		c.Next()
 
 		entry := &model.OperationLog{
 			CreatedAt:  start,
+			RequestID:  requestIDOf(c),
 			ClientType: resolveClientType(c),
+			ClientName: truncate(strings.TrimSpace(c.GetHeader(ClientNameHeader)), 128),
 			Method:     c.Request.Method,
 			Path:       c.Request.URL.Path,
 			Module:     resolveModule(c.Request.URL.Path),
@@ -130,8 +137,11 @@ func resolveClientType(c *gin.Context) string {
 	if dev, _ := c.Get("developerCredential"); dev == true {
 		// Command-line integrations use the same developer credential as
 		// other API clients and identify their source with this header.
-		if strings.EqualFold(c.GetHeader("X-kube-resource-fcst-Client"), "cli") {
+		switch strings.ToLower(strings.TrimSpace(c.GetHeader("X-kube-resource-fcst-Client"))) {
+		case "cli":
 			return "cli"
+		case "operator":
+			return "operator"
 		}
 		return "api"
 	}
@@ -215,7 +225,35 @@ func truncate(s string, max int) string {
 	if len(s) <= max {
 		return s
 	}
-	return s[:max]
+	// cut at a character boundary: half of a multi-byte character is invalid UTF-8 and reads as garbage
+	cut := max
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return strings.ToValidUTF8(s[:cut], "")
+}
+
+// RequestIDHeader carries the identifier of an operation; ClientNameHeader names the caller (the operator's Pod name, say).
+const (
+	RequestIDHeader  = "X-Request-Id"
+	ClientNameHeader = "X-kube-resource-fcst-Client-Name"
+)
+
+// requestIDOf is the caller's X-Request-Id when it is a sane value, else a generated one kept for the rest of the request.
+func requestIDOf(c *gin.Context) string {
+	if v, ok := c.Get("requestId"); ok {
+		if id, ok := v.(string); ok && id != "" {
+			return id
+		}
+	}
+	id := strings.TrimSpace(c.GetHeader(RequestIDHeader))
+	if id == "" || len(id) > 64 || !utf8.ValidString(id) {
+		buf := make([]byte, 8)
+		_, _ = rand.Read(buf)
+		id = fmt.Sprintf("op-%s-%s", time.Now().UTC().Format("20060102T150405"), hex.EncodeToString(buf))
+	}
+	c.Set("requestId", id)
+	return id
 }
 
 // OperationLogNoteKey is the context key a handler sets to put its own account of a request in the log.

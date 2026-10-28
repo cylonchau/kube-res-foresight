@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -176,6 +177,11 @@ func (d *PlatformDecider) request(ctx context.Context, ps *v1alpha1.PredictiveSc
 		return nil, err
 	}
 	req.Header.Set("Authorization", "kube-resource-fcst-AK "+credential)
+	// who is calling: the platform records it in the operation log (source "operator", the Pod as the client name)
+	req.Header.Set("X-kube-resource-fcst-Client", "operator")
+	if host, err := os.Hostname(); err == nil && host != "" {
+		req.Header.Set("X-kube-resource-fcst-Client-Name", host)
+	}
 	req.Header.Set("Accept", "application/json")
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")

@@ -58,6 +58,9 @@ func Migrate(driver string) error {
 	if err := removeOrphanForecastData(model.DB); err != nil {
 		return err
 	}
+	if err := repairBrokenRemarks(model.DB); err != nil {
+		return err
+	}
 	if _, err := rdb.NewPredictionDAO(model.DB).BackfillSnapshots(context.Background()); err != nil {
 		return err
 	}
