@@ -291,7 +291,7 @@ func TestCovariatesChangeTheForecastOnlyThroughPastValues(t *testing.T) {
 
 	// an algorithm without covariate support is declared as such
 	for _, d := range Definitions() {
-		reads := map[string]bool{"ridge_ar": true, "gbdt": true, "random_forest": true, "naive_bayes": true, "rnn": true, "gru": true, "lstm": true, "formula": true}
+		reads := map[string]bool{"ridge_ar": true, "gbdt": true, "random_forest": true, "formula": true}
 		assert.Equal(t, reads[d.ID], d.Covariates, d.ID)
 	}
 	// the same algorithm with CovLags 0 ignores covariates entirely

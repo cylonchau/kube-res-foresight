@@ -10,7 +10,7 @@ import (
 // The algorithms the platform has, as a list a person can check the algorithm page against. Adding an algorithm means adding it here.
 func TestTheRegistryHoldsTheImplementedAlgorithms(t *testing.T) {
 	want := []string{"naive", "seasonal_naive", "ewma", "hist_percentile", "holt_winters", "theta", "mstl", "ridge_ar", "knn",
-		"random_forest", "naive_bayes", "gbdt", "rnn", "gru", "lstm"}
+		"random_forest", "gbdt"}
 	var have []string
 	for _, d := range Definitions() {
 		// the formula implementation is the base of the administrator's own algorithms, not an algorithm of its own

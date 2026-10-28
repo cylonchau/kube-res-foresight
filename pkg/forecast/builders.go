@@ -35,13 +35,6 @@ var builtinBuilders = map[string]Builder{
 		return KNN{Window: pInt(p, "window"), K: pInt(p, "k"), Normalize: p["normalize"].(string),
 			AllowOverlap: p["exclusion"].(string) == "none", SameTimeOfDay: pBool(p, "same_time_of_day"), TimeToleranceMinutes: pInt(p, "time_tolerance_minutes")}, nil
 	},
-	"naive_bayes": func(p map[string]any) (Model, error) {
-		return NaiveBayes{Lags: pInt(p, "lags"), Bins: pInt(p, "bins"), CovLags: pInt(p, "covariate_lags"), Calendar: pBool(p, "calendar_features"),
-			Output: p["output"].(string), MaxTrainRows: pInt(p, "training_window_steps")}, nil
-	},
-	"rnn":  recurrent("rnn"),
-	"gru":  recurrent("gru"),
-	"lstm": recurrent("lstm"),
 	"ridge_ar": func(p map[string]any) (Model, error) {
 		return RidgeAR{Lags: pInt(p, "lags"), Calendar: pBool(p, "calendar_features"), L2Lambda: pFloat(p, "l2_lambda"), MaxTrainRows: pInt(p, "training_window_steps"),
 			CovLags: pInt(p, "covariate_lags"), Direct: p["multi_step"].(string) == "direct", DirectAnchors: pInt(p, "direct_anchors")}, nil
@@ -52,13 +45,6 @@ var builtinBuilders = map[string]Builder{
 			Alpha: pFloat(p, "alpha"), MaxTrainRows: pInt(p, "training_window_steps"), CovLags: pInt(p, "covariate_lags"),
 			Direct: p["multi_step"].(string) == "direct", DirectAnchors: pInt(p, "direct_anchors")}, nil
 	},
-}
-
-func recurrent(cell string) Builder {
-	return func(p map[string]any) (Model, error) {
-		return Recurrent{Cell: cell, Lags: pInt(p, "lags"), Hidden: pInt(p, "hidden_size"), Epochs: pInt(p, "epochs"), LearningRate: pFloat(p, "learning_rate"),
-			MaxSamples: pInt(p, "max_samples"), Calendar: pBool(p, "calendar_features"), UseCovariate: pBool(p, "use_covariates"), Seed: int64(pInt(p, "seed"))}, nil
-	}
 }
 
 // builtinChecks reject combinations of parameters that are each valid alone.

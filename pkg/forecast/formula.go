@@ -975,7 +975,7 @@ func TryFormula(spec FormulaSpec, values map[string]any, horizon int) ([]float64
 
 func registerFormula() {
 	Register(Implementation{Definition: Definition{
-		ID: "formula", Category: "technical", Covariates: true, Dynamic: true,
+		ID: "formula", Category: "custom", Covariates: true, Dynamic: true,
 		Description: "Formula algorithm: the parameters and the formula are written on the page. The formula reads the history (x), the step ahead (k) and its parameters and may call the functions of the platform (mean, ema, slope, pct, macd, season ...).",
 		Complexity:  "O(h x length of the history) per forecast, no training, bounded by an operation budget",
 		MinHistory:  "min_samples of the formula",

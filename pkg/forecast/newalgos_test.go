@@ -142,108 +142,8 @@ func TestKNNFindsTheMatchingEarlierWindow(t *testing.T) {
 	assert.ErrorIs(t, err, ErrInsufficientHistory)
 }
 
-func TestNaiveBayesLearnsAStateMachine(t *testing.T) {
-	// the level climbs 1,2,3,4 and starts over: the class of the next value follows from the last one
-	in := series(400, func(i int) float64 { return float64(1 + i%4) })
-	m := NaiveBayes{Lags: 1, Bins: 4, Output: "mode"}
-	got, err := m.Forecast(context.Background(), in, 4)
-	require.NoError(t, err)
-	// the series ends at 4 (index 399), so 1 2 3 4 follow
-	assert.InDeltaSlice(t, []float64{1, 2, 3, 4}, got, 1e-9)
-	exp, err := NaiveBayes{Lags: 1, Bins: 4}.Forecast(context.Background(), in, 4)
-	require.NoError(t, err)
-	assert.InDeltaSlice(t, []float64{1, 2, 3, 4}, exp, 0.3)
-
-	for _, bad := range []NaiveBayes{{Lags: 0, Bins: 4}, {Lags: 1, Bins: 1}, {Lags: 1, Bins: 4, Output: "x"}} {
-		_, err = bad.Forecast(context.Background(), in, 1)
-		assert.Error(t, err, "%+v", bad)
-	}
-	_, err = m.Forecast(context.Background(), series(8, func(i int) float64 { return float64(i) }), 1)
-	assert.ErrorIs(t, err, ErrInsufficientHistory)
-}
-
-// numerically checks the analytic gradient of every cell on a tiny network and a short sequence
-func TestRecurrentGradientsMatchFiniteDifferences(t *testing.T) {
-	for _, cell := range []string{"rnn", "gru", "lstm"} {
-		t.Run(cell, func(t *testing.T) {
-			rng := rand.New(rand.NewSource(5))
-			net := newRecNet(cell, 3, 4, rng)
-			seq := make([][]float64, 5)
-			for i := range seq {
-				seq[i] = []float64{rng.NormFloat64(), rng.NormFloat64(), rng.NormFloat64()}
-			}
-			target := 0.7
-			loss := func() float64 {
-				d := net.forward(seq) - target
-				return 0.5 * d * d
-			}
-			net.zeroGrad()
-			pred := net.forward(seq)
-			net.backward(len(seq), pred, target)
-			analytic := append([]float64(nil), net.g...)
-			const eps = 1e-6
-			worst := 0.0
-			for i := range net.p {
-				orig := net.p[i]
-				net.p[i] = orig + eps
-				up := loss()
-				net.p[i] = orig - eps
-				down := loss()
-				net.p[i] = orig
-				numeric := (up - down) / (2 * eps)
-				worst = math.Max(worst, math.Abs(numeric-analytic[i])/math.Max(1e-6, math.Abs(numeric)+math.Abs(analytic[i])))
-			}
-			assert.Less(t, worst, 1e-4, "relative gradient error")
-		})
-	}
-}
-
-func TestRecurrentModelsLearnAndAreReproducible(t *testing.T) {
-	in := periodic(500, 40)
-	for _, cell := range []string{"rnn", "gru", "lstm"} {
-		m := Recurrent{Cell: cell, Lags: 16, Hidden: 8, Epochs: 12, LearningRate: 0.02, MaxSamples: 400, Seed: 1}
-		a, err := m.Forecast(context.Background(), in, 6)
-		require.NoError(t, err, cell)
-		b, err := m.Forecast(context.Background(), in, 6)
-		require.NoError(t, err, cell)
-		assert.Equal(t, a, b, "%s: the same seed gives the same forecast", cell)
-		// it follows the sine (amplitude 4 around 10) far better than a flat guess at the mean would
-		full := periodic(512, 40)
-		var e float64
-		for h := range a {
-			e += math.Abs(a[h] - full.Values[500+h])
-		}
-		assert.Less(t, e/6, 2.0, "%s: mean error", cell)
-	}
-}
-
-func TestRecurrentUsesCovariatesAndHonoursTheBudget(t *testing.T) {
-	in := periodic(300, 30)
-	cov := series(300, func(i int) float64 { return float64(i % 7) })
-	m := Recurrent{Cell: "gru", Lags: 8, Hidden: 4, Epochs: 3, LearningRate: 0.02, MaxSamples: 200, UseCovariate: true, Seed: 2}
-	a, err := m.Forecast(context.Background(), in, 3)
-	require.NoError(t, err)
-	in.Covariates = map[string][]float64{"x": cov.Values}
-	b, err := m.Forecast(context.Background(), in, 3)
-	require.NoError(t, err)
-	assert.NotEqual(t, a, b, "a covariate channel changes the model")
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	slow := Recurrent{Cell: "lstm", Lags: 16, Hidden: 16, Epochs: 200, LearningRate: 0.01, MaxSamples: 400, Seed: 1}
-	_, err = slow.Forecast(ctx, periodic(500, 40), 3)
-	assert.ErrorIs(t, err, context.Canceled, "a cancelled training stops at once")
-
-	for _, bad := range []Recurrent{{Cell: "x"}, {Cell: "gru", Lags: 1}, {Cell: "gru", Lags: 8, Hidden: 0}, {Cell: "gru", Lags: 8, Hidden: 4, Epochs: 0}} {
-		_, err = bad.Forecast(context.Background(), in, 1)
-		assert.Error(t, err, "%+v", bad)
-	}
-	_, err = m.Forecast(context.Background(), series(20, func(i int) float64 { return float64(i) }), 1)
-	assert.ErrorIs(t, err, ErrInsufficientHistory)
-}
-
 func TestNewAlgorithmsAreRegisteredWithSchemasAndBuild(t *testing.T) {
-	covariate := map[string]bool{"random_forest": true, "naive_bayes": true, "rnn": true, "gru": true, "lstm": true, "knn": false, "hist_percentile": false}
+	covariate := map[string]bool{"random_forest": true, "knn": false, "hist_percentile": false}
 	for id, wantCov := range covariate {
 		def, ok := Lookup(id)
 		require.True(t, ok, id)
@@ -261,7 +161,5 @@ func TestNewAlgorithmsAreRegisteredWithSchemasAndBuild(t *testing.T) {
 	_, err := Build("random_forest", map[string]any{})
 	assert.Error(t, err, "lags is required")
 	_, err = Build("knn", map[string]any{"normalize": "sideways"})
-	assert.Error(t, err)
-	_, err = Build("gru", map[string]any{"learning_rate": 5.0})
 	assert.Error(t, err)
 }

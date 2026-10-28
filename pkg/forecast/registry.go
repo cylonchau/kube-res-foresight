@@ -99,19 +99,6 @@ func Register(impl Implementation) {
 
 func num(v float64) *float64 { return &v }
 
-func recurrentParams() []ParamSpec {
-	return []ParamSpec{
-		{Name: "lags", Type: "int", Default: 24, Min: num(2), Max: num(500), Unit: "steps", Description: "输入窗口长度（步数）。"},
-		{Name: "hidden_size", Type: "int", Default: 8, Min: num(1), Max: num(128), Description: "隐藏单元数；越大越慢，历史只有几千点时 8–16 足够。"},
-		{Name: "epochs", Type: "int", Default: 15, Min: num(1), Max: num(500), Description: "训练轮数。"},
-		{Name: "learning_rate", Type: "float", Default: 0.01, Min: num(0.0001), Max: num(1), Description: "Adam 学习率。"},
-		{Name: "max_samples", Type: "int", Default: 1000, Min: num(16), Max: num(100000), Description: "只用最近多少个训练窗口。"},
-		{Name: "calendar_features", Type: "bool", Default: false, Description: "是否把 UTC 日/周周期的正余弦作为输入通道。"},
-		{Name: "use_covariates", Type: "bool", Default: true, Description: "是否把其他参与指标作为输入通道（只用目标步之前的值）。"},
-		{Name: "seed", Type: "int", Default: 42, Min: num(0), Max: num(1000000), Description: "随机种子（初始化与样本顺序），固定后结果可复现。"},
-	}
-}
-
 var builtinDefinitions = []Definition{
 	{ID: "naive", Category: "baseline", Baseline: true, Description: "持续值：以最后一个观测值作为所有未来步的预测，所有算法的最低对照。"},
 	{ID: "seasonal_naive", Category: "baseline", Baseline: true, Description: "季节持续：重复一个周期之前的值；需要至少一个完整周期的历史。", Params: []ParamSpec{
@@ -147,17 +134,6 @@ var builtinDefinitions = []Definition{
 		{OmitWhenDefault: true, Name: "same_time_of_day", Type: "bool", Default: false, Description: "只比较与当前窗口在同一时刻（UTC 时分）结束的历史窗口，适合形态属于一天中某个时刻的负载；候选变少，需要更长的历史。"},
 		{OmitWhenDefault: true, Name: "time_tolerance_minutes", Type: "int", Default: 60, Min: num(0), Max: num(720), Unit: "minutes", Description: "同一时刻的容差，仅 same_time_of_day=true 时使用；跨零点按环形计算。"},
 	}},
-	{ID: "naive_bayes", Category: "machine_learning", Description: "朴素贝叶斯：把目标和每个特征切成分位数桶，学习“类别先验 + 各特征桶在该类别下的概率”，预测下一步落在哪个类别并取类别均值（或后验期望），递归多步预测。分辨率受桶宽限制。", Params: []ParamSpec{
-		{Name: "lags", Type: "int", Default: 3, Min: num(1), Max: num(200), Unit: "steps", Description: "滞后步数。"},
-		{Name: "bins", Type: "int", Default: 8, Min: num(2), Max: num(64), Description: "目标与特征的分桶数。"},
-		{Name: "covariate_lags", Type: "int", Default: 1, Min: num(1), Max: num(24), Unit: "steps", Description: "每个参与指标取最近多少步的值作为特征；没有其他参与指标时忽略。"},
-		{Name: "calendar_features", Type: "bool", Default: true, Description: "是否加入 UTC 日/周周期特征。"},
-		{Name: "output", Type: "string", Default: "expectation", Enum: []string{"expectation", "mode"}, Description: "expectation = 后验加权的类别均值；mode = 最可能类别的均值。"},
-		{Name: "training_window_steps", Type: "int", Default: 0, Min: num(0), Unit: "steps", Description: "只用最近多少个样本训练；0 = 全部历史。"},
-	}},
-	{ID: "rnn", Category: "deep_learning", Description: "循环神经网络（Elman RNN）：读取最近一段窗口（目标、参与指标、可选日历位置）预测下一步，随后递归多步；纯 Go 进程内训练，受训练时间预算限制。", Params: recurrentParams()},
-	{ID: "gru", Category: "deep_learning", Description: "门控循环单元（GRU）：比 RNN 更容易学到较长的依赖；纯 Go 进程内训练，受训练时间预算限制。", Params: recurrentParams()},
-	{ID: "lstm", Category: "deep_learning", Description: "长短期记忆网络（LSTM）：带遗忘门与记忆单元，适合带周期与突发的负载；纯 Go 进程内训练，受训练时间预算限制。", Params: recurrentParams()},
 	{ID: "holt_winters", Category: "statistical", ImplVersion: "2", Description: "Holt-Winters（ETS 族）：水平、可选阻尼趋势、可选加性或乘性季节；平滑系数为 0 时在小网格内按样本内单步误差自动选择。预测不会低于 0。", Params: []ParamSpec{
 		{Name: "season_length_steps", Type: "int", Default: 0, Min: num(0), Unit: "steps", Description: "周期长度（步数）；0 表示不含季节项，启用季节项需要至少两个完整周期。"},
 		{Name: "trend", Type: "bool", Default: true, Description: "是否包含趋势项。"},
@@ -215,14 +191,10 @@ var notes = map[string][2]string{
 	"hist_percentile": {"O(n log n) per forecast, no training", "4 observations"},
 	"random_forest":   {"O(trees*n*lags*bins) to fit, retrained on every run; bounded by training_window_steps", "lags + 4 x min_samples_leaf + 1 observations"},
 	"knn":             {"O(n*window) per forecast, no training", "k x window + 1 observations with the exclusion zone (window + k + 1 without it), and k separate earlier windows followed by the horizon"},
-	"naive_bayes":     {"O(n*features) to fit, retrained on every run", "lags + 4 x bins + 1 observations"},
-	"rnn":             {"O(epochs*samples*lags*hidden^2) to train on every run; bounded by max_samples and the training time budget", "lags + 30 observations"},
-	"gru":             {"O(epochs*samples*lags*hidden^2) to train on every run; bounded by max_samples and the training time budget", "lags + 30 observations"},
-	"lstm":            {"O(epochs*samples*lags*hidden^2) to train on every run; bounded by max_samples and the training time budget", "lags + 30 observations"},
 }
 
 // covariateAlgorithms are the algorithms that read the covariates of an input set.
-var covariateAlgorithms = map[string]bool{"ridge_ar": true, "gbdt": true, "random_forest": true, "naive_bayes": true, "rnn": true, "gru": true, "lstm": true}
+var covariateAlgorithms = map[string]bool{"ridge_ar": true, "gbdt": true, "random_forest": true}
 
 func init() {
 	for i := range builtinDefinitions {

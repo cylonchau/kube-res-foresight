@@ -620,7 +620,7 @@ func TestDownsampleAveragesWholeBuckets(t *testing.T) {
 func TestOnlyBaselinesThatNeedNoParameterStartEnabled(t *testing.T) {
 	assert.True(t, DefaultEnabled("naive"))
 	assert.False(t, DefaultEnabled("seasonal_naive"), "it cannot run until the season length is set")
-	assert.False(t, DefaultEnabled("lstm"), "the heavy algorithms wait to be enabled")
+	assert.False(t, DefaultEnabled("gbdt"), "the heavy algorithms wait to be enabled")
 	assert.False(t, DefaultEnabled("nope"))
 }
 

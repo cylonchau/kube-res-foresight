@@ -446,7 +446,7 @@ P0：指标模板管理与模块关联（模块里不写死任何指标）。P1�
 - 新增指标说明只需在 `metricHelp` 增加键；组件按键取说明，没有说明的指标只显示名称。
 
 ### 18.3 算法清单与 Naive
-- 已实现并注册的内置算法 15 个（macd_trend 已移除）（含 A7 新增的 mstl；测试 `TestTheRegistryHoldsTheImplementedAlgorithms` 固定这份清单）：naive、seasonal_naive、ewma、hist_percentile、holt_winters、theta、mstl、ridge_ar、knn、random_forest、naive_bayes、gbdt、rnn、gru、lstm；另有 formula（管理员自写公式算法的基础，不算独立算法）。
+- 已实现并注册的内置算法 11 个（测试 `TestTheRegistryHoldsTheImplementedAlgorithms` 固定这份清单）：naive、seasonal_naive、ewma、hist_percentile、holt_winters、theta、mstl、ridge_ar、knn、random_forest、gbdt；另有 formula（管理员自写公式算法的基础，不算独立算法）。R15 移除了 macd_trend、naive_bayes、rnn、gru、lstm（见 19.3）；A3 保形分位数是每个非基线算法的参数，A5 直接多步是 ridge_ar 与 gbdt 的参数，A6 是 knn 的参数，A7 是 mstl，都不是独立条目。
 - 计划里的实现情况：A0 基线测量、A1 回测公平、A2 低估敏感评分、A4 Holt-Winters 补强与 Theta（**theta 是新注册的算法**）、A3 保形分位数（做成每个非基线算法的参数 `quantile_level`、`calibration_windows`，不是单独的算法条目）、A5 直接多步（`ridge_ar`、`gbdt` 的参数 `multi_step`）已完成；A6 KNN 互斥区与时刻约束（knn 的参数，ImplVersion 2）、A7 MSTL（新算法 mstl）已完成；**未实现**：A8 全局模型（只做设计，不实现）、A9 小型时序基础模型离线评估。算法管理页只显示已注册的算法：线上平台要用新二进制重启并升级后才会出现 theta（`EnsureAlgorithms` 在启动与首次请求时补齐配置行，新算法默认是否启用见 `DefaultEnabled`）。
 - 每个基线与统计类算法有 `Definition.Method`（`pkg/forecast/methods.go`），算法详情里的「计算过程与依据」显示：计算过程、公式、意义。naive：ŷ(T+h) = y(T)，只用最后一个观测值，是所有算法的最低对照（基线），候选算法必须在同样的起点上胜过它。
 
@@ -509,7 +509,7 @@ P0：指标模板管理与模块关联（模块里不写死任何指标）。P1�
 | P2 | 提示框 | 见 19.1 | — |
 
 ### 19.3 没有做或没有完全做的
-- **算法清理**：只删了 macd_trend（需求明说的金融技术分析类）。其他算法我没有判断为「没有实际意义」：naive_bayes 把序列分桶后做分类，对连续资源量的分辨率受桶宽限制，是最有可能被清理的候选，但它不是金融指标，也没有用户的明确指示，所以保留，由负责人决定。
+- **算法清理**：移除了 macd_trend（金融技术分析类）以及意义不大的 naive_bayes、rnn、gru、lstm。理由：naive_bayes 把序列分桶后预测一个桶，分辨率受桶宽限制；rnn、gru、lstm 每次运行都在单个工作负载的几千个点上现训练一个网络，受训练时间预算限制，没有任何一份测量显示它们在这类数据上胜过统计算法（A0 的基线表里没有它们）。保留的 random_forest、knn、gbdt、ridge_ar 都在 A0 里有测量。深度学习类别因此没有算法，前端的分类选项里也去掉了「技术指标」「深度学习」。升级迁移删除这些算法的设置、预测、评估、回测、训练、评分数据，以及以它们为基础的自定义算法；推荐记录里的算法名保留。
 - **多维度准确度**：评分按 CPU、内存、GPU、综合分行，副本数只在模块没有资源来源时出现。系统里**没有 Node 数量这个指标**，所以没有 Node 维度；历史数据页的副本数仍在右侧副轴，没有另拆页面。
 - **个人中心**：没有做成「原有」的标签页布局——原来的标签页还带 Telegram 绑定，Telegram 随旧工作流页面在前面的提交里整体移除，且本项目约定页面和弹窗不用标签页；所以只保留三张卡并增加账户信息卡。没有找到别的被删掉的账户功能。
 - **全局中文化**：抽查了列名和枚举值的渲染，没有发现外露的原始英文；没有逐页逐列做完整审计，浏览器里也没看过。

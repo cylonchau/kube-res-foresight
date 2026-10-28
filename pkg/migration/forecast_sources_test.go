@@ -118,7 +118,7 @@ func TestAFreshDatabaseNeedsNoConversion(t *testing.T) {
 	require.NoError(t, db.Where("algorithm_id = ?", "naive").First(&baseline).Error)
 	assert.True(t, baseline.Enabled, "the baselines start enabled")
 	var heavy model.AlgorithmConfig
-	require.NoError(t, db.Where("algorithm_id = ?", "lstm").First(&heavy).Error)
+	require.NoError(t, db.Where("algorithm_id = ?", "gbdt").First(&heavy).Error)
 	assert.False(t, heavy.Enabled, "the heavy algorithms wait to be enabled")
 }
 

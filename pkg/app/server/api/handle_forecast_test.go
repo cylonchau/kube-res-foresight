@@ -192,7 +192,7 @@ func TestAlgorithmListIsPagedSearchedAndFiltered(t *testing.T) {
 	enabled := list("enabled=true&page_size=50")
 	require.Len(t, enabled, 1)
 	assert.Equal(t, "ewma", enabled[0].(map[string]any)["id"])
-	assert.Greater(t, len(list("enabled=false&page_size=50")), 10)
+	assert.Greater(t, len(list("enabled=false&page_size=50")), 5)
 }
 
 func TestAlgorithmSettingIsValidatedAndRoundTrips(t *testing.T) {
@@ -1007,5 +1007,5 @@ func TestAnAlgorithmShowsHowFarItHasReachedInThePipeline(t *testing.T) {
 	assert.Equal(t, "running", listed[0].(map[string]any)["runtime"].(map[string]any)["state"], "the list carries it too")
 
 	// an algorithm nobody enabled stays disabled
-	assert.Equal(t, "disabled", runtimeOf("lstm")["state"])
+	assert.Equal(t, "disabled", runtimeOf("knn")["state"])
 }

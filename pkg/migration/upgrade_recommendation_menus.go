@@ -43,9 +43,12 @@ func removeOrphanForecastData(db *gorm.DB) error {
 	return nil
 }
 
-// retiredAlgorithms are algorithms that were taken out of the catalogue: macd_trend borrowed the shape of a stock-market
-// indicator, which has no place in a resource forecast (what it did, a damped trend, Holt-Winters and Theta do).
-var retiredAlgorithms = []string{"macd_trend"}
+// retiredAlgorithms are algorithms that were taken out of the catalogue. macd_trend borrowed the shape of a stock-market
+// indicator, which has no place in a resource forecast (a damped trend, Holt-Winters and Theta do what it did). naive_bayes puts the
+// series into quantile bins and predicts a bin, so its resolution is the width of a bin; rnn, gru and lstm train a network on
+// the few thousand points of one workload on every run under a time budget, and never had a measurement that they beat the
+// statistical algorithms there.
+var retiredAlgorithms = []string{"macd_trend", "naive_bayes", "rnn", "gru", "lstm"}
 
 // removeRetiredAlgorithms deletes the setting of a retired algorithm, of the custom algorithms built on it, and what was
 // stored for them (forecasts, evaluations, backtests, training records, scores): without the setting the enabled algorithm
