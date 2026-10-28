@@ -389,3 +389,13 @@ all ten management pages and the shared product title. Screenshots were inspecte
 - **快照历史**：独立菜单「推荐快照」与页面删除（授权带到资源推荐）；资源推荐页「快照历史」按钮开弹窗，版本名「模块名 快照 V300」，详情分模块与版本、推荐结果、产生原因、配置内容四块。
 - **降级回退**：时间列标题改「创建时间」。
 - **验证**：`go vet ./...`、`go test ./pkg/... ./cmd/...` 全部通过（新增评分资源口径、评分保留、孤儿推荐、模块删除级联、菜单退役测试）；前端 `vue-tsc`、eslint（0 错误）、`pnpm run build`、`node --test` 通过。**未验证**：浏览器 e2e（`modules-algorithms.mjs` 已按新页面改写并通过语法检查，但本会话的临时 QA 环境丢失、没有运行）；上面的页面行为（虚线缺口、全宽图、操作列不挡按钮、弹窗层级）没有在浏览器里看过。operator 新镜像已构建但因 Kyverno webhook 不可用未部署。
+
+### R12：评分最新值与依据、WAPE 说明、算法清单、操作日志、乱码、字段名（2026-10-28）
+
+- **算法评分**：`GET /algorithm-scores/latest` 每个模块×算法×资源只有最新一行（带资源排名、是否使用中），资源筛选（CPU/内存/GPU/综合）；评分把每个窗口的预测需要、实际需要、误差、使用的指标存进 `scoring.Result.details/sources`，详情分「评分结果 / 计算依据 / 历史评分」，依据里写公式与代入的数字。
+- **WAPE**：说明改成含义、公式、四步过程与例子、用途与局限；实测评估、实测排行榜、回测指标卡、评估详情、算法管理里的回测/实测 WAPE 都有问号（`MetricLabel`/`helpTitle`）；历史图例的 WAPE 文字后写出公式（图例里放不了图标）。
+- **算法清单**：内置 15 个算法已注册并由测试固定清单（含 theta；formula 是自写公式算法的基础）；A0–A5 已完成，A6 KNN 互斥区、A7 MSTL、A8 全局模型设计、A9 小型时序基础模型评估**未实现**。线上看不到 theta 是因为平台还是旧二进制，重启升级后出现。基线与统计类算法新增 `Definition.Method`（计算过程、公式、意义），naive 的说明写明它是最低对照。
+- **操作日志**：来源增加 Operator（operator 请求带 `X-kube-resource-fcst-Client: operator` 与 Pod 名），新增操作识别码 `request_id`（也在响应头）和 `client_name` 两列；列定义键 `createdAt`≠`created_at` 导致的原始字段名已改，其余未定义的列由 `fieldTitle()` 给中文名。
+- **乱码根因**：线上 `secret_key` 的 `operator` 备注与对应日志是非 UTF-8（GBK）请求体被解码成 U+FFFD 后入库，原文无法恢复。新增 `UTF8BodyMiddleware` 拒绝这类请求，截断改为字符边界，升级把已损坏的备注换成「请重新填写」的说明。
+- **用户管理**：用户接口补 email/phone/language，列表增加头像、更新时间、邮箱、手机、语言，昵称为空显示用户名。
+- **验证**：`go vet`、`go test ./pkg/... ./cmd/...` 通过（新增窗口明细、latest 端点、UTF-8 中间件、操作识别码、乱码修复、算法清单测试）；前端 `vue-tsc`、eslint（0 错误）、build、`node --test` 通过。**未验证**：浏览器 e2e（已改写、未运行）；operator 新头在集群里的实际效果（operator 镜像需重建部署）。

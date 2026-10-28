@@ -431,3 +431,48 @@ P0：指标模板管理与模块关联（模块里不写死任何指标）。P1�
 - 前端：`vue-tsc`、eslint（无错误）、`pnpm run build`、`node --test` 通过。
 - 浏览器（e2e，`scripts/e2e/modules-algorithms.mjs` 已按本节改，需要全新库 + fake Prometheus 运行）：评分记录模块名不空；当前排名页只有一个排名、没有评估选择器、详情里有「历史排名对比」；算法运行情况点「训练记录」弹窗、URL 不变；资源推荐点「快照历史」弹窗、版本名含模块名、详情四部分齐全；菜单里没有「训练记录」「推荐快照」；降级回退页有「创建时间」。
 - 不得通过伪造预测值或实际值填补历史数据；缺口只用虚线标出位置。
+
+
+## 18. 问题修复 R12：评分最新值与依据、WAPE 说明、算法清单、操作日志、乱码与字段名
+
+### 18.1 算法评分（覆盖 17.2）
+- 列表 `GET /algorithm-scores/latest`：每个模块、每个算法、每个资源（CPU、内存、GPU，可选「综合」）**只有一行**，是该算法的最新一次评分，不是每次评估一行；行内有分数、准确度、在该资源上的排名（第几 / 共几）、是否正在使用、评分时间。历史评分在详情里（`GET /algorithm-scores?module_id&algorithm` 取该算法最近 30 次）。该页没有时间筛选与批量删除（历史由 `forecast.score_max_per_module` 自动清理）。
+- 筛选：模块、算法、**资源**（全部资源 / CPU / 内存 / GPU / 综合）。名称写成「naive CPU」「naive 内存」。
+- 计算依据：评分时在 `scoring.Result` 里保存 `details`（每个窗口的起止、各资源的预测需要、实际需要、误差、是否低估、OOM、数据是否完整）、`sources`（每个资源读了哪些指标）、`under_weight`。详情的「计算依据」写出：使用的指标、公式、代入的数字（Σ误差、Σ实际需要、准确度、完整度系数、OOM 系数、分数），再列出每个窗口的实际需要 / 预测需要 / 误差（低估有标记）。综合行显示各资源的权重与贡献。
+- 旧的评分记录没有 `details`：详情的窗口表为空，下一次评分起有。
+
+### 18.2 WAPE 的统一说明
+- `page.forecast.metricHelp.wape` 写完整：含义、公式 WAPE = Σ|预测−实际| ÷ Σ|实际|、四步计算过程与数字例子、用途与局限（不区分高估低估，要和低估加权误差、高峰低估一起看）。所有出现 WAPE 的地方都用它：实测评估记录、实测排行榜、回测指标卡片、实测评估详情、算法管理里的回测 WAPE / 实测 WAPE（组件 `metric-label.vue` 或 `helpTitle`，问号保留换行）。历史数据图例里的 WAPE 文字不能放图标，改为在数字后写出公式。
+- 新增指标说明只需在 `metricHelp` 增加键；组件按键取说明，没有说明的指标只显示名称。
+
+### 18.3 算法清单与 Naive
+- 已实现并注册的内置算法 15 个（测试 `TestTheRegistryHoldsTheImplementedAlgorithms` 固定这份清单）：naive、seasonal_naive、ewma、macd_trend、hist_percentile、holt_winters、theta、ridge_ar、knn、random_forest、naive_bayes、gbdt、rnn、gru、lstm；另有 formula（管理员自写公式算法的基础，不算独立算法）。
+- 计划里的实现情况：A0 基线测量、A1 回测公平、A2 低估敏感评分、A4 Holt-Winters 补强与 Theta（**theta 是新注册的算法**）、A3 保形分位数（做成每个非基线算法的参数 `quantile_level`、`calibration_windows`，不是单独的算法条目）、A5 直接多步（`ridge_ar`、`gbdt` 的参数 `multi_step`）已完成；**未实现**：A6 KNN 互斥区、A7 MSTL、A8 全局模型（只做设计，不实现）、A9 小型时序基础模型离线评估。算法管理页只显示已注册的算法：线上平台要用新二进制重启并升级后才会出现 theta（`EnsureAlgorithms` 在启动与首次请求时补齐配置行，新算法默认是否启用见 `DefaultEnabled`）。
+- 每个基线与统计类算法有 `Definition.Method`（`pkg/forecast/methods.go`），算法详情里的「计算过程与依据」显示：计算过程、公式、意义。naive：ŷ(T+h) = y(T)，只用最后一个观测值，是所有算法的最低对照（基线），候选算法必须在同样的起点上胜过它。
+
+### 18.4 操作日志
+- 来源增加 `operator`（开发者凭证 + 请求头 `X-kube-resource-fcst-Client: operator`；页面会话不能冒充）。operator 的上报请求带 `X-kube-resource-fcst-Client: operator` 与 `X-kube-resource-fcst-Client-Name: <Pod 名>`。
+- 新字段：`request_id`（操作识别码：调用方的 `X-Request-Id`，没有则生成 `op-<UTC 时间>-<随机>`，同时写进响应头 `X-Request-Id`）、`client_name`（客户端）。列表有这两列，关键字也可搜；详情里显示。
+- 字段名：页面的列定义 key 与数据库字段不一致（`createdAt` 对 `created_at`）导致列设置里显示原始字段名；改正。所有没有页面定义的列由 `fieldTitle()` 取 `common.fields` 的中文名（`updatedAt` 与 `updated_at` 同一个），时间字段自动格式化。
+
+### 18.5 乱码
+- 根因：客户端（GBK 控制台里的 PowerShell 或 curl）发来的中文不是 UTF-8，JSON 解码把非法字节换成 U+FFFD 后入库，原文无法恢复。库里 `secret_key` 的 `operator` 凭证备注和对应的操作日志就是这样。
+- 修复：`UTF8BodyMiddleware` 拒绝非 UTF-8 的 JSON / 表单请求体（400，说明原因）；日志与备注的截断改为在字符边界截断（`truncate`、`trimTo`）；升级时把含 U+FFFD 的备注换成「(备注因提交时编码错误损坏，请重新填写)」，日志请求体换成说明（`repairBrokenRemarks`）。原备注要由管理员重新填写。
+
+### 18.6 用户管理
+- 用户列表接口补 `email`、`phone`、`language`；列表增加头像（无头像时显示首字）、更新时间、邮箱、手机、语言（简体中文 / English）；昵称为空显示用户名；没有角色显示「-」。
+
+### 18.7 验收标准（前端 / 后端 / 数据库）
+| 项 | 前端 | 后端 | 数据库 |
+|---|---|---|---|
+| 评分最新值 | 列表一行一个模块×算法×资源；资源筛选可用；详情分结果 / 依据 / 历史 | `/algorithm-scores/latest` 单测：两次评估仍是两行，每行带 `details`；资源行排名 | 无新表；`algorithm_score.detail` 的 JSON 增加 `details`、`sources` |
+| WAPE 说明 | 所有出现 WAPE 的页面有问号，内容含含义 / 公式 / 过程 / 用途 | — | — |
+| 算法清单 | 算法管理能看到 theta 等已注册算法；naive 详情有计算过程 | 注册表清单测试；基线有 `Method` | `algorithm_config` 行由 `EnsureAlgorithms` 补齐 |
+| 操作日志 | 来源有 Operator；操作识别码、客户端两列；列设置全是中文 | 中间件测试：operator 来源、识别码生成与保留；响应头 | `operation_log` 增 `request_id`、`client_name`（AutoMigrate） |
+| 乱码 | 备注与日志正常显示 | 非 UTF-8 请求体 400；字符边界截断；升级修复测试 | 已损坏的备注被替换为说明 |
+| 用户字段 | 头像 / 更新时间 / 邮箱 / 手机 / 语言有渲染，列设置无原始字段名 | `UserDTO` 带三个新字段 | 无变化 |
+
+### 18.8 没有做或没验证
+- 浏览器 e2e 已按本节改写并通过语法检查，但没有运行（本会话的 QA 环境丢失）；上面所有页面行为只经过类型检查、构建和后端测试。
+- 旧评分记录没有窗口明细；已损坏的备注不能还原。
+- 集群接入凭证页的备注显示本身没有问题（读取、编码、渲染都正常），乱码是入库时已经损坏。

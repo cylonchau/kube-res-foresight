@@ -29,3 +29,5 @@ SQLite 连接池只有 1 个连接（`pkg/store`）：开启事务后不要再�
 ## 提交
 
 """每次用户提供修改内容后，按照功能提交本地git"""
+
+- **请求体必须是 UTF-8**：`UTF8BodyMiddleware` 拒绝非 UTF-8 的 JSON / 表单，避免中文被替换成 U+FFFD 后入库；截断字符串一律在字符边界（`truncate`、`trimTo`）。操作日志每条有 `request_id`（响应头 `X-Request-Id`）与 `client_type`（page / api / cli / operator）、`client_name`。

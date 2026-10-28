@@ -546,11 +546,30 @@ try {
   await page.waitForTimeout(2000);
   check('ranking history: the old address is not a page any more', !(await bodyText()).includes('各算法评分随时间的变化'));
   await visit('forecast/score-records');
+  await page.waitForTimeout(1500);
+  const scoreList = await bodyText();
+  check('score records: the module name is not empty', !(await page.locator('.n-data-table-tbody .n-data-table-tr').first().innerText()).startsWith('\t'));
+  check('score records: there is a resource filter (CPU / memory / GPU / overall)', (await page.getByText('全部资源').count()) > 0);
+  check('score records: one row per module, algorithm and resource, not one per evaluation', (await page.locator('.n-data-table-tbody .n-data-table-tr').count()) <= 40 && /CPU|内存/.test(scoreList));
   await page.getByRole('button', { name: '详情' }).first().click();
-  await page.waitForTimeout(600);
+  await page.waitForTimeout(900);
   const scoreDetail = await page.locator('.n-modal').innerText();
-  check('score records: the detail has the error, accuracy, weight and contribution of each part', ['误差', '准确度', '权重', '贡献分', '综合分'].every(v => scoreDetail.includes(v)));
+  check('score records: the detail has the result, the calculation basis and the earlier scores, apart', ['评分结果', '计算依据', '历史评分'].every(v => scoreDetail.includes(v)));
+  check('score records: the basis names the metrics, the formula and the actual / forecast need of the windows', ['使用的指标', '准确度 = 1 −', '实际需要', '预测需要'].every(v => scoreDetail.includes(v)), scoreDetail.replace(/\s+/g, ' ').slice(0, 240));
   await page.keyboard.press('Escape');
+  // the WAPE explanation: meaning, formula, steps and use, behind the question mark
+  await visit('forecast-results/evaluations');
+  await page.waitForTimeout(1200);
+  await page.locator('.n-data-table-th', { hasText: 'WAPE' }).locator('.n-icon, svg').first().hover();
+  await page.waitForTimeout(500);
+  const wapeTip = await page.locator('.n-tooltip, .v-binder-follower-content').allInnerTexts();
+  check('WAPE: the question mark gives the meaning, the formula, the steps and the use', ['含义', '公式', '计算过程', '用途'].every(v => wapeTip.join(' ').includes(v)));
+  // the operation log: the source, the operation id and the client, with readable column names
+  await visit('system/operation-log');
+  await page.waitForTimeout(1200);
+  const opText = await bodyText();
+  check('operation log: the operation id and the client are columns', opText.includes('操作识别码') && opText.includes('客户端'));
+  check('operation log: no raw database field name is shown as a column name', !/created_at|client_type|status_code|duration_ms/.test(opText));
   await visit('forecast-results/algorithm-runs');
   await page.waitForTimeout(1200);
   check('runs: there is no page of training records of its own, the menu has none', !(await page.locator('.n-menu').first().innerText()).includes('训练记录'));
@@ -570,8 +589,8 @@ try {
   await shot('runs-data');
   await page.keyboard.press('Escape');
 
-  const TIME_FILTERED = ['forecast/score-records', 'forecast/ranking', 'forecast-results/algorithm-runs', 'forecast-results/history', 'forecast-results/evaluations', 'forecast-results/leaderboard', 'forecast-actions/executions', 'forecast-actions/admissions'];
-  const CHECKABLE = ['forecast/score-records', 'forecast/ranking', 'forecast-results/evaluations', 'forecast-results/leaderboard', 'forecast-actions/executions', 'forecast-actions/admissions'];
+  const TIME_FILTERED = ['forecast/ranking', 'forecast-results/algorithm-runs', 'forecast-results/history', 'forecast-results/evaluations', 'forecast-results/leaderboard', 'forecast-actions/executions', 'forecast-actions/admissions'];
+  const CHECKABLE = ['forecast/ranking', 'forecast-results/evaluations', 'forecast-results/leaderboard', 'forecast-actions/executions', 'forecast-actions/admissions'];
   for (const route of ['forecast/score-records', 'forecast/ranking', 'forecast-results/algorithm-runs', 'monitoring/datasets', 'forecast-results/history', 'forecast-results/evaluations', 'forecast-results/leaderboard',
     'forecast-actions/recommendations', 'forecast-actions/executions', 'forecast-actions/fallbacks', 'forecast-actions/admissions']) {
     await visit(route);
