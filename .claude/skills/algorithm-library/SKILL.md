@@ -11,7 +11,7 @@ description: 用于 kube-resource-fcst 算法注册、动态参数编辑、特�
 
 1. 区分特征、预测模型与控制策略。定义 AlgorithmDefinition 的 ID、类别、版本、输入、JSON Schema、最小样本、warm-up、训练窗口、horizon、输出单位、超时、回退和评估指标。
 2. 核实来源、粒度、单位、NaN/缺样、采样间隔与窗口；Service RPS 不冒充单 Pod 真值。参数提供中文解释、默认值来源、边界、依赖和 schema 版本。
-3. 算法纯 Go 实现（已实现 Naive、SeasonalNaive、EWMA、Holt-Winters、岭回归 AR、GBDT）、进程内运行，不引入 Python 或外部模型服务。首期实现 Naive/SeasonalNaive、EWMA/Holt-Winters 与岭回归/GBDT 对照；深度时序、预训练模型和 Prophet 不在范围内。自研实现须配单测与已知输出对照，目录字段是平台参数，由 Go 校验。
+3. 算法纯 Go 实现（已实现 Naive、SeasonalNaive、EWMA、Holt-Winters（加性/乘性季节、阻尼系数、非负截断）、Theta、岭回归 AR、GBDT 等）、进程内运行，不引入 Python 或外部模型服务。首期实现 Naive/SeasonalNaive、EWMA/Holt-Winters 与岭回归/GBDT 对照；深度时序、预训练模型和 Prophet 不在范围内。自研实现须配单测与已知输出对照，目录字段是平台参数，由 Go 校验。
 4. 多算法独立保存参数、权重、优先级、条件和频率，记录所有候选和选择原因。失败转候补，全部失败或样本不足使用已验证模块固定默认值，融合结果仍需安全校验。
 5. 评估与晋升读 [model-evaluation](../model-evaluation/SKILL.md)；算法不能直接改 Pod 或副本，扩缩容只由 kube-resource-fcst-operator 按 CRD 执行。
 
@@ -26,3 +26,9 @@ UI 沿用 web/src/views/system/config 等表单，宽屏弹窗自适应小屏。
 模型只有在工作负载滚动回测、峰值低估、SLO 和推理预算验证通过后才可晋升；未优于统计基线时保留基线。选型记录模型/库/权重版本与使用条件，不默认最新版适合生产。
 
 验证样本不足、非法参数、单位错配、模型超时、版本兼容、候补全部失败和无未来泄漏的滚动回测。
+
+**直接多步（P7 A5）**：岭回归 AR 与 GBDT 的 `multi_step`（recursive 默认｜direct）和 `direct_anchors`（默认 8）：direct 为每个锚点步长各训练一个模型，特征是起点之前的已观测值（含协变量），目标是起点之后第 h 步的值，日历特征取目标时刻，所以不把自己的预测当输入、误差不累积；锚点从第 1 步到最后一步均匀取点，中间线性插值；第 1 步与递归完全相同。历史要求加上 horizon−1（`forecast.MinSamplesFor`，回测起点与模块数据需求都按它算）；训练成本约为锚点数倍。参数在默认值时不进规范化存储。
+
+**推荐分位数（保形预测）**：每个非基线算法都有 `quantile_level`（0=点预测，默认；>0.5 如 0.9=「实际值不超过这条线」）和 `calibration_windows`（默认 8），由 `forecast.Conformal` 包装：在历史里取几个更早的截止点重跑本算法，按预测步收集误差，取 `ceil((K+1)·level)` 位的误差加到预测上；只读给定历史、同输入同输出；多跑 K 次预测，慢算法要放宽训练时间预算。参数在默认值时不进规范化存储，旧设置与模型版本不变；基线（naive、seasonal_naive）不提供，保持基线语义。分位预测存为 `quantile_permille`=level×1000，回测按该分位算 pinball 与覆盖率，晋升走分位规则（覆盖率不低于 level−0.1，且 pinball 胜过同分位下的基线；不按 WAPE，因为故意偏高的线必输）。
+
+算法质量改进（2026-10-28 评审）：问题清单、选型取舍与工作包 A0～A8 见 [改进计划](references/improvement-plan.md)。执行顺序是先测基线（A0）、修回测公平与低估敏感评分（A1/A2），再补算法；新增或改动算法前先读它，别绕过评估问题直接堆算法。

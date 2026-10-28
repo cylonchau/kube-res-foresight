@@ -50,7 +50,6 @@
 | **推荐与执行** | 资源推荐快照 | /forecast/recommendations | 不可变推荐版本、决策说明、来源 | 从「推荐与审计」拆出 |
 | | 扩缩容执行记录 | /forecast/executions | operator 上报记录 | 从「推荐与审计」拆出 |
 | | 降级与回退记录 | /forecast/fallbacks | 所有用了 Fallback/保持原值/OOM 地板的推荐及原因 | 新增（需求 4，第 5 节） |
-| | 审计导出 | /forecast/audit-exports | CSV 导出入口与导出历史（导出本身记入操作日志） | 从「推荐与审计」拆出 |
 | **监控指标** | 指标查询与目录 | /forecast/metrics | 指标目录、任意指标曲线查询、CSV 导出、保留期说明 | 原「指标」重做；删去「预测 vs 实测」预设按钮（移至趋势对比） |
 | **任务中心** | 不变 | | | |
 | **系统管理** | 系统参数 | /system/config | 含新增分类「LDAP 认证」 | 吸收 LDAP |
@@ -108,7 +107,7 @@
 1. 「资源推荐快照」：不可变版本、可按模块/来源/是否降级/时间筛选，详情含完整决策说明；服务端分页排序。
 2. 「扩缩容执行记录」：operator 上报记录，可按模块/结果/时间筛选；与快照版本关联（decision_version 跳转）。
 3. 「降级与回退记录」：来自推荐快照中 source 为 fallback / original、或带 OOM 地板、或协变量被丢弃的记录；列包含原因码、触发时间、恢复时间（下一次成功预测）、持续时长。
-4. 「审计导出」：快照、执行、降级三类 CSV，单元格防公式注入；每次导出写操作日志（谁、范围、行数）。
+4. 「审计导出」已在问题修复 R3 删除（接口、页面、权限）。
 5. 链路可追溯：执行记录 → 快照 → 算法预测行 → 评估；浏览器验收走通一条。
 
 ### R8 LDAP 并入系统参数
@@ -185,7 +184,7 @@
 ## 7. 删除/改名影响范围
 
 - 删除：authorization_ldap 前后端页面与路由、LDAP 专用 handler 路由（`/api/v1/ldap/*` 改为系统参数分类内的测试/同步操作端点）、`ldap_setting`/`ldap_group_mapping` 表（升级后退役）。
-- 改名/拆分：forecast_evaluation → 回测/评估/排行榜；forecast_recommendations → 快照/执行/审计导出；forecast_algorithms 的模板标签 → 独立菜单；forecast_metrics 的预设按钮 → 趋势对比。
+- 改名/拆分：forecast_evaluation → 回测/评估/排行榜；forecast_recommendations → 快照/执行/降级回退（审计导出已删除）；forecast_algorithms 的模板标签 → 独立菜单；forecast_metrics 的预设按钮 → 趋势对比。
 - 不受影响：已有预测算法的结果（回归测试保证单变量算法在相同输入下输出不变）、operator 与 CRD、任务中心、登录与令牌流程。
 
 

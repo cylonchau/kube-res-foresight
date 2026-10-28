@@ -1,6 +1,6 @@
 # kube-resource-fcst 实施计划与执行进度
 
-更新日期：2026-10-25。当前里程碑：P1～P6 的非真实环境部分与「预测系统优化」8 项需求（M1～M7）与「预测系统功能与页面优化」6 部分（R1～R8）均已实现并通过自动化测试与浏览器验收；真实环境验证仍缺。
+更新日期：2026-10-28。当前里程碑：P1～P6 的非真实环境部分与「预测系统优化」8 项需求（M1～M7）与「预测系统功能与页面优化」6 部分（R1～R10）均已实现并通过自动化测试与浏览器验收；真实环境验证仍缺。P7 算法质量：A0 基线测量、A1 回测公平、A2 低估敏感评分、A3 保形分位数、A4 Holt-Winters 补强与 Theta、A5 直接多步已完成，A6～A8 未开始。
 
 ## 1. 进度口径与当前结论
 
@@ -28,6 +28,7 @@
 | 重构 R4/R5 推荐计算 | 已实现 | OOM 地板（max(OOM 前工作集, 内存 Limit)×uplift，对除 bypass 外所有来源生效，受模块上限约束并标注）、JVM 堆压力约束并入动态副本求解；推荐详情记录 OOM、堆压力、各字段来源与降级原因；页面可解释 |
 | 重构 R6 模块与 Fallback | 已实现 | Fallback 默认值与降级阈值（覆盖率下限、允许缺样率、恢复周期数）为模块页独立块；模块列表带关联摘要与运行状态标签；克隆（含算法绑定与固定周期） |
 | 重构 R7 降级链与审计 | 已实现 | 降级按字段独立（bypass > 固定周期 > 算法 > 模块 Fallback > 保持原值），原因码 no_data / stale_data / insufficient_history / predictor_failed / no_prediction / stale_prediction / no_eligible_model / recovering；恢复需 recover_cycles 个连续健康周期（module_run_state）；降级与回退记录页含持续时长与恢复时间；审计导出 5 类，每次导出写操作日志；kubeforecast_fallback_total{reason,field} |
+| 问题修复 R10 历史曲线、资源与副本职责、推荐快照、降级与回退 | 已实现 | 见本文末 2026-10-28 R10 记录与 [规格第 16 节](../.agents/skills/requirements/references/algorithm-framework-spec.md)：图表刷新/图例/断点（含视野覆盖运行周期）、数据源并发不设上限、算法运行状态、时间选择器 3h/12h 与表格列宽、Pod 规格与副本分开（取整、保持、规格版本）、资源推荐与推荐快照（状态、保留）、降级与回退两类记录 |
 | 重构 R8 LDAP 并入系统参数 | 已实现 | LDAP 存为 ldap.* 系统参数（不出现在通用接口），系统参数页新增 LDAP 分类（连接、用户/组、组到角色映射、测试、同步）；旧 ldap_setting/ldap_group_mapping 在 --migration/--upgrade 迁入并退役，登录行为不变 |
 | Windows 可执行产物 | 已生成 | target/bin 下主程序、server、job；不代表预测功能上线 |
 | Platform 指标与探针（P5-02） | 已实现 | pkg/metrics 提供 /metrics、/healthz、/readyz（metrics.listen）；forecastsvc.Collector 在抓取时读库导出模块启用/旁路、推荐值/来源/年龄/有效性、样本与预测年龄、实测 WAPE/峰值低估、晋升状态，标签仅 module/metric/algorithm/resource/source；已在浏览器验收的服务上取得真实抓取输出 |
@@ -72,6 +73,7 @@ P0 的结果应落入技能与 schema；P1 数据接入可在边界明确的部�
 | P4B 副本执行 | P4B-01 CRD/schema/RBAC；P4B-02 决策来源；P4B-03 reconcile/status；P4B-04 扩缩容演练 | kubeforecast-operator 按 PredictiveScaler CRD 执行扩缩容，动态参数在硬边界内执行，冷却/限幅/Ready/恢复对账 | P0-03、P3 通过 | 状态：P4B-01～03 已实现（fake client 测试）；P4B-04 扩缩容演练未做，Prometheus 来源已实现（httptest 验证），Adapter 来源有意不做；阶段验收未满足 |
 | P5 闭环与运维 | P5-01 实测回填/排行榜；P5-02 Platform Metrics；P5-03 审计导出；P5-04 发布验证 | 关联预测/推荐/准入/执行/Ready；业务指标、健康诊断、部署与回滚文档 | P2 起持续建设，执行评估依赖 P4 | 状态：P5-01 实测回填与排行榜、P5-02 指标与 /readyz、P5-03 CSV 审计导出、数据保留清理已实现；P5-04 部署说明见 deploy/README.md，灰度与故障演练报告未做；执行效果评估（Pod-hours、SLO）未实现 |
 | P6 完整需求与增强 | P6-01 LDAP；P6-02 增强算法；P6-03 其他决策来源 | LDAP/禁用同步/应急管理员；其他 Go 实现的 challenger 算法；其余决策适配器 | 基础闭环稳定，数据和预算具备 | 状态：P6-01 LDAP 已实现；P6-02 增强算法未做；P6-03 中 Prometheus 决策来源已实现，Adapter 有意不做 |
+| P7 算法质量 | A0 基线测量；A1 回测公平；A2 低估敏感评分；A3 保形分位数；A4 Holt-Winters 补强与 Theta；A5 直接多步；A6 KNN 修正；A7 MSTL；A8 全局模型设计 | 先量化现状，再修评估，再补算法；每个包有单测与无泄漏回测；四类主力算法（季节朴素+分位数基线、ETS/Holt-Winters、Theta、GBDT 直接多步分位数）的现状与缺口逐项对应工作包，见改进计划 2.1 | P2 回测与评分已存在 | 状态：A0～A5 已完成（见 [改进计划](../.agents/skills/algorithm-library/references/improvement-plan.md) 第 4 节与 [A0 基线](../.agents/skills/algorithm-library/references/baseline-a0.md)）；A6～A8 未开始；准确率结论只来自测试环境约 2.9 小时的数据，不是生产结论 |
 
 P4A 与 P4B 在 P3 后可独立推进，但新工作负载先 Observe，再 Recommend，分别验证 Admission/Auto 才开放相应写入。P5 的模型评估和审计从 P2/P3 起建设，不能拖到执行上线后补证据。
 
@@ -279,3 +281,111 @@ all ten management pages and the shared product title. Screenshots were inspecte
 - 发现并修复：SQLite 以文本存时间且带各自偏移，起止时间筛选在跨时区时比较错误（结束时间筛不出刚产生的记录）——SQLite 统一以 UTC 写入，筛选边界转 UTC。
 - 验证：go build/vet/gofmt，go test -p 1 ./... 全部通过（pkg/app/server/api 新增 compare、批量、查询测试用例）；vue-tsc、lint（0 错误）、locales 编译测试；浏览器 e2e `modules-algorithms.mjs`（全新 SQLite 库 + 模拟 Prometheus）168/168。指标评分排行榜的有数据路径用拦截的 API 应答验证。
 - 未验证/未做：真实 Prometheus 上的 K 线对比与查询测试（只在模拟 Prometheus 上跑）；MySQL/PostgreSQL（新增列与 SQL）；SQLite 中旧行仍是本地时区偏移，旧数据上的起止筛选在跨时区时可能不准，新写入的行是 UTC；资源推荐快照与降级回退按要求未改，仍用原来的“最近 N 小时”筛选。
+
+2026-10-26（问题修复 R3：真实数据链路、合并排名、算法覆盖、记录链路，规格与验收见 [algorithm-framework-spec.md](../.agents/skills/requirements/references/algorithm-framework-spec.md) 第 10 节）：
+- 根因（在用户真实库的副本上复现）：① SQLite 旧行带 `+08:00`，起止时间筛选按文本比较把它们全部筛掉——回测 537、扩缩容 122、实测评估 5662 行都在库里，页面是空的；新增迁移 `normalizeSQLiteTimes` 把所有 datetime 列重写为 UTC。② 评分回放没有可用窗口时仍存一行 0 分并按名称排名（库里 435 行评分有 355 行是这种）：现在不产生评分行，排名查询只读 `windows > 0`。③ random_forest 启用时没有必填参数 `lags`，715 次训练全部失败：启用（单个与批量）前按参数 schema 校验。④ 准入记录为 0：系统设置 `forecast.allow_admission_mode=false` 时旧代码在查模块之前就拒绝、不落记录；现在先查模块，拒绝也记录。⑤ 历史数据「两个列表没有数据却有大量分页」：容器 `h-460px` 在可滚动页面里被 flex 压缩到只剩表头与分页，容器改 `flex-shrink-0`，`ListTablePanel` 对空列表不显示分页。
+- 全部已启用算法都出现：`compare` 的 `statuses`、排行榜的 `status/reason`、指标评分的 `unranked`、排名的 `status/reason`；状态取自训练记录（ready / skipped / failed / not_run / no_result）。真实库副本上 10 个已启用算法：排行榜 7 个有名次，3 个（holt_winters、knn 跳过：历史质量不足；random_forest 失败：缺 lags）列出原因。
+- 页面：当前排名与历史排名与两个独立列表合为一页「排名」（时间范围区分当前与历史，可打开某次评估，历史评估列表服务端分页）；删除 `ranking-history` 页与菜单；历史数据 = 真实历史 + 预测记录，趋势对比 = 各算法预测对实际 + 误差汇总 + 逐点误差；训练记录概览只留四个数，成功/跳过/失败与原因在详情里；新增「算法运行情况」页（每算法运行次数/成败/命中率/平均耗时/最近一次/常见原因，来自训练记录）；删除审计导出（接口、页面、菜单、权限 `forecast:audit:export`，迁移清理已有授权，操作日志不再特判）；图表工具栏与图例分行、范围滑块 44px、图高 480–500；下拉滚动条留槽；Logo 换为 `site/assets/favicon.svg`；模块编辑页新增「指标预览」，用与 Metrics 数据集页相同的 `PromqlTester`。
+- 验证：`go vet`、`gofmt`、`go test -p 1 ./...`（43 个包全部通过，新增时间迁移、状态/启用校验、准入拒绝记录用例）；`vue-tsc`、lint（0 错误）、locales 编译测试；浏览器 e2e `modules-algorithms.mjs`（全新 SQLite + 模拟 Prometheus）177/177。另在真实库副本（`target/ui-real`，端口 20141，不动 20001 的实例）上逐页核对：回测、扩缩容执行、历史排名、10 个算法的状态都有数据或明确原因；对副本发一次准入请求，确认记录落库并在准入记录页显示（该行只在副本里）。
+- 未验证/未做：真实 Kyverno 调用准入接口（用户环境里没有请求到达平台，也没有部署验证）；真实 Prometheus 的 K 线对比与查询测试；MySQL/PostgreSQL（时间迁移只对 SQLite，新 SQL 只在 SQLite 跑过）；用户库里已存在的 355 行 0 窗口评分仍在「算法评分」记录页里（该页按要求不改），只是不再进入排名；`forecast-results_algorithm-runs` 菜单对已有自定义角色不会自动授权，需要在授权管理里加；用户的 20001 实例需要用新二进制并执行 `--migration` 才会有时间迁移与菜单变更。
+
+2026-10-27（问题修复 R4：排名页分页、历史数据与趋势合并、训练数据，规格见 [algorithm-framework-spec.md](../.agents/skills/requirements/references/algorithm-framework-spec.md) 第 11 节）：
+- 排名页分页不可用的根因：卡片内 `NSpin` 无高度，列表撑到 1122px，分页条被 `overflow: hidden` 裁在卡片外（浏览器探针量得分页条 y=1294，视口 900）。`RankList` 改为列布局并约束高度；排名页拆成当前排名 / 按指标排名 / 历史变化三个标签，一次一个视图。
+- 历史数据与预测趋势对比是同一个组件同一个接口，合并为「历史数据」（曲线、各算法误差、预测记录、数据缺口四个视图）；删除趋势对比页、路由、菜单（迁移 `forecast-results_trends` → 历史数据）。
+- 新增 `GET /training-runs/{id}/data` 与训练记录详情的「训练数据」标签：该次训练读取的窗口样本与它写出的预测。
+- 验证：见下一条的实测结果。
+
+2026-10-27（问题修复 R5：去掉所有标签页，预测领先于实际）：
+- 用户多次要求不要标签页，R4 仍用了分段标签（排名页 3 个、历史数据 4 个、训练记录详情 2 个）——违反已有约束，现已全部去掉，并把规则写成硬约束进 `constraint/frontend.md`。排名页改为一个列表（「评估时间」筛选选历史评估，指标排名在详情里）；历史数据页改为一个图表 + 一个预测记录列表；训练记录详情纵向排列运行信息与训练数据。
+- 图表增加「现在」竖线与「预测（尚未发生）」着色区，默认窗口最近 3 小时再向后一个预测时长，让预测领先于实际值。
+- 验证见本轮最终报告。
+
+2026-10-27（问题修复 R6：全局界面规范、模块/记录/系统/用户整理，规格见 [algorithm-framework-spec.md](../.agents/skills/requirements/references/algorithm-framework-spec.md) 第 13 节：优先级、页面名称、删除后的数据处理、验收标准）：
+- 已实现：Logo 亮暗两版；统一的 Kibana 风格时间组件（相对窗口/固定范围，每页一个）；关键列独立复制图标；评分类列与表单字段的“?”说明（`help-title.ts`、`help-label.vue`，文案在 `page.formHelp.*`）；Naive 默认“请输入/请选择”全局置空并给搜索条件补字段名；模式与状态名称中文化；模块页去掉固定周期、数据集入口与底部指标块，改为按需「指标预览」；数据集页去掉周期/算法需求/采集行；删除滚动回测、运行概况、指标目录页（菜单随迁移退役）；资源推荐只列最新版（每模块保留 20 版）；「扩缩容记录」与准入记录各保留 30 天；历史数据去掉概览，图表按 Grafana 风格重写，预测在前，线条类型下拉；训练一直“跳过”的根因是 `window_steps` 截断训练历史，已修；用户有本地/LDAP 类型、联系方式 EAV（`user_contact`，可存任意类型，首个邮箱/电话镜像回旧列）、角色与用户批量启用/停用/删除；集群接入凭据有用途与复制；个人中心去掉标签页，联系方式改为同一套 EAV。
+- 本轮顺带发现并修复的既有缺陷：SQLite 连接池只有 1 个连接，casbin 的 `Enforcer.SavePolicy` 在事务内再走连接池，创建/修改用户或角色会永久卡住整个服务；`SyncPolicies` 改为事务内重写 `casbin_rule`。预测列表同一秒内排序不稳（新旧两次运行的预测值顺序不定），排序末位改为 `id DESC`。
+- 验证（本轮最终代码）：`go vet`、`gofmt`、`go test -p 1 -count=1 ./...` 全部通过；web `vue-tsc`、`oxlint`、`oxfmt --check`、locales 单测（4 项）、`vite build` 通过；全新 SQLite + 假 Prometheus 上 `scripts/e2e/modules-algorithms.mjs` 201/201；逐页清扫脚本（占位文案、英文单词、标签页）无遗留。e2e 需要 `fake-prometheus.mjs` 的每日空洞离当前时间远一点：在回看窗口内会让连续历史低于 80% 而被正确拒绝，用 `HOLE_MINUTE` 调整。
+- 未完成或只做了一部分：中文化与搜索框宽度按清扫脚本和抽查页面为准，未做逐像素审计；性能只统计了请求次数并去掉重复请求，没有大数据量渲染实测；指标目录的有效功能只并入了数据集表单；任务定义里的两个轮询周期字段当前调度器没有读取（说明已写进“?”提示）；用户中心的密码/OTP 表单没有逐项“?”；Kyverno 策略未在集群安装；平台 20001 需重新编译并执行 `--migration` 后才生效；自定义角色不会自动获得 `forecast-results_algorithm-runs` 菜单。
+
+2026-10-27（问题修复 R7：固定周期、统一预测/实际表述、查询单一入口、启用/禁用，规格见 [algorithm-framework-spec.md](../.agents/skills/requirements/references/algorithm-framework-spec.md) 第 14 节：优先级、固定周期冲突规则、决策可追溯、验收标准）：
+- 固定周期恢复为模块表单里的分区（`period-editor.vue`）：名称、启用/禁用、起止时间、固定副本/CPU/内存、优先级，随模块保存（新增、更新、删除）；后端决策一直是“旁路 > 固定周期 > 算法 > 兜底 > 原值”，本轮加了服务级测试（窗口内固定、窗口后恢复、禁用不生效）。每周重复的周期只列出、不改动。
+- 决策详情新增 `periods`（每个周期是否启用/生效）与 `sources`（数据源、查询、层级、单位、步长、统计、取值依据），解释弹窗按“字段 → 生效顺序一句话 → 固定周期 → 指标来源 → 计算过程”展示。
+- 模块：行内正好四个按钮（编辑、删除、克隆、旁路/解除旁路），去掉“更多”；表单新增“参与计算的指标”分区（逐条启用/禁用、预览，查询在数据集页添加）；指标预览打开即执行。
+- 数据集：只有“直接写查询”一种模式，“执行查询”在同一表单内显示结果，删除“自定义/选择映射”二选一和第二个对话框；可套用内置模板（只填充表单）；编辑时查询不变则保持原映射，改了则写新映射并在无人使用时删除旧映射（`PUT /modules/:id/sources/:sid` 新增 `custom`）；删除“指标映射”页和菜单（授权迁到 Metrics 数据集），模板页只读。
+- 历史数据：算法选择与状态标签条并入图表图例（名称 · 最新预测值 · WAPE，点击显示/隐藏，无预测的灰显并提示原因），预测线画在实际线之上。
+- 启用/禁用统一用 `status-select.vue`，用词统一为“启用/禁用”（原有“停用”全部替换）；集群接入凭据列名改为 Access Key（AK）/ Secret Key（SK，已隐藏），页内说明它不是 Kubernetes Secret 也不是盐值；LDAP 认证配置成为系统参数页的按钮（带启用/禁用状态）+ 抽屉；操作列宽按按钮数量收紧。
+- 顺带修复：SQLite 连接池只有 1 个连接时，casbin `SavePolicy` 会让用户/角色创建永久卡住；登录不再读联系方式表（未迁移的库也能登录）。
+- 验证：`go vet`、`gofmt`、`go test -p 1 -count=1 ./...` 通过；web `vue-tsc`、`oxlint`、`oxfmt`、locales 单测、`vite build` 通过；全新 SQLite + 假 Prometheus 的 e2e（含在模块表单里真实添加固定周期并用接口核对、窗口内/禁用后的推荐来源）。
+- 未完成或只做了一部分：操作列里按钮已按数量收紧，但表格会把总宽度按比例拉伸，列宽仍比按钮宽约 90px（没找到不影响其它列的办法）；图例里的文字只能靠截图核对（ECharts 画在 canvas 上，e2e 读不到）；指标映射页已删但 `metric_mapping` 表、接口和模板页保留；固定周期只在界面里支持绝对时间段；新建模块时还不能在表单里直接绑定指标（保存后到数据集页添加，表单里已写明）；用户中心密码/OTP 表单没有逐项“?”；你的 20001 实例需要重新编译并执行 `--migration`。
+
+2026-10-27（问题修复 R8：指标模板、状态标签、时间选择器、操作列，规格见 [algorithm-framework-spec.md](../.agents/skills/requirements/references/algorithm-framework-spec.md) 第 15 节）：
+- 指标模板：恢复「指标模板」页（菜单 `datasource_metric-mappings`，表 `metric_mapping`，名字不再叫“映射”）：写一次 PromQL（带 `{{namespace}}`、`{{workload}}` 变量），可套用内置模板，表单里选一个模块就把变量换成该模块的参数并执行，结果在同一表单里显示；模块表单的“参与计算的指标”改成和固定周期一样的动态多行（模板 + 权重 + 启用/禁用 + 预览），保存时增删改对应的模块指标；数据集页只选模板、设作用，不再写查询。模块里不再内置任何指标。删除被模块指标使用的模板返回 409（此前会留下指向不存在模板的指标，已补 DAO `UsedBy` 与测试）。
+- 列表里的启用/禁用改为状态标签（算法列表原来的选择框已去掉），状态改在编辑表单或批量菜单里。
+- 时间选择器：触发按钮改为普通按钮样式（背景/边框随亮暗主题，高度与同行一致），历史数据、当前排名、曲线三页把它移到筛选区最后；e2e 检查每页它都是最后一个字段、只有一个。
+- 操作列：表格多出的宽度改由最宽的文字列吸收，操作列只占按钮宽度（数据源、模块、集群凭据、指标模板实测列宽与按钮宽度之差 ≤ 60px）。模块表单里“参与计算的指标”与“固定周期”之间加了分隔线和间距。
+- 另外：operator 已用新凭据重新部署并确认可用（镜像改用数字用户 `10001`，`runAsNonRoot` 才能通过；`forecast-test/kubeforecast-platform` 的 Secret 已换成新的 AK:SK，四个 PredictiveScaler 都是 Ready，决策有效）。
+- 验证：`go vet`、`gofmt`、`go test -p 1 -count=1 ./...`；web `vue-tsc`、`oxlint`、`oxfmt`、locales 单测、`vite build`；全新 SQLite + 假 Prometheus 的 e2e（含模块表单里添加指标模板并核对权重、指标模板页新增并在表单内测试、时间选择器位置与主题、算法状态标签、操作列宽度）。
+- 未完成或只做了一部分：历史数据页按要求没动；暗色主题下时间选择器只用截图核对（亮色由 e2e 检查）；`metric_mapping` 的 API 路径仍叫 `/metric-mappings`（只改了界面和文案名）；新建模块时可以直接在表单里添加指标模板（保存模块后一并写入），但预览要等保存后才能按该模块的参数渲染；你的 20001 平台要重新编译并 `--migration` 才会有“指标模板”菜单。
+
+2026-10-28（问题修复 R9：LDAP 回到系统参数列表、行内按钮、时长输入）：
+- 模块保存报 `cannot unmarshal number 0.1666…`：时长输入组件在“分钟”字段里仍提供秒单位，选 10 秒发出小数。现在单位只提供不小于字段单位的选项，发出的值一律取整。
+- LDAP：删除抽屉和单独表单（`ldap-settings-panel.vue`），`ldap.*` 作为普通系统参数出现在列表（分类“LDAP 认证”），逐项编辑；`ldap.bind_password`、`ldap.ca_cert` 列表只显示遮盖，回传遮盖表示不改。保存时按整体校验：未启用时只检查各项格式，启用时校验完整并连通目录，失败不保存。迁移 `EnsureDefaultConfigs` 写入默认的 ldap.* 行（默认关闭）。`/ldap/settings`、`/ldap/test`、`/ldap/sync` 接口保留，页面不再使用测试与同步按钮（启用时自动检查连接，同步仍由每小时任务执行）。测试：`TestLDAPParametersAreEditedLikeAnyOtherSystemParameter`。
+- 行内操作按钮统一 `tiny`，主题同任务列表：编辑实心 primary，启用/禁用/重置 warning/success ghost，删除 error ghost。技能 `constraint/frontend.md`（两侧）已更新。
+- 验证：`go test ./pkg/...` 通过；eslint 对改动文件无错误（顺带清掉 compare-view、数据集页的未使用变量）；oxfmt 已格式化。`vue-tsc` 仍有 2 个旧错误（`forecast.d.ts` 的 `CombineMode` 未定义、`naive-ui.d.ts` 的 `SelectBaseOption`），不是本次改动，尚未处理，会挡住预提交的 typecheck。浏览器 e2e 未重跑（脚本里旧的 LDAP 抽屉检查已改成列表检查）。
+
+2026-10-28（算法评审与改进计划，P7）：评审 `pkg/forecast`（Naive、SeasonalNaive、EWMA、Holt-Winters、岭回归、KNN、随机森林、MACD、百分位）、`pkg/backtest`、`forecastsvc/backtest.go`；GBDT、神经网络、朴素贝叶斯、公式算法只看了注释与参数。发现 9 项（递归多步收敛、WAPE 对低估不敏感、回测起点少、候选与基线起点可能不同、KNN 重复计数等），选型取舍与工作包 A0～A8 写入 [improvement-plan.md](../.agents/skills/algorithm-library/references/improvement-plan.md)，并在 algorithm-library、model-evaluation 技能里加了指引（两侧已同步）。**本轮没有改任何代码**，没有跑回测，所以文中的“业界依据”不是本项目结论；A0 会用测试平台数据给出第一份实测基线。下一步：A0 → A1 → A2。
+
+2026-10-28（P7 A0/A1/A2：实测基线、回测公平、低估敏感评分）：
+- **A0**：新增 `scripts/baseline`（`go run ./scripts/baseline -db <库>`，在数据库副本上跑平台自己的回测路径并输出 markdown 表，不碰原库）。在测试平台数据（load-api、load-batch 各 CPU/内存，约 2.9 小时、步长 60 秒、视野 10 步；load-web 只有 6 分钟历史多数被跳过，load-cache 快照时数据过期未计入）上用同一份快照对比旧、新代码，结果和读数注意事项见 [baseline-a0.md](../.agents/skills/algorithm-library/references/baseline-a0.md)。
+- **A1**：`backtest.Origins` 与 `Config.Spread/SeasonSteps/Origins`：起点铺开在整段历史上、避开日周期整数倍，默认起点 5→10；`forecastsvc.compareWithBaselines`：候选与每个基线在共同起点上比较（候选需要时在基线的窗口上重跑），须胜过所有可用基线，共同窗口少于 3 个的基线不用；`Evaluate` 拒绝点数/起点数不同的比较；`forecast.MinSamplesFor` 修了 KNN 在铺开起点上因视野不足整体被跳过。
+- **A2**：回测结果新增 `bias`、`risk_wape`、`under_weight`（低估按 3 倍计）；晋升多一条“低估加权误差不得更差”（沿用 PeakTolerance，旧结果不比较）；实测排行榜按 RiskWAPE 排名（由已存的 WAPE/MAE/偏差还原，无需迁移），WAPE 并列显示；排行榜新增「低估加权误差」列（默认可见、有说明、中英文），回测详情新增「低估加权误差」「评分窗口」卡片。模块评分（回放准确度）未改。
+- **同时处理的界面项**：行内按钮 tiny 后，e2e 量出操作列过宽，已按按钮数收窄各页操作列宽，并把表格组件操作列的最小宽度 120→72。
+- **验证**：`go vet ./...`、`go test ./pkg/...` 通过（新增 `pkg/backtest/shared_origins_test.go`、`pkg/forecastsvc/shared_windows_test.go`、排行榜排名测试）；浏览器 e2e `scripts/e2e/modules-algorithms.mjs` 全新 SQLite 库上 242/242 通过（新增：回测结果带低估加权误差与权重、候选与基线点数/起点数相同、排行榜出现「低估加权误差」、行内按钮 tiny）；eslint 对改动文件无错误。`vue-tsc` 仍有 2 个旧错误（`CombineMode`、`SelectBaseOption`），不是本轮改动，未处理。
+- **在这份数据上的结果**：66 个结果里 12 个晋升状态变化（晋升 20→22），原因是起点与窗口变化（A1）；A2 的低估规则没有成为任何一次拒绝的原因；CPU 上新版没有非基线算法被晋升（naive 最好），内存上多数算法胜过 naive。**这是 2.9 小时合成负载上的结果，不能当算法优劣或生产准确率结论。**
+- **余项/已知后果**：旧回测记录与新记录的 WAPE 因窗口不同不可直接比较，已存的晋升要重跑回测才按新规则更新；运行中的平台（20001）需用新二进制重启才有这些变化，没有动用户的实例；昨日同一时刻基线在不足一天的历史上不参与比较；下一步 A3（保形分位数）、A4（Holt-Winters 补强与 Theta）。
+
+2026-10-28（P7 A4/A3：Holt-Winters 补强与 Theta、保形分位数）：
+- **A4**：`HoltWinters` 增加 `seasonal_mode`（additive/multiplicative；乘性要求历史严格大于 0，触到 0 的序列被拒绝而不是悄悄改成加性）、`damping_phi`（0.8–1）、`non_negative`（默认开，预测不低于 0）；非季节趋势初值改用前 10 点的最小二乘斜率；`ImplVersion` 升到 2，所以旧的 Holt-Winters 晋升会失效（预期，需重跑回测）。新增 `Theta`（SES 加斜率一半的漂移，自动选 alpha，可选季节分解，预测不低于 0），注册在算法目录，默认不启用。新参数在默认值时不进规范化存储，旧设置与版本签名不变。
+- **A3**：`forecast.Conformal` 包装任意模型：用历史里几个更早的截止点测它自己的误差，按预测步取 ceil((K+1)·level) 位的误差加到预测上。做成**每个非基线算法的参数** `quantile_level`（0=点预测，默认）和 `calibration_windows`（默认 8），沿用算法管理与模型版本机制（和计划里“模块参数”不同，已在改进计划里说明）；`forecast.Quantiled` 让回测按该分位算 pinball 与覆盖率、预测按 level×1000 存；分位预测的晋升改走分位规则（`backtest.evaluateQuantile`：覆盖率不低于 level−0.1、pinball 胜过同分位下的基线、峰值低估不更差），基线也按候选的分位评分。
+- **测试与证据**：新增 `pkg/forecast/theta_hw_conformal_test.go`（乘性季节随水平增长、拒绝触零历史、非负、阻尼、初值、参数不影响旧存储；Theta 的常数/直线/公式/季节形状；保形覆盖率在合成噪声上约 0.9±0.06、无泄漏与确定性、历史不足、顺序统计量、基线不提供分位参数）、回测包的分位晋升测试、`TestAQuantileForecastIsStoredAndScoredAtItsLevel`（服务层端到端：存 900‰、按 0.9 评分）。`go vet ./...`、`go test ./pkg/...` 通过；浏览器 e2e 在全新 SQLite 库上 247/247 通过（新增：Theta 在目录里、Holt-Winters 新参数、每个非基线算法有分位参数而基线没有、分位低于 0.5 被拒、算法编辑页出现 quantile_level/calibration_windows 并截图）。
+- **在测试平台数据上的读数**（同一份 2.9 小时快照，详见 [baseline-a0.md](../.agents/skills/algorithm-library/references/baseline-a0.md) 的“A3/A4 补充”）：Theta 的低估加权误差 6 个来源平均最低（0.260 对 random_forest 0.269、naive 0.326），差距很小，不足以排出先后；P90 线覆盖率从约 0.5–0.65 升到 0.83–0.89（略低于名义 0.9），WAPE 变成两倍多（故意偏高），6 个来源里 5～6 个按分位规则被晋升。**这是 2.9 小时合成负载上的结果，不是生产结论；要不要把某个算法设成 P90 取决于业务对“扛不住”和“浪费”的权衡，没有替用户决定，默认仍是点预测。**
+- `scripts/baseline` 新增 `-enable`、`-set 算法={JSON}`，并把时钟固定在副本里最新样本之后（旧快照也能测）。
+- **余项/已知后果**：乘性季节没有在真实日周期数据上验证（快照只有 2.9 小时，装不下一个日周期）；Conformal 每个窗口多跑一次预测，慢算法（GBDT、神经网络）要放宽训练时间预算；校准只用 8 个窗口时覆盖率偏低一些；运行中的平台需用新二进制重启；所有改动未提交。下一步 A6（KNN 修正）、A5（直接多步）。
+
+2026-10-28（P7 A5：直接多步）：
+- 岭回归 AR 与 GBDT 增加 `multi_step`（recursive 默认｜direct）和 `direct_anchors`（默认 8）。direct：每个锚点步长各训练一个模型，特征是起点之前的已观测值（含协变量），目标是起点之后第 h 步，日历特征取目标时刻，不把自己的预测当输入；锚点均匀取点、中间线性插值；第 1 步与递归相同。`featureSpec.trainingDirect`、`directSteps`、`interpolateSteps`；拟合抽成 `fitRidge`、`GBDT.fit`，递归路径行为不变。参数在默认值时不进规范化存储，旧设置与模型版本不变。
+- 历史要求加上 horizon−1：新增 `forecast.HorizonMinimum`/`MinSamplesFor` 的实现（岭回归、GBDT），回测起点与「模块数据需求」页都按它算（顺带让 KNN、保形分位数的需求显示也包含视野）。
+- 测试：`pkg/forecast/direct_test.go`（锚点与插值、h=1 的训练矩阵与原矩阵相同且 h>1 向前看、第 1 步与递归相同且确定、噪声正弦上 40 步误差直接比递归低 10% 以上、历史要求、参数不影响旧存储）；`go vet ./...`、`go test ./pkg/...` 通过；浏览器 e2e 新增两项检查（岭回归与 GBDT 有 multi_step，ewma 没有；未知模式被拒）。
+- **在测试平台数据上的读数**（见 baseline-a0.md「A5 补充」）：10 步视野下直接与递归没有明显胜负（GBDT WAPE 0.143→0.144、低估加权 0.288→0.257；岭回归 0.146→0.154）；长视野（40 步）的噪声正弦合成测试里直接比递归误差低约 22%（岭回归）和 37%（GBDT）。因此直接多步是选项，默认仍递归，预测视野长时再试。**2.9 小时合成负载，不是生产结论。**
+- 余项：直接多步的训练成本约为锚点数倍，慢模型要放宽训练时间预算；随机森林、朴素贝叶斯、神经网络没有直接多步；运行中的平台需用新二进制重启；所有改动未提交。下一步 A6（KNN 互斥区）、A7（MSTL）、A8（全局模型设计）。
+
+2026-10-28（问题修复 R10：历史曲线、数据源并发、算法管理、时间选择器与表格、资源与副本职责、推荐快照、降级与回退；规格见 [algorithm-framework-spec.md](../.agents/skills/requirements/references/algorithm-framework-spec.md) 第 16 节）：
+- **预测断点（先查真实库）**：在测试平台库上量出两个原因。load-web 的视野只有 1 分钟而预测任务每 5 分钟一次，每次只预测一步，目标时间每 5 分钟才有一个；其余模块的断点是平台没运行的几个小时。修复：`AlgorithmRun.CoverMinutes()`（视野不短于运行间隔，默认 5 分钟任务周期，预测/回测/数据需求都用）；`PredictionDAO.ForCompare` 在库里取每个目标时间最新的点预测（原来读全部重叠运行再截 30 万行，长窗口会从新的一端截掉）；图上断开处线也断开并标出每个算法的中断处数，稀疏的点显示圆点。
+- **图表**：折线图自带刷新按钮（历史数据与指标曲线），图例只写名字并自动换行（不滚动、不分页、细节在悬浮提示），序列顺序预测在前、实际在后（`data-series` 给 e2e 核对）。
+- **数据源并发**：去掉固定上限 16（前端 `:max`、后端校验都去掉，只要求 ≥ 1），采集不会同时发起比分段数更多的请求；测试覆盖 64、500、负数、更新到 40。
+- **算法管理**：列表与详情新增 `runtime`（未启用/参数无效/等待首次预测/运行中/已跳过/运行失败），「运行状态」列写明；检查结果：注册、加载、启用的校验原本就有，缺的是「启用后要等下一个预测周期才第一次运行」没有说，现在页面写出来；「算法运行情况」算法列宽 170 → 130。
+- **时间选择器与表格**：所有时间筛选加「最近 3 小时」「最近 12 小时」；`ExpandableDataTable` 改为内容列同比例放大（最多 1.35 倍）、余下留在右侧，不再把多出的宽度倒进一个列，操作列最小宽度 120 → 72，各页模块/算法/数据集列统一 130；`scripts/e2e/table-fit.mjs` 量出「列宽 − 内容宽」：留白超过 150px 的列从 32 个降到 6 个（剩下的是内容本来就空的列）。
+- **资源与副本职责**：operator 决策接口只回副本；Pod CPU/内存规格（`forecastsvc/resourcespec.go`）取整（CPU 10m/50m，内存 10Mi/64Mi 并向上）、生效后保持（变化不超过 `forecast.resource_change_ratio`=20% 不改，降低等 `forecast.resource_hold_hours`=24 小时，增加/固定周期/旁路/OOM 立即生效）、带规格版本；这两个参数在系统参数里新增「预测与资源」分类。单位展示：420m、1.5 核、320Mi、2Gi。
+- **资源推荐与推荐快照**：「资源推荐」页 = 各模块当前推荐；新菜单「推荐快照」= 历史：第一个、每个变化、至少每小时一个（`recommendation.snapshot`），状态 待执行/已执行/执行失败/已过期（以及仅建议），由 operator 执行报告与准入记录得出；保留 = 最近 20 条推荐 + 每个模块最多 `forecast.snapshot_max_per_module`（200）个快照，最新的永远保留；升级补记快照，拥有旧页面权限的角色自动获得新菜单。接口 `GET /snapshots`、`/snapshots/:id`；扩缩容记录的结果名统一。
+- **降级与回退**：重新定义并分开（降级 = 改用安全配置，回退 = 变更没落地、保持此前有效配置；平台没有「撤销已应用的变更」的机制，不说成有）；`GET /fallbacks` 新增 `kind`，记录有触发原因、原配置、目标配置、实际执行结果、发生时间、是否进行中；降级按事件（从第一个降级快照到下一个正常快照）合并，不再每个周期一行；页面默认可见五列恰好是这五项。
+- **验证**：`go vet ./...`、`go test ./pkg/...` 通过（新增 `for_compare_test`、`coverage_test`、`resourcespec_test`、`snapshot_test`、`handle_snapshot_test`、降级与回退测试、数据源并发测试、算法运行状态测试、菜单拆分迁移测试）；web `pnpm run typecheck`（已无报错，顺带修了 `CombineMode`）、eslint、oxfmt、单测通过；浏览器 e2e 在全新 SQLite 库上 273/273 通过（含 R10 的 21 项：数据源并发、历史页刷新并真的重读、图例预测在前、时间快捷项、算法运行状态、取整与规格版本不变、快照只含快照且有状态、快照可打开、降级与回退五项、新菜单）。
+- **未验证/余项**：真实集群上规格保持与滚动更新的关系（规格更新只到新 Pod，运行中的 Pod 要等滚动）；operator 重启与租约丢失（上一轮发现，未处理）；`forecasttask` 里 `TestRunJobHonoursTheRunIntervalOfAModule` 在 HEAD 上就有约 20% 的偶发失败，未处理；所有改动未提交。
+
+### 修复轮（历史图、列表宽度、算法评分）
+
+- **历史页**：去掉搜索栏与图表之间的提示卡片；图表无数据时在图内说明原因（Prometheus 无数据或读取错误）；图默认只画前 6 条预测线，其余在图例点选，刷新保留选择。load-web 无数据的根因未能确认（无法实时查 Prometheus；库副本显示其历史点只有约 10 个、多次运行因历史不足被跳过）。
+- **列表宽度**：`ExpandableDataTable` 去掉 1.35 倍上限，内容列同比例放大到铺满容器（此前只占约 2/3）。
+- **资源推荐操作列**：`columnMinWidths: { operate: 150 }`，保存过的窄列宽不再遮按钮（按代码推断，未在浏览器看到原遮挡）。
+- **降级回退**：时间列标题改「创建时间」（该列本来就在默认第一位）。
+- **算法评分**：当前排名页只保留一个排名，去掉评估选择器与历史快照模式；算法详情新增「历史排名对比」；评分记录页「使用中」改为「当时使用」并移出默认列（每条历史记录都带当时状态，才会出现多个）。评分记录页保留。
+- **验证**：`vue-tsc` 类型检查、改动文件 eslint、`pnpm run build` 通过。**未验证**：浏览器 e2e（临时 QA 环境与 Playwright 在会话中丢失，未重建），e2e 脚本已改但未运行；operator 新镜像已构建但因 Kyverno webhook 不可用未能滚动更新。
+
+### R11：算法评分、历史数据、资源推荐、快照历史（2026-10-28）
+
+- **算法评分**：准确度改为只针对资源（CPU、内存、GPU），副本数由资源推出、不再是独立准确度（只有模块没有任何资源来源时才退回副本数）；每个资源有自己的分与排名（`scoring.Result.Metrics`、接口 `breakdown[].score`）；当前排名页加「指标」选择（综合/CPU/内存/GPU），汇总行显示使用中算法及各资源准确度；评分记录的模块名称修复（列 key 与字段不一致，没有渲染）；「使用中」在记录里改称「当时使用」；新系统参数 `forecast.score_max_per_module`（默认 300）与 `PruneScores`，评分后和定时清理时按“评估次数”保留。公式与例子见规格第 17.1 节。
+- **历史数据**：缺口处同色虚线连接两端并用灰色底纹标出，图下说明未补值，虚线不进提示框；没有副本轴时右侧不留空；无数据原因写在图里。数据量少的原因：load-web 的 `lookback_hours` 是 1 小时（样本被清理）、Prometheus 本身只有约 2 小时数据并有 17 分钟与 6 分钟的空洞——是配置与数据源，没有改。
+- **算法实时排行榜**：列收窄，表头补问号说明（排名、状态、次数、点数、胜过基线、已晋升）。
+- **训练记录**：独立页面与菜单 `forecast-results_runs` 删除（授权带到算法运行情况）；在算法运行情况里点「训练记录」开弹窗，详情在弹窗内切换。
+- **资源推荐**：列表里零散的 9、3、2、1、4 是已删除模块（ID 1、2、3、4、9）留下的旧推荐；列表只含现存模块，删除模块时级联删除它的推荐/预测/评估/回测/训练记录，升级时清掉已有孤儿行。
+- **快照历史**：独立菜单「推荐快照」与页面删除（授权带到资源推荐）；资源推荐页「快照历史」按钮开弹窗，版本名「模块名 快照 V300」，详情分模块与版本、推荐结果、产生原因、配置内容四块。
+- **降级回退**：时间列标题改「创建时间」。
+- **验证**：`go vet ./...`、`go test ./pkg/... ./cmd/...` 全部通过（新增评分资源口径、评分保留、孤儿推荐、模块删除级联、菜单退役测试）；前端 `vue-tsc`、eslint（0 错误）、`pnpm run build`、`node --test` 通过。**未验证**：浏览器 e2e（`modules-algorithms.mjs` 已按新页面改写并通过语法检查，但本会话的临时 QA 环境丢失、没有运行）；上面的页面行为（虚线缺口、全宽图、操作列不挡按钮、弹窗层级）没有在浏览器里看过。operator 新镜像已构建但因 Kyverno webhook 不可用未部署。

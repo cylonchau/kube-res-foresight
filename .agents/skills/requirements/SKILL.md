@@ -12,7 +12,7 @@ description: 用于 kube-resource-fcst 需求拆解、菜单权限、管理页�
 ## 按需读取
 
 - 算法管理（平台级统一配置）与模块的职责划分、自动关联、菜单与迁移：[module-algorithm-spec](references/module-algorithm-spec.md)。
-- 算法注册框架与自定义公式算法、训练记录、Metrics 数据集（分类、换算/精度/聚合/缺失处理、自定义 PromQL）、数据周期与算法需求、评分/当前排名/历史排名页面：[algorithm-framework-spec](references/algorithm-framework-spec.md)。
+- 算法注册框架与自定义公式算法、训练记录（弹窗，无独立页面）、Metrics 数据集（分类、换算/精度/聚合/缺失处理、自定义 PromQL）、数据周期与算法需求、评分/排名（当前与历史在同一页）/算法运行情况页面：[algorithm-framework-spec](references/algorithm-framework-spec.md)。
 - 页面、LDAP、数据源和模块：[功能范围](references/features.md)。
 - API、表、事件和指标：[共享契约](references/contracts.md)。
 - 阶段与测试：[验收标准](references/acceptance.md)。

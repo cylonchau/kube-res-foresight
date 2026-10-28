@@ -9,9 +9,10 @@ description: 开发、排查、评审或规划当前仓库 kube-resource-fcst �
 
 ## 开始任务
 
-1. 读取 [AGENTS.md](../../../AGENTS.md)、[代码地图](../../../.agents/skills/requirements/references/repository-map.md) 和 [执行进度](../../../docs/platform-progress.md)。核对源码与 Git 状态，区分已有实现、规划和待验证能力。
-2. 读取 [需求与接入](../../../.agents/skills/requirements/SKILL.md)，再按下表只加载当前任务所需技能及其 references；文件中的相对链接相对该文件解析。
+1. 必读 [AGENTS.md](../../../AGENTS.md)。[代码地图](../../../.agents/skills/requirements/references/repository-map.md) 只在需要定位文件时读；[执行进度](../../../docs/platform-progress.md) 只看末尾条目或用 Grep 查相关主题，不整篇读。核对源码与 Git 状态，区分已有实现、规划和待验证能力。
+2. 只在需求拆解、菜单权限、系统设置、数据源接入或验收类任务时读取 [需求与接入](../../../.agents/skills/requirements/SKILL.md)；其余任务按下表只加载当前任务所需的一份技能及其 references；文件中的相对链接相对该文件解析。
 3. 找到最近的实现，沿既有分层和界面模式增量修改；完成授权范围内工作，执行相关验证，更新进度中的当前基线、工作包状态和证据。
+4. 查找文件、符号或用法直接用 Grep/Read，不为此启动子代理；只有用户明确要求，或任务确实需要并行的独立大块工作时才用。
 
 ## 按任务读取
 
