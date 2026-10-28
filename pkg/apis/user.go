@@ -9,6 +9,9 @@ type UserDTO struct {
 	Username   string    `json:"username"`
 	NickName   string    `json:"nickName"`
 	Avatar     string    `json:"avatar"`
+	Email      string    `json:"email"`
+	Phone      string    `json:"phone"`
+	Language   string    `json:"language"`
 	Status     bool      `json:"status"`
 	Roles      []RoleDTO `json:"roles,omitempty"`
 	OtpEnabled bool      `json:"otpEnabled"`
