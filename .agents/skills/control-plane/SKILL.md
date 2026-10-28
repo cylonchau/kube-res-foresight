@@ -40,3 +40,4 @@ PredictiveScaler 只是把模块里已有的内容（工作负载、上下界、
 - 入口 `kube-resource-fcst operator`（pkg/cmd/operator，默认开启 leader election）；清单 deploy/operator。验证只用 controller-runtime fake client：未做 envtest 与真实集群，扩缩容、RBAC、CRD 安装、leader election 切换都未验证。
 
 **operator 只管副本（R10）**：operator 决策接口只回副本数与边界，不回 CPU/内存；Pod 资源由准入设置并保持不变，二者读同一个推荐快照里互不重叠的字段，不会冲突。操作记录里「执行失败」「冲突未执行」属于回退记录，「没有可用决策」属于降级记录（见规格第 16.7 节）。
+- **决策先于动作（R18）**：operator 读决策时，平台先保证它不比 `forecast.decision_max_age_seconds`（默认 60 秒，0 = 关）老：过期就由平台重新采集、预测、决策再回答（`FreshRecommendation`，每个模块一次一个，失败读存着的那版，有自己运行间隔的模块不刷新）。operator 不自己判断决策新不新鲜，也不在平台之前动作。

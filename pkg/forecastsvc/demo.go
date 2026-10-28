@@ -198,7 +198,9 @@ func (s *Service) CreateDemo(ctx context.Context) (*DemoResult, error) {
 	// Replay earlier prediction cycles on a copy of the service whose clock is set back, so the predictions of
 	// the last hours exist and can be scored against the actuals collected afterwards.
 	now := s.now()
-	sim := *s
+	// (a copy of the settings of the service, not of its locks)
+	sim := &Service{Modules: s.Modules, Algorithms: s.Algorithms, Mappings: s.Mappings, Datasources: s.Datasources, Samples: s.Samples, Config: s.Config,
+		Predictions: s.Predictions, RunStates: s.RunStates, Telemetry: s.Telemetry, NewQuerier: s.NewQuerier, Now: s.Now, FetchOptions: s.FetchOptions}
 	for cycle := demoWarmupCycles; cycle >= 1; cycle-- {
 		at := now.Add(-time.Duration(cycle) * time.Duration(demoHorizonMin) * time.Minute)
 		sim.Now = func() time.Time { return at }

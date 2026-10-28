@@ -3,6 +3,7 @@ package forecastsvc
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -256,4 +257,204 @@ func TestADaemonSetHasNoReplicaCount(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, rec.CPUSet, "its requests are adjusted")
 	assert.False(t, rec.ReplicasSet, "its replicas are never set")
+}
+
+// forecastsOf stores forecasts the platform had for the last steps, made 5 minutes before each: the value of each step comes from
+// value(actual), so a test chooses how well an algorithm followed the load.
+func (f *fixture) forecastsOf(t *testing.T, metric, algorithm string, steps int, value func(actual float64) float64) {
+	t.Helper()
+	ctx := context.Background()
+	series, err := f.svc.Samples.Series(ctx, f.module.ID, metric)
+	require.NoError(t, err)
+	step := time.Duration(series.StepSeconds) * time.Second
+	now := floorToStep(testNow, step)
+	samples, err := f.svc.Samples.Range(ctx, series.ID, now.Add(-time.Duration(steps-1)*step), now)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(samples), steps)
+	for _, sm := range samples {
+		target := time.Unix(sm.TS, 0).UTC()
+		require.NoError(t, f.db.Create(&model.Prediction{ModuleID: f.module.ID, Metric: metric, AlgorithmID: algorithm, ModelVersion: "lag",
+			PredictionTime: target.Add(-5 * time.Minute), TargetTime: target, QuantilePermille: 500, Value: value(sm.Value), Unit: "cores"}).Error)
+	}
+}
+
+// The algorithm with the best replay score is not followed once its newest forecasts have missed the load by far: the score is
+// refreshed every few hours and looks back over old windows, a load that has just changed shows at once in what it forecast a
+// few minutes ago. Before this, a top algorithm that copied the past stayed in use through a drop of 90% until its score caught up.
+func TestAnAlgorithmThatHasJustMissedTheLoadByFarIsNotFollowed(t *testing.T) {
+	f := scoredFixture(t, "naive", "seasonal_naive")
+	ctx := context.Background()
+	scores, err := f.svc.ScoreModule(ctx, f.module.ID)
+	require.NoError(t, err)
+	byName := map[string]*model.AlgorithmScore{}
+	for _, s := range scores {
+		byName[s.Algorithm] = s
+	}
+	require.Greater(t, byName["seasonal_naive"].Score, byName["naive"].Score)
+
+	// without anything to compare, the score decides, as it did
+	_, detail, err := f.svc.Recommend(ctx, f.module.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "seasonal_naive", detail.Algorithm)
+
+	// the last ten steps: naive followed the load, seasonal_naive forecast ten times what happened
+	f.forecastsOf(t, "cpu", "naive", 10, func(a float64) float64 { return a })
+	f.forecastsOf(t, "cpu", "seasonal_naive", 10, func(a float64) float64 { return a*10 + 1 })
+	rec, detail, err := f.svc.Recommend(ctx, f.module.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "naive", detail.Algorithm, "the algorithm that followed the load, though its score is lower")
+	assert.Equal(t, "naive", rec.Algorithm)
+	var lagging, following SelectionRow
+	for _, row := range detail.Selection {
+		switch row.Algorithm {
+		case "seasonal_naive":
+			lagging = row
+		case "naive":
+			following = row
+		}
+	}
+	assert.True(t, lagging.Lagging)
+	assert.False(t, lagging.Eligible)
+	assert.True(t, lagging.Tracked)
+	assert.Equal(t, 10, lagging.TrackingPoints)
+	assert.Greater(t, lagging.TrackingWAPE, 5.0)
+	assert.Greater(t, lagging.TrackingBias, 0.0, "above the load")
+	assert.Contains(t, lagging.Reason, "lagging")
+	assert.Contains(t, lagging.Reason, "above")
+	assert.True(t, following.Chosen)
+	assert.InDelta(t, 0, following.TrackingWAPE, 1e-9)
+}
+
+func TestTheLagIsJudgedOnEnoughStepsAndOnlyWhenAnotherAlgorithmFollows(t *testing.T) {
+	f := scoredFixture(t, "naive", "seasonal_naive")
+	ctx := context.Background()
+	_, err := f.svc.ScoreModule(ctx, f.module.ID)
+	require.NoError(t, err)
+
+	// two steps are noise: nothing is dropped
+	f.forecastsOf(t, "cpu", "seasonal_naive", 2, func(a float64) float64 { return a*10 + 1 })
+	_, detail, err := f.svc.Recommend(ctx, f.module.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "seasonal_naive", detail.Algorithm)
+	assert.False(t, detail.Selection[0].Lagging)
+
+	require.NoError(t, f.db.Where("model_version = ?", "lag").Delete(&model.Prediction{}).Error)
+	// when every algorithm is off, there is nothing better to switch to: the score decides
+	f.forecastsOf(t, "cpu", "seasonal_naive", 10, func(a float64) float64 { return a*10 + 1 })
+	f.forecastsOf(t, "cpu", "naive", 10, func(a float64) float64 { return a*10 + 1 })
+	_, detail, err = f.svc.Recommend(ctx, f.module.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "seasonal_naive", detail.Algorithm)
+	for _, row := range detail.Selection {
+		assert.False(t, row.Lagging, row.Algorithm)
+	}
+}
+
+func TestTrackingMeasuresTheMissAsAShareOfTheLoadAndItsDirection(t *testing.T) {
+	assert.False(t, Tracking{Points: 2, WAPE: 9}.Lagging(), "too few steps")
+	assert.False(t, Tracking{Points: 10, WAPE: 0.49}.Lagging())
+	assert.True(t, Tracking{Points: 10, WAPE: 0.51}.Lagging())
+
+	one := &instanceState{eligible: true, tracking: Tracking{Points: 10, WAPE: 2, Bias: -2}}
+	two := &instanceState{eligible: true, tracking: Tracking{Points: 10, WAPE: 0.1}}
+	assert.Equal(t, 1, dropLagging([]*instanceState{one, two}))
+	assert.True(t, one.lagging)
+	assert.Contains(t, one.reason, "below", "an algorithm under the load says so")
+	assert.False(t, two.lagging)
+}
+
+// The decision comes before the action: a recommendation older than the operator should act on is made again from the load as it
+// is, and one that is recent is left alone. The scheduled task runs every few minutes; the scaler reads every 30 seconds.
+func TestARecommendationOlderThanTheLimitIsMadeAgainBeforeTheOperatorReadsIt(t *testing.T) {
+	f := scoredFixture(t, "naive")
+	ctx := context.Background()
+	_, err := f.svc.RunPipeline(ctx, f.module.ID)
+	require.NoError(t, err)
+	first, err := f.svc.Predictions.LatestRecommendation(ctx, f.module.ID)
+	require.NoError(t, err)
+	require.NotNil(t, first)
+
+	// 30 seconds later it is recent enough: the stored one is read
+	*f.clock = f.clock.Add(30 * time.Second)
+	rec, refreshed, err := f.svc.FreshRecommendation(ctx, f.module.ID, time.Minute)
+	require.NoError(t, err)
+	assert.False(t, refreshed)
+	assert.Equal(t, first.Version, rec.Version)
+
+	// three minutes later it is not: the platform decides again, and the operator is given the new version
+	*f.clock = f.clock.Add(150 * time.Second)
+	rec, refreshed, err = f.svc.FreshRecommendation(ctx, f.module.ID, time.Minute)
+	require.NoError(t, err)
+	assert.True(t, refreshed)
+	assert.Greater(t, rec.Version, first.Version)
+	assert.False(t, rec.CreatedAt.Before(*f.clock), "made at the time of the request")
+
+	// the next poll is within the limit of the new one
+	_, refreshed, err = f.svc.FreshRecommendation(ctx, f.module.ID, time.Minute)
+	require.NoError(t, err)
+	assert.False(t, refreshed)
+
+	// 0 turns it off
+	*f.clock = f.clock.Add(time.Hour)
+	_, refreshed, err = f.svc.FreshRecommendation(ctx, f.module.ID, 0)
+	require.NoError(t, err)
+	assert.False(t, refreshed)
+}
+
+func TestTheRefreshLeavesAModuleOnItsOwnIntervalAndAnObserveModuleAlone(t *testing.T) {
+	f := scoredFixture(t, "naive")
+	ctx := context.Background()
+	_, err := f.svc.RunPipeline(ctx, f.module.ID)
+	require.NoError(t, err)
+	first, err := f.svc.Predictions.LatestRecommendation(ctx, f.module.ID)
+	require.NoError(t, err)
+
+	// a module that runs every 30 minutes is not made again every minute because the scaler asks
+	f.setModule(t, func(m *model.ForecastModule) { m.RunIntervalMinutes = 30 })
+	*f.clock = f.clock.Add(5 * time.Minute)
+	rec, refreshed, err := f.svc.FreshRecommendation(ctx, f.module.ID, time.Minute)
+	require.NoError(t, err)
+	assert.False(t, refreshed)
+	assert.Equal(t, first.Version, rec.Version)
+
+	f.setModule(t, func(m *model.ForecastModule) { m.RunIntervalMinutes = 0; m.Mode = model.ModeObserve })
+	*f.clock = f.clock.Add(5 * time.Minute)
+	_, refreshed, err = f.svc.FreshRecommendation(ctx, f.module.ID, time.Minute)
+	require.NoError(t, err)
+	assert.False(t, refreshed, "an observe module makes no recommendation")
+}
+
+func TestManyRequestsAtOnceMakeTheRecommendationOnce(t *testing.T) {
+	f := scoredFixture(t, "naive")
+	ctx := context.Background()
+	_, err := f.svc.RunPipeline(ctx, f.module.ID)
+	require.NoError(t, err)
+	first, err := f.svc.Predictions.LatestRecommendation(ctx, f.module.ID)
+	require.NoError(t, err)
+	*f.clock = f.clock.Add(5 * time.Minute)
+
+	var wg sync.WaitGroup
+	versions := make([]int, 6)
+	for i := range versions {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			rec, _, err := f.svc.FreshRecommendation(ctx, f.module.ID, time.Minute)
+			if err == nil && rec != nil {
+				versions[i] = rec.Version
+			}
+		}(i)
+	}
+	wg.Wait()
+	for _, v := range versions {
+		assert.Equal(t, first.Version+1, v, "every request reads the one new version")
+	}
+}
+
+func TestTheDecisionAgeIsASystemParameterWithADefault(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	assert.Equal(t, DefaultDecisionMaxAge, f.svc.DecisionMaxAge(ctx), "nothing set: the default")
+	f.svc.Config = nil
+	assert.Equal(t, DefaultDecisionMaxAge, f.svc.DecisionMaxAge(ctx), "no config at all: the default")
 }

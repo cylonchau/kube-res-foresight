@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/cylonchau/kube-resource-fcst/pkg/collector"
@@ -47,6 +48,10 @@ type Service struct {
 	Now        func() time.Time
 	// FetchOptions overrides the request budget; the datasource concurrency is applied on top.
 	FetchOptions collector.Options
+
+	// refreshes and pipelines are per module (see FreshRecommendation and pipelineLock); the zero value is ready to use.
+	refreshes sync.Map
+	pipelines sync.Map
 }
 
 // New builds a service on the shared database handle.

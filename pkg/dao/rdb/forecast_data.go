@@ -204,6 +204,28 @@ func (dao *PredictionDAO) ForCompare(ctx context.Context, moduleID uint, metric 
 }
 
 // LatestRun returns the forecasts (point or quantile, as the algorithm produces) of the newest prediction run of an algorithm for a module metric.
+// ForecastsForTargets is, for each moment in [from, to] that an algorithm forecast, the forecast it had for it just before the
+// moment: the newest prediction made before the target time. It is what the platform believed the load of that moment would be,
+// which is what is compared with the load that came.
+func (dao *PredictionDAO) ForecastsForTargets(ctx context.Context, moduleID uint, metric, algorithmID string, from, to time.Time) ([]model.Prediction, error) {
+	var rows []model.Prediction
+	err := dao.db.WithContext(ctx).
+		Where("module_id = ? AND metric = ? AND algorithm_id = ? AND target_time >= ? AND target_time <= ? AND prediction_time < target_time",
+			moduleID, metric, algorithmID, from, to).
+		Order("target_time ASC, prediction_time DESC").Find(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	out := make([]model.Prediction, 0, len(rows))
+	for i, r := range rows {
+		if i > 0 && rows[i-1].TargetTime.Equal(r.TargetTime) {
+			continue // the first of each target time is the newest made
+		}
+		out = append(out, r)
+	}
+	return out, nil
+}
+
 func (dao *PredictionDAO) LatestRun(ctx context.Context, instanceID uint, metric, algorithmID string) ([]model.Prediction, error) {
 	var newest model.Prediction
 	err := dao.db.WithContext(ctx).Where("module_id = ? AND metric = ? AND algorithm_id = ?", instanceID, metric, algorithmID).

@@ -30,3 +30,4 @@ description: 用于 kube-resource-fcst 准确率、时间滚动回测、算法�
 ## 算法评分的准确度口径（R11）
 
 评分针对资源（CPU、内存、GPU）而不是副本数：负载需要的资源 ÷ 一个 Pod 的规格得出副本数，副本数不是独立的准确度。资源准确度 = 1 − Σ|预测−实际| ÷ Σ实际（低估乘 `Under`，下限 0）；每个资源有自己的分与排名，内存分另扣 OOM；综合分按权重合成，只有模块没有任何资源来源时才退回副本数。公式、例子与保留数量（`forecast.score_max_per_module`）见 [algorithm-framework-spec 第 17 节](../requirements/references/algorithm-framework-spec.md)；代码在 `pkg/scoring`。
+- **选算法要看最近的跟踪误差（R18）**：回放评分每几小时才重算，只看它会让一个已经落后的 top1 一直被选。每次决策都用最近 10 步里「该时刻之前最后一次预测」与实际值算 WAPE 和偏差（`forecastsvc.Tracking`）；至少 3 步且 WAPE 超过 50% 的算法本轮不参与选择，只要还有别的算法没有落后；全部落后时按评分。落后的原因写进决策说明，不静默切换。

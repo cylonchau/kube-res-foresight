@@ -449,3 +449,12 @@ all ten management pages and the shared product title. Screenshots were inspecte
 - **补充（对所有算法）**：上限不只在 `forecastsvc` 里：求解器 `decision.factorOf` 对每个算法、每个约束（吞吐、CPU、内存、GPU）也把不确定度限制在 `MaxUncertainty`（1.0，即最多 2 倍），不管测量来自评估还是回测、是哪个调用方给的。新增测试 `TestNoAlgorithmIsScaledByMoreThanTwoWhateverItsMeasuredShortfall` 对目录里的每个算法 id 用最坏的测量值验证（并复现这次的 9 个）。
 - **还没解决的相关问题**：这次选中 seasonal_naive 的原因是它的回放评分最高（92.78，对 ewma 74.22），而它的预测峰值只有 0.397 核，ewma 和 naive 是 0.65，实际需求 0.7 核。回放评分用的是历史窗口，历史较平稳时抄一个周期前的值也能得高分，遇到需求突变就低估很多。选算法的规则（评分×权重）没有改。
 
+
+### R18：决策先于动作、识别落后的算法（2026-10-29）
+
+- **现象**（00:20 的截图和事件）：负载在 00:15 前后从 600+ mCPU 掉到 71 mCPU，实际副本一直停在 10，事件里「ScaleDown from 10 to 9」间隔很久；图上 holt_winters 已预测 51 mCPU（1 个副本），而 top1 的 seasonal_naive 预测 658 mCPU（9 个）。
+- **根因**：①operator 每 30 秒问一次决策，但决策只由 5 分钟一次的 `forecast.run` 任务产生，所以它拿到的是最长 5 分钟前存的那版（库里 16:20 的第 523 版还写着 10）；②选算法只看回放评分，评分每 6 小时才重算一次（92.78 一直没变），还要领先 2 轮才切换，算法的预测已经落后很多这件事没有被用上。③（配置，没改）测试台的缩容档位每次最多减 1 个、间隔 2 分钟，从 10 减到 1 至少要 18 分钟。
+- **决策先于动作**：`GET /operator/decisions` 在存着的推荐比 `forecast.decision_max_age_seconds`（系统参数，默认 60 秒，0 = 关闭）老时，先由平台重新采集新样本、用每个算法预测、再决策（`Service.FreshRecommendation`，和任务同一条流水线），再回答；响应多一个 `refreshed`。每个模块同一时刻只刷新一次（并发请求读同一个新版本），刷新失败或超时（15 秒）读存着的那版，刷新后 `max_age` 内不再重试，自己设了 `run_interval_minutes` 的模块和 observe 模块不刷新；任务和刷新用同一把模块锁，不会同时写同一模块的预测和推荐版本。
+- **识别落后的算法**：对每个可用的算法，取最近 10 步里「平台在该时刻之前最后一次的预测」与「该时刻测到的值」比（`Tracking`：WAPE、偏差、步数）。至少 3 步且 WAPE 超过 50% 就是落后，只要还有别的算法没有落后，落后的这一轮不参与选择（`dropLagging`），不管它的评分多高，也不需要等切换轮数；全部都落后时不动，仍按评分。决策说明的选算法表多一列「最近跟踪误差」，落后的标红，原因写「落后：最近 N 步的预测与实际值相差 X%（上限 50%），预测高于/低于实际值，本轮不参与选择」。
+- **验证**：`go vet`、`go test ./pkg/... ./cmd/...` 通过（新增：落后的 top1 不被选、步数太少或全部落后时不动、推荐过期就重做、新鲜不重做、0 关闭、间隔模块与 observe 模块不刷新、并发请求只做一次）；前端类型检查、locale 与单测通过。**未验证**：线上重跑 `stress.sh --mode ramp`，需用新二进制重启平台。
+- **没改**：缩容档位（模块或 PredictiveScaler 的 `scaleDown` maxStep 与 cooldown）和 `forecast.run` 的 5 分钟周期；落后的判定阈值是常数（50%、10 步、至少 3 步），没有做成设置项。刷新会让每次轮询（超过 60 秒）多跑一遍这个模块的全部算法，算法很重的模块应把 `forecast.decision_max_age_seconds` 调大。

@@ -36,6 +36,14 @@ type SelectionRow struct {
 	Eligible bool    `json:"eligible"`
 	Reason   string  `json:"reason"`
 	Chosen   bool    `json:"chosen"`
+	// Tracked says the newest forecasts of the algorithm could be compared with the load that came; then how many steps were
+	// compared, how far off they were (WAPE) and in which direction (Bias: positive = above the load). Lagging is true when that
+	// took the algorithm out of the running.
+	Tracked        bool    `json:"tracked"`
+	TrackingPoints int     `json:"tracking_points"`
+	TrackingWAPE   float64 `json:"tracking_wape"`
+	TrackingBias   float64 `json:"tracking_bias"`
+	Lagging        bool    `json:"lagging"`
 }
 
 // ExpansionDetail says what the dynamic replica ceiling did.
@@ -145,6 +153,11 @@ type instanceState struct {
 	value    float64
 	eligible bool
 	reason   string
+	// tracking is how the newest forecasts followed the load (tracked: there was something to compare); lagging is set when that
+	// took the algorithm out of the running.
+	tracking Tracking
+	tracked  bool
+	lagging  bool
 }
 
 func (st *instanceState) hasUsableForecast() bool {
@@ -415,8 +428,15 @@ func (s *Service) recommend(ctx context.Context, moduleID uint, failed map[strin
 				}
 			}
 		}
+		if st.eligible {
+			if err := s.trackInstance(ctx, st, now); err != nil {
+				return nil, nil, err
+			}
+		}
 		states = append(states, st)
 	}
+	// an algorithm whose forecasts have just missed the load by far is not the one to follow, whatever its score says
+	dropLagging(states)
 	ordered, selected, challenger, cycles := rankInstances(m, states, run)
 	rank := map[string]int{}
 	for i, st := range ordered {
@@ -424,7 +444,8 @@ func (s *Service) recommend(ctx context.Context, moduleID uint, failed map[strin
 	}
 	for _, st := range states {
 		detail.Selection = append(detail.Selection, SelectionRow{Algorithm: st.inst.Key(), Catalog: st.inst.AlgorithmID, Score: st.score, Scored: st.scored,
-			Weight: st.weight(), Value: st.value, Rank: rank[st.inst.Key()], Eligible: st.eligible, Reason: st.reason, Chosen: st.eligible && st.inst.Key() == selected})
+			Weight: st.weight(), Value: st.value, Rank: rank[st.inst.Key()], Eligible: st.eligible, Reason: st.reason, Chosen: st.eligible && st.inst.Key() == selected,
+			Tracked: st.tracked, TrackingPoints: st.tracking.Points, TrackingWAPE: st.tracking.WAPE, TrackingBias: st.tracking.Bias, Lagging: st.lagging})
 	}
 	sort.SliceStable(detail.Selection, func(i, j int) bool {
 		a, b := detail.Selection[i], detail.Selection[j]
@@ -704,6 +725,9 @@ type PipelineResult struct {
 // RunData performs the scheduled data work of one module: collect the history of its sources, then run every
 // enabled algorithm on it. It reports the algorithm forecasts that failed in failed, keyed by algorithm and source.
 func (s *Service) RunData(ctx context.Context, moduleID uint, failed map[string]string) (*PipelineResult, error) {
+	lock := s.pipelineLock(moduleID)
+	lock.Lock()
+	defer lock.Unlock()
 	a, err := s.Modules.Get(ctx, moduleID)
 	if err != nil {
 		return nil, err
@@ -738,6 +762,9 @@ func (s *Service) RunData(ctx context.Context, moduleID uint, failed map[string]
 // RunModule performs the scheduled work of one module once its data has run: outside observe mode, decide a
 // recommendation, then fold the cycle into the run state. failed says which algorithm forecasts failed in this cycle.
 func (s *Service) RunModule(ctx context.Context, moduleID uint, failed map[string]string, cycleErrors []string) (*PipelineResult, error) {
+	lock := s.pipelineLock(moduleID)
+	lock.Lock()
+	defer lock.Unlock()
 	m, err := s.Modules.Get(ctx, moduleID)
 	if err != nil {
 		return nil, err

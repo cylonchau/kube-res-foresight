@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -11,6 +12,7 @@ import (
 	"github.com/cylonchau/kube-resource-fcst/pkg/app/query"
 	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
 	"github.com/cylonchau/kube-resource-fcst/pkg/forecastsvc"
+	"github.com/cylonchau/kube-resource-fcst/pkg/logger"
 	"github.com/cylonchau/kube-resource-fcst/pkg/model"
 	"github.com/gin-gonic/gin"
 )
@@ -25,7 +27,13 @@ type RuntimeRouter struct {
 	RunStates *rdb.RunStateDAO
 	// Config holds the switches that open the modes writing to the cluster. Without it every mode is closed.
 	Config *rdb.SysConfigDAO
-	Now    func() time.Time
+	// Fresh makes the recommendation of a module again, on the load as it is, when the stored one is older than the operator should
+	// act on. Without it the operator reads what the scheduled task stored.
+	Fresh interface {
+		FreshRecommendation(ctx context.Context, moduleID uint, maxAge time.Duration) (*model.Recommendation, bool, error)
+		DecisionMaxAge(ctx context.Context) time.Duration
+	}
+	Now func() time.Time
 }
 
 func (r *RuntimeRouter) now() time.Time {
@@ -67,11 +75,37 @@ type OperatorDecision struct {
 	// Algorithm and Score are the algorithm instance whose forecast decided the replicas and its score.
 	Algorithm string  `json:"algorithm,omitempty"`
 	Score     float64 `json:"score,omitempty"`
+	// Refreshed says the platform made this recommendation again for this request, because the stored one was older than the
+	// operator should act on (the decision comes before the action).
+	Refreshed bool `json:"refreshed,omitempty"`
 	// MinReplicas is the hard floor, MaxReplicas the ceiling in force now (fixed, or the dynamically expanded one) and
 	// HardMaxReplicas the safety ceiling the expansion never passes. The operator refuses a decision outside them.
 	MinReplicas     int `json:"min_replicas,omitempty"`
 	MaxReplicas     int `json:"max_replicas,omitempty"`
 	HardMaxReplicas int `json:"hard_max_replicas,omitempty"`
+}
+
+// decisionRefreshBudget is how long a request of the operator waits for the platform to make the recommendation again before it reads
+// the stored one.
+const decisionRefreshBudget = 15 * time.Second
+
+// latestRecommendation is the recommendation the operator should act on: the stored one when it is recent enough, else one the platform
+// makes first (see forecastsvc.FreshRecommendation). A refresh that fails or runs out of time leaves the stored one.
+func (r *RuntimeRouter) latestRecommendation(c *gin.Context, moduleID uint) (*model.Recommendation, bool, error) {
+	ctx := c.Request.Context()
+	if r.Fresh != nil {
+		if maxAge := r.Fresh.DecisionMaxAge(ctx); maxAge > 0 {
+			refreshCtx, cancel := context.WithTimeout(ctx, decisionRefreshBudget)
+			defer cancel()
+			rec, refreshed, err := r.Fresh.FreshRecommendation(refreshCtx, moduleID, maxAge)
+			if err == nil {
+				return rec, refreshed, nil
+			}
+			logger.Warn("refreshing the decision for the operator failed, the stored one is used", logger.Int("module", int(moduleID)), logger.Err(err))
+		}
+	}
+	rec, err := r.Predictions.LatestRecommendation(ctx, moduleID)
+	return rec, false, err
 }
 
 // replicaCeiling is the largest replica count the module may be given now.
@@ -127,11 +161,12 @@ func (r *RuntimeRouter) Decision(c *gin.Context) {
 		deny("a DaemonSet has no replica count: the operator has nothing to scale")
 		return
 	}
-	rec, err := r.Predictions.LatestRecommendation(c.Request.Context(), m.ID)
+	rec, refreshed, err := r.latestRecommendation(c, m.ID)
 	if err != nil {
 		query.InternalError(c, err)
 		return
 	}
+	out.Refreshed = refreshed
 	switch {
 	case rec == nil:
 		deny("no recommendation has been made yet")
