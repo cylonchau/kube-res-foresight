@@ -19,8 +19,12 @@ const (
 	uncertaintyMinEvaluations = 5
 	uncertaintyWindow         = 30 * 24 * time.Hour
 	uncertaintyMaxRuns        = 30
-	// maxShortfall caps the shortfall used to scale a forecast: 1/(1-s) explodes as s approaches 1.
-	maxShortfall = 0.9
+	// maxShortfall caps the shortfall used to scale a forecast: 1/(1-s) explodes as s approaches 1, and a measured shortfall is
+	// the P90 of the last runs, so a few jumps of the load (a stress test, a release) that the algorithm could not have seen coming
+	// would otherwise multiply every later forecast by up to 10 and put the replicas at the maximum for good. At 0.5 the forecast is
+	// scaled by at most 2; an algorithm that misses peaks by more than half is not made safe by a bigger factor, it is the wrong
+	// algorithm, and the plan says so.
+	maxShortfall = 0.5
 	// capacityLookback is the history the pod capacity is estimated from.
 	capacityLookback = 7 * 24 * time.Hour
 	// executionFreshness is how long the operator's last report is trusted as the current replica count.
@@ -53,13 +57,22 @@ func shortfallToUncertainty(s float64) float64 {
 	return s / (1 - s)
 }
 
+// uncertaintyCapNote is the sentence that says a measured shortfall was cut to the cap; empty when it was not.
+func uncertaintyCapNote(algorithm string, shortfall float64) string {
+	if shortfall <= maxShortfall {
+		return ""
+	}
+	return fmt.Sprintf("%s missed the peak by %.0f%% at the P90 of its recent evaluations, above the limit of %.0f%%: its forecast is scaled by at most x%.1f, not by x%.1f",
+		algorithm, shortfall*100, maxShortfall*100, 1+shortfallToUncertainty(maxShortfall), 1/(1-math.Min(shortfall, 0.99)))
+}
+
 // uncertainty is the expected peak shortfall of an algorithm on a metric: the P90 of its measured shortfall
 // over recent prediction runs, else its latest backtest, else nothing (the caller uses the module headroom).
-func (s *Service) uncertainty(ctx context.Context, instanceID uint, metric, algorithm string, now time.Time) (*float64, string, error) {
+func (s *Service) uncertainty(ctx context.Context, instanceID uint, metric, algorithm string, now time.Time) (*float64, string, float64, error) {
 	since := now.Add(-uncertaintyWindow)
 	evals, err := s.Predictions.AllEvaluations(ctx, rdb.EvaluationFilter{ModuleID: instanceID, Metric: metric, AlgorithmID: algorithm, Since: &since})
 	if err != nil {
-		return nil, "", err
+		return nil, "", 0, err
 	}
 	if len(evals) > uncertaintyMaxRuns {
 		evals = evals[:uncertaintyMaxRuns] // newest first
@@ -69,12 +82,13 @@ func (s *Service) uncertainty(ctx context.Context, instanceID uint, metric, algo
 		for i, e := range evals {
 			shortfalls[i] = e.PeakUnder
 		}
-		u := shortfallToUncertainty(decision.Percentile(shortfalls, 0.9))
-		return &u, decision.UncertaintyMeasured, nil
+		raw := decision.Percentile(shortfalls, 0.9)
+		u := shortfallToUncertainty(raw)
+		return &u, decision.UncertaintyMeasured, raw, nil
 	}
 	run, err := s.Predictions.LatestBacktest(ctx, instanceID, metric, algorithm)
 	if err != nil {
-		return nil, "", err
+		return nil, "", 0, err
 	}
 	if run != nil {
 		var res struct {
@@ -84,10 +98,10 @@ func (s *Service) uncertainty(ctx context.Context, instanceID uint, metric, algo
 		}
 		if json.Unmarshal([]byte(run.Metrics), &res) == nil && res.Skipped == "" && res.Points > 0 {
 			u := shortfallToUncertainty(res.PeakUnder)
-			return &u, decision.UncertaintyBacktest, nil
+			return &u, decision.UncertaintyBacktest, res.PeakUnder, nil
 		}
 	}
-	return nil, decision.UncertaintyHeadroom, nil
+	return nil, decision.UncertaintyHeadroom, 0, nil
 }
 
 // estimateCapacity derives the pod capacity from the stored rps, replicas and cpu history.
@@ -220,8 +234,12 @@ func (s *Service) solverSeries(ctx context.Context, m *model.ForecastModule, cal
 			}
 			sc := decision.SeriesCandidate{Algorithm: algo, Values: values}
 			if m.ReplicaMode == model.ReplicaModeDynamic {
-				if u, source, err := s.uncertainty(ctx, c.st.inst.ID, rv.Sources[0], algo, now); err == nil {
+				if u, source, raw, err := s.uncertainty(ctx, c.st.inst.ID, rv.Sources[0], algo, now); err == nil {
 					sc.Uncertainty, sc.UncertaintySource = u, source
+					if note := uncertaintyCapNote(algo, raw); note != "" && !noted["cap:"+algo+spec.resource] {
+						noted["cap:"+algo+spec.resource] = true
+						notes = append(notes, note)
+					}
 				}
 			}
 			*spec.dst = append(*spec.dst, sc)

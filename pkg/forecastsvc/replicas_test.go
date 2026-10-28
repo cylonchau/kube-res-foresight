@@ -3,6 +3,7 @@ package forecastsvc
 import (
 	"context"
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -202,4 +203,36 @@ func TestDynamicReplicasEstimateCapacityFromHistoryOrExplainWhatIsMissing(t *tes
 			assert.NotEqual(t, decision.ConstraintThroughput, c.Name, "no capacity means no throughput constraint, so nothing is invented")
 		}
 	}
+}
+
+// A shortfall measured on a few jumps of the load (a stress test, a release) must not multiply the forecast by 10 for good: the
+// factor is cut at 2 and the plan says that it was cut. Before the cap, an algorithm that had missed a peak by 95% five times in
+// its last thirty runs was given (1 + 9) times its forecast, which put the replicas at the maximum whatever the load was.
+func TestAMeasuredShortfallIsCutAtTheCapAndThePlanSaysSo(t *testing.T) {
+	assert.InDelta(t, 1.0, shortfallToUncertainty(0.95), 1e-9, "a factor of 2 at most")
+	assert.InDelta(t, 1.0, shortfallToUncertainty(0.5), 1e-9)
+	assert.InDelta(t, 0.25, shortfallToUncertainty(0.2), 1e-9, "a shortfall below the cap is used as it is")
+
+	f := newFixture(t)
+	ctx := context.Background()
+	f.bind(t, "rps", "naive", nil, 0)
+	_, err := f.collect(ctx)
+	require.NoError(t, err)
+	_, err = f.predict(ctx)
+	require.NoError(t, err)
+	f.addEvaluations(t, "rps", "naive", 0.95, 6)
+	f.dynamic(t, nil)
+
+	_, detail, err := f.svc.Recommend(ctx, f.module.ID)
+	require.NoError(t, err)
+	require.NotNil(t, detail.Replica)
+	require.Len(t, detail.Replica.Plans, 1)
+	plan := detail.Replica.Plans[0]
+	want := int(math.Ceil(peakOfRun(t, f, "rps", "naive") * 2 / 100))
+	assert.Equal(t, want, plan.Replicas, "twice the peak over the capacity of a pod, not ten times")
+	var said bool
+	for _, n := range detail.Replica.Notes {
+		said = said || (strings.Contains(n, "naive") && strings.Contains(n, "limit"))
+	}
+	assert.True(t, said, "the plan says the shortfall was cut: %v", detail.Replica.Notes)
 }
