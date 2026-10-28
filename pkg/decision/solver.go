@@ -135,8 +135,14 @@ func factorOf(c SeriesCandidate, headroom float64) (factor, uncertainty float64,
 	if source == "" {
 		source = UncertaintyMeasured
 	}
-	return 1 + *c.Uncertainty, *c.Uncertainty, source
+	// Whatever algorithm the series came from and whoever measured it, the forecast is scaled by 2 at most: a bigger factor does not
+	// make a forecast that misses peaks by more than half safe, it puts the replicas at the maximum (see the cap in forecastsvc).
+	u := math.Min(*c.Uncertainty, MaxUncertainty)
+	return 1 + u, u, source
 }
+
+// MaxUncertainty is the largest relative uncertainty a forecast is scaled by: 1 = twice the forecast.
+const MaxUncertainty = 1.0
 
 // SolveReplicas computes, for every algorithm that has an eligible series, how many replicas the forecast
 // needs. For each constraint with a usable per-pod capacity it takes the peak of the forecast times

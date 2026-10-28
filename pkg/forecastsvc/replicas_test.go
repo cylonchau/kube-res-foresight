@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/cylonchau/kube-resource-fcst/pkg/decision"
+	"github.com/cylonchau/kube-resource-fcst/pkg/forecast"
 	"github.com/cylonchau/kube-resource-fcst/pkg/model"
 )
 
@@ -235,4 +236,31 @@ func TestAMeasuredShortfallIsCutAtTheCapAndThePlanSaysSo(t *testing.T) {
 		said = said || (strings.Contains(n, "naive") && strings.Contains(n, "limit"))
 	}
 	assert.True(t, said, "the plan says the shortfall was cut: %v", detail.Replica.Notes)
+}
+
+// The cap is on the solver, not on one algorithm: every algorithm of the catalogue, with the worst shortfall that can be measured
+// for it, is given at most twice its forecast, for every constraint, whoever made the measurement.
+func TestNoAlgorithmIsScaledByMoreThanTwoWhateverItsMeasuredShortfall(t *testing.T) {
+	huge := 9.0 // what a shortfall of 0.9 used to be turned into
+	for _, id := range forecast.IDs() {
+		cfg := decision.SolverConfig{CapacityRPS: 100, CapacitySource: decision.CapacityManual, Headroom: 1.1,
+			PodCPUCores: 0.1, PodMemoryBytes: 1 << 20, TargetUtilization: 0.9}
+		candidate := func(v float64) decision.SeriesCandidate {
+			return decision.SeriesCandidate{Algorithm: id, Values: []float64{v}, Uncertainty: &huge, UncertaintySource: decision.UncertaintyMeasured}
+		}
+		plans := decision.SolveReplicas(cfg, decision.ReplicaInputs{
+			RPS: []decision.SeriesCandidate{candidate(450)}, CPU: []decision.SeriesCandidate{candidate(0.7)}, Memory: []decision.SeriesCandidate{candidate(5 << 20)},
+		})
+		require.Len(t, plans, 1, id)
+		for _, c := range plans[0].Constraints {
+			assert.LessOrEqual(t, c.Uncertainty, decision.MaxUncertainty, "%s %s", id, c.Name)
+			assert.LessOrEqual(t, float64(c.Needed), math.Ceil(c.PeakDemand*2/c.UnitCapacity)+1e-9, "%s %s: at most twice the forecast over a pod", id, c.Name)
+		}
+	}
+	// the load of the report: 700m on pods of 100m at 90% with a P90 shortfall of 0.95 is 9 replicas, not the maximum
+	plans := decision.SolveReplicas(decision.SolverConfig{PodCPUCores: 0.1, TargetUtilization: 0.9, Headroom: 1.1}, decision.ReplicaInputs{
+		CPU: []decision.SeriesCandidate{{Algorithm: "seasonal_naive", Values: []float64{0.3973}, Uncertainty: &huge, UncertaintySource: decision.UncertaintyMeasured}},
+	})
+	require.Len(t, plans, 1)
+	assert.Equal(t, 9, plans[0].Replicas)
 }

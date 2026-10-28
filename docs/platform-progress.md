@@ -446,3 +446,6 @@ all ten management pages and the shared product title. Screenshots were inspecte
 - **修复**：实测低估比例的上限从 0.9 降到 0.5，预测最多放大 2 倍（`maxShortfall`）；超过上限时计划的说明里多一句话（「某算法的峰值低估 P90 为 95%，超过 50% 的上限：它的预测最多放大 x2.0，而不是 x20」）。低估超过一半的算法不是靠更大的倍数变安全的，是选错了算法。
 - **没改的**：选哪个算法（这次选了 seasonal_naive）没动；没有改余量系数的语义（没有实测数据时仍用它）。同样的需求现在是 ceil(0.3973×2÷0.09)＝9。
 - **验证**：新增 `TestAMeasuredShortfallIsCutAtTheCapAndThePlanSaysSo`（修复前算出 9 倍并失败，修复后通过），`go test ./pkg/forecastsvc/` 通过。**未验证**：线上重跑一次压测；需要用新二进制重启平台后才生效。
+- **补充（对所有算法）**：上限不只在 `forecastsvc` 里：求解器 `decision.factorOf` 对每个算法、每个约束（吞吐、CPU、内存、GPU）也把不确定度限制在 `MaxUncertainty`（1.0，即最多 2 倍），不管测量来自评估还是回测、是哪个调用方给的。新增测试 `TestNoAlgorithmIsScaledByMoreThanTwoWhateverItsMeasuredShortfall` 对目录里的每个算法 id 用最坏的测量值验证（并复现这次的 9 个）。
+- **还没解决的相关问题**：这次选中 seasonal_naive 的原因是它的回放评分最高（92.78，对 ewma 74.22），而它的预测峰值只有 0.397 核，ewma 和 naive 是 0.65，实际需求 0.7 核。回放评分用的是历史窗口，历史较平稳时抄一个周期前的值也能得高分，遇到需求突变就低估很多。选算法的规则（评分×权重）没有改。
+
