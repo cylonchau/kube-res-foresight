@@ -296,3 +296,22 @@ func TestUpgradeReplacesRemarksThatWereStoredAsGarbage(t *testing.T) {
 	require.Equal(t, "读取推荐的凭证", good.Remark, "a valid remark is left alone")
 	require.Equal(t, brokenTextNote, bad.Remark)
 }
+
+func TestUpgradeRemovesTheRetiredAlgorithmsAndWhatWasStoredForThem(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(model.Models...))
+	require.NoError(t, db.Create(&model.AlgorithmConfig{AlgorithmID: "macd_trend", Enabled: true}).Error)
+	require.NoError(t, db.Create(&model.AlgorithmConfig{AlgorithmID: "my_macd", Base: "macd_trend", Enabled: true}).Error)
+	require.NoError(t, db.Create(&model.AlgorithmConfig{AlgorithmID: "naive", Enabled: true}).Error)
+	require.NoError(t, db.Exec("INSERT INTO forecast_training_run (module_id, metric, algorithm_id, impl_version, model_version, status, prediction_time) VALUES (1, 'cpu', 'macd_trend', '1', 'v', 'ok', datetime('now')), (1, 'cpu', 'naive', '1', 'v', 'ok', datetime('now'))").Error)
+	require.NoError(t, removeRetiredAlgorithms(db))
+	require.NoError(t, removeRetiredAlgorithms(db), "safe to repeat")
+
+	var left []string
+	require.NoError(t, db.Model(&model.AlgorithmConfig{}).Pluck("algorithm_id", &left).Error)
+	require.Equal(t, []string{"naive"}, left, "the retired algorithm and the custom one built on it are gone")
+	var runs []string
+	require.NoError(t, db.Table("forecast_training_run").Pluck("algorithm_id", &runs).Error)
+	require.Equal(t, []string{"naive"}, runs, "what was stored for it is gone, the others are kept")
+}

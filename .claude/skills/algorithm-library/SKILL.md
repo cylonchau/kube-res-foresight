@@ -21,7 +21,7 @@ description: 用于 kube-resource-fcst 算法注册、动态参数编辑、特�
 
 算法中心（前端 views/forecast/algorithms，后端 handle_algorithm_center.go）：目录是固定的内置架构（类别、版本、复杂度与最小样本说明，registry.go 的 notes 必须与各模型 MinSamples 一致；参数 schema），**没有参数模板**。用户创建**算法实例**（module_algorithm：名称、目录算法、按 schema 校验并补默认值的参数 JSON、参与的指标来源键、预测视野、权重、训练历史天数、训练时间预算、优先级）；同一算法可用不同参数创建多个实例，预测、回测、评分、实测都以实例名归档。改参数或来源会改变模型版本签名，既有晋升自动失效。GET /algorithms/:id/usage 给出各模块的实例及其评分、各来源上的回测/实测表现，GET /modules/:id/algorithms/:bid/trace?source= 追溯 实例→forecast.run 任务→预测行（model_version）→回测→评估→评分；POST /modules/:id/score 立即评分，GET /modules/:id/ranking 当前排名，GET /algorithm-scores 评分历史。
 
-UI 沿用 web/src/views/system/config 等表单，宽屏弹窗自适应小屏。金融指标仅为过去的插件示例，不纳入正式算法或验收，不构造 OHLCV；唯一例外是 macd_trend（单变量，借用快/慢/信号 EMA 差分结构做有上限的趋势修正，结果下限为 0，不产生买卖信号）。算法目录另含 hist_percentile（衰减直方图百分位，VPA/Autopilot 式，内存与 OOM 最稳妥）、random_forest、knn、naive_bayes，以及纯 Go 进程内小模型 rnn / gru / lstm（受训练时间预算限制，超时按失败走兜底）。多指标预测 = 实例参与的每个来源都被预测；声明支持协变量的算法（岭回归 AR、GBDT、随机森林、朴素贝叶斯、RNN/GRU/LSTM）同时把实例的其余来源作协变量（滞后特征，只用目标步之前的值；预测步沿用最后观测值），其余算法单变量；协变量集合进入模型版本签名，回测在每个截止点同样切片，不泄漏未来。资源规格推荐与未来负载预测分开；内存峰值/OOM 保护不由点预测替代。
+UI 沿用 web/src/views/system/config 等表单，宽屏弹窗自适应小屏。金融指标仅为过去的插件示例，不纳入正式算法或验收，不构造 OHLCV；没有例外（macd_trend 已移除，迁移删除它的设置与数据）。算法目录另含 hist_percentile（衰减直方图百分位，VPA/Autopilot 式，内存与 OOM 最稳妥）、random_forest、knn、naive_bayes，以及纯 Go 进程内小模型 rnn / gru / lstm（受训练时间预算限制，超时按失败走兜底）。多指标预测 = 实例参与的每个来源都被预测；声明支持协变量的算法（岭回归 AR、GBDT、随机森林、朴素贝叶斯、RNN/GRU/LSTM）同时把实例的其余来源作协变量（滞后特征，只用目标步之前的值；预测步沿用最后观测值），其余算法单变量；协变量集合进入模型版本签名，回测在每个截止点同样切片，不泄漏未来。资源规格推荐与未来负载预测分开；内存峰值/OOM 保护不由点预测替代。
 
 模型只有在工作负载滚动回测、峰值低估、SLO 和推理预算验证通过后才可晋升；未优于统计基线时保留基线。选型记录模型/库/权重版本与使用条件，不默认最新版适合生产。
 

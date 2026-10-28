@@ -34,7 +34,6 @@ import (
 //	slope(S,N)         the least-squares slope per step over the newest N
 //	linfit(S,N,j)      that line extended j steps beyond the newest value
 //	season(S,m,j)      the value one season (m steps) earlier at the phase of step j ahead
-//	macd(S,fast,slow)  ema(S,fast) - ema(S,slow)             macdsig(S,fast,slow,sig)  its signal line
 //	abs sqrt exp log floor ceil round pow(a,b) min(a,b) max(a,b) clip(v,lo,hi) if(cond,a,b)
 //
 // Operators: + - * / % ^ (power), comparisons, && || !. A comparison is 1 or 0.
@@ -427,39 +426,6 @@ func init() {
 			}
 			s, season := a[0].s, int(m)
 			return s[len(s)-season+(int(j)-1)%season], nil
-		}},
-		"macd": {args: []formulaType{sN, nN, nN}, call: func(a []formulaValue, c *evalCtx) (float64, error) {
-			fast, err := emaOf(a[0].s, a[1].f, c)
-			if err != nil {
-				return 0, err
-			}
-			slow, err := emaOf(a[0].s, a[2].f, c)
-			return fast - slow, err
-		}},
-		"macdsig": {args: []formulaType{sN, nN, nN, nN}, call: func(a []formulaValue, c *evalCtx) (float64, error) {
-			if a[1].f < 1 || a[2].f < 1 || a[3].f < 1 {
-				return 0, fmt.Errorf("the spans must be at least 1")
-			}
-			if err := c.spend(len(a[0].s) * 3); err != nil {
-				return 0, err
-			}
-			fa, sa, ga := 2/(a[1].f+1), 2/(a[2].f+1), 2/(a[3].f+1)
-			s := a[0].s
-			if len(s) == 0 {
-				return 0, fmt.Errorf("the series is empty")
-			}
-			fast, slow := s[0], s[0]
-			var sig float64
-			for i, v := range s {
-				fast, slow = fa*v+(1-fa)*fast, sa*v+(1-sa)*slow
-				line := fast - slow
-				if i == 0 {
-					sig = line
-				} else {
-					sig = ga*line + (1-ga)*sig
-				}
-			}
-			return sig, nil
 		}},
 		"abs":   num1(math.Abs),
 		"floor": num1(math.Floor),

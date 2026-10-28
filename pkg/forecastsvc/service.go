@@ -119,6 +119,11 @@ func (s *Service) runsOf(ctx context.Context, m *model.ForecastModule) ([]*model
 	}
 	runs := make([]*model.AlgorithmRun, 0, len(configs))
 	for _, c := range configs {
+		// the setting of a built-in algorithm that is no longer in the catalogue (a retired one) is not run: it would fail on
+		// every cycle. A custom algorithm that cannot be compiled stays in the list, so its failure is seen.
+		if _, known := forecast.Lookup(c.AlgorithmID); !known && c.Formula == "" && c.Base == "" {
+			continue
+		}
 		runs = append(runs, model.NewRun(m, c))
 	}
 	return runs, nil

@@ -153,3 +153,20 @@ func TestAnAlgorithmIsNotSkippedForAShortLookbackOrWindow(t *testing.T) {
 	require.NoError(t, f.db.Order("id DESC").First(&last).Error)
 	assert.GreaterOrEqual(t, last.Samples, 24, "it trained on what it needs, not on the 10 steps of the window")
 }
+
+// The setting of an algorithm that is no longer in the catalogue (macd_trend was retired) is not run, so it is not reported as
+// failing on every cycle while the upgrade that deletes it has not run yet.
+func TestTheSettingOfARetiredAlgorithmIsNotRun(t *testing.T) {
+	f := newFixture(t)
+	f.bind(t, "cpu", "naive", nil, 0)
+	require.NoError(t, f.db.Create(&model.AlgorithmConfig{AlgorithmID: "macd_trend", Enabled: true}).Error)
+	ctx := context.Background()
+	_, err := f.collect(ctx)
+	require.NoError(t, err)
+	out, err := f.predict(ctx)
+	require.NoError(t, err)
+	require.NotEmpty(t, out)
+	for _, o := range out {
+		assert.NotEqual(t, "macd_trend", o.AlgorithmID)
+	}
+}

@@ -20,8 +20,6 @@ var builtinMethods = map[string]string{
 	"mstl": "计算过程：把序列拆成趋势与日、周两个季节分量：y(t) = 趋势 + S_日(t mod 日) + S_周(t mod 周) + 余项。每个季节分量取其位置在所有周期上的均值（先扣掉趋势和另一个季节分量，反复三轮使两个分量互相一致，再减去均值使其和为 0）；去掉季节后的序列用 Theta 预测，再加回季节分量：ŷ(T+h) = Θ(y − S_日 − S_周)(h) + S_日((T+h) mod 日) + S_周((T+h) mod 周)。预测不低于 0。\n" +
 		"意义：负载同时有日周期和周周期（工作日与周末不同）时，只看日周期的算法（seasonal_naive 以一天为周期、Holt-Winters）会在跨周末时出错，它能同时还原两者。\n" +
 		"依据：季节分量是固定形状，不随时间缓慢变化（论文用 LOESS，这里没有）；历史至少要两个完整的最长周期，启用周季节需要两周数据。",
-	"macd_trend": "计算过程：快、慢两条 EMA 之差给出趋势斜率，信号线 EMA 确认动量，在快 EMA 水平上外推并限幅：ŷ(T+h) = EMA_fast(T) + clamp(slope)·h。只作资源趋势修正。\n" +
-		"意义：在短期趋势明显时对 ewma 做有上限的修正，风险受控。",
 }
 
 // methodOf is the calculation text of a built-in algorithm; an algorithm with none is described by its Description.

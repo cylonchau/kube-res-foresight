@@ -12,9 +12,6 @@ var builtinBuilders = map[string]Builder{
 	"ewma": func(p map[string]any) (Model, error) {
 		return EWMA{Alpha: pFloat(p, "alpha"), Span: pInt(p, "span"), BiasCorrection: pBool(p, "bias_correction")}, nil
 	},
-	"macd_trend": func(p map[string]any) (Model, error) {
-		return MACDTrend{Fast: pInt(p, "fast_span"), Slow: pInt(p, "slow_span"), Signal: pInt(p, "signal_span"), MaxAdjustment: pFloat(p, "max_adjustment")}, nil
-	},
 	"holt_winters": func(p map[string]any) (Model, error) {
 		return HoltWinters{Season: pInt(p, "season_length_steps"), Trend: pBool(p, "trend"), Damped: pBool(p, "damped"),
 			Alpha: pFloat(p, "alpha"), Beta: pFloat(p, "beta"), Gamma: pFloat(p, "gamma"),
@@ -79,20 +76,6 @@ var builtinChecks = map[string]func(raw map[string]any) error{
 			if season, ok := rawNum(raw, "season_length_steps"); !ok || season < 2 {
 				return fmt.Errorf("multiplicative seasonality needs season_length_steps of at least 2")
 			}
-		}
-		return nil
-	},
-	"macd_trend": func(raw map[string]any) error {
-		fast, hasFast := rawNum(raw, "fast_span")
-		slow, hasSlow := rawNum(raw, "slow_span")
-		if !hasFast {
-			fast = 12
-		}
-		if !hasSlow {
-			slow = 26
-		}
-		if (hasFast || hasSlow) && fast >= slow {
-			return fmt.Errorf("fast_span (%v) must be smaller than slow_span (%v)", fast, slow)
 		}
 		return nil
 	},

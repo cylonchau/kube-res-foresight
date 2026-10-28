@@ -43,6 +43,37 @@ func removeOrphanForecastData(db *gorm.DB) error {
 	return nil
 }
 
+// retiredAlgorithms are algorithms that were taken out of the catalogue: macd_trend borrowed the shape of a stock-market
+// indicator, which has no place in a resource forecast (what it did, a damped trend, Holt-Winters and Theta do).
+var retiredAlgorithms = []string{"macd_trend"}
+
+// removeRetiredAlgorithms deletes the setting of a retired algorithm, of the custom algorithms built on it, and what was
+// stored for them (forecasts, evaluations, backtests, training records, scores): without the setting the enabled algorithm
+// would be reported as failing on every run. The recommendations keep the name of the algorithm they were made with, they are
+// history. It is safe to repeat.
+func removeRetiredAlgorithms(db *gorm.DB) error {
+	if !db.Migrator().HasTable("algorithm_config") {
+		return nil
+	}
+	ids := append([]string(nil), retiredAlgorithms...)
+	if db.Migrator().HasColumn("algorithm_config", "base") {
+		var variants []string
+		if err := db.Table("algorithm_config").Where("base IN ?", retiredAlgorithms).Pluck("algorithm_id", &variants).Error; err != nil {
+			return err
+		}
+		ids = append(ids, variants...)
+	}
+	for _, table := range []string{"forecast_prediction", "prediction_evaluation", "backtest_run", "forecast_training_run", "algorithm_score", "algorithm_config"} {
+		if !db.Migrator().HasTable(table) || !db.Migrator().HasColumn(table, "algorithm_id") {
+			continue
+		}
+		if err := db.Exec("DELETE FROM "+table+" WHERE algorithm_id IN ?", ids).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // brokenTextNote replaces a remark that was stored as garbage: the bytes of a non-UTF-8 request were replaced by U+FFFD when it was
 // saved, so the original text cannot be recovered and has to be written again.
 const brokenTextNote = "(备注因提交时编码错误损坏，请重新填写)"

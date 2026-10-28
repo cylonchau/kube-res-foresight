@@ -16,7 +16,7 @@
 
 ## 技术栈基线（设计选型，非现成产品事实）
 - 控制层：Go；kube-resource-fcst-operator 使用 Operator SDK / Kubebuilder（controller-runtime）实现；Kubernetes CRD、Admission Webhook；Metrics 内置于 Platform。
-- 算法层：纯 Go 实现，在 Platform 进程内运行，不引入 Python 或外部模型服务；首期 Naive/SeasonalNaive、EWMA/Holt-Winters 统计基线与岭回归/GBDT 机器学习候选；按真实负载滚动回测晋升。金融技术指标不进入正式算法目录；唯一例外是 macd_trend，它只借用 MACD 的“快/慢/信号 EMA 差分”结构做单变量资源趋势修正（有上限，不产生买卖信号，不引入价格/OHLCV），仍须在回测中胜过基线才晋升，详见 algorithm-library。
+- 算法层：纯 Go 实现，在 Platform 进程内运行，不引入 Python 或外部模型服务；首期 Naive/SeasonalNaive、EWMA/Holt-Winters 统计基线与岭回归/GBDT 机器学习候选；按真实负载滚动回测晋升。金融技术指标不进入算法目录，没有例外（曾有的 macd_trend 已移除，迁移会删除它的设置与历史数据）；详见 algorithm-library。
 - 指标：Prometheus HTTP API（`query`, `query_range`），可扩展 Thanos/Mimir。
 - 异步事件：Kafka；业务与审计数据复用现有 GORM ORM 和数据库配置，兼容 SQLite、MySQL、PostgreSQL，由部署配置选择；模型产物对象存储；可视化管理控制台。
 - 身份：本地用户与 LDAP/LDAPS、RBAC；敏感凭证以 Secret 存储。

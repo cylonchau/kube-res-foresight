@@ -75,7 +75,7 @@ if not a.modules_only:
     # ---- algorithms
     for alg, body in {
         'naive': {'enabled': True}, 'ewma': {'enabled': True, 'params': {'alpha': 0.4}},
-        'seasonal_naive': {'enabled': True, 'params': {'season_length_steps': 30}}, 'macd_trend': {'enabled': True},
+        'seasonal_naive': {'enabled': True, 'params': {'season_length_steps': 30}},
         'hist_percentile': {'enabled': True}, 'holt_winters': {'enabled': True, 'params': {'season_length_steps': 30}},
     }.items():
         call('PUT', f'/algorithms/{alg}', body)

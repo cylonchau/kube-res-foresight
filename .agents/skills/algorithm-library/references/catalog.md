@@ -6,7 +6,7 @@
 
 预测未来 RPS、CPU cores、Memory bytes，明确 target_time、horizon、单位和聚合粒度。预测模型、规格推荐、异常检测、执行策略分别注册和评估。
 
-布林带/Bollinger、RSI、MFI、KDJ、ATR、ADX、金融交叉信号、马丁格尔及交易网格不纳入正式插件、参数页面和验收；MACD 只以 macd_trend 的形态进入（fast_span<slow_span、signal_span、max_adjustment，单变量趋势修正，不产生买卖信号）。原举例只是多算法参考，不要求改造为资源预测，不构造 OHLCV，不依赖 TA-Lib。均值、平滑、方差可以作为通用统计基线/特征，不能保留买卖信号语义。
+布林带/Bollinger、RSI、MFI、KDJ、ATR、ADX、金融交叉信号、马丁格尔及交易网格不纳入正式插件、参数页面和验收；MACD 及公式里的 macd/macdsig 函数也已移除（macd_trend 曾是唯一例外，因与资源预测无关被删除）。
 
 候选若输入不可获得、依赖未来未知特征、输出单位不符、缺少可复现回测、超出推理预算、权重使用条件不符、关键负载持续低估或无法安全回退，应淘汰或降级。异常检测不是完整预测器；PID/MPC、限幅/冷却是控制策略，固定日期窗是管理员覆盖。
 

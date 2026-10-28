@@ -58,6 +58,9 @@ func Migrate(driver string) error {
 	if err := removeOrphanForecastData(model.DB); err != nil {
 		return err
 	}
+	if err := removeRetiredAlgorithms(model.DB); err != nil {
+		return err
+	}
 	if err := repairBrokenRemarks(model.DB); err != nil {
 		return err
 	}

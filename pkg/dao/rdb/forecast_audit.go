@@ -256,6 +256,14 @@ type ModuleSummary struct {
 	ConsecutiveFail int        `json:"consecutive_failures"`
 	LastError       string     `json:"last_error"`
 	HealthyCycles   int        `json:"healthy_cycles"`
+	// Current is the configuration the workload is meant to run with now: what the newest snapshot sets, a resource it does not
+	// set is null (shown empty), and the replica count the operator last reported (Actual*).
+	CPUMilli       *int64 `json:"cpu_milli"`
+	MemoryBytes    *int64 `json:"memory_bytes"`
+	Replicas       *int   `json:"replicas"`
+	GPU            *int   `json:"gpu"`
+	ActualReplicas *int   `json:"actual_replicas"`
+	ReadyReplicas  *int   `json:"ready_replicas"`
 }
 
 // ModuleSummaries builds the summaries of the given modules with one query per table.
@@ -272,7 +280,7 @@ func (dao *PredictionDAO) ModuleSummaries(ctx context.Context, modules []*model.
 
 	var latest []model.Recommendation
 	if err := dao.db.WithContext(ctx).Table("recommendation AS r").
-		Select("r.module_id, r.version, r.created_at, r.degraded, r.degrade_reasons, r.oom_floor").
+		Select("r.module_id, r.version, r.created_at, r.degraded, r.degrade_reasons, r.oom_floor, r.cpu_set, r.cpu_milli, r.memory_set, r.memory_bytes, r.replicas_set, r.replicas, r.gpu_set, r.gpu").
 		Joins("JOIN (SELECT module_id, MAX(version) AS v FROM recommendation WHERE module_id IN ? GROUP BY module_id) AS m ON m.module_id = r.module_id AND m.v = r.version", ids).
 		Scan(&latest).Error; err != nil {
 		return nil, err
@@ -281,7 +289,38 @@ func (dao *PredictionDAO) ModuleSummaries(ctx context.Context, modules []*model.
 		s := out[r.ModuleID]
 		at := r.CreatedAt
 		s.LatestVersion, s.LatestAt, s.Degraded, s.DegradeReasons, s.OOMFloor = r.Version, &at, r.Degraded, r.DegradeReasons, r.OOMFloor
+		if r.CPUSet {
+			v := r.CPUMilli
+			s.CPUMilli = &v
+		}
+		if r.MemorySet {
+			v := r.MemoryBytes
+			s.MemoryBytes = &v
+		}
+		if r.ReplicasSet {
+			v := r.Replicas
+			s.Replicas = &v
+		}
+		if r.GPUSet {
+			v := r.GPU
+			s.GPU = &v
+		}
 		out[r.ModuleID] = s
+	}
+
+	// the replica count the operator reported last, per module
+	var executions []model.ScalingExecution
+	if err := dao.db.WithContext(ctx).Table("scaling_execution AS e").
+		Select("e.module_id, e.current, e.ready").
+		Joins("JOIN (SELECT module_id, MAX(id) AS id FROM scaling_execution WHERE module_id IN ? GROUP BY module_id) AS m ON m.id = e.id", ids).
+		Scan(&executions).Error; err != nil {
+		return nil, err
+	}
+	for _, e := range executions {
+		s := out[e.ModuleID]
+		current, ready := e.Current, e.Ready
+		s.ActualReplicas, s.ReadyReplicas = &current, &ready
+		out[e.ModuleID] = s
 	}
 
 	var states []model.ModuleRunState

@@ -240,42 +240,6 @@ func TestEWMAParametersSpanBiasCorrectionAndExclusivity(t *testing.T) {
 	assert.Equal(t, map[string]any{"alpha": 0.3}, Canonical("ewma", n))
 }
 
-func TestMACDTrendExtrapolatesMomentumWithinItsLimit(t *testing.T) {
-	m := MACDTrend{Fast: 6, Slow: 14, Signal: 5, MaxAdjustment: 0.5}
-	in := Input{Values: ramp(80, 100, 2), End: time.Unix(10000, 0), Step: time.Minute}
-	up, err := m.Forecast(context.Background(), in, 10)
-	require.NoError(t, err)
-	assert.Greater(t, up[9], in.Values[79], "a rising series is continued upwards")
-	assert.InDelta(t, 2, (up[9]-up[0])/9, 0.35, "at roughly the observed slope")
-
-	down, err := m.Forecast(context.Background(), Input{Values: ramp(80, 300, -2), End: in.End, Step: in.Step}, 10)
-	require.NoError(t, err)
-	assert.Less(t, down[9], 300-2.0*79+0.001)
-
-	flat, err := m.Forecast(context.Background(), Input{Values: ramp(80, 50, 0), End: in.End, Step: in.Step}, 5)
-	require.NoError(t, err)
-	for _, v := range flat {
-		assert.InDelta(t, 50, v, 1e-9, "no momentum, no adjustment")
-	}
-
-	capped, err := MACDTrend{Fast: 6, Slow: 14, Signal: 5, MaxAdjustment: 0.02}.Forecast(context.Background(), in, 50)
-	require.NoError(t, err)
-	assert.LessOrEqual(t, capped[49], 1.02*(in.Values[79]-5)+10, "the adjustment is capped relative to the level")
-
-	steepDown, err := m.Forecast(context.Background(), Input{Values: ramp(80, 40, -0.5), End: in.End, Step: in.Step}, 200)
-	require.NoError(t, err)
-	for _, v := range steepDown {
-		assert.GreaterOrEqual(t, v, 0.0, "a resource forecast is never negative")
-	}
-
-	_, err = m.Forecast(context.Background(), Input{Values: ramp(5, 1, 1), End: in.End, Step: in.Step}, 3)
-	assert.ErrorIs(t, err, ErrInsufficientHistory)
-	_, err = Normalize("macd_trend", map[string]any{"fast_span": 30, "slow_span": 20})
-	assert.Error(t, err, "fast_span must be smaller than slow_span")
-	_, err = Build("macd_trend", map[string]any{})
-	assert.NoError(t, err, "the defaults are 12, 26, 9")
-}
-
 func TestCovariatesChangeTheForecastOnlyThroughPastValues(t *testing.T) {
 	const n = 400
 	// the target follows its covariate with a one step delay: knowing the covariate helps

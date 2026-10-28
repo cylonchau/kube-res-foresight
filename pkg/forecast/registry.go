@@ -122,12 +122,6 @@ var builtinDefinitions = []Definition{
 		{OmitWhenDefault: true, Name: "span", Type: "int", Default: 0, Min: num(0), Max: num(100000), Unit: "steps", Description: "用跨度表示平滑：alpha = 2/(span+1)。0 表示不使用，改用 alpha；两者不能同时给出。"},
 		{OmitWhenDefault: true, Name: "bias_correction", Type: "bool", Default: false, Description: "偏差修正：按 (1-alpha)^龄 加权后除以权重和，而不是以第一个观测值起算，短历史上更不受首个值影响。"},
 	}},
-	{ID: "macd_trend", Category: "technical", Description: "趋势动量（MACD 结构）：快、慢 EMA 之差给出趋势斜率，信号线 EMA 确认动量，在快 EMA 水平上外推并限幅。只用作资源趋势修正，不产生任何买卖信号。", Params: []ParamSpec{
-		{Name: "fast_span", Type: "int", Default: 12, Min: num(2), Max: num(100000), Unit: "steps", Description: "快 EMA 跨度，必须小于慢 EMA 跨度。"},
-		{Name: "slow_span", Type: "int", Default: 26, Min: num(3), Max: num(100000), Unit: "steps", Description: "慢 EMA 跨度。"},
-		{Name: "signal_span", Type: "int", Default: 9, Min: num(2), Max: num(100000), Unit: "steps", Description: "信号线 EMA 跨度，对 MACD 线再做平滑；动量与信号线同向时才采用完整斜率，否则减半。"},
-		{Name: "max_adjustment", Type: "float", Default: 0.5, Min: num(0), Max: num(5), Description: "趋势修正相对当前水平的上限（0.5 = 最多偏离 50%）；预测值不会低于 0。"},
-	}},
 	{ID: "hist_percentile", Category: "statistical", Description: "衰减直方图百分位（Kubernetes VPA / Google Autopilot 的推荐器）：把历史按指数衰减加权，取加权百分位作为平推预测；不建模未来，对内存与 OOM 保护最稳妥。", Params: []ParamSpec{
 		{Name: "percentile", Type: "float", Default: 95.0, Min: num(1), Max: num(100), Description: "取第几百分位，如 95、99；越大越保守。"},
 		{Name: "half_life_hours", Type: "float", Default: 24.0, Min: num(0), Max: num(24 * 180), Unit: "hours", Description: "半衰期：这么久之前的样本只算一半权重；0 表示不衰减。CPU 常取 12–24 小时，内存常取 48 小时。"},
@@ -218,7 +212,6 @@ var notes = map[string][2]string{
 	"mstl":            {"O(n x periods x 3 passes) per forecast, no training", "2 x the longest season: 2 x daily_season_steps, or 2 x weekly_season_steps when a weekly season is set"},
 	"ridge_ar":        {"O(n*lags^2) to fit, O(h*lags) to forecast; retrained on every run", "lags + 2 x feature width + 1 observations (feature width = lags, plus 4 with calendar features)"},
 	"gbdt":            {"O(trees*n*lags*bins) to fit, retrained on every run; bounded by training_window_steps", "lags + 4 x min_samples_leaf + 1 observations"},
-	"macd_trend":      {"O(n) per forecast, no training", "slow_span + signal_span observations"},
 	"hist_percentile": {"O(n log n) per forecast, no training", "4 observations"},
 	"random_forest":   {"O(trees*n*lags*bins) to fit, retrained on every run; bounded by training_window_steps", "lags + 4 x min_samples_leaf + 1 observations"},
 	"knn":             {"O(n*window) per forecast, no training", "k x window + 1 observations with the exclusion zone (window + k + 1 without it), and k separate earlier windows followed by the horizon"},
