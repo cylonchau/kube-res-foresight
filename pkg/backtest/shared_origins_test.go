@@ -126,12 +126,20 @@ func TestPromotionNeedsTheSameWindows(t *testing.T) {
 // where it cannot run: spreading the origins over the history would otherwise make it skip the whole backtest.
 func TestSpreadOriginsRespectAHorizonDependentMinimum(t *testing.T) {
 	s := series(180, func(i int) float64 { return 50 + float64(i%12) })
-	knn := forecast.KNN{Window: 6, K: 5, Normalize: "relative"}
+	knn := forecast.KNN{Window: 6, K: 5, Normalize: "relative", AllowOverlap: true}
 	res, err := Run(context.Background(), s, knn, Config{HorizonSteps: 10, Cutoffs: 10, Spread: true, SeasonSteps: 1440})
 	require.NoError(t, err)
 	assert.Empty(t, res.Skipped)
 	assert.Equal(t, 10, res.Cutoffs)
 	assert.Equal(t, knn.Window+knn.K+10-1, forecast.MinSamplesFor(knn, 10))
+
+	// with the exclusion zone the K windows must not overlap: K x window + horizon, and the origins still fit
+	separate := forecast.KNN{Window: 6, K: 5, Normalize: "relative"}
+	res, err = Run(context.Background(), s, separate, Config{HorizonSteps: 10, Cutoffs: 10, Spread: true, SeasonSteps: 1440})
+	require.NoError(t, err)
+	assert.Empty(t, res.Skipped)
+	assert.Equal(t, 10, res.Cutoffs)
+	assert.Equal(t, separate.K*separate.Window+10, forecast.MinSamplesFor(separate, 10))
 }
 
 // A P90 line runs high on purpose, so it is not judged on WAPE: it has to cover about 90% of the actuals and beat the baseline's

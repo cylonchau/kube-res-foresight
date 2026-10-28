@@ -1,6 +1,6 @@
 # kube-resource-fcst 实施计划与执行进度
 
-更新日期：2026-10-28。当前里程碑：P1～P6 的非真实环境部分与「预测系统优化」8 项需求（M1～M7）与「预测系统功能与页面优化」6 部分（R1～R10）均已实现并通过自动化测试与浏览器验收；真实环境验证仍缺。P7 算法质量：A0 基线测量、A1 回测公平、A2 低估敏感评分、A3 保形分位数、A4 Holt-Winters 补强与 Theta、A5 直接多步已完成，A6～A8 未开始。
+更新日期：2026-10-28。当前里程碑：P1～P6 的非真实环境部分与「预测系统优化」8 项需求（M1～M7）与「预测系统功能与页面优化」6 部分（R1～R10）均已实现并通过自动化测试与浏览器验收；真实环境验证仍缺。P7 算法质量：A0 基线测量、A1 回测公平、A2 低估敏感评分、A3 保形分位数、A4 Holt-Winters 补强与 Theta、A5 直接多步、A6 KNN 互斥区与时刻约束、A7 MSTL 已完成，A8 未开始。
 
 ## 1. 进度口径与当前结论
 
@@ -73,7 +73,7 @@ P0 的结果应落入技能与 schema；P1 数据接入可在边界明确的部�
 | P4B 副本执行 | P4B-01 CRD/schema/RBAC；P4B-02 决策来源；P4B-03 reconcile/status；P4B-04 扩缩容演练 | kubeforecast-operator 按 PredictiveScaler CRD 执行扩缩容，动态参数在硬边界内执行，冷却/限幅/Ready/恢复对账 | P0-03、P3 通过 | 状态：P4B-01～03 已实现（fake client 测试）；P4B-04 扩缩容演练未做，Prometheus 来源已实现（httptest 验证），Adapter 来源有意不做；阶段验收未满足 |
 | P5 闭环与运维 | P5-01 实测回填/排行榜；P5-02 Platform Metrics；P5-03 审计导出；P5-04 发布验证 | 关联预测/推荐/准入/执行/Ready；业务指标、健康诊断、部署与回滚文档 | P2 起持续建设，执行评估依赖 P4 | 状态：P5-01 实测回填与排行榜、P5-02 指标与 /readyz、P5-03 CSV 审计导出、数据保留清理已实现；P5-04 部署说明见 deploy/README.md，灰度与故障演练报告未做；执行效果评估（Pod-hours、SLO）未实现 |
 | P6 完整需求与增强 | P6-01 LDAP；P6-02 增强算法；P6-03 其他决策来源 | LDAP/禁用同步/应急管理员；其他 Go 实现的 challenger 算法；其余决策适配器 | 基础闭环稳定，数据和预算具备 | 状态：P6-01 LDAP 已实现；P6-02 增强算法未做；P6-03 中 Prometheus 决策来源已实现，Adapter 有意不做 |
-| P7 算法质量 | A0 基线测量；A1 回测公平；A2 低估敏感评分；A3 保形分位数；A4 Holt-Winters 补强与 Theta；A5 直接多步；A6 KNN 修正；A7 MSTL；A8 全局模型设计 | 先量化现状，再修评估，再补算法；每个包有单测与无泄漏回测；四类主力算法（季节朴素+分位数基线、ETS/Holt-Winters、Theta、GBDT 直接多步分位数）的现状与缺口逐项对应工作包，见改进计划 2.1 | P2 回测与评分已存在 | 状态：A0～A5 已完成（见 [改进计划](../.agents/skills/algorithm-library/references/improvement-plan.md) 第 4 节与 [A0 基线](../.agents/skills/algorithm-library/references/baseline-a0.md)）；A6～A8 未开始；准确率结论只来自测试环境约 2.9 小时的数据，不是生产结论 |
+| P7 算法质量 | A0 基线测量；A1 回测公平；A2 低估敏感评分；A3 保形分位数；A4 Holt-Winters 补强与 Theta；A5 直接多步；A6 KNN 修正；A7 MSTL；A8 全局模型设计 | 先量化现状，再修评估，再补算法；每个包有单测与无泄漏回测；四类主力算法（季节朴素+分位数基线、ETS/Holt-Winters、Theta、GBDT 直接多步分位数）的现状与缺口逐项对应工作包，见改进计划 2.1 | P2 回测与评分已存在 | 状态：A0～A7 已完成（A6 KNN 互斥区与时刻约束、A7 MSTL，见 [改进计划](../.agents/skills/algorithm-library/references/improvement-plan.md) 第 4 节与 [A0 基线](../.agents/skills/algorithm-library/references/baseline-a0.md)）；A8 未开始；准确率结论只来自测试环境约 2.9 小时的数据，不是生产结论 |
 
 P4A 与 P4B 在 P3 后可独立推进，但新工作负载先 Observe，再 Recommend，分别验证 Admission/Auto 才开放相应写入。P5 的模型评估和审计从 P2/P3 起建设，不能拖到执行上线后补证据。
 
@@ -406,3 +406,10 @@ all ten management pages and the shared product title. Screenshots were inspecte
 - **修复**：回看范围与训练窗口不再能饿死算法。`pkg/forecastsvc/history_need.go`：算法需要的步数（含预测步长）乘 1.5 留余量，范围 = max(模块回看, 该算法需要)，窗口 = max(模块窗口, 需要)；采集、训练、回测、评分、清理都按这个范围（`collectLookback`/`lookbackFor`/`windowFor`），范围被延长时补采更早的一段（`SampleDAO.Earliest`）。需要超过 30 天的算法不延长，照旧跳过并写明需要多少步。`/requirements` 增加 `effective_lookback_hours`，并按延长后的范围判断。
 - **没有改的**：模块自己存的 lookback_hours / window_steps 不被改写（页面上仍是用户填的值）；真正年轻的模块（采集不足以满足）仍会被跳过并写明「需要 N，只有 M」；连续可用比例（fallback_min_history_ratio）判断未动。
 - **验证**：`go test ./pkg/...` 新增 `TestAnAlgorithmIsNotSkippedForAShortLookbackOrWindow`（不加修复时算法被跳过，加了通过）、`TestTheLookbackAndTheWindowNeverStarveAnAlgorithm`；两个旧测试按新行为改写。**未验证**：线上平台需用新二进制重启后，load-web 才会补采并让这些算法出结果（采集在下一次任务运行时进行）；浏览器未验证。
+
+### R14：P7 A6 KNN 互斥区与时刻约束、A7 MSTL（2026-10-28）
+
+- **A6**：`knn` 选中的 K 段两两至少相隔一个窗口长度，不再把同一次事件错开几步的副本算成 K 次（参数 `exclusion`：`window` 默认，`none` 是旧行为）；可选 `same_time_of_day` + `time_tolerance_minutes` 只比较同一时刻（UTC 时分，跨零点环形）结束的窗口。所需历史随之变成约 K×窗口（默认 5×48+1 = 241 步，原来 54），数据需求页、回测起点和 R13 的范围自动延长都按它算。`ImplVersion` 升到 2，**旧的 KNN 晋升失效（预期）**，新参数默认值不进规范化存储。
+- **A7**：新算法 `mstl`（统计类，默认不启用，`daily_season_steps` 必填）：趋势 + 日、周两个季节分量，去季节后的序列用 Theta 预测再加回季节，预测不低于 0。**与论文不同：季节分量是固定形状（各位置均值，反复三轮），不是 LOESS 缓慢变化的形状。** 历史至少两个完整的最长周期（周季节需两周）。内置算法由 15 个变成 16 个，清单测试已更新；算法管理页读注册表，前端无需改。
+- **验证**：`go vet`、`go test ./pkg/... ./cmd/...` 通过。新增单测：互斥区选中窗口间隔、平滑负载上 K 段来自不同周期（关掉互斥区则是副本）、历史要求、时刻约束、注册表参数；MSTL 在合成日+周信号的周末边界上 MAE 不到只看日周期的 seasonal_naive 的四分之一、不到只做日季节的 MSTL 的一半，无泄漏、确定性、非负、历史要求；一个月 1 分钟步（43200 点、日 1440 + 周 10080）一次预测约 10 ms。
+- **没有验证**：真实或测试平台数据上的准确率——测试平台只有约 2.9 小时的历史，满足不了 MSTL 的两周要求、也满足不了新 KNN 的 241 步（1 分钟步约 4 小时）以外的评估，所以这两个包的效果只在合成信号上证实，不是生产结论；线上要用新二进制重启并升级后才会出现 mstl。

@@ -145,10 +145,13 @@ var builtinDefinitions = []Definition{
 		{Name: "covariate_lags", Type: "int", Default: 3, Min: num(1), Max: num(48), Unit: "steps", Description: "每个参与指标取最近多少步的值作为特征（只用目标步之前的值）；没有其他参与指标时忽略。"},
 		{Name: "seed", Type: "int", Default: 42, Min: num(0), Max: num(1000000), Description: "随机种子，固定后同样的历史给出同样的预测。"},
 	}},
-	{ID: "knn", Category: "machine_learning", Description: "K 近邻（相似窗口回归）：把最近一段与历史上每段相同长度的窗口比较，取最相似的 K 段之后发生的值加权平均；可按窗口均值做相对化，使低负载时见过的形态仍能匹配。", Params: []ParamSpec{
+	{ID: "knn", Category: "machine_learning", ImplVersion: "2", Description: "K 近邻（相似窗口回归）：把最近一段与历史上每段相同长度的窗口比较，取最相似的 K 段之后发生的值加权平均；可按窗口均值做相对化，使低负载时见过的形态仍能匹配。选中的 K 段两两至少相隔一个窗口长度（互斥区），不会把同一次事件错开几步的副本算成 K 次；可选只比较同一时刻（时分）结束的窗口。", Params: []ParamSpec{
 		{Name: "window", Type: "int", Default: 48, Min: num(2), Max: num(5000), Unit: "steps", Description: "比较窗口长度。"},
 		{Name: "k", Type: "int", Default: 5, Min: num(1), Max: num(200), Description: "取最相似的几段。"},
 		{Name: "normalize", Type: "string", Default: "relative", Enum: []string{"relative", "none"}, Description: "relative = 窗口除以自身均值后比较，再缩放回当前水平；none = 直接比较原值。"},
+		{OmitWhenDefault: true, Name: "exclusion", Type: "string", Default: "window", Enum: []string{"window", "none"}, Description: "互斥区：window = 选中的 K 段两两至少相隔一个窗口长度，K 段是 K 次不同的事件（所需历史约 K×窗口）；none = 不限制，最像的几段可能只是同一次事件错开几步的副本（版本 2 之前的行为）。"},
+		{OmitWhenDefault: true, Name: "same_time_of_day", Type: "bool", Default: false, Description: "只比较与当前窗口在同一时刻（UTC 时分）结束的历史窗口，适合形态属于一天中某个时刻的负载；候选变少，需要更长的历史。"},
+		{OmitWhenDefault: true, Name: "time_tolerance_minutes", Type: "int", Default: 60, Min: num(0), Max: num(720), Unit: "minutes", Description: "同一时刻的容差，仅 same_time_of_day=true 时使用；跨零点按环形计算。"},
 	}},
 	{ID: "naive_bayes", Category: "machine_learning", Description: "朴素贝叶斯：把目标和每个特征切成分位数桶，学习“类别先验 + 各特征桶在该类别下的概率”，预测下一步落在哪个类别并取类别均值（或后验期望），递归多步预测。分辨率受桶宽限制。", Params: []ParamSpec{
 		{Name: "lags", Type: "int", Default: 3, Min: num(1), Max: num(200), Unit: "steps", Description: "滞后步数。"},
@@ -175,6 +178,10 @@ var builtinDefinitions = []Definition{
 	{ID: "theta", Category: "statistical", Description: "Theta 方法（M3 竞赛冠军）：指数平滑的水平加上线性趋势斜率的一半作为漂移，对短而有噪声的序列很难被打败。有季节时先做经典季节分解。预测不会低于 0。", Params: []ParamSpec{
 		{Name: "season_length_steps", Type: "int", Default: 0, Min: num(0), Unit: "steps", Description: "周期长度（步数）；0 表示不含季节项，启用需要至少两个完整周期。历史全为正时按比例分解，否则按加性分解。"},
 		{Name: "alpha", Type: "float", Default: 0.0, Min: num(0), Max: num(1), Description: "水平平滑系数；0 = 按样本内单步误差自动选择。"},
+	}},
+	{ID: "mstl", Category: "statistical", Description: "多重季节分解（MSTL）：把序列拆成趋势和日、周两个季节分量，去掉季节后的序列用 Theta 预测，再把季节分量加回。适合同时有日周期和周周期的负载。与论文的区别：每个季节分量是固定形状（各位置在所有周期上的均值，反复三轮使分量互相一致），不是随时间缓慢变化的 LOESS 形状。预测不会低于 0。", Params: []ParamSpec{
+		{Name: "daily_season_steps", Type: "int", Required: true, Min: num(2), Unit: "steps", Description: "一天的步数 = 86400 / 步长秒数（1 分钟一步是 1440，5 分钟一步是 288）。"},
+		{Name: "weekly_season_steps", Type: "int", Default: 0, Min: num(0), Unit: "steps", Description: "一周的步数 = 7 × 一天的步数；0 = 只做日季节。必须大于一天的步数。启用周季节至少需要两周历史。"},
 	}},
 	{ID: "ridge_ar", Category: "machine_learning", Description: "岭回归自回归：滞后值与可选日历特征，递归多步预测，特征与目标标准化。", Params: []ParamSpec{
 		{Name: "lags", Type: "int", Required: true, Min: num(1), Max: num(2000), Unit: "steps", Description: "滞后步数，仅使用目标步之前的值。"},
@@ -208,12 +215,13 @@ var notes = map[string][2]string{
 	"ewma":            {"O(n) per forecast, no training", "2 observations"},
 	"holt_winters":    {"O(n) per smoothing pass, a small grid search when coefficients are automatic", "2 x season_length_steps with a seasonal term, else 4 observations"},
 	"theta":           {"O(n) per forecast (a small grid for the smoothing coefficient), no training", "2 x season_length_steps with a seasonal term, else 4 observations"},
+	"mstl":            {"O(n x periods x 3 passes) per forecast, no training", "2 x the longest season: 2 x daily_season_steps, or 2 x weekly_season_steps when a weekly season is set"},
 	"ridge_ar":        {"O(n*lags^2) to fit, O(h*lags) to forecast; retrained on every run", "lags + 2 x feature width + 1 observations (feature width = lags, plus 4 with calendar features)"},
 	"gbdt":            {"O(trees*n*lags*bins) to fit, retrained on every run; bounded by training_window_steps", "lags + 4 x min_samples_leaf + 1 observations"},
 	"macd_trend":      {"O(n) per forecast, no training", "slow_span + signal_span observations"},
 	"hist_percentile": {"O(n log n) per forecast, no training", "4 observations"},
 	"random_forest":   {"O(trees*n*lags*bins) to fit, retrained on every run; bounded by training_window_steps", "lags + 4 x min_samples_leaf + 1 observations"},
-	"knn":             {"O(n*window) per forecast, no training", "window + k + 1 observations, and k earlier windows followed by the horizon"},
+	"knn":             {"O(n*window) per forecast, no training", "k x window + 1 observations with the exclusion zone (window + k + 1 without it), and k separate earlier windows followed by the horizon"},
 	"naive_bayes":     {"O(n*features) to fit, retrained on every run", "lags + 4 x bins + 1 observations"},
 	"rnn":             {"O(epochs*samples*lags*hidden^2) to train on every run; bounded by max_samples and the training time budget", "lags + 30 observations"},
 	"gru":             {"O(epochs*samples*lags*hidden^2) to train on every run; bounded by max_samples and the training time budget", "lags + 30 observations"},

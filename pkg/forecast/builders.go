@@ -23,6 +23,9 @@ var builtinBuilders = map[string]Builder{
 	"theta": func(p map[string]any) (Model, error) {
 		return Theta{Season: pInt(p, "season_length_steps"), Alpha: pFloat(p, "alpha")}, nil
 	},
+	"mstl": func(p map[string]any) (Model, error) {
+		return MSTL{Daily: pInt(p, "daily_season_steps"), Weekly: pInt(p, "weekly_season_steps")}, nil
+	},
 	"hist_percentile": func(p map[string]any) (Model, error) {
 		return HistPercentile{Percentile: pFloat(p, "percentile"), HalfLifeHours: pFloat(p, "half_life_hours"), SafetyMargin: pFloat(p, "safety_margin")}, nil
 	},
@@ -32,7 +35,8 @@ var builtinBuilders = map[string]Builder{
 			CovLags: pInt(p, "covariate_lags"), Seed: int64(pInt(p, "seed"))}, nil
 	},
 	"knn": func(p map[string]any) (Model, error) {
-		return KNN{Window: pInt(p, "window"), K: pInt(p, "k"), Normalize: p["normalize"].(string)}, nil
+		return KNN{Window: pInt(p, "window"), K: pInt(p, "k"), Normalize: p["normalize"].(string),
+			AllowOverlap: p["exclusion"].(string) == "none", SameTimeOfDay: pBool(p, "same_time_of_day"), TimeToleranceMinutes: pInt(p, "time_tolerance_minutes")}, nil
 	},
 	"naive_bayes": func(p map[string]any) (Model, error) {
 		return NaiveBayes{Lags: pInt(p, "lags"), Bins: pInt(p, "bins"), CovLags: pInt(p, "covariate_lags"), Calendar: pBool(p, "calendar_features"),
