@@ -24,8 +24,10 @@ type fakePlatform struct {
 	modules  []PlatformModule
 	replicas int32
 	down     bool
-	reports  []Report
-	seenAuth string
+	// validUntil is when the decisions the platform gives stop being valid; zero means ten minutes after the test's fixed time
+	validUntil time.Time
+	reports    []Report
+	seenAuth   string
 }
 
 func (p *fakePlatform) handler() http.Handler {
@@ -50,6 +52,9 @@ func (p *fakePlatform) handler() http.Handler {
 	}))
 	mux.HandleFunc("/api/v1/operator/decisions", guard(func(w http.ResponseWriter, r *http.Request) {
 		until := now.Add(10 * time.Minute)
+		if !p.validUntil.IsZero() {
+			until = p.validUntil
+		}
 		reply(w, map[string]any{"available": true, "module": r.URL.Query().Get("module"), "version": 3, "replicas": p.replicas, "valid_until": until, "source": "algorithm"})
 	}))
 	mux.HandleFunc("/api/v1/operator/reports", guard(func(w http.ResponseWriter, r *http.Request) {

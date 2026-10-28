@@ -40,6 +40,12 @@ type Options struct {
 	PlatformCredentialFile string
 	PlatformCAFile         string
 	PlatformInterval       time.Duration
+	// CacheTTL is how long after the platform's last answer the remembered decision and module list may stand in for an unreachable
+	// platform; 0 turns the cache off. RecoverSuccesses is how many answers in a row a platform that is back must give before the
+	// workload may be scaled down again.
+	CacheTTL         time.Duration
+	ConfigCacheTTL   time.Duration
+	RecoverSuccesses int
 	// Scalers keeps the PredictiveScaler controller on; turn it off when the CRD is not installed.
 	Scalers bool
 }
@@ -77,6 +83,9 @@ func NewCommand() *cobra.Command {
 	f.StringVar(&opts.PlatformCredentialFile, "platform-credential-file", "", "File holding the developer credential \"<access key>:<access secret>\" (mount a Secret); the KUBE_RESOURCE_FCST_PLATFORM_CREDENTIAL variable is used when empty.")
 	f.StringVar(&opts.PlatformCAFile, "platform-ca-file", "", "PEM CA bundle used to verify the platform certificate.")
 	f.DurationVar(&opts.PlatformInterval, "platform-sync-interval", 30*time.Second, "How often the platform's modules are read and applied.")
+	f.DurationVar(&opts.CacheTTL, "decision-cache-ttl", controller.DefaultCacheTTL, "How long after its last answer the platform's decision and module list are remembered and used when the platform cannot be reached (replicas may still rise to the remembered decision, never fall). Past it the safe degradation applies: the fallback replicas, else the current ones. 0 turns the cache off.")
+	f.DurationVar(&opts.ConfigCacheTTL, "module-cache-ttl", controller.DefaultConfigTTL, "How long the platform's last list of modules (bounds, pace, fallback) is used when the platform cannot be reached. Longer than the decision cache, so the safe degradation after the decision has expired can use the module's own bounds and fallback. Past it nothing is evaluated and the replicas stay.")
+	f.IntVar(&opts.RecoverSuccesses, "decision-recover-answers", controller.DefaultRecoverSuccesses, "How many answers in a row a platform that is back after an outage must give before the workload may be scaled down again (scaling up follows at once).")
 	f.BoolVar(&opts.Scalers, "predictivescaler-crd", true, "Run the PredictiveScaler controller. Turn it off (and do not install the CRD) when the platform modules are the only configuration.")
 	return cmd
 }
@@ -134,13 +143,15 @@ func Run(ctx context.Context, opts *Options) error {
 	// the business metrics share the controller-runtime registry, so one endpoint serves both
 	opMetrics := controller.NewMetrics(ctrlmetrics.Registry)
 	platform := &controller.PlatformDecider{Reader: mgr.GetAPIReader(), Metrics: opMetrics}
+	cachePolicy := controller.CachePolicy{TTL: opts.CacheTTL, ConfigTTL: opts.ConfigCacheTTL, RecoverSuccesses: opts.RecoverSuccesses}
+	cachedPlatform := &controller.CachingDecider{Inner: platform, Policy: cachePolicy, Metrics: opMetrics}
 	reconciler := &controller.Reconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
 		Recorder: mgr.GetEventRecorderFor("kube-resource-fcst-operator"),
 		Deciders: map[v1alpha1.DecisionSource]controller.Decider{
 			v1alpha1.SourceStatic:      controller.StaticDecider{},
-			v1alpha1.SourcePlatformAPI: platform,
+			v1alpha1.SourcePlatformAPI: cachedPlatform,
 			v1alpha1.SourcePrometheus:  &controller.PrometheusDecider{Reader: mgr.GetAPIReader(), Metrics: opMetrics},
 		},
 		Reporter: platform,
@@ -158,7 +169,7 @@ func Run(ctx context.Context, opts *Options) error {
 			return err
 		}
 		platform.Endpoint = endpoint
-		if err := mgr.Add(&controller.ModuleSync{Reconciler: reconciler, Platform: platform, Interval: opts.PlatformInterval, Namespace: opts.Namespace}); err != nil {
+		if err := mgr.Add(&controller.ModuleSync{Reconciler: reconciler, Platform: platform, Interval: opts.PlatformInterval, Namespace: opts.Namespace, Cache: controller.ModuleCache{Policy: cachePolicy}}); err != nil {
 			return fmt.Errorf("register the platform module sync: %w", err)
 		}
 	} else if !opts.Scalers {

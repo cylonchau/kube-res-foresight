@@ -92,6 +92,9 @@ type ModuleSync struct {
 	Reconciler *Reconciler
 	Platform   *PlatformDecider
 	Interval   time.Duration
+	// Cache keeps the list of modules the platform last gave, so a round that cannot reach the platform goes on with it for the TTL; the zero
+	// value turns it off.
+	Cache ModuleCache
 	// Namespace restricts the sync to one namespace; empty = every namespace.
 	Namespace string
 
@@ -139,21 +142,30 @@ func (s *ModuleSync) platformModules(ctx context.Context) ([]PlatformModule, err
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(data, &env); err != nil {
-		return nil, fmt.Errorf("unreadable platform response: %w", err)
+		return nil, unreachable(fmt.Errorf("unreadable platform response: %w", err))
 	}
 	if env.Code != 10000 {
-		return nil, fmt.Errorf("platform error %d: %s", env.Code, env.Msg)
+		return nil, unreachable(fmt.Errorf("platform error %d: %s", env.Code, env.Msg))
 	}
 	return env.Data.Modules, nil
 }
 
-// Once runs one round. An unreachable platform changes nothing: the replicas stay where they are.
+// Once runs one round. When the platform cannot be reached the round goes on with the list of modules it last gave, for the cache TTL
+// (each module then follows its remembered decision, see CachingDecider); past that, or with nothing remembered, nothing changes: the
+// replicas stay where they are.
 func (s *ModuleSync) Once(ctx context.Context) {
 	log := logf.FromContext(ctx).WithName("module-sync")
 	modules, err := s.platformModules(ctx)
 	if err != nil {
-		log.Info("could not read the modules from the platform: replicas are left as they are", "error", err.Error())
-		return
+		remembered, age, ok := s.Cache.Stand(err)
+		if !ok {
+			log.Info("could not read the modules from the platform: replicas are left as they are", "error", err.Error())
+			return
+		}
+		log.Info("could not read the modules from the platform: going on with the list it last gave", "age", age.Round(time.Second).String(), "error", err.Error())
+		modules = remembered
+	} else {
+		s.Cache.Remember(modules)
 	}
 	seen := make(map[string]bool, len(modules))
 	for _, m := range modules {

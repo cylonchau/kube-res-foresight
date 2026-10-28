@@ -189,15 +189,15 @@ func (d *PlatformDecider) request(ctx context.Context, ps *v1alpha1.PredictiveSc
 	}
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, unreachable(err)
 	}
 	defer resp.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return nil, err
+		return nil, unreachable(err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("platform answered %d", resp.StatusCode)
+		return nil, unreachable(fmt.Errorf("platform answered %d", resp.StatusCode))
 	}
 	return data, nil
 }
@@ -213,10 +213,10 @@ func (d *PlatformDecider) Decide(ctx context.Context, ps *v1alpha1.PredictiveSca
 	}
 	var env platformEnvelope
 	if err := json.Unmarshal(data, &env); err != nil {
-		return nil, fmt.Errorf("unreadable platform response: %w", err)
+		return nil, unreachable(fmt.Errorf("unreadable platform response: %w", err))
 	}
 	if env.Code != 10000 {
-		return nil, fmt.Errorf("platform error %d: %s", env.Code, env.Msg)
+		return nil, unreachable(fmt.Errorf("platform error %d: %s", env.Code, env.Msg))
 	}
 	if !env.Data.Available {
 		return nil, fmt.Errorf("platform has no decision: %s", env.Data.Reason)

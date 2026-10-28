@@ -26,6 +26,8 @@ type Metrics struct {
 	decisionValid           *prometheus.GaugeVec
 	decisionExpiresIn       *prometheus.GaugeVec
 	decisionAge             *prometheus.GaugeVec
+	decisionSources         *prometheus.CounterVec
+	cacheAge                *prometheus.GaugeVec
 }
 
 // NewMetrics builds the instruments and registers them on reg.
@@ -57,12 +59,16 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			Help: "1 while the decision in use is fresh and within its validity."}, []string{"module"}),
 		decisionExpiresIn: prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "kube_resource_fcst_operator_decision_expires_in_seconds",
 			Help: "Seconds until the decision in use expires; negative once it has."}, []string{"module"}),
+		decisionSources: prometheus.NewCounterVec(prometheus.CounterOpts{Name: "kube_resource_fcst_operator_decision_source_total",
+			Help: "Decisions read, by where they came from: platform, cache (the platform could not be reached and its last answer stood in), recovering (the platform is back, scale-down still waits), expired (the remembered answer was too old), unreachable (nothing remembered)."}, []string{"source"}),
+		cacheAge: prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "kube_resource_fcst_operator_decision_cache_age_seconds",
+			Help: "Age of the remembered decision standing in for an unreachable platform; 0 while the platform answers."}, []string{"module"}),
 		decisionAge: prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "kube_resource_fcst_operator_decision_age_seconds",
 			Help: "Age of the decision in use, where the source states when it was made."}, []string{"module"}),
 	}
 	if reg != nil {
 		reg.MustRegister(m.reconciles, m.reconcileDuration, m.scaleActions, m.conflicts, m.platformRequests, m.platformDuration,
-			m.prometheusReads, m.prometheusLatency, m.desired, m.current, m.ready, m.decisionValid, m.decisionExpiresIn, m.decisionAge)
+			m.prometheusReads, m.prometheusLatency, m.desired, m.current, m.ready, m.decisionValid, m.decisionExpiresIn, m.decisionAge, m.decisionSources, m.cacheAge)
 	}
 	return m
 }
@@ -112,6 +118,15 @@ func (m *Metrics) recordReconcile(ps *v1alpha1.PredictiveScaler, result string, 
 	if in.Decision != nil && in.Decision.CreatedAt != nil {
 		m.decisionAge.WithLabelValues(module).Set(now.Sub(*in.Decision.CreatedAt).Seconds())
 	}
+}
+
+// recordDecisionSource counts where a decision came from and sets the age of the remembered one that stood in.
+func (m *Metrics) recordDecisionSource(module, source string, age time.Duration) {
+	if m == nil {
+		return
+	}
+	m.decisionSources.WithLabelValues(source).Inc()
+	m.cacheAge.WithLabelValues(module).Set(age.Seconds())
 }
 
 // recordReconcileFailure counts an evaluation that failed before the target was read, so it has no replicas to report.

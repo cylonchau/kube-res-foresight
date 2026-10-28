@@ -28,6 +28,12 @@ type Decision struct {
 	// Urgent says the platform raised the replicas because the load measured now needs more than its forecast gave: a scale-up to it
 	// does not wait for the cooldown and is not limited to the step.
 	Urgent bool
+	// Cached says the platform could not be reached and this is its last answer, remembered by the operator (see CachingDecider); CacheAge is
+	// how old that answer is. Recovering says the platform has just come back from an outage and has not yet answered enough times in a
+	// row. Neither is ever followed down: a stale or a first answer raises the replicas, it does not shrink the workload.
+	Cached     bool
+	CacheAge   time.Duration
+	Recovering bool
 }
 
 // Action is what a reconcile does to the target.
@@ -58,7 +64,7 @@ type Plan struct {
 	Desired       int32
 	Action        Action
 	DecisionValid bool
-	UsedSource    string // "decision", "fallback" or "frozen"
+	UsedSource    string // "decision", "cache" (the platform's last answer, remembered), "fallback" or "frozen"
 	Reason        string
 	Blocked       string // why a wanted change was held back (cooldown, not ready, conflict)
 }
@@ -85,6 +91,10 @@ func MakePlan(in PlanInput) Plan {
 	case in.Decision != nil && (in.Decision.ValidUntil == nil || in.Now.Before(*in.Decision.ValidUntil)):
 		target, p.UsedSource, p.DecisionValid = in.Decision.Replicas, "decision", true
 		p.Reason = fmt.Sprintf("decision from %s", in.Decision.Source)
+		if in.Decision.Cached {
+			p.UsedSource = "cache"
+			p.Reason = fmt.Sprintf("platform unreachable: the decision of %s ago (%s) stands in", in.Decision.CacheAge.Round(time.Second), in.Decision.Source)
+		}
 	case in.Decision != nil:
 		p.Reason = "decision expired"
 	case in.DecisionErr != "":
@@ -102,6 +112,16 @@ func MakePlan(in PlanInput) Plan {
 		if target < in.Current {
 			target = in.Current
 			p.Reason += "; scale-down is never done without a fresh decision"
+		}
+	}
+
+	// a remembered decision, or the first answers of a platform that is just back, can raise the replicas but never lower them
+	if p.DecisionValid && (in.Decision.Cached || in.Decision.Recovering) && target < in.Current {
+		target = in.Current
+		if in.Decision.Cached {
+			p.Reason += "; scale-down is never done on a remembered decision"
+		} else {
+			p.Reason += "; scale-down waits until the platform has answered again"
 		}
 	}
 
