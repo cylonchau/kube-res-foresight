@@ -103,6 +103,20 @@ func TestScoringRanksTheEnabledAlgorithmsOfAModuleAndTheRankingEndpointReadsThem
 	assert.EqualValues(t, 4, decodeData(t, rec.Body.Bytes())["total"], "two evaluations of two algorithms")
 	assert.Equal(t, http.StatusOK, performJSON(t, r, http.MethodGet, "/algorithm-scores?sort_by=nope;drop", "", nil).Code, "an unknown sort falls back instead of reaching SQL")
 
+	// the list of the newest scores has one row per algorithm (and resource), whatever the number of evaluations, and every row
+	// carries the windows it was computed from
+	latestRec := performJSON(t, r, http.MethodGet, fmt.Sprintf("/algorithm-scores/latest?module_id=%d&metric=overall", module), "", nil)
+	require.Equal(t, http.StatusOK, latestRec.Code, latestRec.Body.String())
+	newest := decodeData(t, latestRec.Body.Bytes())
+	assert.EqualValues(t, 2, newest["total"], "two evaluations of two algorithms: still two rows")
+	for _, row := range newest["list"].([]any) {
+		item := row.(map[string]any)
+		assert.Equal(t, "m", item["module_name"])
+		assert.Equal(t, "overall", item["metric"])
+		assert.NotEmpty(t, item["result"].(map[string]any)["details"], "the windows the grade was computed from")
+		assert.EqualValues(t, 2, item["ranked"])
+	}
+
 	// every record carries its parts: accuracy, error, the weight the part had and what it contributed
 	first := decodeList(t, rec.Body.Bytes())[0].(map[string]any)
 	assert.Equal(t, "m", first["module_name"])

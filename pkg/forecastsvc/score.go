@@ -330,6 +330,13 @@ func (s *Service) scoreInstance(ctx context.Context, m *model.ForecastModule, in
 			Actual: actuals[i].outcome, OOM: actuals[i].oom, Complete: actuals[i].complete && !missing})
 	}
 	result := scoring.Score(wins, scoring.DefaultWeights())
+	// which sources each resource was read from: the basis a person checks the figures against
+	result.Sources = map[string][]string{}
+	for _, src := range sources {
+		if kind := src.Kind; kind == "cpu" || kind == "memory" || kind == "gpu" {
+			result.Sources[kind] = append(result.Sources[kind], src.Key)
+		}
+	}
 	if result.Windows == 0 {
 		// nothing could be replayed (too little history for the algorithm, or no window with actual values): a score of 0
 		// over no window would rank the algorithm on no evidence at all, so there is no score

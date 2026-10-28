@@ -73,6 +73,70 @@ type Result struct {
 	Completeness float64 `json:"completeness"`      // share of windows that had all their data
 	// Metrics is the grade of each resource by itself: what ranks the algorithms for CPU, for memory and for GPU.
 	Metrics []MetricResult `json:"metrics,omitempty"`
+	// Details are the windows the grade was computed from, with the forecast and the actual need of each resource: the basis of
+	// every figure above, so a score can be checked by hand.
+	Details []WindowDetail `json:"details,omitempty"`
+	// Sources names the metric sources each resource was read from ("cpu": ["cpu_usage"]), filled by the caller that knows them.
+	Sources map[string][]string `json:"sources,omitempty"`
+	// UnderWeight is the factor a shortfall counted by in this grade.
+	UnderWeight float64 `json:"under_weight,omitempty"`
+}
+
+// WindowDetail is one evaluated window as it entered the grade. A resource the module has no source for is absent.
+type WindowDetail struct {
+	Start     time.Time `json:"start"`
+	End       time.Time `json:"end"`
+	Predicted Figures   `json:"predicted"`
+	Actual    Figures   `json:"actual"`
+	// Error is the error each resource contributed: |forecast - actual|, times Under for a shortfall.
+	Error    Figures `json:"error"`
+	Under    bool    `json:"under_provisioned"`
+	OOM      int     `json:"oom"`
+	Complete bool    `json:"complete"`
+}
+
+// Figures holds a value per resource; a nil resource has no data in the window.
+type Figures struct {
+	Replicas int      `json:"replicas"`
+	CPU      *float64 `json:"cpu,omitempty"`    // cores
+	Memory   *float64 `json:"memory,omitempty"` // bytes
+	GPU      *float64 `json:"gpu,omitempty"`    // cards
+}
+
+func figuresOf(o Outcome) Figures {
+	f := Figures{Replicas: o.Replicas}
+	if o.HasCPU {
+		v := o.CPU
+		f.CPU = &v
+	}
+	if o.HasMemory {
+		v := o.Memory
+		f.Memory = &v
+	}
+	if o.HasGPU {
+		v := o.GPU
+		f.GPU = &v
+	}
+	return f
+}
+
+// errorFigures is the error each resource contributed in a window, the way the accuracy counts it.
+func errorFigures(p, a Outcome, under float64) Figures {
+	f := Figures{}
+	add := func(has bool, pred, act float64) *float64 {
+		if !has {
+			return nil
+		}
+		e := math.Abs(pred - act)
+		if pred < act {
+			e *= under
+		}
+		return &e
+	}
+	f.CPU = add(p.HasCPU && a.HasCPU, p.CPU, a.CPU)
+	f.Memory = add(p.HasMemory && a.HasMemory, p.Memory, a.Memory)
+	f.GPU = add(p.HasGPU && a.HasGPU, p.GPU, a.GPU)
+	return f
 }
 
 // MetricResult is the grade of one resource: its accuracy (0..1) and its score (0..100).
@@ -146,7 +210,15 @@ func Score(ws []Window, wt Weights) Result {
 	var cpu, mem, gpu resourceAcc
 	var haveCPU, haveMem, haveGPU bool
 	var complete int
+	res.UnderWeight = wt.Under
 	for _, w := range ws {
+		under := underProvisioned(w.Predicted, w.Actual)
+		oom := 0
+		if under {
+			oom = w.OOM
+		}
+		res.Details = append(res.Details, WindowDetail{Start: w.Start, End: w.End, Predicted: figuresOf(w.Predicted), Actual: figuresOf(w.Actual),
+			Error: errorFigures(w.Predicted, w.Actual, wt.Under), Under: under, OOM: oom, Complete: w.Complete})
 		replicaSum += replicaAccuracy(w.Predicted.Replicas, w.Actual.Replicas, wt.Under)
 		if w.Predicted.Replicas == w.Actual.Replicas {
 			res.ReplicaExact++

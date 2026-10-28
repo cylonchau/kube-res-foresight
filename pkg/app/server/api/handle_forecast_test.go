@@ -69,6 +69,7 @@ func forecastTestRouter(t *testing.T) (*gin.Engine, *model.MetricMapping) {
 	r.GET("/algorithms/:id/schema", h.AlgorithmSchema)
 	r.GET("/algorithms/:id/usage", center.Usage)
 	r.GET("/algorithm-scores", center.ListScores)
+	r.GET("/algorithm-scores/latest", center.LatestScores)
 	r.GET("/algorithm-rankings/current", center.CurrentRankings)
 	r.GET("/algorithm-rankings/history", center.HistoryRankings)
 	r.GET("/modules/:id/metric-scores", center.MetricScores)

@@ -16,6 +16,8 @@ func RegisteredRouter(e *gin.Engine) {
 	e.GET("/ping", func(c *gin.Context) { c.JSON(200, gin.H{"message": "pong"}) })
 
 	v1Group := e.Group("/api/v1")
+	// a body that is not UTF-8 would be stored as unrecoverable garbage: refused before any handler reads it
+	v1Group.Use(middleware.UTF8BodyMiddleware())
 
 	ldapService := &ldapauth.Service{DB: model.DB, Dir: ldapauth.Client{}, RevokeSessions: rdb.NewRefreshTokenSessionDAO(model.DB).RevokeUser}
 	authHandler := &v1.AuthRouter{
@@ -153,6 +155,7 @@ func RegisteredRouter(e *gin.Engine) {
 	v1Group.GET("/algorithms/:id/usage", centerHandler.Usage)
 	v1Group.GET("/dataset/catalog", forecastHandler.DatasetCatalog)
 	v1Group.GET("/algorithm-scores", centerHandler.ListScores)
+	v1Group.GET("/algorithm-scores/latest", centerHandler.LatestScores)
 	v1Group.GET("/algorithm-rankings/current", centerHandler.CurrentRankings)
 	v1Group.GET("/algorithm-rankings/history", centerHandler.HistoryRankings)
 	v1Group.GET("/admissions", centerHandler.ListAdmissions)
