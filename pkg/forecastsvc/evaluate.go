@@ -7,6 +7,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/cylonchau/kube-resource-fcst/pkg/backtest"
 	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
 	"github.com/cylonchau/kube-resource-fcst/pkg/forecast"
 	"github.com/cylonchau/kube-resource-fcst/pkg/model"
@@ -162,25 +163,31 @@ func (s *Service) Evaluate(ctx context.Context, moduleID uint) ([]EvaluateResult
 
 // LeaderboardEntry ranks one algorithm on the evaluations of one of its sources.
 type LeaderboardEntry struct {
-	Rank          int     `json:"rank"`
-	AlgorithmID   string  `json:"algorithm_id"`
-	ModuleID      uint    `json:"module_id"`
-	Metric        string  `json:"metric"` // the source key
-	Catalog       string  `json:"catalog"`
-	Baseline      bool    `json:"baseline"`
-	Runs          int     `json:"runs"`
-	Points        int     `json:"points"`
-	WAPE          float64 `json:"wape"`       // mean of the runs' WAPE, weighted by compared points
+	Rank        int     `json:"rank"`
+	AlgorithmID string  `json:"algorithm_id"`
+	ModuleID    uint    `json:"module_id"`
+	Metric      string  `json:"metric"` // the source key
+	Catalog     string  `json:"catalog"`
+	Baseline    bool    `json:"baseline"`
+	Runs        int     `json:"runs"`
+	Points      int     `json:"points"`
+	WAPE        float64 `json:"wape"` // mean of the runs' WAPE, weighted by compared points
+	// RiskWAPE is the WAPE with underestimates costing backtest.DefaultUnderWeight times an overestimate; the ranking is by it.
+	RiskWAPE      float64 `json:"risk_wape"`
 	MAE           float64 `json:"mae"`        // same weighting
 	Bias          float64 `json:"bias"`       // same weighting; positive = over-prediction
 	PeakUnder     float64 `json:"peak_under"` // mean over runs
 	Coverage      float64 `json:"coverage"`   // same weighting
 	BeatsBaseline *bool   `json:"beats_baseline,omitempty"`
 	Promoted      *bool   `json:"promoted,omitempty"` // latest backtest verdict, when one exists
+	// Status is ready for a ranked algorithm; for one with nothing to rank it says why (Rank is 0 then).
+	Status string `json:"status"`
+	Reason string `json:"reason"`
 }
 
 // Leaderboard ranks the enabled algorithms of a module on the sources of one kind (cpu, memory, ...) by
-// observed WAPE over the evaluations since the given time. Ranking is by what actually happened, not by backtest;
+// observed RiskWAPE (WAPE that counts running low as worse than running high, because a forecast that is too low
+// starves the workload) over the evaluations since the given time; WAPE breaks ties and is shown beside it. Ranking is by what actually happened, not by backtest;
 // it never promotes anything by itself.
 func (s *Service) Leaderboard(ctx context.Context, moduleID uint, kind string, since, until *time.Time) ([]LeaderboardEntry, error) {
 	mod, err := s.Modules.Get(ctx, moduleID)
@@ -191,7 +198,7 @@ func (s *Service) Leaderboard(ctx context.Context, moduleID uint, kind string, s
 	if err != nil {
 		return nil, err
 	}
-	var entries []LeaderboardEntry
+	var entries, unranked []LeaderboardEntry
 	for _, inst := range runs {
 		for _, src := range inst.ActiveSources() {
 			if src.Kind != kind || src.Basis != model.BasisForecast {
@@ -202,7 +209,7 @@ func (s *Service) Leaderboard(ctx context.Context, moduleID uint, kind string, s
 				return nil, err
 			}
 			var runs, points int
-			var wape, mae, bias, cov, peak float64
+			var wape, risk, mae, bias, cov, peak float64
 			for _, e := range evals {
 				if e.Points == 0 {
 					continue
@@ -211,18 +218,26 @@ func (s *Service) Leaderboard(ctx context.Context, moduleID uint, kind string, s
 				runs++
 				points += e.Points
 				wape += e.WAPE * w
+				risk += backtest.RiskWAPE(e.WAPE, e.MAE, e.Bias, backtest.DefaultUnderWeight) * w
 				mae += e.MAE * w
 				bias += e.Bias * w
 				cov += e.Coverage * w
 				peak += e.PeakUnder
 			}
 			if points == 0 {
+				st := s.AlgorithmStatus(ctx, inst.ID, src.Key, inst.Key(), false, "it forecast, but no forecast has met its actual values yet in this range, so there is nothing to score")
+				if len(evals) == 0 && st.Status == StatusNoResult {
+					if n, _ := s.Predictions.CountPredictions(ctx, inst.ID, src.Key, inst.Key()); n == 0 {
+						st.Reason = "it ran, but has made no forecast for this metric"
+					}
+				}
+				unranked = append(unranked, LeaderboardEntry{AlgorithmID: inst.Key(), ModuleID: inst.ID, Metric: src.Key, Catalog: inst.AlgorithmID, Status: st.Status, Reason: st.Reason})
 				continue
 			}
 			w := float64(points)
 			def, _ := forecast.Lookup(inst.AlgorithmID)
-			entry := LeaderboardEntry{AlgorithmID: inst.Key(), ModuleID: inst.ID, Metric: src.Key, Catalog: inst.AlgorithmID, Baseline: def.Baseline,
-				Runs: runs, Points: points, WAPE: wape / w, MAE: mae / w, Bias: bias / w, Coverage: cov / w, PeakUnder: peak / float64(runs)}
+			entry := LeaderboardEntry{Status: StatusReady, AlgorithmID: inst.Key(), ModuleID: inst.ID, Metric: src.Key, Catalog: inst.AlgorithmID, Baseline: def.Baseline,
+				Runs: runs, Points: points, WAPE: wape / w, RiskWAPE: risk / w, MAE: mae / w, Bias: bias / w, Coverage: cov / w, PeakUnder: peak / float64(runs)}
 			if run, err := s.Predictions.LatestBacktest(ctx, inst.ID, src.Key, inst.Key()); err == nil && run != nil {
 				promoted := run.Promoted
 				entry.Promoted = &promoted
@@ -231,6 +246,9 @@ func (s *Service) Leaderboard(ctx context.Context, moduleID uint, kind string, s
 		}
 	}
 	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].RiskWAPE != entries[j].RiskWAPE {
+			return entries[i].RiskWAPE < entries[j].RiskWAPE
+		}
 		if entries[i].WAPE != entries[j].WAPE {
 			return entries[i].WAPE < entries[j].WAPE
 		}
@@ -238,18 +256,20 @@ func (s *Service) Leaderboard(ctx context.Context, moduleID uint, kind string, s
 	})
 	bestBaseline := math.Inf(1)
 	for _, e := range entries {
-		if e.Baseline && e.WAPE < bestBaseline {
-			bestBaseline = e.WAPE
+		if e.Baseline && e.RiskWAPE < bestBaseline {
+			bestBaseline = e.RiskWAPE
 		}
 	}
 	for i := range entries {
 		entries[i].Rank = i + 1
 		if !entries[i].Baseline && !math.IsInf(bestBaseline, 1) {
-			beats := entries[i].WAPE < bestBaseline
+			beats := entries[i].RiskWAPE < bestBaseline
 			entries[i].BeatsBaseline = &beats
 		}
 	}
-	return entries, nil
+	// the enabled algorithms with nothing to rank follow the ranked ones, each with its reason
+	sort.Slice(unranked, func(i, j int) bool { return unranked[i].AlgorithmID < unranked[j].AlgorithmID })
+	return append(entries, unranked...), nil
 }
 
 // EvaluationSummary is a one-line description for logs.

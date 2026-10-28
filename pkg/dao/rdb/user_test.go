@@ -13,7 +13,7 @@ import (
 func TestUserDAO(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Role{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Role{}, &model.UserContact{}))
 
 	dao := NewUserDAO(db)
 	ctx := context.Background()

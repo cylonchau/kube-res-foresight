@@ -279,6 +279,9 @@ func (r *RuntimeRouter) ListExecutions(c *gin.Context) {
 
 // AdmissionAnswer is what the Kyverno policy reads. Apply false means "leave the Pod alone".
 type AdmissionAnswer struct {
+	// Managed says whether a module manages the workload at all, whatever the answer is: a policy that wants every workload
+	// to have a module (and refuses the others) reads this, not the free text of Reason.
+	Managed    bool       `json:"managed"`
 	Apply      bool       `json:"apply"`
 	Reason     string     `json:"reason"`
 	Module     string     `json:"module,omitempty"`
@@ -329,10 +332,6 @@ func (r *RuntimeRouter) Admission(c *gin.Context) {
 		out.Apply, out.Reason = false, reason
 		answer()
 	}
-	if !r.modeOpen(c, ConfigAllowAdmissionMode) {
-		deny("admission mode is switched off by an administrator (forecast.allow_admission_mode)")
-		return
-	}
 	// a module is a workload: namespace, kind (when the caller knows it) and name
 	modules, err := r.Modules.ForWorkload(c.Request.Context(), namespace, c.Query("kind"), workload)
 	if err != nil {
@@ -343,10 +342,16 @@ func (r *RuntimeRouter) Admission(c *gin.Context) {
 	if len(modules) > 0 {
 		m = modules[0]
 	}
-	// every answer about a module is kept, a refusal as much as an applied one
+	// every answer about a module is kept, a refusal as much as an applied one: that includes the answer given while the
+	// switch is off, otherwise a platform whose Kyverno policy calls it would show no admission record at all
 	found = m
+	out.Managed = m != nil
 	original[0], _ = strconv.ParseInt(c.Query("cpu_milli"), 10, 64)
 	original[1], _ = strconv.ParseInt(c.Query("memory_bytes"), 10, 64)
+	if !r.modeOpen(c, ConfigAllowAdmissionMode) {
+		deny("admission mode is switched off by an administrator (forecast.allow_admission_mode)")
+		return
+	}
 	switch {
 	case m == nil:
 		deny("no module manages this workload")

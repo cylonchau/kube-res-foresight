@@ -211,21 +211,24 @@ type SourceCustomQuery struct {
 
 // SourceUpdateReq patches a source; its kind (and so its stored history) cannot change.
 type SourceUpdateReq struct {
-	Name        *string  `json:"name"`
-	Resource    *string  `json:"resource"`
-	MappingID   *uint    `json:"mapping_id"`
-	Priority    *int     `json:"priority"`
-	Weight      *float64 `json:"weight"`
-	Stat        *string  `json:"stat"`
-	Basis       *string  `json:"basis"`
-	WindowHours *int     `json:"window_hours"`
-	Threshold   *float64 `json:"threshold"`
-	Enabled     *bool    `json:"enabled"`
-	Remark      *string  `json:"remark"`
-	Scale       *float64 `json:"scale"`
-	Precision   *int     `json:"precision"`
-	Aggregation *string  `json:"aggregation"`
-	Missing     *string  `json:"missing"`
+	Name      *string `json:"name"`
+	Resource  *string `json:"resource"`
+	MappingID *uint   `json:"mapping_id"`
+	// Custom replaces the query of the source with a PromQL written here: a new mapping is made for it and the one the
+	// source had is removed when it was written for this source alone. Give either mapping_id or custom.
+	Custom      *SourceCustomQuery `json:"custom"`
+	Priority    *int               `json:"priority"`
+	Weight      *float64           `json:"weight"`
+	Stat        *string            `json:"stat"`
+	Basis       *string            `json:"basis"`
+	WindowHours *int               `json:"window_hours"`
+	Threshold   *float64           `json:"threshold"`
+	Enabled     *bool              `json:"enabled"`
+	Remark      *string            `json:"remark"`
+	Scale       *float64           `json:"scale"`
+	Precision   *int               `json:"precision"`
+	Aggregation *string            `json:"aggregation"`
+	Missing     *string            `json:"missing"`
 }
 
 // PeriodReq creates or replaces a fixed period (see decision.FixedPeriod). A weekly period uses Weekdays (a bit mask,

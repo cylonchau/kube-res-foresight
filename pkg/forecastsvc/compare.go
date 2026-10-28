@@ -177,6 +177,8 @@ type Compare struct {
 	Actual         *LiveSeries        `json:"actual"`
 	ActualReplicas *LiveSeries        `json:"actual_replicas"`
 	Algorithms     []CompareAlgorithm `json:"algorithms"`
+	// Statuses has every enabled algorithm, with the reason for the ones that have no forecast in the window.
+	Statuses []AlgorithmStatus `json:"statuses"`
 	// ReplicaBasis says how a predicted replica count is derived, or why there is none.
 	ReplicaBasis  string    `json:"replica_basis"`
 	BucketSeconds int       `json:"bucket_seconds"`
@@ -206,7 +208,7 @@ func (s *Service) Compare(ctx context.Context, moduleID uint, o CompareOptions) 
 	if m.MappingID(o.Metric) == 0 {
 		return nil, fmt.Errorf("metric must be the key of one of the module's metric sources")
 	}
-	out := &Compare{Metric: o.Metric, Unit: MetricUnit(m.KindOf(o.Metric)), Algorithms: []CompareAlgorithm{}, From: o.From, To: o.To}
+	out := &Compare{Metric: o.Metric, Unit: MetricUnit(m.KindOf(o.Metric)), Algorithms: []CompareAlgorithm{}, Statuses: []AlgorithmStatus{}, From: o.From, To: o.To}
 
 	actual, aerr := s.LiveHistory(ctx, moduleID, o.Metric, o.From, o.To, o.MaxPoints)
 	switch {
@@ -306,6 +308,12 @@ func (s *Service) Compare(ctx context.Context, moduleID uint, o CompareOptions) 
 			alg.Points = append(alg.Points, pt)
 		}
 		out.Algorithms = append(out.Algorithms, alg)
+	}
+	if runs, err := s.runsOf(ctx, mod); err == nil {
+		for _, inst := range runs {
+			_, has := by[inst.Key()]
+			out.Statuses = append(out.Statuses, s.AlgorithmStatus(ctx, moduleID, o.Metric, inst.Key(), has, noForecastsInRange(o.From, o.To)))
+		}
 	}
 	return out, nil
 }

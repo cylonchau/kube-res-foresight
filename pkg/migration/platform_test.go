@@ -123,13 +123,13 @@ func TestSeedPlatformPermissionsIncludesTheSplitForecastMenus(t *testing.T) {
 	require.NoError(t, seedPlatformPermissions())
 	for code, parent := range map[string]string{
 		"forecast-modules_modules": "forecast-modules", "monitoring_datasets": "monitoring",
-		"forecast_algorithms": "forecast", "forecast_score-records": "forecast", "forecast_ranking": "forecast", "forecast_ranking-history": "forecast",
-		"forecast-results_runs": "forecast-results", "forecast-actions_admissions": "forecast-actions",
-		"forecast-results_history": "forecast-results", "forecast-results_backtests": "forecast-results", "forecast-results_evaluations": "forecast-results",
-		"forecast-results_leaderboard": "forecast-results", "forecast-results_trends": "forecast-results",
+		"forecast_algorithms": "forecast", "forecast_score-records": "forecast", "forecast_ranking": "forecast",
+		"forecast-results_algorithm-runs": "forecast-results", "forecast-actions_admissions": "forecast-actions",
+		"forecast-results_history": "forecast-results", "forecast-results_evaluations": "forecast-results",
+		"forecast-results_leaderboard":     "forecast-results",
 		"forecast-actions_recommendations": "forecast-actions", "forecast-actions_executions": "forecast-actions",
-		"forecast-actions_fallbacks": "forecast-actions", "forecast-actions_audit-exports": "forecast-actions",
-		"monitoring_metrics": "monitoring", "monitoring_curves": "monitoring",
+		"forecast-actions_fallbacks": "forecast-actions",
+		"monitoring_curves":          "monitoring",
 	} {
 		var menu, dir model.Permission
 		require.NoError(t, db.Where("code = ?", code).First(&menu).Error, code)
@@ -176,7 +176,6 @@ func TestUpgradeCarriesMenuGrantsToTheSplitMenusAndRemovesTheRetiredOnes(t *test
 	var granted []string
 	require.NoError(t, db.Table("permissions").Joins("JOIN sys_role_permissions rp ON rp.permission_id = permissions.id").
 		Where("rp.role_id = ?", role.ID).Order("permissions.code").Pluck("permissions.code", &granted).Error)
-	require.Contains(t, granted, "forecast-results_backtests")
 	require.Contains(t, granted, "forecast-results_evaluations")
 	require.Contains(t, granted, "forecast-results_leaderboard")
 	require.Contains(t, granted, "forecast-results", "the parent directory comes with its pages")
@@ -186,6 +185,46 @@ func TestUpgradeCarriesMenuGrantsToTheSplitMenusAndRemovesTheRetiredOnes(t *test
 		require.NoError(t, db.Model(&model.Permission{}).Where("code = ?", code).Count(&n).Error)
 		require.Zero(t, n, code)
 	}
+}
+
+// The pages of the snapshots and of the training records are gone: the snapshot history opens from the resource recommendation page
+// and the training records over the algorithm run status. Their menus and grants go, and the grants move to those pages.
+func TestUpgradeRemovesTheSnapshotsAndTrainingRecordsMenus(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(model.Models...))
+	oldDB := model.DB
+	model.DB = db
+	t.Cleanup(func() { model.DB = oldDB })
+	require.NoError(t, seedPlatformPermissions())
+
+	role := model.Role{Name: "Analyst", Code: "ANALYST2", Status: true}
+	require.NoError(t, db.Create(&role).Error)
+	snapshots := model.Permission{Name: "Recommendation Snapshots", Code: "forecast-actions_snapshots", Type: "MENU", Status: true}
+	runs := model.Permission{Name: "Training Records", Code: "forecast-results_runs", Type: "MENU", Status: true}
+	require.NoError(t, db.Create(&snapshots).Error)
+	require.NoError(t, db.Create(&runs).Error)
+	require.NoError(t, db.Model(&role).Association("Permissions").Replace([]model.Permission{snapshots, runs}))
+
+	require.NoError(t, migrateMenuGrants(db))
+	require.NoError(t, cleanupRetiredModules(db))
+	require.NoError(t, cleanupRetiredModules(db), "safe to repeat")
+
+	var left int64
+	require.NoError(t, db.Model(&model.Permission{}).Where("code IN ?", []string{"forecast-actions_snapshots", "forecast-results_runs"}).Count(&left).Error)
+	require.Zero(t, left)
+	var granted []string
+	require.NoError(t, db.Table("permissions").Joins("JOIN sys_role_permissions rp ON rp.permission_id = permissions.id").
+		Where("rp.role_id = ?", role.ID).Pluck("permissions.code", &granted).Error)
+	require.Contains(t, granted, "forecast-actions_recommendations")
+	require.Contains(t, granted, "forecast-results_algorithm-runs")
+
+	var rec, executions model.Permission
+	require.NoError(t, splitRecommendationMenus(db))
+	require.NoError(t, db.Where("code = ?", "forecast-actions_executions").First(&executions).Error)
+	require.NoError(t, db.Where("code = ?", "forecast-actions_recommendations").First(&rec).Error)
+	require.Less(t, rec.Sort, executions.Sort)
+	require.Equal(t, "Resource Recommendations", rec.Name)
 }
 
 func TestUpgradeMovesTheLDAPConfigurationIntoTheSystemParameters(t *testing.T) {

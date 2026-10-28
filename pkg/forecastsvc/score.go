@@ -157,6 +157,10 @@ func (s *Service) ScoreModule(ctx context.Context, moduleID uint) ([]*model.Algo
 	if err := s.Predictions.SaveScores(ctx, rows); err != nil {
 		return nil, err
 	}
+	// the records beyond the cap of the system parameter are not worth keeping
+	if _, err := s.Predictions.PruneScores(ctx, m.ID, s.RetentionPolicy(ctx).Scores); err != nil {
+		return rows, err
+	}
 	return rows, nil
 }
 
@@ -316,7 +320,9 @@ func (s *Service) scoreInstance(ctx context.Context, m *model.ForecastModule, in
 			}
 			predicted[src.Key] = vals
 		}
-		if len(predicted) == 0 {
+		// a window in which the algorithm could not forecast a source it owns is no evidence about it: scoring the rest (a replica
+		// count read from history, say) would give every algorithm that failed the same high score for forecasting nothing
+		if missing || len(predicted) == 0 {
 			continue
 		}
 		res := multimetric.Compute(cfg, calcInputs(inst, predicted, why))
@@ -324,6 +330,11 @@ func (s *Service) scoreInstance(ctx context.Context, m *model.ForecastModule, in
 			Actual: actuals[i].outcome, OOM: actuals[i].oom, Complete: actuals[i].complete && !missing})
 	}
 	result := scoring.Score(wins, scoring.DefaultWeights())
+	if result.Windows == 0 {
+		// nothing could be replayed (too little history for the algorithm, or no window with actual values): a score of 0
+		// over no window would rank the algorithm on no evidence at all, so there is no score
+		return nil, fmt.Errorf("%w: no window of the recent history could be replayed with %s", ErrNothingToScore, inst.Key())
+	}
 	return &model.AlgorithmScore{ModuleID: m.ID, Algorithm: inst.Key(), AlgorithmID: inst.AlgorithmID, Score: result.Score,
 		Windows: result.Windows, Detail: marshal(result), WindowStart: specs[0].start, WindowEnd: specs[len(specs)-1].end}, nil
 }

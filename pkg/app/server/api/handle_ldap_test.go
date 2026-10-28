@@ -5,12 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"sync/atomic"
 	"testing"
 
 	"github.com/cylonchau/kube-resource-fcst/pkg/app/utils"
 	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
 	"github.com/cylonchau/kube-resource-fcst/pkg/ldapauth"
+	"github.com/cylonchau/kube-resource-fcst/pkg/migration"
 	"github.com/cylonchau/kube-resource-fcst/pkg/model"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -67,7 +69,7 @@ func newLDAPAPI(t *testing.T) *ldapAPI {
 	gin.SetMode(gin.TestMode)
 	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:ldapapi_%d?mode=memory&cache=shared", atomic.AddInt32(&ldapDBSeq, 1))), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Role{}, &model.Permission{}, &model.SysConfig{}, &model.SystemMarker{},
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.UserContact{}, &model.Role{}, &model.Permission{}, &model.SysConfig{}, &model.SystemMarker{},
 		&model.RefreshTokenSession{}, &model.LoginFailureRecord{}, &model.LoginCaptchaChallenge{}, &model.LoginAuditLog{}))
 	previous := model.DB
 	model.DB = db
@@ -231,10 +233,49 @@ func TestGroupRoleMappingsAreAParameterValidatedOnSave(t *testing.T) {
 	assert.Contains(t, responseData(t, rec.Body.Bytes())["group_role_mappings"], "sre=ADMIN")
 }
 
-func TestLDAPKeysAreNotReachableThroughTheGenericSettingsAPI(t *testing.T) {
-	assert.True(t, IsInternalSysConfigKey("ldap.bind_password"))
-	assert.True(t, IsInternalSysConfigKey("ldap.url"))
-	assert.False(t, IsInternalSysConfigKey("sys.auth.access_token_minutes"))
+// LDAP is an ordinary group of system parameters: listed, edited one by one, secrets masked, and the whole
+// configuration is validated when a change would leave directory login enabled.
+func TestLDAPParametersAreEditedLikeAnyOtherSystemParameter(t *testing.T) {
+	a := newLDAPAPI(t)
+	require.NoError(t, migration.EnsureDefaultConfigs())
+	cfg := &ConfigRouter{DAO: rdb.NewSysConfigDAO(a.db), LDAP: &LDAPRouter{Service: &ldapauth.Service{DB: a.db, Dir: a.dir}}}
+	a.router.GET("/configs", cfg.List)
+	a.router.PUT("/configs/:key", cfg.Update)
+	set := func(key, value string) *httptest.ResponseRecorder {
+		return performJSON(t, a.router, http.MethodPut, "/configs/"+key, "", map[string]any{"config_value": value})
+	}
+	value := func(key string) string {
+		var row model.SysConfig
+		require.NoError(t, a.db.Where("config_key = ?", key).First(&row).Error)
+		return row.ConfigValue
+	}
+
+	list := performJSON(t, a.router, http.MethodGet, "/configs", "", nil).Body.String()
+	assert.Contains(t, list, "ldap.url", "the LDAP parameters are in the list")
+	assert.NotContains(t, list, "sys.auth.jwt_secret")
+
+	assert.Equal(t, http.StatusBadRequest, set("ldap.enabled", "true").Code, "incomplete settings cannot be enabled")
+	assert.Equal(t, "false", value("ldap.enabled"))
+	assert.Equal(t, http.StatusBadRequest, set("ldap.start_tls", "maybe").Code)
+	assert.Equal(t, http.StatusBadRequest, set("ldap.timeout_seconds", "500").Code)
+
+	for key, v := range map[string]string{"ldap.url": "ldaps://ldap.example.org", "ldap.user_base_dn": "ou=people,dc=example,dc=org",
+		"ldap.bind_dn": "cn=svc,dc=example,dc=org", "ldap.bind_password": "svc-secret"} {
+		require.Equal(t, http.StatusOK, set(key, v).Code, key)
+	}
+	assert.NotEqual(t, "svc-secret", value("ldap.bind_password"), "the password is stored encrypted")
+	assert.NotContains(t, performJSON(t, a.router, http.MethodGet, "/configs", "", nil).Body.String(), "svc-secret")
+	assert.Contains(t, performJSON(t, a.router, http.MethodGet, "/configs", "", nil).Body.String(), SecretMask)
+
+	stored := value("ldap.bind_password")
+	require.Equal(t, http.StatusOK, set("ldap.bind_password", SecretMask).Code)
+	assert.Equal(t, stored, value("ldap.bind_password"), "sending the mask back keeps the secret")
+
+	a.dir.down = true
+	assert.Equal(t, http.StatusBadRequest, set("ldap.enabled", "true").Code, "enabling checks the directory")
+	a.dir.down = false
+	assert.Equal(t, http.StatusOK, set("ldap.enabled", "true").Code)
+	assert.Equal(t, "true", value("ldap.enabled"))
 }
 
 func TestTestEndpointReportsTheConnectionAndTheRolesAUserWouldGet(t *testing.T) {

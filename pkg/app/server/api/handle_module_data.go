@@ -61,7 +61,7 @@ func (r *ForecastRouter) dropMappings(ctx context.Context, ids []uint) {
 }
 
 // customMapping writes the metric mapping behind a PromQL the user typed for a source.
-func (r *ForecastRouter) customMapping(ctx context.Context, req *apis.SourceReq) (uint, error) {
+func (r *ForecastRouter) customMapping(ctx context.Context, req *apis.SourceReq, renameOnTaken bool) (uint, error) {
 	c := req.Custom
 	mapping := &model.MetricMapping{DatasourceID: c.DatasourceID, Name: req.Name, Metric: req.Kind, Level: c.Level, Query: c.Query, Unit: c.Unit,
 		StepSeconds: c.StepSeconds, Enabled: true, Remark: "written for the source " + req.Name}
@@ -79,7 +79,19 @@ func (r *ForecastRouter) customMapping(ctx context.Context, req *apis.SourceReq)
 	}
 	if err := r.Mappings.Create(ctx, mapping); err != nil {
 		if errors.Is(err, rdb.ErrNameTaken) {
-			return 0, fmt.Errorf("a metric mapping named %q already exists on that datasource: rename the source or pick the mapping", req.Name)
+			if !renameOnTaken {
+				return 0, fmt.Errorf("a metric mapping named %q already exists on that datasource: rename the source or pick the mapping", req.Name)
+			}
+			// an edited query is a new mapping next to the one it replaces, so the name gets a number
+			for n := 2; n < 50; n++ {
+				mapping.ID, mapping.Name = 0, fmt.Sprintf("%s (%d)", req.Name, n)
+				if err = r.Mappings.Create(ctx, mapping); err == nil {
+					return mapping.ID, nil
+				}
+				if !errors.Is(err, rdb.ErrNameTaken) {
+					return 0, err
+				}
+			}
 		}
 		return 0, err
 	}
@@ -94,7 +106,7 @@ func (r *ForecastRouter) sourceFromReq(ctx context.Context, moduleID uint, req *
 		if req.MappingID != 0 {
 			return nil, 0, fmt.Errorf("give either mapping_id or custom, not both")
 		}
-		id, err := r.customMapping(ctx, req)
+		id, err := r.customMapping(ctx, req, false)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -198,6 +210,19 @@ func (r *ForecastRouter) UpdateSource(c *gin.Context) {
 	if req.MappingID != nil {
 		s.MappingID = *req.MappingID
 	}
+	var replaced, made uint
+	if req.Custom != nil {
+		if req.MappingID != nil {
+			query.BadRequest(c, fmt.Errorf("give either mapping_id or custom, not both"))
+			return
+		}
+		id, err := r.customMapping(c.Request.Context(), &apis.SourceReq{Name: s.Name, Kind: s.Kind, Custom: req.Custom}, true)
+		if err != nil {
+			query.BadRequest(c, err)
+			return
+		}
+		replaced, made, s.MappingID = s.MappingID, id, id
+	}
 	if req.Priority != nil {
 		s.Priority = *req.Priority
 	}
@@ -234,21 +259,34 @@ func (r *ForecastRouter) UpdateSource(c *gin.Context) {
 	if req.Missing != nil {
 		s.Missing = *req.Missing
 	}
+	// a new mapping written for this update is taken back when the update then fails
+	rollback := func() {
+		if made != 0 {
+			r.dropMappings(c.Request.Context(), []uint{made})
+		}
+	}
 	if err := s.Validate(); err != nil {
+		rollback()
 		query.BadRequest(c, err)
 		return
 	}
 	if err := r.checkDataset(c.Request.Context(), a, s); err != nil {
+		rollback()
 		query.BadRequest(c, err)
 		return
 	}
 	if err := r.checkSource(c.Request.Context(), s); err != nil {
+		rollback()
 		query.BadRequest(c, err)
 		return
 	}
 	if err := r.Modules.SaveSource(c.Request.Context(), s); err != nil {
+		rollback()
 		r.writeError(c, err)
 		return
+	}
+	if replaced != 0 && replaced != made {
+		_, _ = r.Mappings.DeleteIfUnused(c.Request.Context(), replaced)
 	}
 	query.SuccessResponse(c, nil, s)
 }

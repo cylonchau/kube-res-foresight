@@ -111,6 +111,40 @@ func (dao *MetricMappingDAO) DatasourceNames(ctx context.Context, ids []uint) (m
 	return names, nil
 }
 
+// UsedBy returns, for each of the mappings, the number of module metrics that point at it; a mapping nobody uses is not in
+// the result.
+func (dao *MetricMappingDAO) UsedBy(ctx context.Context, ids []uint) (map[uint]int64, error) {
+	out := map[uint]int64{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	var rows []struct {
+		MappingID uint
+		Total     int64
+	}
+	if err := dao.db.WithContext(ctx).Model(&model.MetricSource{}).Select("mapping_id, count(*) as total").
+		Where("mapping_id IN ?", ids).Group("mapping_id").Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		out[row.MappingID] = row.Total
+	}
+	return out, nil
+}
+
+// DeleteIfUnused removes a mapping no source points at any more (a clone of a module shares the mappings of its source, so
+// replacing the query of one source must not take it away from the others). It reports whether it was removed.
+func (dao *MetricMappingDAO) DeleteIfUnused(ctx context.Context, id uint) (bool, error) {
+	var users int64
+	if err := dao.db.WithContext(ctx).Model(&model.MetricSource{}).Where("mapping_id = ?", id).Count(&users).Error; err != nil {
+		return false, err
+	}
+	if users > 0 {
+		return false, nil
+	}
+	return true, dao.Delete(ctx, []uint{id})
+}
+
 func (dao *MetricMappingDAO) Delete(ctx context.Context, ids []uint) error {
 	if len(ids) == 0 {
 		return nil

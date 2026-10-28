@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"github.com/cylonchau/kube-resource-fcst/pkg/apis"
 	"github.com/cylonchau/kube-resource-fcst/pkg/app/query"
 	"github.com/cylonchau/kube-resource-fcst/pkg/app/utils"
@@ -9,6 +10,7 @@ import (
 	"github.com/cylonchau/kube-resource-fcst/pkg/model"
 	"github.com/gin-gonic/gin"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -31,8 +33,11 @@ func userDTO(u *model.User) *apis.UserDTO {
 		Avatar:     u.Avatar,
 		Status:     u.Status,
 		OtpEnabled: u.OtpEnabled,
-		Email:      u.Email,
-		Phone:      u.Phone,
+		Source:     u.Source,
+		Contacts:   make([]apis.UserContactDTO, 0, len(u.Contacts)),
+	}
+	for _, ct := range u.Contacts {
+		dto.Contacts = append(dto.Contacts, apis.UserContactDTO{Type: ct.Type, Value: ct.Value})
 	}
 	if len(u.Roles) > 0 {
 		dto.Roles = make([]apis.RoleDTO, 0, len(u.Roles))
@@ -41,6 +46,31 @@ func userDTO(u *model.User) *apis.UserDTO {
 		}
 	}
 	return dto
+}
+
+// cleanContacts turns the contacts of a request into rows: types are lower case names, values are trimmed, empty ones and
+// repeats are dropped, and a type or value that is too long is refused.
+func cleanContacts(in []apis.UserContactDTO) ([]model.UserContact, error) {
+	out := make([]model.UserContact, 0, len(in))
+	seen := map[string]bool{}
+	for _, c := range in {
+		typ, value := strings.ToLower(strings.TrimSpace(c.Type)), strings.TrimSpace(c.Value)
+		if typ == "" && value == "" {
+			continue
+		}
+		if typ == "" || value == "" {
+			return nil, errors.New("a contact needs both a type and a value")
+		}
+		if len([]rune(typ)) > 32 || len([]rune(value)) > 190 {
+			return nil, errors.New("a contact type is at most 32 characters and a value at most 190")
+		}
+		if seen[typ+"|"+value] {
+			continue
+		}
+		seen[typ+"|"+value] = true
+		out = append(out, model.UserContact{Type: typ, Value: value})
+	}
+	return out, nil
 }
 
 func userDTOs(users []*model.User) []*apis.UserDTO {
@@ -77,7 +107,7 @@ func (h *UserRouter) List(c *gin.Context) {
 	}
 
 	offset := (req.Page - 1) * req.PageSize
-	users, total, err := h.DAO.List(context.Background(), req.Username, req.NickName, status, int(offset), int(req.PageSize))
+	users, total, err := h.DAO.List(context.Background(), req.Username, req.NickName, status, req.Source, int(offset), int(req.PageSize))
 	if err != nil {
 		query.InternalError(c, err)
 		return
@@ -140,6 +170,11 @@ func (h *UserRouter) Create(c *gin.Context) {
 		return
 	}
 
+	contacts, err := cleanContacts(req.Contacts)
+	if err != nil {
+		query.BadRequest(c, err)
+		return
+	}
 	hash, err := utils.HashPassword(req.Password)
 	if err != nil {
 		query.InternalError(c, err)
@@ -162,6 +197,12 @@ func (h *UserRouter) Create(c *gin.Context) {
 	if err := h.DAO.Create(context.Background(), user); err != nil {
 		query.InternalError(c, err)
 		return
+	}
+	if len(contacts) > 0 {
+		if err := h.DAO.ReplaceContacts(context.Background(), user.ID, contacts); err != nil {
+			query.InternalError(c, err)
+			return
+		}
 	}
 
 	_ = utils.SyncPolicies()
@@ -231,6 +272,17 @@ func (h *UserRouter) Update(c *gin.Context) {
 	if err := h.DAO.Update(context.Background(), user); err != nil {
 		query.InternalError(c, err)
 		return
+	}
+	if req.Contacts != nil {
+		contacts, err := cleanContacts(req.Contacts)
+		if err != nil {
+			query.BadRequest(c, err)
+			return
+		}
+		if err := h.DAO.ReplaceContacts(context.Background(), user.ID, contacts); err != nil {
+			query.InternalError(c, err)
+			return
+		}
 	}
 	if req.Password != "" || (req.Status != nil && !*req.Status) {
 		if err := h.RefreshDAO.RevokeUser(c.Request.Context(), user.ID); err != nil {

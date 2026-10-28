@@ -71,26 +71,7 @@ func (r *LDAPRouter) UpdateSettings(c *gin.Context) {
 	row.GroupBaseDN, row.GroupFilter, row.GroupNameAttr = strings.TrimSpace(req.GroupBaseDN), strings.TrimSpace(req.GroupFilter), strings.TrimSpace(req.GroupNameAttr)
 	row.DefaultRoleCode = strings.TrimSpace(req.DefaultRoleCode)
 	row.GroupRoleMappings = strings.TrimSpace(req.GroupRoleMappings)
-	mappingList, err := ldapauth.ParseMappings(row.GroupRoleMappings)
-	if err != nil {
-		query.BadRequest(c, fmt.Errorf("group_role_mappings: %w", err))
-		return
-	}
-	for _, m := range mappingList {
-		var count int64
-		if err := r.Service.DB.WithContext(ctx).Model(&model.Role{}).Where("code = ?", m.Role).Count(&count).Error; err != nil || count == 0 {
-			query.BadRequest(c, fmt.Errorf("group_role_mappings: role %q does not exist", m.Role))
-			return
-		}
-	}
 	row.TimeoutSeconds = req.TimeoutSeconds
-	if row.TimeoutSeconds == 0 {
-		row.TimeoutSeconds = 10
-	}
-	if row.TimeoutSeconds < 1 || row.TimeoutSeconds > 120 {
-		query.BadRequest(c, errors.New("timeout_seconds must be between 1 and 120"))
-		return
-	}
 	if req.ClearCACert {
 		row.CACert = ""
 	}
@@ -108,37 +89,60 @@ func (r *LDAPRouter) UpdateSettings(c *gin.Context) {
 	if row.BindDN == "" {
 		row.BindPassword = ""
 	}
-	if row.DefaultRoleCode != "" {
-		var count int64
-		if err := r.Service.DB.WithContext(ctx).Model(&model.Role{}).Where("code = ? AND status = ?", row.DefaultRoleCode, true).Count(&count).Error; err != nil || count == 0 {
-			query.BadRequest(c, fmt.Errorf("default role %q does not exist or is disabled", row.DefaultRoleCode))
-			return
-		}
-	}
-	rt, err := ldapauth.RuntimeSettings(row)
-	if err != nil {
+	if err := r.check(c.Request.Context(), row, true); err != nil {
 		query.BadRequest(c, err)
 		return
-	}
-	if err := rt.Validate(); err != nil {
-		query.BadRequest(c, err)
-		return
-	}
-	// Enabling is gated on a working connection, so a typo cannot silently turn directory login into a dead end.
-	// Local accounts, the break-glass path, are unaffected either way.
-	if row.Enabled {
-		checkCtx, cancel := ldapContext(c, ldapCheckTimeout)
-		defer cancel()
-		if err := r.Service.Dir.Check(checkCtx, rt); err != nil {
-			query.BadRequest(c, fmt.Errorf("the directory check failed, LDAP was not enabled: %w", err))
-			return
-		}
 	}
 	if err := r.Service.Save(ctx, row); err != nil {
 		query.InternalError(c, err)
 		return
 	}
 	query.SuccessResponse(c, nil, ldapSettingDTO(row))
+}
+
+// check validates a whole candidate configuration: mappings and roles exist, the timeout is in range (0 becomes the
+// default 10), the settings are well formed, and enabling is gated on a working connection so a typo cannot silently turn
+// directory login into a dead end. Local accounts, the break-glass path, are unaffected either way.
+func (r *LDAPRouter) check(parent context.Context, row *model.LDAPSetting, complete bool) error {
+	mappingList, err := ldapauth.ParseMappings(row.GroupRoleMappings)
+	if err != nil {
+		return fmt.Errorf("group_role_mappings: %w", err)
+	}
+	for _, m := range mappingList {
+		var count int64
+		if err := r.Service.DB.WithContext(parent).Model(&model.Role{}).Where("code = ?", m.Role).Count(&count).Error; err != nil || count == 0 {
+			return fmt.Errorf("group_role_mappings: role %q does not exist", m.Role)
+		}
+	}
+	if row.TimeoutSeconds == 0 {
+		row.TimeoutSeconds = 10
+	}
+	if row.TimeoutSeconds < 1 || row.TimeoutSeconds > 120 {
+		return errors.New("timeout_seconds must be between 1 and 120")
+	}
+	if row.DefaultRoleCode != "" {
+		var count int64
+		if err := r.Service.DB.WithContext(parent).Model(&model.Role{}).Where("code = ? AND status = ?", row.DefaultRoleCode, true).Count(&count).Error; err != nil || count == 0 {
+			return fmt.Errorf("default role %q does not exist or is disabled", row.DefaultRoleCode)
+		}
+	}
+	rt, err := ldapauth.RuntimeSettings(row)
+	if err != nil {
+		return err
+	}
+	if complete {
+		if err := rt.Validate(); err != nil {
+			return err
+		}
+	}
+	if row.Enabled {
+		checkCtx, cancel := context.WithTimeout(parent, ldapCheckTimeout)
+		defer cancel()
+		if err := r.Service.Dir.Check(checkCtx, rt); err != nil {
+			return fmt.Errorf("the directory check failed, LDAP was not enabled: %w", err)
+		}
+	}
+	return nil
 }
 
 // Test checks the saved configuration and, with a username, resolves that user without a password.
@@ -183,4 +187,27 @@ func (r *LDAPRouter) Sync(c *gin.Context) {
 		return
 	}
 	query.SuccessResponse(c, nil, res)
+}
+
+// updateKey changes one ldap.* system parameter. The whole configuration is validated with the change (and, when
+// LDAP is enabled, checked against the directory) before anything is saved; sending the mask back for a secret keeps it.
+func (r *LDAPRouter) updateKey(ctx context.Context, key, value string) error {
+	if ldapauth.Secret(key) && value == SecretMask {
+		return nil
+	}
+	current, _, err := r.Service.Load(ctx)
+	if err != nil {
+		return err
+	}
+	if current == nil {
+		current = &model.LDAPSetting{}
+	}
+	row, err := ldapauth.WithValue(current, key, value)
+	if err != nil {
+		return err
+	}
+	if err := r.check(ctx, row, row.Enabled); err != nil {
+		return err
+	}
+	return r.Service.Save(ctx, row)
 }

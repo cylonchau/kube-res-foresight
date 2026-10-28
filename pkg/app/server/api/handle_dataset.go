@@ -15,6 +15,7 @@ type sourceDTO struct {
 	MappingName    string `json:"mapping_name"`
 	Query          string `json:"query"`
 	Unit           string `json:"unit"`
+	Level          string `json:"level"`
 	DatasourceID   uint   `json:"datasource_id"`
 	DatasourceName string `json:"datasource_name"`
 	// QueryStepSeconds is the step of the query; StepSeconds the step of the dataset (the module's, else the query's).
@@ -44,6 +45,7 @@ func (r *ForecastRouter) sourceDTOs(c *gin.Context, m *model.ForecastModule) []s
 		d := sourceDTO{MetricSource: s, Category: s.Category()}
 		if mp := mappings[s.MappingID]; mp != nil {
 			d.MappingName, d.Query, d.Unit, d.DatasourceID, d.DatasourceName = mp.Name, mp.Query, mp.Unit, mp.DatasourceID, names[mp.DatasourceID]
+			d.Level = mp.Level
 			d.QueryStepSeconds, d.StepSeconds = mp.StepSeconds, mp.StepSeconds
 			if m.StepSeconds > 0 {
 				d.StepSeconds = m.StepSeconds

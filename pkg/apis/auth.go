@@ -33,6 +33,9 @@ type UpdatePasswordReq struct {
 }
 
 type UpdateProfileReq struct {
+	// Contacts replaces the contacts of the caller: any type name and its value.
+	Contacts []UserContactDTO `json:"contacts"`
+	// Email and Phone are the older way to send two of them; they are used when Contacts is absent.
 	Email string `json:"email"`
 	Phone string `json:"phone"`
 }

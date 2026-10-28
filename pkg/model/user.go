@@ -37,6 +37,9 @@ type User struct {
 	ExternalID       string `gorm:"type:varchar(512)" json:"externalId" column_setting:"false"`
 	ExternalDisabled bool   `gorm:"not null;default:false" json:"externalDisabled" column_setting:"false"`
 	Language         string `gorm:"type:varchar(20)" json:"language" column_setting:"true"`
+	// Contacts are the ways to reach the user (see UserContact). Email and Phone above are kept in step with the first contact
+	// of those two types, for what reads the columns.
+	Contacts []UserContact `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE" json:"contacts,omitempty"`
 }
 
 // DisplayName returns a user's preferred display name (NickName, falling back to Username).

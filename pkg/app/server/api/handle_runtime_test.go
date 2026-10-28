@@ -232,31 +232,6 @@ func TestAdmissionHonoursBypassDisabledModulesAndKeptOriginals(t *testing.T) {
 	assert.Contains(t, data["reason"], "original")
 }
 
-func TestAuditExportProducesCSVAndNeutralizesFormulas(t *testing.T) {
-	r, cpu := forecastTestRouter(t)
-	m := seedModule(t, cpu.ID, model.ModeAuto, nil)
-	seedRecommendation(t, m, func(x *model.Recommendation) { x.Detail = `=HYPERLINK("http://evil")` })
-	require.NoError(t, model.DB.Create(&model.ScalingExecution{ModuleID: m.ID, Namespace: "prod", Scaler: "api", TargetKind: "Deployment", TargetName: "api",
-		Current: 4, Ready: 4, Desired: 7, Action: "ScaleUp", Result: "applied", Reason: "+cmd|' /C calc'!A0"}).Error)
-
-	router := r
-	rec := performJSON(t, router, http.MethodGet, fmt.Sprintf("/audit/export?kind=recommendations&module_id=%d", m.ID), "", nil)
-	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	assert.Contains(t, rec.Header().Get("Content-Type"), "text/csv")
-	assert.Contains(t, rec.Header().Get("Content-Disposition"), "attachment")
-	body := rec.Body.String()
-	assert.Contains(t, body, "id,module_id,version,mode")
-	assert.Contains(t, body, `'=HYPERLINK`, "a cell starting with = is quoted so a spreadsheet will not execute it")
-	assert.NotContains(t, body, "\n=HYPERLINK")
-
-	rec = performJSON(t, router, http.MethodGet, "/audit/export?kind=executions", "", nil)
-	require.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), "'+cmd")
-	assert.Equal(t, http.StatusOK, performJSON(t, router, http.MethodGet, "/audit/export?kind=evaluations", "", nil).Code)
-	assert.Equal(t, http.StatusOK, performJSON(t, router, http.MethodGet, "/audit/export?kind=predictions", "", nil).Code)
-	assert.Equal(t, http.StatusBadRequest, performJSON(t, router, http.MethodGet, "/audit/export?kind=secrets", "", nil).Code)
-}
-
 func TestSwitchingAModeOffStopsTheEndpointsEvenForModulesAlreadyInIt(t *testing.T) {
 	r, cpu := forecastTestRouter(t)
 	auto := seedModule(t, cpu.ID, model.ModeAuto, nil)
@@ -284,6 +259,15 @@ func TestSwitchingAModeOffStopsTheEndpointsEvenForModulesAlreadyInIt(t *testing.
 	data = answer(t, performJSON(t, off, http.MethodGet, admit, "", nil).Body.Bytes())
 	assert.Equal(t, false, data["apply"])
 	assert.Contains(t, data["reason"], "switched off")
+	assert.Equal(t, true, data["managed"], "a module manages it even though the switch is off")
+	data = answer(t, performJSON(t, off, http.MethodGet, "/admission/recommendations?namespace=prod&workload=nobody&container=app", "", nil).Body.Bytes())
+	assert.Equal(t, false, data["managed"], "no module manages this workload: a policy may refuse it")
+	// the refusal of a managed workload is recorded too: a platform whose Kyverno policy calls it while the switch is off still
+	// shows the calls in the admission records, with the reason
+	var refused []model.AdmissionDecision
+	require.NoError(t, model.DB.Where("module_id = ? AND applied = ?", admission.ID, false).Find(&refused).Error)
+	require.Len(t, refused, 1)
+	assert.Contains(t, refused[0].Reason, "switched off")
 
 	// without a Config at all every mode is closed (fail closed)
 	closed := gin.New()

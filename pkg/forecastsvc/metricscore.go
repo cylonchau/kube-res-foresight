@@ -68,6 +68,8 @@ type MetricScores struct {
 	Comparable bool `json:"comparable"`
 	// Sources are the sources the composites are made of.
 	Sources []string `json:"sources"`
+	// Unranked are the enabled algorithms with nothing measured in the range, each with the reason; they are listed, not hidden.
+	Unranked []AlgorithmStatus `json:"unranked"`
 }
 
 type acc struct {
@@ -87,7 +89,7 @@ func (s *Service) MetricScores(ctx context.Context, moduleID uint, since, until 
 	if err != nil {
 		return nil, err
 	}
-	out := &MetricScores{ModuleID: moduleID, Algorithms: []AlgorithmScoreRow{}, Metrics: []MetricScore{}, Sources: []string{}}
+	out := &MetricScores{ModuleID: moduleID, Algorithms: []AlgorithmScoreRow{}, Metrics: []MetricScore{}, Sources: []string{}, Unranked: []AlgorithmStatus{}}
 	data := dataOf(mod)
 	sources := []*model.MetricSource{}
 	for _, src := range data.ActiveSources() {
@@ -225,6 +227,12 @@ func (s *Service) MetricScores(ctx context.Context, moduleID uint, since, until 
 	}
 	if len(out.Algorithms) > 0 {
 		out.Best = out.Algorithms[0].AlgorithmID
+	}
+	for _, run := range runs {
+		if seenAlg[run.Key()] {
+			continue
+		}
+		out.Unranked = append(out.Unranked, s.AlgorithmStatus(ctx, moduleID, "", run.Key(), false, "it forecast, but no forecast has met its actual values yet in this range, so there is nothing to score"))
 	}
 	return out, nil
 }

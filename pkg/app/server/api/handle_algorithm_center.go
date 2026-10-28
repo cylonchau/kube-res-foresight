@@ -292,6 +292,9 @@ type RankingRow struct {
 	// moved; nil when it was evaluated once.
 	PreviousRank  *int     `json:"previous_rank"`
 	PreviousScore *float64 `json:"previous_score"`
+	// Status is ready for a scored algorithm; an enabled one without a score says why (skipped, failed, not_run, no_result).
+	Status string `json:"status"`
+	Reason string `json:"reason"`
 }
 
 // Ranking lists the algorithms of a module with their latest score, best first, and which one is in use.
@@ -344,6 +347,11 @@ func (r *AlgorithmCenterRouter) Ranking(c *gin.Context) {
 				row.Detail = &detail
 				row.Breakdown = breakdownOf(detail, scoring.DefaultWeights())
 			}
+		}
+		row.Status = forecastsvc.StatusReady
+		if !scored {
+			st := r.Service.AlgorithmStatus(ctx, id, "", cfg.AlgorithmID, false, "it ran, but has not been scored yet: scoring replays the algorithm over its history and needs enough finished windows")
+			row.Status, row.Reason = st.Status, st.Reason
 		}
 		if prev, ok := previous[cfg.AlgorithmID]; ok && scored {
 			rank, score := prev.Rank, prev.Score

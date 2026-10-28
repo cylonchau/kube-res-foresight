@@ -86,6 +86,12 @@ func TestAuthAPIAccountAndTokenLifecycle(t *testing.T) {
 	}
 	rec = performJSON(t, router, http.MethodPut, "/auth/profile", "", map[string]any{"email": "admin@example.com", "phone": "123"})
 	assert.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	// the caller's own contacts are rows of any type, and /auth/info returns them
+	rec = performJSON(t, router, http.MethodPut, "/auth/profile", "", map[string]any{"contacts": []map[string]string{{"type": "Telegram", "value": "@me"}, {"type": "email", "value": "me@example.com"}}})
+	assert.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	rec = performJSON(t, router, http.MethodGet, "/auth/info", "", nil)
+	assert.Contains(t, rec.Body.String(), `"type":"telegram"`)
+	assert.Contains(t, rec.Body.String(), `"email":"me@example.com"`)
 	rec = performJSON(t, router, http.MethodPut, "/auth/language", "", map[string]any{"language": "zh-CN"})
 	assert.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	rec = performJSON(t, router, http.MethodPost, "/auth/otp/generate", "", nil)
@@ -99,7 +105,7 @@ func TestAuthAPIAccountAndTokenLifecycle(t *testing.T) {
 	var updated model.User
 	require.NoError(t, model.DB.First(&updated, user.ID).Error)
 	assert.Equal(t, "zh-CN", updated.Language)
-	assert.Equal(t, "admin@example.com", updated.Email)
+	assert.Equal(t, "me@example.com", updated.Email)
 	assert.True(t, utils.ComparePassword(updated.PasswordHash, "new-secret"))
 }
 

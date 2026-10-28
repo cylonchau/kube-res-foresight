@@ -543,6 +543,17 @@ type Recommendation struct {
 	Degraded       bool   `gorm:"not null;default:false;index" json:"degraded" column_setting:"true"`
 	DegradeReasons string `gorm:"type:text" json:"degrade_reasons" column_setting:"false"`
 	OOMFloor       bool   `gorm:"not null;default:false" json:"oom_floor" column_setting:"true"`
+	// ResourceVersion is the version of the Pod resource spec (CPU and memory) the snapshot carries: it changes only when the
+	// spec does, so every snapshot between two changes has the same one. ResourceChangedAt is when it last changed; ResourceHeld
+	// is true when this snapshot kept the spec in force although the forecast computed another value.
+	ResourceVersion   int        `gorm:"not null;default:0" json:"resource_version" column_setting:"true"`
+	ResourceChangedAt *time.Time `json:"resource_changed_at" column_setting:"false"`
+	ResourceHeld      bool       `gorm:"not null;default:false" json:"resource_held" column_setting:"true"`
+	// Snapshot marks the recommendations that are kept as history: the first, every one whose outcome differs from the one before
+	// it (replicas, resource spec, algorithm, degradation, mode) and one an hour at least. The others are the same answer
+	// repeated every cycle: they keep the current recommendation valid and are dropped soon after. SnapshotReason says why.
+	Snapshot       bool   `gorm:"not null;default:false;index" json:"snapshot" column_setting:"true"`
+	SnapshotReason string `gorm:"type:varchar(200)" json:"snapshot_reason" column_setting:"false"`
 }
 
 func (Recommendation) TableName() string { return "recommendation" }

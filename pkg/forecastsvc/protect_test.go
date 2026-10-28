@@ -253,7 +253,7 @@ func TestOOMFloorRaisesTheMemoryRecommendation(t *testing.T) {
 	require.NotNil(t, res.Recommend, "%v", res.Errors)
 	rec := res.Recommend
 	assert.True(t, rec.OOMFloor)
-	assert.EqualValues(t, int64(math.Ceil(3*gib*1.2)), rec.MemoryBytes, "max(working set 3 GiB, limit 2 GiB) x 1.2 beats the 1 GiB forecast")
+	assert.EqualValues(t, RoundMemoryBytes(int64(math.Ceil(3*gib*1.2))), rec.MemoryBytes, "max(working set 3 GiB, limit 2 GiB) x 1.2 (rounded up to a readable step) beats the 1 GiB forecast")
 	assert.Equal(t, "algorithm", rec.MemorySource)
 
 	_, detail, err := f.svc.Recommend(ctx, f.module.ID)
@@ -276,7 +276,7 @@ func TestOOMFloorRaisesTheMemoryRecommendation(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, rec2.OOMFloor)
 	assert.False(t, detail2.OOM.Active)
-	assert.InDelta(t, 1.1*gib, float64(rec2.MemoryBytes), 1024, "the 1 GiB forecast with the module headroom of 1.1")
+	assert.EqualValues(t, RoundMemoryBytes(int64(math.Ceil(1.1*gib))), rec2.MemoryBytes, "the 1 GiB forecast with the module headroom of 1.1, rounded up; the spec was held 24 hours and the clock is 30 hours on")
 }
 
 func TestOOMWithoutABaselineIsReportedButGivesNoFloor(t *testing.T) {

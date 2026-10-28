@@ -8,6 +8,7 @@ import (
 	gormadapter "github.com/casbin/gorm-adapter/v3"
 	"github.com/cylonchau/kube-resource-fcst/pkg/logger"
 	hmodel "github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"gorm.io/gorm"
 	"strings"
 )
 
@@ -109,6 +110,43 @@ func SyncPolicies() error {
 		}
 	}
 
-	// Save back to DB table casbin_rule
-	return Enforcer.SavePolicy()
+	return savePolicies()
+}
+
+// savePolicies rewrites the casbin_rule table from the in-memory policy in one transaction. Enforcer.SavePolicy is not used:
+// the adapter opens a transaction and then truncates through the pool again, which waits forever on SQLite, whose pool
+// holds a single connection.
+func savePolicies() error {
+	var rules []gormadapter.CasbinRule
+	line := func(ptype string, rule []string) gormadapter.CasbinRule {
+		r := gormadapter.CasbinRule{Ptype: ptype}
+		fields := []*string{&r.V0, &r.V1, &r.V2, &r.V3, &r.V4, &r.V5}
+		for i := 0; i < len(rule) && i < len(fields); i++ {
+			*fields[i] = rule[i]
+		}
+		return r
+	}
+	policies, err := Enforcer.GetPolicy()
+	if err != nil {
+		return err
+	}
+	groupings, err := Enforcer.GetGroupingPolicy()
+	if err != nil {
+		return err
+	}
+	for _, rule := range policies {
+		rules = append(rules, line("p", rule))
+	}
+	for _, rule := range groupings {
+		rules = append(rules, line("g", rule))
+	}
+	return hmodel.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("1 = 1").Delete(&gormadapter.CasbinRule{}).Error; err != nil {
+			return err
+		}
+		if len(rules) == 0 {
+			return nil
+		}
+		return tx.CreateInBatches(&rules, 500).Error
+	})
 }

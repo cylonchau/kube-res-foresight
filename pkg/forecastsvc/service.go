@@ -34,6 +34,8 @@ type Service struct {
 	Mappings    *rdb.MetricMappingDAO
 	Datasources *rdb.DatasourceDAO
 	Samples     *rdb.SampleDAO
+	// Config reads the system parameters the pipeline follows (the Pod resource spec policy); nil keeps the defaults.
+	Config      *rdb.SysConfigDAO
 	Predictions *rdb.PredictionDAO
 	// RunStates holds what the scheduled pipeline remembers per module; built from the module DAO's handle.
 	RunStates *rdb.RunStateDAO
@@ -50,7 +52,7 @@ type Service struct {
 // New builds a service on the shared database handle.
 func New(modules *rdb.ModuleDAO, mappings *rdb.MetricMappingDAO, datasources *rdb.DatasourceDAO, samples *rdb.SampleDAO, predictions *rdb.PredictionDAO) *Service {
 	return &Service{Modules: modules, Mappings: mappings, Datasources: datasources, Samples: samples, Predictions: predictions,
-		NewQuerier: PromQuerierFactory, Now: time.Now, Telemetry: SharedTelemetry(), RunStates: rdb.NewRunStateDAO(modules.DB()),
+		NewQuerier: PromQuerierFactory, Now: time.Now, Telemetry: SharedTelemetry(), RunStates: rdb.NewRunStateDAO(modules.DB()), Config: rdb.NewSysConfigDAO(modules.DB()),
 		Algorithms: rdb.NewAlgorithmDAO(modules.DB())}
 }
 
@@ -184,7 +186,7 @@ func floorToStep(t time.Time, step time.Duration) time.Time {
 
 // horizonSteps converts the instance horizon to whole steps of a series, rounding up.
 func horizonSteps(a *model.AlgorithmRun, step time.Duration) int {
-	h := time.Duration(a.HorizonMinutes) * time.Minute
+	h := time.Duration(a.CoverMinutes()) * time.Minute
 	n := int((h + step - 1) / step)
 	if n < 1 {
 		n = 1

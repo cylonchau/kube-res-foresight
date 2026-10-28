@@ -76,3 +76,29 @@ func TestNoWindowsScoresZeroAndTheScoreIsAnAverageOverWindows(t *testing.T) {
 	assert.Equal(t, 1, two.ReplicaExact)
 	assert.Equal(t, 2, two.Windows)
 }
+
+// A Pod holds 1 core and 2 GiB; the workload needs 3 cores and 6 GiB (3 Pods). Forecasting 4 cores and 8 GiB (4 Pods) is
+// graded on the resources, not on the replica count, which follows from them.
+func TestTheAccuracyIsThatOfTheResourcesNotOfTheReplicaCount(t *testing.T) {
+	gib := float64(1 << 30)
+	pred := Outcome{Replicas: 4, CPU: 4, Memory: 8 * gib, HasCPU: true, HasMemory: true}
+	actual := Outcome{Replicas: 3, CPU: 3, Memory: 6 * gib, HasCPU: true, HasMemory: true}
+	res := Score([]Window{window(pred, actual, 0)}, DefaultWeights())
+	assert.InDelta(t, 1-1.0/3, res.CPU, 1e-9)
+	assert.InDelta(t, 1-2.0/6, res.Memory, 1e-9)
+	// the same resources with a wildly different replica count score the same: the replica count is no part of the grade
+	pred.Replicas = 40
+	other := Score([]Window{window(pred, actual, 0)}, DefaultWeights())
+	assert.InDelta(t, res.Score, other.Score, 1e-9)
+
+	// each resource has its own score, and only the memory score pays for an OOM kill
+	withOOM := Score([]Window{window(Outcome{CPU: 2, Memory: 4 * gib, HasCPU: true, HasMemory: true}, actual, 2)}, DefaultWeights())
+	byMetric := map[string]MetricResult{}
+	for _, m := range withOOM.Metrics {
+		byMetric[m.Metric] = m
+	}
+	assert.Len(t, byMetric, 2)
+	assert.InDelta(t, 100*(1-2*(1.0/3)), byMetric["cpu"].Score, 1e-9, "a quarter... a third short counts twice")
+	assert.Less(t, byMetric["memory"].Score, 100*byMetric["memory"].Accuracy, "the memory score is lowered by the OOM penalty")
+	assert.InDelta(t, 100*byMetric["cpu"].Accuracy, byMetric["cpu"].Score, 1e-9, "the CPU score is not")
+}

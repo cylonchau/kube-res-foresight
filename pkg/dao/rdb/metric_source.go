@@ -65,7 +65,7 @@ func (dao *PredictionDAO) SearchScores(ctx context.Context, f ScoreFilter, page,
 func (dao *PredictionDAO) LatestScores(ctx context.Context, moduleID uint) (map[string]*model.AlgorithmScore, error) {
 	var rows []*model.AlgorithmScore
 	err := dao.db.WithContext(ctx).Table("algorithm_score AS s").Select("s.*").
-		Joins("JOIN (SELECT algorithm, MAX(id) AS id FROM algorithm_score WHERE module_id = ? GROUP BY algorithm) AS l ON l.id = s.id", moduleID).
+		Joins("JOIN (SELECT algorithm, MAX(id) AS id FROM algorithm_score WHERE module_id = ? AND windows > 0 GROUP BY algorithm) AS l ON l.id = s.id", moduleID).
 		Scan(&rows).Error
 	out := make(map[string]*model.AlgorithmScore, len(rows))
 	for _, r := range rows {
@@ -80,8 +80,8 @@ func (dao *PredictionDAO) PreviousScores(ctx context.Context, moduleID uint) (ma
 	var rows []*model.AlgorithmScore
 	err := dao.db.WithContext(ctx).Table("algorithm_score AS s").Select("s.*").
 		Joins(`JOIN (SELECT a.algorithm, MAX(a.id) AS id FROM algorithm_score a
-			JOIN (SELECT algorithm, MAX(id) AS id FROM algorithm_score WHERE module_id = ? GROUP BY algorithm) m
-			ON m.algorithm = a.algorithm AND a.id < m.id WHERE a.module_id = ? GROUP BY a.algorithm) AS p ON p.id = s.id`, moduleID, moduleID).
+			JOIN (SELECT algorithm, MAX(id) AS id FROM algorithm_score WHERE module_id = ? AND windows > 0 GROUP BY algorithm) m
+			ON m.algorithm = a.algorithm AND a.id < m.id WHERE a.module_id = ? AND a.windows > 0 GROUP BY a.algorithm) AS p ON p.id = s.id`, moduleID, moduleID).
 		Scan(&rows).Error
 	out := make(map[string]*model.AlgorithmScore, len(rows))
 	for _, r := range rows {
@@ -156,7 +156,8 @@ type ScoreRun struct {
 
 // ScoreRuns pages the evaluations (newest first) with the scores of each, for the history of the ranking.
 func (dao *PredictionDAO) ScoreRuns(ctx context.Context, f ScoreFilter, page, pageSize int) ([]ScoreRun, int64, error) {
-	q := dao.db.WithContext(ctx).Model(&model.AlgorithmScore{})
+	// an evaluation that replayed no window (windows = 0) holds no evidence, so it is not a ranking
+	q := dao.db.WithContext(ctx).Model(&model.AlgorithmScore{}).Where("windows > 0")
 	if f.ModuleID != 0 {
 		q = q.Where("module_id = ?", f.ModuleID)
 	}
@@ -188,7 +189,7 @@ func (dao *PredictionDAO) ScoreRuns(ctx context.Context, f ScoreFilter, page, pa
 	out := make([]ScoreRun, 0, len(rows))
 	for _, g := range rows {
 		var scores []*model.AlgorithmScore
-		if err := dao.db.WithContext(ctx).Where("module_id = ? AND created_at = ?", g.ModuleID, g.At).Order("rank_no ASC, id ASC").Find(&scores).Error; err != nil {
+		if err := dao.db.WithContext(ctx).Where("module_id = ? AND created_at = ? AND windows > 0", g.ModuleID, g.At).Order("rank_no ASC, id ASC").Find(&scores).Error; err != nil {
 			return nil, 0, err
 		}
 		run := ScoreRun{ModuleID: g.ModuleID, At: g.At, Scores: scores}

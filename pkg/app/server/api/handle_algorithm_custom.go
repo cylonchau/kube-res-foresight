@@ -112,7 +112,9 @@ func (r *ForecastRouter) CreateAlgorithm(c *gin.Context) {
 		return
 	}
 	def, _ := forecast.Lookup(spec.ID)
-	query.SuccessResponse(c, nil, newAlgorithmDTO(def, cfg))
+	dto := newAlgorithmDTO(def, cfg)
+	dto.Runtime = runtimeOf(def, cfg, r.trainingCounts(ctx, def.ID))
+	query.SuccessResponse(c, nil, dto)
 }
 
 // createVariant adds an algorithm derived from a built-in one: its parameters are the base's, validated against the
@@ -151,7 +153,9 @@ func (r *ForecastRouter) createVariant(c *gin.Context, req *apis.AlgorithmCreate
 		return
 	}
 	def, _ := forecast.Lookup(spec.ID)
-	query.SuccessResponse(c, nil, newAlgorithmDTO(def, cfg))
+	dto := newAlgorithmDTO(def, cfg)
+	dto.Runtime = runtimeOf(def, cfg, r.trainingCounts(ctx, def.ID))
+	query.SuccessResponse(c, nil, dto)
 }
 
 // DeleteAlgorithm removes a custom algorithm. A built-in algorithm is only disabled; an enabled one has to be disabled

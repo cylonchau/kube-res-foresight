@@ -6,6 +6,7 @@ import (
 	"github.com/cylonchau/kube-resource-fcst/pkg/apis"
 	"github.com/cylonchau/kube-resource-fcst/pkg/app/query"
 	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
+	"github.com/cylonchau/kube-resource-fcst/pkg/ldapauth"
 	"github.com/cylonchau/kube-resource-fcst/pkg/migration"
 	"github.com/cylonchau/kube-resource-fcst/pkg/model"
 	"github.com/gin-gonic/gin"
@@ -13,7 +14,11 @@ import (
 	"time"
 )
 
-type ConfigRouter struct{ DAO *rdb.SysConfigDAO }
+type ConfigRouter struct {
+	DAO *rdb.SysConfigDAO
+	// LDAP validates a change of an ldap.* parameter against the whole directory configuration.
+	LDAP *LDAPRouter
+}
 type UpdateConfigReq = apis.ConfigUpdateReq
 
 type sysConfigResponse struct {
@@ -31,6 +36,9 @@ func sysConfigDTO(cfg *model.SysConfig) *sysConfigResponse {
 		return nil
 	}
 	value := cfg.ConfigValue
+	if ldapauth.Secret(cfg.ConfigKey) && value != "" {
+		value = SecretMask
+	}
 
 	return &sysConfigResponse{ID: cfg.ID, CreatedAt: cfg.CreatedAt, UpdatedAt: cfg.UpdatedAt, ConfigKey: cfg.ConfigKey, ConfigValue: value, ConfigName: cfg.ConfigName, Remark: cfg.Remark}
 }
@@ -50,11 +58,10 @@ const SecretMask = "********"
 
 var internalSysConfigKeys = map[string]bool{"sys.auth.jwt_secret": true}
 
-// IsInternalSysConfigKey hides the keys the generic settings API must never expose or accept: the signing secret
-// and the whole LDAP configuration, which has its own validated, secret-aware panel.
+// IsInternalSysConfigKey hides the keys the generic settings API must never expose or accept: the signing secret.
+// The LDAP parameters are ordinary system parameters; their secrets are masked and a change is validated as a whole.
 func IsInternalSysConfigKey(key string) bool {
-	key = strings.TrimSpace(key)
-	return internalSysConfigKeys[key] || strings.HasPrefix(key, "ldap.")
+	return internalSysConfigKeys[strings.TrimSpace(key)]
 }
 
 func (h *ConfigRouter) List(c *gin.Context) {
@@ -90,6 +97,18 @@ func (h *ConfigRouter) Update(c *gin.Context) {
 	var req UpdateConfigReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		query.BadRequest(c, err)
+		return
+	}
+	if strings.HasPrefix(key, ldapauth.KeyPrefix) {
+		if h.LDAP == nil {
+			query.InternalError(c, errors.New("LDAP is not configured"))
+			return
+		}
+		if err := h.LDAP.updateKey(c.Request.Context(), key, req.ConfigValue); err != nil {
+			query.BadRequest(c, err)
+			return
+		}
+		query.SuccessResponse(c, nil, "Config updated successfully")
 		return
 	}
 

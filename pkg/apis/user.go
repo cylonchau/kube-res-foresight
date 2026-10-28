@@ -12,8 +12,9 @@ type UserDTO struct {
 	Status     bool      `json:"status"`
 	Roles      []RoleDTO `json:"roles,omitempty"`
 	OtpEnabled bool      `json:"otpEnabled"`
-	Email      string    `json:"email"`
-	Phone      string    `json:"phone"`
+	// Source says where the account is authenticated: local or ldap.
+	Source   string           `json:"source"`
+	Contacts []UserContactDTO `json:"contacts"`
 
 	LastLoginAt    *time.Time              `json:"lastLoginAt"`
 	LastLoginIP    string                  `json:"lastLoginIp"`
@@ -33,14 +34,22 @@ type UserListReq struct {
 	Username string `form:"username" json:"username"`
 	NickName string `form:"nick_name" json:"nick_name"`
 	Status   string `form:"status" json:"status"`
+	Source   string `form:"source" json:"source"`
+}
+
+// UserContactDTO is one contact of a user: any type name and its value.
+type UserContactDTO struct {
+	Type  string `json:"type"`
+	Value string `json:"value"`
 }
 
 type UserCreateReq struct {
-	Username string `json:"username" binding:"required"`
-	Password string `json:"password" binding:"required"`
-	NickName string `json:"nick_name"`
-	Status   bool   `json:"status"`
-	RoleIDs  []uint `json:"role_ids"`
+	Username string           `json:"username" binding:"required"`
+	Password string           `json:"password" binding:"required"`
+	NickName string           `json:"nick_name"`
+	Status   bool             `json:"status"`
+	RoleIDs  []uint           `json:"role_ids"`
+	Contacts []UserContactDTO `json:"contacts"`
 }
 
 type UserUpdateReq struct {
@@ -48,4 +57,6 @@ type UserUpdateReq struct {
 	NickName string `json:"nick_name"`
 	Status   *bool  `json:"status"`
 	RoleIDs  []uint `json:"role_ids"`
+	// Contacts replaces the contacts of the user; nil leaves them as they are.
+	Contacts []UserContactDTO `json:"contacts"`
 }

@@ -231,6 +231,10 @@ func (h *AuthRouter) GetInfo(c *gin.Context) {
 		query.NotFound(c, query.ErrUserNotFound)
 		return
 	}
+	if err := h.UserDAO.LoadContacts(c.Request.Context(), user); err != nil {
+		query.InternalError(c, err)
+		return
+	}
 
 	var roles []string
 	var permissions []string
@@ -260,6 +264,7 @@ func (h *AuthRouter) GetInfo(c *gin.Context) {
 		"nickName":    user.NickName,
 		"email":       user.Email,
 		"phone":       user.Phone,
+		"contacts":    userDTO(user).Contacts,
 		"otpEnabled":  user.OtpEnabled,
 		"language":    user.Language,
 		"roles":       roles,
@@ -402,9 +407,16 @@ func (h *AuthRouter) UpdateProfile(c *gin.Context) {
 		return
 	}
 
-	user.Email = req.Email
-	user.Phone = req.Phone
-	if err := h.UserDAO.Update(context.Background(), user); err != nil {
+	contactsIn := req.Contacts
+	if contactsIn == nil {
+		contactsIn = []apis.UserContactDTO{{Type: "email", Value: req.Email}, {Type: "phone", Value: req.Phone}}
+	}
+	contacts, err := cleanContacts(contactsIn)
+	if err != nil {
+		query.BadRequest(c, err)
+		return
+	}
+	if err := h.UserDAO.ReplaceContacts(c.Request.Context(), user.ID, contacts); err != nil {
 		query.InternalError(c, err)
 		return
 	}

@@ -2,6 +2,8 @@ package api
 
 import (
 	"errors"
+	"fmt"
+	"net/http"
 	"sort"
 
 	"github.com/cylonchau/kube-resource-fcst/pkg/apis"
@@ -174,11 +176,29 @@ func (r *MetricMappingRouter) Delete(c *gin.Context) {
 	if !ok {
 		return
 	}
+	if !r.refuseWhenUsed(c, []uint{id}) {
+		return
+	}
 	if err := r.DAO.Delete(c.Request.Context(), []uint{id}); err != nil {
 		query.InternalError(c, err)
 		return
 	}
 	query.SuccessResponse(c, nil, "ok")
+}
+
+// refuseWhenUsed answers 409 and returns false when a module still uses one of the templates: deleting it would leave the
+// metric of that module pointing at nothing. The modules have to drop the template first.
+func (r *MetricMappingRouter) refuseWhenUsed(c *gin.Context, ids []uint) bool {
+	used, err := r.DAO.UsedBy(c.Request.Context(), ids)
+	if err != nil {
+		query.InternalError(c, err)
+		return false
+	}
+	for id, total := range used {
+		query.ErrorResponse(c, http.StatusConflict, fmt.Errorf("the metric template %d is used by %d module metric(s): remove it from those modules first", id, total))
+		return false
+	}
+	return true
 }
 
 func (r *MetricMappingRouter) BatchDelete(c *gin.Context) {
@@ -190,6 +210,9 @@ func (r *MetricMappingRouter) BatchDelete(c *gin.Context) {
 	ids := make([]uint, 0, len(req.IDs))
 	for _, id := range req.IDs {
 		ids = append(ids, uint(id))
+	}
+	if !r.refuseWhenUsed(c, ids) {
+		return
 	}
 	if err := r.DAO.Delete(c.Request.Context(), ids); err != nil {
 		query.InternalError(c, err)

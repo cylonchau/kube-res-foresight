@@ -161,8 +161,9 @@ func (dao *ModuleDAO) ListEnabled(ctx context.Context) ([]*model.ForecastModule,
 	return list, dao.loadSources(ctx, list...)
 }
 
-// Delete removes a disabled module with its metric sources, the history collected for them, fixed periods, scores and
-// run state. Predictions, backtests, evaluations and recommendations stay as the audit trail.
+// Delete removes a disabled module with its metric sources, the history collected for them, fixed periods, scores, run
+// state, predictions, backtests, evaluations, training records and recommendations: nothing of a module that is gone is
+// worth listing. The operator reports and admission decisions stay as the audit trail of what was done to the workload.
 func (dao *ModuleDAO) Delete(ctx context.Context, id uint) error {
 	return dao.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var m model.ForecastModule
@@ -181,7 +182,8 @@ func (dao *ModuleDAO) Delete(ctx context.Context, id uint) error {
 				return err
 			}
 		}
-		for _, table := range []interface{}{&model.MetricSeries{}, &model.MetricSource{}, &model.ModulePeriod{}, &model.ModuleRunState{}, &model.AlgorithmScore{}} {
+		for _, table := range []interface{}{&model.MetricSeries{}, &model.MetricSource{}, &model.ModulePeriod{}, &model.ModuleRunState{}, &model.AlgorithmScore{},
+			&model.Recommendation{}, &model.Prediction{}, &model.PredictionEvaluation{}, &model.BacktestRun{}, &model.TrainingRun{}} {
 			if err := tx.Where("module_id = ?", id).Delete(table).Error; err != nil {
 				return err
 			}

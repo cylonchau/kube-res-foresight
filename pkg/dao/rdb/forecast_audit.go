@@ -31,10 +31,12 @@ type RecommendationFilter struct {
 	Source   string
 	Degraded *bool
 	OOMFloor *bool
-	Since    *time.Time
-	Until    *time.Time
-	Sort     string
-	Dir      string
+	// LatestOnly keeps the newest snapshot of each module: the current one. Older versions are read per module.
+	LatestOnly bool
+	Since      *time.Time
+	Until      *time.Time
+	Sort       string
+	Dir        string
 }
 
 var recommendationSorts = map[string]string{
@@ -42,6 +44,8 @@ var recommendationSorts = map[string]string{
 }
 
 func (f RecommendationFilter) apply(q *gorm.DB) *gorm.DB {
+	// what was recommended for a module that is gone is not listed: it is no recommendation of anything now
+	q = q.Where("module_id IN (SELECT id FROM forecast_module)")
 	if f.ModuleID != 0 {
 		q = q.Where("module_id = ?", f.ModuleID)
 	}
@@ -53,6 +57,9 @@ func (f RecommendationFilter) apply(q *gorm.DB) *gorm.DB {
 	}
 	if f.Source != "" {
 		q = q.Where("cpu_source = ? OR memory_source = ? OR replicas_source = ?", f.Source, f.Source, f.Source)
+	}
+	if f.LatestOnly {
+		q = q.Where("id IN (SELECT MAX(id) FROM recommendation GROUP BY module_id)")
 	}
 	if f.Degraded != nil {
 		q = q.Where("degraded = ?", *f.Degraded)
@@ -96,7 +103,7 @@ type FallbackFilter struct {
 
 // SearchFallbacks lists the degraded snapshots.
 func (dao *PredictionDAO) SearchFallbacks(ctx context.Context, f FallbackFilter, page, pageSize int) ([]*model.Recommendation, int64, error) {
-	q := dao.db.WithContext(ctx).Model(&model.Recommendation{}).Where("(degraded = ? OR oom_floor = ?)", true, true)
+	q := dao.db.WithContext(ctx).Model(&model.Recommendation{}).Where("(degraded = ? OR oom_floor = ?) AND module_id IN (SELECT id FROM forecast_module)", true, true)
 	if f.ModuleID != 0 {
 		q = q.Where("module_id = ?", f.ModuleID)
 	}

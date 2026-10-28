@@ -25,7 +25,8 @@ const (
 	// BacktestJobType re-evaluates every enabled algorithm of every module against the baselines.
 	BacktestJobType = "forecast.backtest"
 
-	executionRetentionDays = 90
+	executionRetentionDays = 30
+	admissionRetentionDays = 30
 )
 
 // Run is the collect + predict + recommend job.
@@ -72,6 +73,9 @@ func (t *Run) Execute(ctx context.Context, _ *model.Job) error {
 	// operator reports are an audit trail, not an archive
 	if _, err := t.Service.Predictions.PruneExecutions(ctx, time.Now().UTC().AddDate(0, 0, -executionRetentionDays)); err != nil {
 		logger.Warn("pruning scaling executions failed", logger.Err(err))
+	}
+	if _, err := t.Service.Predictions.PruneAdmissions(ctx, time.Now().UTC().AddDate(0, 0, -admissionRetentionDays)); err != nil {
+		logger.Warn("pruning admission decisions failed", logger.Err(err))
 	}
 	return joinFailures(failed)
 }
@@ -167,7 +171,7 @@ func (t *Evaluate) Execute(ctx context.Context, _ *model.Job) error {
 		}
 	}
 	// the prediction rows are the bulk of the data (one per step, run and algorithm), so the hourly pass trims them
-	if removed, err := t.Service.Predictions.Prune(ctx, time.Now().UTC(), rdb.DefaultRetention); err != nil {
+	if removed, err := t.Service.Predictions.Prune(ctx, time.Now().UTC(), t.Service.RetentionPolicy(ctx)); err != nil {
 		logger.Warn("pruning forecast history failed", logger.Err(err))
 	} else if removed["predictions"] > 0 {
 		logger.Info("pruned forecast history", logger.Int64("predictions", removed["predictions"]), logger.Int64("recommendations", removed["recommendations"]))

@@ -1,15 +1,18 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
 	"github.com/cylonchau/kube-resource-fcst/pkg/apis"
 	"github.com/cylonchau/kube-resource-fcst/pkg/app/query"
+	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
 	"github.com/cylonchau/kube-resource-fcst/pkg/forecast"
 	"github.com/cylonchau/kube-resource-fcst/pkg/forecastsvc"
 	"github.com/cylonchau/kube-resource-fcst/pkg/model"
@@ -32,6 +35,66 @@ type algorithmDTO struct {
 	PromoteMinImprovement float64        `json:"promote_min_improvement"`
 	PromotePeakTolerance  float64        `json:"promote_peak_tolerance"`
 	UpdatedAt             string         `json:"updated_at"`
+	// Runtime says whether the algorithm really is part of the platform's runs: loaded (registered and its parameters build a
+	// model), enabled, and what its latest run did.
+	Runtime algorithmRuntime `json:"runtime"`
+}
+
+// algorithmRuntime is the state of an algorithm in the pipeline, read from the records of its runs.
+type algorithmRuntime struct {
+	// State is disabled, invalid (enabled, but the stored parameters do not build a model), waiting (enabled, no run yet: the
+	// next cycle of the forecast task runs it), running (the latest run produced a forecast), skipped or failed.
+	State      string     `json:"state"`
+	Reason     string     `json:"reason,omitempty"`
+	Runs       int64      `json:"runs"`
+	LastRunAt  *time.Time `json:"last_run_at"`
+	LastStatus string     `json:"last_status,omitempty"`
+}
+
+// runtimeOf derives the state of an algorithm from its setting and the counts of its training records.
+func runtimeOf(def forecast.Definition, c *model.AlgorithmConfig, counts map[string]rdb.TrainingAlgorithmCount) algorithmRuntime {
+	out := algorithmRuntime{State: "disabled"}
+	count, ran := counts[def.ID]
+	out.Runs = count.OK + count.Skipped + count.Failed
+	out.LastRunAt, out.LastStatus = count.LastAt, count.LastStatus
+	if !c.Enabled {
+		return out
+	}
+	if _, err := forecastsvc.ValidateParams(def.ID, c.Params); err != nil {
+		out.State, out.Reason = "invalid", err.Error()
+		return out
+	}
+	switch {
+	case !ran || out.Runs == 0:
+		out.State = "waiting"
+	case count.LastStatus == "ok":
+		out.State = "running"
+	case count.LastStatus == "skipped":
+		out.State, out.Reason = "skipped", firstReason(count)
+	default:
+		out.State, out.Reason = "failed", firstReason(count)
+	}
+	return out
+}
+
+func firstReason(c rdb.TrainingAlgorithmCount) string {
+	if len(c.Reasons) > 0 {
+		return c.Reasons[0].Reason
+	}
+	return ""
+}
+
+// trainingCounts is the per-algorithm summary of every run on record, for the list.
+func (r *ForecastRouter) trainingCounts(ctx context.Context, algorithmID string) map[string]rdb.TrainingAlgorithmCount {
+	out := map[string]rdb.TrainingAlgorithmCount{}
+	summary, err := r.Predictions.SummarizeTrainings(ctx, rdb.TrainingFilter{AlgorithmID: algorithmID})
+	if err != nil || summary == nil {
+		return out
+	}
+	for _, item := range summary.Algorithms {
+		out[item.AlgorithmID] = item
+	}
+	return out
 }
 
 func newAlgorithmDTO(def forecast.Definition, c *model.AlgorithmConfig) algorithmDTO {
@@ -76,6 +139,7 @@ func (r *ForecastRouter) Algorithms(c *gin.Context) {
 	for _, cfg := range configs {
 		by[cfg.AlgorithmID] = cfg
 	}
+	counts := r.trainingCounts(ctx, "")
 	keyword := strings.ToLower(strings.TrimSpace(req.Keyword))
 	var out []algorithmDTO
 	for _, def := range forecast.Definitions() {
@@ -91,7 +155,9 @@ func (r *ForecastRouter) Algorithms(c *gin.Context) {
 		case keyword != "" && !strings.Contains(strings.ToLower(def.ID+" "+def.Description), keyword):
 			continue
 		}
-		out = append(out, newAlgorithmDTO(def, cfg))
+		dto := newAlgorithmDTO(def, cfg)
+		dto.Runtime = runtimeOf(def, cfg, counts)
+		out = append(out, dto)
 	}
 	page, size := int(req.Page), int(req.PageSize)
 	if page < 1 {
@@ -114,7 +180,9 @@ func (r *ForecastRouter) Algorithms(c *gin.Context) {
 func (r *ForecastRouter) GetAlgorithm(c *gin.Context) {
 	def, cfg, ok := r.algorithm(c)
 	if ok {
-		query.SuccessResponse(c, nil, newAlgorithmDTO(def, cfg))
+		dto := newAlgorithmDTO(def, cfg)
+		dto.Runtime = runtimeOf(def, cfg, r.trainingCounts(c.Request.Context(), def.ID))
+		query.SuccessResponse(c, nil, dto)
 	}
 }
 
@@ -218,9 +286,18 @@ func (r *ForecastRouter) UpdateAlgorithm(c *gin.Context) {
 		query.BadRequest(c, err)
 		return
 	}
+	// an enabled algorithm runs on every training pass: one whose required parameters are missing would fail each time
+	if cfg.Enabled {
+		if _, err := forecastsvc.ValidateParams(def.ID, cfg.Params); err != nil {
+			query.BadRequest(c, fmt.Errorf("cannot enable %s: %w", def.ID, err))
+			return
+		}
+	}
 	if err := r.Configs.Save(c.Request.Context(), cfg); err != nil {
 		query.InternalError(c, err)
 		return
 	}
-	query.SuccessResponse(c, nil, newAlgorithmDTO(def, cfg))
+	dto := newAlgorithmDTO(def, cfg)
+	dto.Runtime = runtimeOf(def, cfg, r.trainingCounts(c.Request.Context(), def.ID))
+	query.SuccessResponse(c, nil, dto)
 }

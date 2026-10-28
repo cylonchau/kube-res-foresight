@@ -17,7 +17,7 @@ func moduleTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.ForecastModule{}, &model.MetricSource{}, &model.MetricSeries{}, &model.MetricSample{}, &model.ModulePeriod{},
+	require.NoError(t, db.AutoMigrate(&model.ForecastModule{}, &model.MetricSource{}, &model.MetricSeries{}, &model.MetricSample{}, &model.ModulePeriod{}, &model.Recommendation{}, &model.Prediction{}, &model.PredictionEvaluation{}, &model.BacktestRun{}, &model.TrainingRun{},
 		&model.ModuleRunState{}, &model.AlgorithmScore{}, &model.AlgorithmConfig{}))
 	return db
 }
@@ -82,12 +82,13 @@ func TestDeletingAModuleTakesItsSourcesAndHistoryWithIt(t *testing.T) {
 	series := &model.MetricSeries{ModuleID: m.ID, Metric: "cpu", MappingID: 1, StepSeconds: 60}
 	require.NoError(t, db.Create(series).Error)
 	require.NoError(t, db.Create(&model.MetricSample{SeriesID: series.ID, TS: 1, Value: 1}).Error)
+	require.NoError(t, db.Create(&model.Recommendation{ModuleID: m.ID, Version: 1, Mode: "recommend"}).Error)
 
 	assert.ErrorIs(t, dao.Delete(ctx, m.ID), ErrModuleEnabled)
 	m.Enabled = false
 	require.NoError(t, dao.Update(ctx, m))
 	require.NoError(t, dao.Delete(ctx, m.ID))
-	for _, table := range []any{&model.MetricSource{}, &model.MetricSeries{}, &model.MetricSample{}} {
+	for _, table := range []any{&model.MetricSource{}, &model.MetricSeries{}, &model.MetricSample{}, &model.Recommendation{}} {
 		var n int64
 		require.NoError(t, db.Model(table).Count(&n).Error)
 		assert.Zero(t, n)

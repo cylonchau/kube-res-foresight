@@ -11,6 +11,7 @@ import (
 	"gorm.io/gorm/clause"
 
 	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	cryptoutils "github.com/cylonchau/kube-resource-fcst/pkg/utils"
 )
 
 // The directory configuration lives in the system parameters, under the ldap. prefix. The generic settings API
@@ -144,4 +145,57 @@ func (s *Service) Save(ctx context.Context, row *model.LDAPSetting) error {
 		}
 		return nil
 	})
+}
+
+// Secret reports whether the parameter holds a credential: the list shows a mask instead of its value.
+func Secret(key string) bool { return key == keyBindPassword || key == keyCACert }
+
+// DefaultConfigs are the ldap.* parameters a fresh installation starts with (directory login off), so they are
+// listed and edited like any other system parameter.
+func DefaultConfigs() []model.SysConfig {
+	names := configNames()
+	row := &model.LDAPSetting{UserFilter: "(&(objectClass=person)(uid=%s))", DisplayNameAttr: "cn", EmailAttr: "mail", GroupNameAttr: "cn", TimeoutSeconds: 10}
+	vals := values(row)
+	out := make([]model.SysConfig, 0, len(vals))
+	for _, key := range orderedKeys {
+		out = append(out, model.SysConfig{ConfigKey: key, ConfigValue: vals[key], ConfigName: names[key], Remark: "LDAP login: edit here; enabling checks the directory connection"})
+	}
+	return out
+}
+
+var orderedKeys = []string{keyEnabled, keyURL, keyStartTLS, keySkipVerify, keyCACert, keyBindDN, keyBindPassword, keyUserBaseDN, keyUserFilter,
+	keyDisplayNameAttr, keyEmailAttr, keyPhoneAttr, keyGroupBaseDN, keyGroupFilter, keyGroupNameAttr, keyTimeout, keyDefaultRole, KeyGroupMappings}
+
+// WithValue returns a copy of the stored configuration with one parameter changed. The bind password is encrypted;
+// an unknown key, a non-boolean switch or a non-number timeout is refused.
+func WithValue(row *model.LDAPSetting, key, value string) (*model.LDAPSetting, error) {
+	m := values(row)
+	if _, ok := m[key]; !ok {
+		return nil, fmt.Errorf("%s is not an LDAP parameter", key)
+	}
+	value = strings.TrimSpace(value)
+	switch key {
+	case keyEnabled, keyStartTLS, keySkipVerify:
+		if _, err := strconv.ParseBool(value); err != nil {
+			return nil, fmt.Errorf("%s must be true or false", key)
+		}
+	case keyTimeout:
+		if _, err := strconv.Atoi(value); err != nil {
+			return nil, fmt.Errorf("%s must be a whole number of seconds", key)
+		}
+	case keyBindPassword:
+		if value != "" {
+			enc, err := cryptoutils.EncryptValue(value)
+			if err != nil {
+				return nil, err
+			}
+			value = enc
+		}
+	}
+	m[key] = value
+	out := fromValues(m)
+	if out.BindDN == "" {
+		out.BindPassword = ""
+	}
+	return out, nil
 }

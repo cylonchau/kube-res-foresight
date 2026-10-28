@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	defaultCutoffs = 5
+	defaultCutoffs = 10
 	maxCutoffs     = 50
 )
 
@@ -90,8 +90,16 @@ func (s *Service) backtestRun(ctx context.Context, m *model.AlgorithmRun, metric
 		}
 		input = bundle.bundle.In
 	}
-	run := func(model forecast.Model, withCovariates bool, alpha float64) (backtest.Result, error) {
-		cfg := backtest.Config{HorizonSteps: h, Cutoffs: cutoffs, Alpha: alpha}
+	// Origins are spread over the whole history and kept off exact multiples of a day, so the score covers different hours
+	// of the day, and are shared: a candidate and the baseline it is judged against are scored on the same windows.
+	season := 0
+	if step > 0 && step <= 12*time.Hour {
+		season = int(24 * time.Hour / step)
+	}
+	shape := backtest.Config{HorizonSteps: h, Cutoffs: cutoffs, Spread: true, SeasonSteps: season}
+	run := func(model forecast.Model, withCovariates bool, alpha float64, origins []int) (backtest.Result, error) {
+		cfg := shape
+		cfg.Alpha, cfg.Origins = alpha, origins
 		data := in
 		if withCovariates {
 			data = input
@@ -105,13 +113,15 @@ func (s *Service) backtestRun(ctx context.Context, m *model.AlgorithmRun, metric
 		return res, err
 	}
 	alpha := 0.5
-	if g, ok := bm.model.(forecast.GBDT); ok && g.Quantile {
-		alpha = g.Alpha
+	if q, ok := bm.model.(forecast.Quantiled); ok {
+		if level, on := q.QuantileLevel(); on {
+			alpha = level // a quantile forecast is scored with the pinball loss and the coverage of its own level
+		}
 	}
 	row := &model.BacktestRun{ModuleID: m.ID, Metric: metric, AlgorithmID: bm.key, ModelVersion: bm.version, Params: bm.params,
 		StepSeconds: series.StepSeconds, HorizonSteps: h, Cutoffs: cutoffs, WindowStart: in.TimeAt(0), WindowEnd: in.End}
 
-	res, err := run(bm.model, true, alpha)
+	res, err := run(bm.model, true, alpha, nil)
 	if err != nil {
 		row.BaselineID, row.Metrics, row.Reason = bm.key, marshal(backtest.Result{Skipped: err.Error()}), "failed: "+err.Error()
 		row.BaselineRes = row.Metrics
@@ -122,25 +132,13 @@ func (s *Service) backtestRun(ctx context.Context, m *model.AlgorithmRun, metric
 			row.Reason = "baseline skipped: " + res.Skipped
 		}
 	} else {
-		baselineRes, baselineID := backtest.Result{Skipped: "no baseline could be evaluated"}, ""
-		var best *backtest.Result
-		for _, b := range s.implicitBaselines(step) {
-			r, err := run(b.model, false, 0.5)
-			if err != nil {
-				return nil, err
-			}
-			if r.Skipped == "" && (best == nil || r.WAPE < best.WAPE) {
-				rr := r
-				best, baselineID = &rr, b.key
-			}
-		}
-		if best != nil {
-			baselineRes = *best
-		}
 		policy := backtest.Policy{MinPoints: m.PromoteMinPoints, MinImprovement: m.PromoteMinImprovement, PeakTolerance: m.PromotePeakTolerance}
-		verdict := backtest.Evaluate(baselineRes, res, policy)
-		row.BaselineID, row.Metrics, row.BaselineRes = baselineID, marshal(res), marshal(baselineRes)
-		row.Promoted, row.Reason = verdict.Promoted, trim(verdict.Reason, 512)
+		cmp := s.compareWithBaselines(ctx, bm, step, input, in, shape, alpha, res, policy, run)
+		if cmp.err != nil {
+			return nil, cmp.err
+		}
+		row.BaselineID, row.Metrics, row.BaselineRes = cmp.baselineID, marshal(cmp.candidate), marshal(cmp.baseline)
+		row.Promoted, row.Reason = cmp.verdict.Promoted, trim(cmp.verdict.Reason, 512)
 	}
 	if err := s.Predictions.SaveBacktest(ctx, row); err != nil {
 		return nil, err
@@ -184,4 +182,103 @@ func trim(s string, n int) string {
 		return s
 	}
 	return s[:n]
+}
+
+// comparison is the outcome of judging a candidate against the implicit baselines.
+type comparison struct {
+	baselineID string
+	candidate  backtest.Result // the candidate on the windows of the reported baseline
+	baseline   backtest.Result
+	verdict    backtest.Verdict
+	err        error
+}
+
+// originTimes are the last training timestamps of the given cutoffs of data.
+func originTimes(data forecast.Input, origins []int) []time.Time {
+	out := make([]time.Time, len(origins))
+	for i, c := range origins {
+		out[i] = data.TimeAt(c - 1)
+	}
+	return out
+}
+
+// originsIn maps cutoffs given by time onto another series of the same grid; a time it does not cover is dropped.
+func originsIn(data forecast.Input, times []time.Time) []int {
+	out := make([]int, 0, len(times))
+	for _, t := range times {
+		if i, ok := gridIndex(data, t); ok && data.TimeAt(i).Equal(t) {
+			out = append(out, i+1)
+		}
+	}
+	return out
+}
+
+func sameInts(a, b []int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// compareWithBaselines judges a candidate against every baseline it shares enough windows with. Each baseline needs
+// history of its own (the same time of the previous day needs a day), so the windows both can be scored on are the
+// ones after the longer of the two minimums; the candidate is scored again on exactly those windows when they differ
+// from its own, so the two WAPEs describe the same data. A baseline that would leave fewer than three windows (or
+// fewer than the candidate has) is not used; the candidate is promoted only when it beats all the others. The reported
+// baseline is the first one it fails against, or else the strongest.
+func (s *Service) compareWithBaselines(ctx context.Context, bm *boundModel, step time.Duration, cdata, bdata forecast.Input, shape backtest.Config, alpha float64,
+	own backtest.Result, policy backtest.Policy, run func(forecast.Model, bool, float64, []int) (backtest.Result, error)) comparison {
+	ownOrigins := backtest.Origins(len(cdata.Values), shape, forecast.MinSamplesFor(bm.model, shape.HorizonSteps))
+	need := len(ownOrigins)
+	if need > 3 {
+		need = 3
+	}
+	out := comparison{candidate: own, baseline: backtest.Result{Skipped: "no baseline shares enough windows with this algorithm"}}
+	out.verdict = backtest.Evaluate(out.baseline, own, policy)
+	if own.Skipped != "" {
+		return out
+	}
+	var strongest *comparison
+	failed := false
+	for _, b := range s.implicitBaselines(step) {
+		min := forecast.MinSamplesFor(bm.model, shape.HorizonSteps)
+		if bmin := forecast.MinSamplesFor(b.model, shape.HorizonSteps); bmin > min {
+			min = bmin
+		}
+		origins := backtest.Origins(len(cdata.Values), shape, min)
+		if need == 0 || len(origins) < need {
+			continue
+		}
+		cand := own
+		if !sameInts(origins, ownOrigins) {
+			var err error
+			if cand, err = run(bm.model, true, alpha, origins); err != nil {
+				return comparison{err: err}
+			}
+		}
+		base, err := run(b.model, false, alpha, originsIn(bdata, originTimes(cdata, origins)))
+		if err != nil {
+			return comparison{err: err}
+		}
+		if base.Skipped != "" || cand.Skipped != "" {
+			continue
+		}
+		c := comparison{baselineID: b.key, candidate: cand, baseline: base, verdict: backtest.Evaluate(base, cand, policy)}
+		switch {
+		case !c.verdict.Promoted && !failed:
+			failed = true
+			strongest = &c
+		case !failed && (strongest == nil || base.WAPE < strongest.baseline.WAPE):
+			strongest = &c
+		}
+	}
+	if strongest != nil {
+		return *strongest
+	}
+	return out
 }

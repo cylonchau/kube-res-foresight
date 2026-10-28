@@ -60,6 +60,7 @@ func forecastTestRouter(t *testing.T) (*gin.Engine, *model.MetricMapping) {
 	r.PUT("/algorithms/:id", h.UpdateAlgorithm)
 	r.GET("/training-runs", h.ListTrainings)
 	r.GET("/training-runs/summary", h.TrainingSummary)
+	r.GET("/training-runs/:id/data", h.TrainingData)
 	r.GET("/training-runs/:id", h.GetTraining)
 	r.POST("/algorithms", h.CreateAlgorithm)
 	r.DELETE("/algorithms/:id", h.DeleteAlgorithm)
@@ -101,6 +102,8 @@ func forecastTestRouter(t *testing.T) (*gin.Engine, *model.MetricMapping) {
 	r.GET("/modules/:id/ranking", center.Ranking)
 	r.GET("/modules/:id/leaderboard", h.Leaderboard)
 	r.GET("/recommendations", h.ListRecommendations)
+	r.GET("/snapshots", h.ListSnapshots)
+	r.GET("/snapshots/:id", h.GetSnapshot)
 	r.GET("/fallbacks", h.ListFallbacks)
 	r.GET("/backtests", h.SearchBacktests)
 	r.GET("/predictions", h.ListPredictions)
@@ -115,8 +118,6 @@ func forecastTestRouter(t *testing.T) (*gin.Engine, *model.MetricMapping) {
 	r.POST("/operator/reports", rt.Report)
 	r.GET("/admission/recommendations", rt.Admission)
 	r.GET("/scaling-decisions", rt.ListExecutions)
-	audit := &AuditRouter{Predictions: preds}
-	r.GET("/audit/export", audit.Export)
 	r.POST("/controls/:id/bypass", h.Bypass)
 	r.POST("/controls/:id/resume", h.Resume)
 	return r, cpu
@@ -892,4 +893,108 @@ func TestBatchOperationsReportWhatWasDoneAndWhatWasRefused(t *testing.T) {
 	got = batch("/records/batch-delete", map[string]any{"kind": "trainings", "ids": []uint{run.ID, 99999}})
 	assert.EqualValues(t, 1, got["done"])
 	assert.Equal(t, http.StatusBadRequest, performJSON(t, r, http.MethodPost, "/records/batch-delete", "", map[string]any{"kind": "recommendations", "ids": []uint{1}}).Code, "the snapshots are the audit trail")
+}
+
+func TestEveryEnabledAlgorithmIsListedWithItsStateAndAnAlgorithmWithoutRequiredParametersCannotBeEnabled(t *testing.T) {
+	r, cpu := forecastTestRouter(t)
+	module := moduleWithCPU(t, r, cpu, map[string]any{"name": "states", "lookback_hours": 6, "horizon_minutes": 10})
+	base := fmt.Sprintf("/modules/%d", module)
+	enableAlgorithm(t, r, "naive", nil)
+	enableAlgorithm(t, r, "ewma", map[string]any{"alpha": 0.5})
+
+	// random_forest needs "lags"; enabling it without would make every run fail, so it is refused with the reason
+	rec := performJSON(t, r, http.MethodPut, "/algorithms/random_forest", "", map[string]any{"enabled": true})
+	require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+	assert.Contains(t, rec.Body.String(), "lags")
+	rec = performJSON(t, r, http.MethodPost, "/algorithms/batch", "", map[string]any{"action": "enable", "ids": []string{"random_forest", "knn"}})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Contains(t, rec.Body.String(), "lags", "the batch names the one it refused and why")
+
+	// before any run: both enabled algorithms are on the leaderboard, with a state instead of a rank
+	rec = performJSON(t, r, http.MethodGet, base+"/leaderboard?kind=cpu", "", nil)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var board struct {
+		Data []map[string]any `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &board))
+	entries := board.Data
+	require.Len(t, entries, 3, "naive, ewma and the knn the batch enabled; random_forest was refused")
+	for _, e := range entries {
+		assert.Equal(t, "not_run", e["status"], "an enabled algorithm that never ran is listed, not hidden")
+		assert.NotEmpty(t, e["reason"])
+		assert.EqualValues(t, 0, e["rank"])
+	}
+
+	// after a run each has forecasts but nothing to score yet: the state says so
+	require.Equal(t, http.StatusOK, performJSON(t, r, http.MethodPost, base+"/run", "", nil).Code)
+	from, to := time.Now().UTC().Add(-time.Hour), time.Now().UTC().Add(time.Hour)
+	rec = performJSON(t, r, http.MethodGet, fmt.Sprintf("%s/compare?metric=cpu&from=%s&to=%s", base, from.Format(time.RFC3339), to.Format(time.RFC3339)), "", nil)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	statuses := decodeData(t, rec.Body.Bytes())["statuses"].([]any)
+	ids := map[string]string{}
+	for _, s := range statuses {
+		m := s.(map[string]any)
+		ids[m["algorithm_id"].(string)] = m["status"].(string)
+	}
+	assert.Len(t, ids, 3, "every enabled algorithm is in the statuses of the comparison")
+	assert.Contains(t, ids, "naive")
+	assert.Contains(t, ids, "ewma")
+}
+
+func TestTrainingDataHasTheSamplesOfTheWindowAndTheForecastOfTheRun(t *testing.T) {
+	r, cpu := forecastTestRouter(t)
+	module := moduleWithCPU(t, r, cpu, map[string]any{"name": "td"})
+	at := time.Now().UTC().Truncate(time.Second)
+	start, end := at.Add(-10*time.Minute), at
+	series := model.MetricSeries{ModuleID: uint(module), Metric: "cpu", StepSeconds: 60}
+	require.NoError(t, model.DB.Create(&series).Error)
+	for i := 0; i <= 10; i++ {
+		require.NoError(t, model.DB.Create(&model.MetricSample{SeriesID: series.ID, TS: start.Add(time.Duration(i) * time.Minute).Unix(), Value: float64(i)}).Error)
+	}
+	run := model.TrainingRun{ModuleID: uint(module), Metric: "cpu", AlgorithmID: "naive", Status: "ok", PredictionTime: at, WindowStart: &start, WindowEnd: &end}
+	require.NoError(t, model.DB.Create(&run).Error)
+	for i := 1; i <= 3; i++ {
+		require.NoError(t, model.DB.Create(&model.Prediction{ModuleID: uint(module), Metric: "cpu", AlgorithmID: "naive", PredictionTime: at, TargetTime: at.Add(time.Duration(i) * time.Minute), QuantilePermille: 500, Value: 5, Unit: "cores"}).Error)
+	}
+	rec := performJSON(t, r, http.MethodGet, fmt.Sprintf("/training-runs/%d/data", run.ID), "", nil)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	got := decodeData(t, rec.Body.Bytes())
+	assert.Len(t, got["input"], 11, "the stored samples of the window")
+	assert.Len(t, got["forecast"], 3, "the forecast this run wrote")
+	assert.Equal(t, http.StatusNotFound, performJSON(t, r, http.MethodGet, "/training-runs/999999/data", "", nil).Code)
+}
+
+// A new algorithm is only "in" the platform when it is registered, loads with its parameters, is enabled and has run: the list
+// says which of these it has reached, so an algorithm that never produces a forecast is visible as such.
+func TestAnAlgorithmShowsHowFarItHasReachedInThePipeline(t *testing.T) {
+	r, cpu := forecastTestRouter(t)
+	t.Cleanup(func() { forecast.RemoveCustom("reach_test") })
+	runtimeOf := func(id string) map[string]any {
+		rec := performJSON(t, r, http.MethodGet, "/algorithms/"+id, "", nil)
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		return decodeData(t, rec.Body.Bytes())["runtime"].(map[string]any)
+	}
+	body := map[string]any{"id": "reach_test", "description": "last value", "formula": "last(x) * margin", "min_samples": 3,
+		"param_schema": []map[string]any{{"name": "margin", "type": "float", "default": 1.1, "min": 1, "max": 3, "description": "headroom"}}}
+	rec := performJSON(t, r, http.MethodPost, "/algorithms", "", body)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Equal(t, "disabled", decodeData(t, rec.Body.Bytes())["runtime"].(map[string]any)["state"], "registered, not enabled")
+
+	module := moduleWithCPU(t, r, cpu, map[string]any{"name": "reach", "mode": "recommend", "lookback_hours": 6, "horizon_minutes": 10, "ttl_seconds": 3600, "headroom_ratio": 1.5})
+	enableAlgorithm(t, r, "reach_test", map[string]any{"margin": 1.5})
+	assert.Equal(t, "waiting", runtimeOf("reach_test")["state"], "enabled and loaded: the next cycle of the forecast task runs it")
+
+	require.Equal(t, http.StatusOK, performJSON(t, r, http.MethodPost, fmt.Sprintf("/modules/%d/run", module), "", nil).Code)
+	got := runtimeOf("reach_test")
+	assert.Equal(t, "running", got["state"], "its latest run produced a forecast")
+	assert.EqualValues(t, 1, got["runs"])
+	assert.NotNil(t, got["last_run_at"])
+	assert.Equal(t, "ok", got["last_status"])
+
+	listed := decodeList(t, performJSON(t, r, http.MethodGet, "/algorithms?keyword=reach_test", "", nil).Body.Bytes())
+	require.Len(t, listed, 1)
+	assert.Equal(t, "running", listed[0].(map[string]any)["runtime"].(map[string]any)["state"], "the list carries it too")
+
+	// an algorithm nobody enabled stays disabled
+	assert.Equal(t, "disabled", runtimeOf("lstm")["state"])
 }

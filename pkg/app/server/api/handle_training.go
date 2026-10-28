@@ -61,3 +61,24 @@ func (r *ForecastRouter) GetTraining(c *gin.Context) {
 	}
 	query.SuccessResponse(c, nil, t)
 }
+
+// TrainingData serves what one training record worked on: the stored samples of its history window and the forecast it wrote.
+// @Summary Data of a training record
+// @Router /api/v1/training-runs/{id}/data [get]
+func (r *ForecastRouter) TrainingData(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		query.BadRequest(c, errors.New("invalid id"))
+		return
+	}
+	out, err := r.Service.TrainingData(c.Request.Context(), uint(id))
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		query.NotFound(c, query.ErrRecordNotFound)
+		return
+	}
+	if err != nil {
+		query.InternalError(c, err)
+		return
+	}
+	query.SuccessResponse(c, nil, out)
+}

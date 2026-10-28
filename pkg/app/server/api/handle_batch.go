@@ -11,6 +11,7 @@ import (
 	"github.com/cylonchau/kube-resource-fcst/pkg/app/query"
 	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
 	"github.com/cylonchau/kube-resource-fcst/pkg/forecast"
+	"github.com/cylonchau/kube-resource-fcst/pkg/forecastsvc"
 )
 
 // batchFailure is the reason one item of a batch was left alone; the others are done.
@@ -127,6 +128,12 @@ func (r *ForecastRouter) BatchAlgorithms(c *gin.Context) {
 			if err := cfg.Validate(); err != nil {
 				out.fail(id, err)
 				continue
+			}
+			if cfg.Enabled {
+				if _, err := forecastsvc.ValidateParams(id, cfg.Params); err != nil {
+					out.fail(id, fmt.Errorf("cannot enable %s: %w", id, err))
+					continue
+				}
 			}
 			if err := r.Configs.Save(ctx, cfg); err != nil {
 				out.fail(id, err)

@@ -361,7 +361,7 @@ func TestPredictThenBacktestThenRecommendEndToEnd(t *testing.T) {
 	for _, r := range rows {
 		peak = math.Max(peak, r.Value)
 	}
-	assert.EqualValues(t, math.Ceil(peak*1.1*1000), rec.CPUMilli)
+	assert.EqualValues(t, RoundCPUMilli(int64(math.Ceil(peak*1.1*1000))), rec.CPUMilli, "the peak x headroom, rounded up to a readable step")
 	assert.True(t, rec.CPUSet)
 	assert.Equal(t, "algorithm", rec.ReplicasSource)
 	assert.GreaterOrEqual(t, rec.Replicas, 2)
@@ -405,6 +405,51 @@ func TestFixedPeriodOverridesAndFallbackWhenModelsAreUnusable(t *testing.T) {
 	assert.Equal(t, "fallback", rec.CPUSource)
 	assert.EqualValues(t, 500, rec.CPUMilli)
 	assert.Equal(t, []string{"wed-morning"}, detail.ActivePeriods)
+}
+
+// An absolute window pins replicas, CPU and memory: inside it nothing an algorithm says changes them, outside it (or when
+// the period is disabled) the decision is back to the algorithms and the module fallback. The detail lists every period
+// with whether it applied, and the metric sources the figures come from.
+func TestAbsoluteFixedPeriodPinsValuesInsideItsWindowOnly(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	start := testNow.Add(-time.Hour)
+	end := testNow.Add(time.Hour)
+	period := &model.ModulePeriod{ModuleID: f.module.ID, Name: "release", Enabled: true, AbsStart: &start, AbsEnd: &end,
+		Replicas: 2, CPUMilli: 4000, MemoryBytes: 2 << 30}
+	require.NoError(t, f.svc.Modules.SavePeriod(ctx, period))
+	f.bind(t, "cpu", "naive", nil, 0)
+
+	rec, detail, err := f.svc.Recommend(ctx, f.module.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "fixed_period", rec.CPUSource)
+	assert.Equal(t, "fixed_period", rec.ReplicasSource)
+	assert.EqualValues(t, 4000, rec.CPUMilli)
+	assert.Equal(t, 2, rec.Replicas)
+	require.Len(t, detail.Periods, 1)
+	assert.True(t, detail.Periods[0].Active)
+	assert.False(t, detail.Periods[0].Weekly)
+	assert.NotEmpty(t, detail.Sources, "the explanation names the metric sources")
+
+	// after the window the module is back to its fallback
+	*f.clock = end.Add(time.Minute)
+	rec, detail, err = f.svc.Recommend(ctx, f.module.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "fallback", rec.CPUSource)
+	assert.EqualValues(t, 500, rec.CPUMilli)
+	require.Len(t, detail.Periods, 1)
+	assert.False(t, detail.Periods[0].Active)
+
+	// a disabled period never applies, inside its window either
+	*f.clock = testNow
+	period.Enabled = false
+	require.NoError(t, f.svc.Modules.SavePeriod(ctx, period))
+	rec, detail, err = f.svc.Recommend(ctx, f.module.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "fallback", rec.CPUSource)
+	assert.Empty(t, detail.ActivePeriods)
+	require.Len(t, detail.Periods, 1)
+	assert.False(t, detail.Periods[0].Enabled)
 }
 
 func TestPredictSkipsStaleHistoryAndShortHistory(t *testing.T) {

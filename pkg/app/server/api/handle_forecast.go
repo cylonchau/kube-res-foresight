@@ -434,7 +434,7 @@ func recommendationFilter(c *gin.Context) rdb.RecommendationFilter {
 	moduleID, _ := strconv.ParseUint(c.Query("module_id"), 10, 64)
 	version, _ := strconv.Atoi(c.Query("version"))
 	return rdb.RecommendationFilter{ModuleID: uint(moduleID), Mode: c.Query("mode"), Version: version, Source: c.Query("source"),
-		Degraded: boolQuery(c, "degraded"), OOMFloor: boolQuery(c, "oom_floor"),
+		Degraded: boolQuery(c, "degraded"), OOMFloor: boolQuery(c, "oom_floor"), LatestOnly: c.Query("latest") == "true" || c.Query("latest") == "1",
 		Since: timeQuery(c, "from"), Until: timeQuery(c, "to"), Sort: c.Query("sort_by"), Dir: c.Query("sort_order")}
 }
 
@@ -446,86 +446,6 @@ func (r *ForecastRouter) ListRecommendations(c *gin.Context) {
 		return
 	}
 	query.SuccessResponse(c, nil, gin.H{"list": list, "total": total, "page": page, "pageSize": size})
-}
-
-// FallbackRecord is a snapshot where a field did not come from a usable forecast, with how long that lasted.
-type FallbackRecord struct {
-	*model.Recommendation
-	Reasons map[string]string `json:"reasons"`
-	Notes   map[string]string `json:"notes"`
-	// RecoveredAt is the time of the first later healthy snapshot; nil while the module is still degraded.
-	RecoveredAt     *time.Time `json:"recovered_at"`
-	DurationSeconds int64      `json:"duration_seconds"`
-	Ongoing         bool       `json:"ongoing"`
-}
-
-// fallbackReasons are the reason codes the filter accepts.
-var fallbackReasons = map[string]bool{
-	forecastsvc.DegradeNoData: true, forecastsvc.DegradeStaleData: true, forecastsvc.DegradeInsufficient: true,
-	forecastsvc.DegradePredictorFailed: true, forecastsvc.DegradeNoPrediction: true, forecastsvc.DegradeStalePrediction: true,
-	forecastsvc.DegradeNotEligible: true, forecastsvc.DegradeRecovering: true, "oom_floor": true,
-}
-
-func (r *ForecastRouter) fallbackRecord(ctx context.Context, rec *model.Recommendation, now time.Time) (FallbackRecord, error) {
-	out := FallbackRecord{Recommendation: rec, Reasons: map[string]string{}, Notes: map[string]string{}}
-	if rec.DegradeReasons != "" {
-		_ = json.Unmarshal([]byte(rec.DegradeReasons), &out.Reasons)
-	}
-	if rec.OOMFloor {
-		out.Reasons["memory_floor"] = "oom_floor"
-	}
-	var detail forecastsvc.RecommendDetail
-	if json.Unmarshal([]byte(rec.Detail), &detail) == nil {
-		for field, note := range detail.DegradeNotes {
-			out.Notes[field] = note
-		}
-		if rec.OOMFloor && detail.OOM != nil {
-			out.Notes["memory_floor"] = detail.OOM.Reason
-		}
-	}
-	next, err := r.Predictions.NextHealthy(ctx, rec.ModuleID, rec.Version)
-	if err != nil {
-		return out, err
-	}
-	end := now
-	if next != nil {
-		out.RecoveredAt, end = &next.CreatedAt, next.CreatedAt
-	} else {
-		out.Ongoing = true
-	}
-	if d := end.Sub(rec.CreatedAt); d > 0 {
-		out.DurationSeconds = int64(d / time.Second)
-	}
-	return out, nil
-}
-
-// ListFallbacks serves the degradation records: every snapshot where a field fell back, kept its original value
-// or was raised by the OOM protection.
-func (r *ForecastRouter) ListFallbacks(c *gin.Context) {
-	page, size := pageParams(c)
-	moduleID, _ := strconv.ParseUint(c.Query("module_id"), 10, 64)
-	reason := c.Query("reason")
-	if reason != "" && !fallbackReasons[reason] {
-		query.BadRequest(c, fmt.Errorf("unknown reason %q", reason))
-		return
-	}
-	list, total, err := r.Predictions.SearchFallbacks(c.Request.Context(), rdb.FallbackFilter{ModuleID: uint(moduleID), Reason: reason,
-		Since: timeQuery(c, "from"), Until: timeQuery(c, "to"), Sort: c.Query("sort_by"), Dir: c.Query("sort_order")}, page, size)
-	if err != nil {
-		query.InternalError(c, err)
-		return
-	}
-	now := time.Now()
-	out := make([]FallbackRecord, 0, len(list))
-	for _, rec := range list {
-		item, err := r.fallbackRecord(c.Request.Context(), rec, now)
-		if err != nil {
-			query.InternalError(c, err)
-			return
-		}
-		out = append(out, item)
-	}
-	query.SuccessResponse(c, nil, gin.H{"list": out, "total": total, "page": page, "pageSize": size})
 }
 
 // Bypass makes a module keep every original value. The reason is mandatory and, like every write, is audited

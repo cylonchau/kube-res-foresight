@@ -18,7 +18,7 @@ func datasourceTestRouter(t *testing.T) *gin.Engine {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	db := apiTestDB(t)
-	require.NoError(t, db.AutoMigrate(&model.Datasource{}, &model.MetricMapping{}))
+	require.NoError(t, db.AutoMigrate(&model.Datasource{}, &model.MetricMapping{}, &model.MetricSource{}))
 	previous := model.DB
 	model.DB = db
 	t.Cleanup(func() { model.DB = previous })
@@ -141,6 +141,27 @@ func TestDatasourceValidationAndUniqueness(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, performJSON(t, router, http.MethodPost, "/datasources", "", ok).Code)
 }
 
+// The number of concurrent requests has no ceiling of the platform's own: 16 was an arbitrary limit and the field accepts
+// whatever the operator knows the Prometheus can take. Zero means the default and a negative number is refused.
+func TestDatasourceConcurrencyHasNoUpperLimit(t *testing.T) {
+	router := datasourceTestRouter(t)
+	for i, n := range []int{1, 16, 17, 64, 500} {
+		body := map[string]any{"name": fmt.Sprintf("c%d", i), "base_url": "http://prom:9090", "max_concurrency": n}
+		rec := performJSON(t, router, http.MethodPost, "/datasources", "", body)
+		require.Equal(t, http.StatusOK, rec.Code, "%d: %s", n, rec.Body.String())
+		assert.EqualValues(t, n, decodeData(t, rec.Body.Bytes())["max_concurrency"])
+	}
+	rec := performJSON(t, router, http.MethodPost, "/datasources", "", map[string]any{"name": "neg", "base_url": "http://prom:9090", "max_concurrency": -3})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	rec = performJSON(t, router, http.MethodPost, "/datasources", "", map[string]any{"name": "zero", "base_url": "http://prom:9090"})
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.EqualValues(t, 1, decodeData(t, rec.Body.Bytes())["max_concurrency"], "unset is the default of one")
+	id := int(decodeData(t, performJSON(t, router, http.MethodPost, "/datasources", "", map[string]any{"name": "up", "base_url": "http://prom:9090", "max_concurrency": 2}).Body.Bytes())["id"].(float64))
+	rec = performJSON(t, router, http.MethodPut, fmt.Sprintf("/datasources/%d", id), "", map[string]any{"max_concurrency": 40})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.EqualValues(t, 40, decodeData(t, rec.Body.Bytes())["max_concurrency"], "an update above 16 is saved too")
+}
+
 func TestDatasourceAuthSwitchClearsSecretsAndRequiresNewOnes(t *testing.T) {
 	router := datasourceTestRouter(t)
 	rec := performJSON(t, router, http.MethodPost, "/datasources", "", map[string]any{
@@ -197,6 +218,15 @@ func TestMetricMappingCRUDAndDatasourceInUse(t *testing.T) {
 
 	rec = performJSON(t, router, http.MethodDelete, fmt.Sprintf("/datasources/%d", dsID), "", nil)
 	assert.Equal(t, http.StatusBadRequest, rec.Code, "datasource with mappings cannot be deleted")
+
+	// a template a module metric still uses is refused with 409, whether it is deleted alone or in a batch, and goes once free
+	source := &model.MetricSource{ModuleID: 1, Key: "memory", Name: "memory", Kind: "memory", Resource: "memory", MappingID: uint(mappingID), Stat: "p95", Enabled: true}
+	require.NoError(t, model.DB.Create(source).Error)
+	rec = performJSON(t, router, http.MethodDelete, fmt.Sprintf("/metric-mappings/%d", mappingID), "", nil)
+	assert.Equal(t, http.StatusConflict, rec.Code, rec.Body.String())
+	rec = performJSON(t, router, http.MethodPost, "/metric-mappings/batch-delete", "", map[string]any{"ids": []int{mappingID}})
+	assert.Equal(t, http.StatusConflict, rec.Code, rec.Body.String())
+	require.NoError(t, model.DB.Delete(source).Error)
 
 	rec = performJSON(t, router, http.MethodPost, "/metric-mappings/batch-delete", "", map[string]any{"ids": []int{mappingID}})
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())

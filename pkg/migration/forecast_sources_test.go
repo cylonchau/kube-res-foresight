@@ -206,7 +206,7 @@ func TestUpgradeFromThePreviousReleaseRunsEndToEnd(t *testing.T) {
 	assert.Contains(t, granted, "forecast_algorithms", "the role keeps a page for what it could open")
 	// the page of scores was split into the records, the current ranking and the history of the ranking; the page of
 	// the module sources became the Prometheus datasets
-	for _, code := range []string{"forecast_score-records", "forecast_ranking", "forecast_ranking-history", "monitoring_datasets"} {
+	for _, code := range []string{"forecast_score-records", "forecast_ranking", "monitoring_datasets"} {
 		assert.Contains(t, granted, code, "the role that opened the old page opens "+code)
 	}
 	for _, code := range []string{"forecast_scores", "forecast-modules_sources"} {

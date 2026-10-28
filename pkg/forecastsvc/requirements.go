@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/cylonchau/kube-resource-fcst/pkg/forecast"
 	"github.com/cylonchau/kube-resource-fcst/pkg/model"
 )
 
@@ -65,7 +66,7 @@ func (s *Service) Requirements(ctx context.Context, moduleID uint) ([]Requiremen
 				out = append(out, req)
 				continue
 			}
-			req.MinSamples = bm.model.MinSamples()
+			req.MinSamples = forecast.MinSamplesFor(bm.model, req.HorizonSteps) // a direct or calibrated model also needs room for its horizon
 			req.RequiredSeconds = req.MinSamples * req.StepSeconds
 			need := max(req.MinSamples, m.MinPoints)
 			switch {

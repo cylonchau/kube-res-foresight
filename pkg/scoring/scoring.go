@@ -1,8 +1,16 @@
 // Package scoring grades a forecasting algorithm on replayed history. For each evaluation window the algorithm's
 // recommendation (made from the data before the window) is compared with what the measured usage of the window
-// actually required: the replica count, and CPU, memory and GPU separately. Under-provisioning counts twice as
-// much as over-provisioning, an OOM kill in a window the algorithm under-provisioned lowers the score further, and
-// a history with holes lowers it a little. The result is one number from 0 to 100 plus the figures behind it.
+// actually required, for CPU, memory and GPU separately.
+//
+// The accuracy is that of the resource, not of the replica count: the resource the whole workload needs is forecast, and
+// the replica count follows from it (the resource divided by what one Pod holds), so a replica count is never a figure
+// of its own. With 3 CPU cores actually needed and 4 forecast, the CPU accuracy is 1 - |4-3|/3 (a shortfall counts
+// Under times as much). The replica count of a window is kept as a derived figure (how many windows it matched) and is
+// scored only for a module with no CPU, memory or GPU source at all.
+//
+// Under-provisioning counts twice as much as over-provisioning, an OOM kill in a window the algorithm under-provisioned
+// lowers the memory score further, and a history with holes lowers it a little. Each resource has its own score from 0 to
+// 100 (Result.Metrics) and the result is one number from 0 to 100 combining them, plus the figures behind it.
 package scoring
 
 import (
@@ -32,6 +40,7 @@ type Window struct {
 
 // Weights set how much each part counts. A part with no data in any window is left out and the rest renormalised.
 type Weights struct {
+	// Replicas counts only when there is no resource part at all.
 	Replicas float64
 	CPU      float64
 	Memory   float64
@@ -45,7 +54,7 @@ type Weights struct {
 
 // DefaultWeights are used until a module sets its own.
 func DefaultWeights() Weights {
-	return Weights{Replicas: 0.35, CPU: 0.2, Memory: 0.25, GPU: 0.2, Under: 2, OOMPenalty: 0.2, OOMCap: 0.6}
+	return Weights{Replicas: 1, CPU: 0.35, Memory: 0.45, GPU: 0.2, Under: 2, OOMPenalty: 0.2, OOMCap: 0.6}
 }
 
 // Result is the grade of an algorithm over a set of windows.
@@ -62,6 +71,15 @@ type Result struct {
 	OOMEvents    int     `json:"oom_events"`        // OOM kills in under-provisioned windows (what is penalised)
 	OOMPenalty   float64 `json:"oom_penalty"`       // share of the score lost to them
 	Completeness float64 `json:"completeness"`      // share of windows that had all their data
+	// Metrics is the grade of each resource by itself: what ranks the algorithms for CPU, for memory and for GPU.
+	Metrics []MetricResult `json:"metrics,omitempty"`
+}
+
+// MetricResult is the grade of one resource: its accuracy (0..1) and its score (0..100).
+type MetricResult struct {
+	Metric   string  `json:"metric"` // cpu, memory or gpu
+	Accuracy float64 `json:"accuracy"`
+	Score    float64 `json:"score"`
 }
 
 func replicaAccuracy(pred, actual int, under float64) float64 {
@@ -156,8 +174,7 @@ func Score(ws []Window, wt Weights) Result {
 	res.Replicas = replicaSum / float64(len(ws))
 	res.Completeness = float64(complete) / float64(len(ws))
 
-	total := wt.Replicas
-	sum := wt.Replicas * res.Replicas
+	var total, sum float64
 	if haveCPU {
 		res.CPU = cpu.accuracy()
 		total += wt.CPU
@@ -173,11 +190,26 @@ func Score(ws []Window, wt Weights) Result {
 		total += wt.GPU
 		sum += wt.GPU * res.GPU
 	}
+	if total == 0 {
+		// no resource to grade: the replica count is the only thing there is to grade
+		total, sum = wt.Replicas, wt.Replicas*res.Replicas
+	}
 	composite := 0.0
 	if total > 0 {
 		composite = sum / total
 	}
 	res.OOMPenalty = math.Min(wt.OOMCap, wt.OOMPenalty*float64(res.OOMEvents))
-	res.Score = 100 * composite * (1 - res.OOMPenalty) * (0.7 + 0.3*res.Completeness)
+	holes := 0.7 + 0.3*res.Completeness
+	res.Score = 100 * composite * (1 - res.OOMPenalty) * holes
+	if haveCPU {
+		res.Metrics = append(res.Metrics, MetricResult{Metric: "cpu", Accuracy: res.CPU, Score: 100 * res.CPU * holes})
+	}
+	if haveMem {
+		// an OOM kill is a memory event: only the memory score pays for it
+		res.Metrics = append(res.Metrics, MetricResult{Metric: "memory", Accuracy: res.Memory, Score: 100 * res.Memory * (1 - res.OOMPenalty) * holes})
+	}
+	if haveGPU {
+		res.Metrics = append(res.Metrics, MetricResult{Metric: "gpu", Accuracy: res.GPU, Score: 100 * res.GPU * holes})
+	}
 	return res
 }

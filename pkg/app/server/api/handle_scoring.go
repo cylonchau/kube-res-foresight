@@ -16,34 +16,54 @@ import (
 // has in the composite and what it contributed to it. A part with no data in any window is left out of the composite
 // and the other weights are renormalised, so Weight is the share actually used.
 type BreakdownRow struct {
-	Metric       string  `json:"metric"` // replicas, cpu, memory or gpu
+	Metric       string  `json:"metric"` // cpu, memory or gpu; replicas only for a module with no resource source
 	Accuracy     float64 `json:"accuracy"`
 	Error        float64 `json:"error"`
 	Weight       float64 `json:"weight"`
 	Contribution float64 `json:"contribution"` // points of the 0-100 score
+	// Score is the grade of this resource by itself (0-100): what ranks the algorithms for CPU, for memory and for GPU.
+	Score float64 `json:"score"`
 }
 
-// breakdownOf lists the parts of a score, using the weights the score was made with.
+// breakdownOf lists the parts of a score, using the weights the score was made with. The accuracy is that of the resources;
+// the replica count follows from them and is a part only when there is no resource to grade.
 func breakdownOf(d scoring.Result, wt scoring.Weights) []BreakdownRow {
 	parts := []struct {
 		name     string
 		accuracy float64
 		weight   float64
-	}{{"replicas", d.Replicas, wt.Replicas}, {"cpu", d.CPU, wt.CPU}, {"memory", d.Memory, wt.Memory}, {"gpu", d.GPU, wt.GPU}}
+	}{{"cpu", d.CPU, wt.CPU}, {"memory", d.Memory, wt.Memory}, {"gpu", d.GPU, wt.GPU}}
+	hasResource := false
+	for _, p := range parts {
+		hasResource = hasResource || p.accuracy >= 0
+	}
+	if !hasResource {
+		parts = parts[:0]
+		parts = append(parts, struct {
+			name     string
+			accuracy float64
+			weight   float64
+		}{"replicas", d.Replicas, wt.Replicas})
+	}
 	var total float64
 	for _, p := range parts {
 		if p.accuracy >= 0 {
 			total += p.weight
 		}
 	}
+	holes := 0.7 + 0.3*d.Completeness
 	rows := []BreakdownRow{}
 	for _, p := range parts {
 		if p.accuracy < 0 || total == 0 {
 			continue
 		}
 		share := p.weight / total
+		own := 100 * p.accuracy * holes
+		if p.name == "memory" {
+			own *= 1 - d.OOMPenalty
+		}
 		rows = append(rows, BreakdownRow{Metric: p.name, Accuracy: p.accuracy, Error: 1 - p.accuracy, Weight: share,
-			Contribution: 100 * share * p.accuracy * (1 - d.OOMPenalty) * (0.7 + 0.3*d.Completeness)})
+			Contribution: 100 * share * p.accuracy * (1 - d.OOMPenalty) * holes, Score: own})
 	}
 	return rows
 }

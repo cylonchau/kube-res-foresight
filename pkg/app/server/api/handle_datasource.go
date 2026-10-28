@@ -20,7 +20,6 @@ const (
 	defaultDatasourceTimeoutSeconds = 30
 	maxDatasourceTimeoutSeconds     = 300
 	defaultDatasourceConcurrency    = 1
-	maxDatasourceConcurrency        = 16
 )
 
 // DatasourceRouter serves datasource management and connection tests.
@@ -95,8 +94,10 @@ func normalizeDatasource(ds *model.Datasource) error {
 	if ds.MaxConcurrency == 0 {
 		ds.MaxConcurrency = defaultDatasourceConcurrency
 	}
-	if ds.MaxConcurrency < 1 || ds.MaxConcurrency > maxDatasourceConcurrency {
-		return fmt.Errorf("max_concurrency must be between 1 and %d", maxDatasourceConcurrency)
+	// There is no ceiling: how many requests a Prometheus can take is the operator's knowledge, not the platform's. The
+	// collector never runs more requests at once than it has chunks to fetch, so a large value costs nothing.
+	if ds.MaxConcurrency < 1 {
+		return fmt.Errorf("max_concurrency must be at least 1")
 	}
 	cfg, err := promclient.ConfigFromDatasource(ds)
 	if err != nil {

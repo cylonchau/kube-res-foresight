@@ -2,6 +2,7 @@ package rdb
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -16,7 +17,7 @@ import (
 func TestPruneDropsOldRecordsButKeepsTheLatestRecommendationOfEveryModule(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:prune?mode=memory&cache=shared"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.Prediction{}, &model.BacktestRun{}, &model.PredictionEvaluation{}, &model.Recommendation{}, &model.TrainingRun{}))
+	require.NoError(t, db.AutoMigrate(&model.Prediction{}, &model.BacktestRun{}, &model.PredictionEvaluation{}, &model.Recommendation{}, &model.TrainingRun{}, &model.AlgorithmScore{}))
 	now := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
 	old, recent := now.AddDate(0, 0, -40), now.AddDate(0, 0, -2)
 	create := func(v any) { require.NoError(t, db.Create(v).Error) }
@@ -53,4 +54,37 @@ func TestPruneDropsOldRecordsButKeepsTheLatestRecommendationOfEveryModule(t *tes
 	removed, err = NewPredictionDAO(db).Prune(context.Background(), now.AddDate(5, 0, 0), Retention{})
 	require.NoError(t, err)
 	assert.Zero(t, removed["predictions"]+removed["recommendations"])
+}
+
+func TestAModuleKeepsOnlyItsNewestRecommendationVersionsAndTheListCanShowTheCurrentOnes(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:prunecap?mode=memory&cache=shared"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.Recommendation{}, &model.ForecastModule{}))
+	now := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	// module 3 was deleted: what was recommended for it is not listed
+	for module := uint(1); module <= 2; module++ {
+		require.NoError(t, db.Create(&model.ForecastModule{Name: fmt.Sprintf("m%d", module), Namespace: "ns", WorkloadKind: "Deployment", Workload: fmt.Sprintf("w%d", module)}).Error)
+	}
+	require.NoError(t, db.Create(&model.Recommendation{ModuleID: 3, Version: 1, Mode: "recommend", ValidUntil: now, CreatedAt: now}).Error)
+	for module := uint(1); module <= 2; module++ {
+		for v := 1; v <= 30; v++ {
+			require.NoError(t, db.Create(&model.Recommendation{ModuleID: module, Version: v, Mode: "recommend", ValidUntil: now, CreatedAt: now.Add(-time.Duration(31-v) * time.Minute)}).Error)
+		}
+	}
+	dao := NewPredictionDAO(db)
+	current, total, err := dao.SearchRecommendations(context.Background(), RecommendationFilter{LatestOnly: true}, 1, 50)
+	require.NoError(t, err)
+	assert.EqualValues(t, 2, total, "one current snapshot per existing module, none for a module that is gone")
+	for _, r := range current {
+		assert.Equal(t, 30, r.Version)
+	}
+	removed, err := dao.Prune(context.Background(), now, Retention{Recommendations: 365 * 24 * time.Hour, RecommendationVersions: 20})
+	require.NoError(t, err)
+	assert.EqualValues(t, 20, removed["recommendations"], "10 old versions of each module go")
+	_, left, err := dao.SearchRecommendations(context.Background(), RecommendationFilter{ModuleID: 1}, 1, 50)
+	require.NoError(t, err)
+	assert.EqualValues(t, 20, left)
+	var oldest int
+	require.NoError(t, db.Model(&model.Recommendation{}).Where("module_id = 1").Select("MIN(version)").Scan(&oldest).Error)
+	assert.Equal(t, 11, oldest, "the newest 20 of 30 stay")
 }

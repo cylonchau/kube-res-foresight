@@ -193,12 +193,15 @@ func RegisteredRouter(e *gin.Engine) {
 	v1Group.POST("/records/batch-delete", forecastHandler.BatchDeleteRecords)
 	v1Group.GET("/evaluations", forecastHandler.ListEvaluations)
 	v1Group.GET("/recommendations", forecastHandler.ListRecommendations)
+	v1Group.GET("/snapshots", forecastHandler.ListSnapshots)
+	v1Group.GET("/snapshots/:id", forecastHandler.GetSnapshot)
 	v1Group.GET("/backtests", forecastHandler.SearchBacktests)
 	v1Group.GET("/fallbacks", forecastHandler.ListFallbacks)
 	v1Group.GET("/predictions", forecastHandler.ListPredictions)
 	v1Group.GET("/training-runs", forecastHandler.ListTrainings)
 	v1Group.GET("/training-runs/summary", forecastHandler.TrainingSummary)
 	v1Group.GET("/training-runs/:id", forecastHandler.GetTraining)
+	v1Group.GET("/training-runs/:id/data", forecastHandler.TrainingData)
 	v1Group.POST("/controls/:id/bypass", forecastHandler.Bypass)
 	v1Group.POST("/controls/:id/resume", forecastHandler.Resume)
 	runtimeHandler := &v1.RuntimeRouter{Modules: rdb.NewModuleDAO(model.DB), Predictions: rdb.NewPredictionDAO(model.DB), RunStates: rdb.NewRunStateDAO(model.DB), Config: rdb.NewSysConfigDAO(model.DB)}
@@ -207,10 +210,9 @@ func RegisteredRouter(e *gin.Engine) {
 	v1Group.POST("/operator/reports", runtimeHandler.Report)
 	v1Group.GET("/admission/recommendations", runtimeHandler.Admission)
 	v1Group.GET("/scaling-decisions", runtimeHandler.ListExecutions)
-	auditHandler := &v1.AuditRouter{Predictions: rdb.NewPredictionDAO(model.DB)}
-	v1Group.GET("/audit/export", auditHandler.Export)
 
 	ldapHandler := &v1.LDAPRouter{Service: ldapService}
+	configHandler.LDAP = ldapHandler
 	ldapGroup := v1Group.Group("/ldap")
 	ldapGroup.GET("/settings", ldapHandler.GetSettings)
 	ldapGroup.PUT("/settings", ldapHandler.UpdateSettings)

@@ -15,18 +15,23 @@ import (
 // keeps access to everything the page was split into.
 var menuSuccessors = map[string][]string{
 	"forecast_history":             {"forecast-results_history"},
-	"forecast_evaluation":          {"forecast-results_backtests", "forecast-results_evaluations", "forecast-results_leaderboard"},
-	"forecast_recommendations":     {"forecast-actions_recommendations", "forecast-actions_executions", "forecast-actions_fallbacks", "forecast-actions_audit-exports"},
-	"forecast_metrics":             {"monitoring_metrics", "monitoring_curves"},
-	"monitoring_metrics":           {"monitoring_curves"},
+	"forecast_evaluation":          {"forecast-results_evaluations", "forecast-results_leaderboard"},
+	"forecast_recommendations":     {"forecast-actions_recommendations", "forecast-actions_executions", "forecast-actions_fallbacks"},
+	"forecast_metrics":             {"monitoring_datasets", "monitoring_curves"},
+	"monitoring_metrics":           {"monitoring_curves", "monitoring_datasets"},
+	"forecast-results_backtests":   {"forecast-results_evaluations"},
 	"forecast_modules":             {"forecast-modules_modules", "monitoring_datasets"},
 	"forecast-modules_bindings":    {"forecast-modules_modules"},
 	"forecast_catalog":             {"forecast_algorithms"},
 	"forecast_sources":             {"monitoring_datasets"},
 	"forecast-modules_sources":     {"monitoring_datasets"},
-	"forecast_scores":              {"forecast_score-records", "forecast_ranking", "forecast_ranking-history"},
+	"forecast_scores":              {"forecast_score-records", "forecast_ranking"},
+	"forecast_ranking-history":     {"forecast_ranking"},
+	"forecast-results_trends":      {"forecast-results_history"},
 	"forecast_algorithm-templates": {"forecast_algorithms"},
 	"forecast_input-sets":          {"forecast_algorithms"},
+	"forecast-results_runs":        {"forecast-results_algorithm-runs"},
+	"forecast-actions_snapshots":   {"forecast-actions_recommendations"},
 }
 
 // migrateMenuGrants copies the grants of retired menus to their successors (and to the successors' parent

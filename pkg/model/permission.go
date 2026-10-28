@@ -13,7 +13,17 @@ var retiredMenuCodes = map[string]bool{
 	"authorization_ldap": true, "forecast_modules": true, "forecast_algorithm-templates": true, "forecast_input-sets": true,
 	"forecast_catalog": true, "forecast_sources": true, "forecast-modules_bindings": true,
 	"forecast_scores": true, "forecast-modules_sources": true,
+	// the audit export and the separate history of the ranking were removed; the ranking page covers the latter
+	"forecast-actions_audit-exports": true, "forecast_ranking-history": true, "forecast-results_trends": true, "forecast-results_backtests": true, "monitoring_metrics": true,
+	// the training records open over the algorithm run status, the snapshot history over the resource recommendation
+	"forecast-results_runs": true, "forecast-actions_snapshots": true,
 }
+
+// retiredButtonCodes are API permissions of removed features; the upgrade deletes them with their grants.
+var retiredButtonCodes = map[string]bool{"forecast:audit:export": true}
+
+// IsRetiredPermission reports whether a permission belongs to a removed feature.
+func IsRetiredPermission(code string) bool { return retiredMenuCodes[code] || retiredButtonCodes[code] }
 
 // IsPlatformRoute limits navigation to the supported modules and the hidden profile page.
 func IsPlatformRoute(code string) bool {

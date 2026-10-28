@@ -84,6 +84,12 @@ type TrainingAlgorithmCount struct {
 	OK          int64  `json:"ok"`
 	Skipped     int64  `json:"skipped"`
 	Failed      int64  `json:"failed"`
+	// AvgDurationMs, LastAt and LastStatus describe the runs of the filter; Reasons are the most common reasons a run of
+	// this algorithm did not produce a forecast.
+	AvgDurationMs float64               `json:"avg_duration_ms"`
+	LastAt        *time.Time            `json:"last_at"`
+	LastStatus    string                `json:"last_status"`
+	Reasons       []TrainingReasonCount `json:"reasons"`
 }
 
 // TrainingReasonCount is a reason a run did not produce a forecast and how often it happened.
@@ -125,7 +131,7 @@ func (dao *PredictionDAO) SummarizeTrainings(ctx context.Context, f TrainingFilt
 		if !ok {
 			i = len(out.Algorithms)
 			index[row.AlgorithmID] = i
-			out.Algorithms = append(out.Algorithms, TrainingAlgorithmCount{AlgorithmID: row.AlgorithmID})
+			out.Algorithms = append(out.Algorithms, TrainingAlgorithmCount{AlgorithmID: row.AlgorithmID, Reasons: []TrainingReasonCount{}})
 		}
 		switch row.Status {
 		case "ok":
@@ -139,6 +145,42 @@ func (dao *PredictionDAO) SummarizeTrainings(ctx context.Context, f TrainingFilt
 			out.Failed += row.N
 		}
 		out.Total += row.N
+	}
+
+	var perAlgorithm []struct {
+		AlgorithmID string
+		Avg         float64
+	}
+	if err := base().Select("algorithm_id, COALESCE(AVG(duration_ms), 0) AS avg").Group("algorithm_id").Scan(&perAlgorithm).Error; err != nil {
+		return nil, err
+	}
+	for _, row := range perAlgorithm {
+		if i, ok := index[row.AlgorithmID]; ok {
+			out.Algorithms[i].AvgDurationMs = row.Avg
+		}
+	}
+	for i := range out.Algorithms {
+		var newest model.TrainingRun
+		if err := base().Where("algorithm_id = ?", out.Algorithms[i].AlgorithmID).Order("prediction_time DESC, id DESC").Limit(1).Find(&newest).Error; err != nil {
+			return nil, err
+		}
+		if newest.ID != 0 {
+			at := newest.PredictionTime
+			out.Algorithms[i].LastAt, out.Algorithms[i].LastStatus = &at, newest.Status
+		}
+	}
+	var perReason []struct {
+		AlgorithmID string
+		TrainingReasonCount
+	}
+	if err := base().Select("algorithm_id, status, reason, COUNT(*) AS count").Where("status <> ? AND reason <> ''", "ok").
+		Group("algorithm_id, status, reason").Order("count DESC").Scan(&perReason).Error; err != nil {
+		return nil, err
+	}
+	for _, row := range perReason {
+		if i, ok := index[row.AlgorithmID]; ok && len(out.Algorithms[i].Reasons) < 3 {
+			out.Algorithms[i].Reasons = append(out.Algorithms[i].Reasons, row.TrainingReasonCount)
+		}
 	}
 
 	var stats struct {

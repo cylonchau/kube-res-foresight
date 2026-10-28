@@ -49,18 +49,54 @@ type ExpansionDetail struct {
 	Reason    string `json:"reason"`
 }
 
+// PeriodDetail is a fixed period of the module as the decision saw it: whether it applied at that moment, and the values
+// it pins (0 = not pinned, the algorithm decides). A disabled period is listed with Enabled false and never applies.
+type PeriodDetail struct {
+	Name        string     `json:"name"`
+	Enabled     bool       `json:"enabled"`
+	Active      bool       `json:"active"`
+	Priority    int        `json:"priority"`
+	Weekly      bool       `json:"weekly"`
+	Start       *time.Time `json:"start,omitempty"`
+	End         *time.Time `json:"end,omitempty"`
+	Replicas    int        `json:"replicas"`
+	CPUMilli    int64      `json:"cpu_milli"`
+	MemoryBytes int64      `json:"memory_bytes"`
+}
+
+// SourceDetail says where one metric of the module comes from: the datasource and the query it runs, and how the values
+// were shaped. It is what a recommended CPU, memory or replica figure is calculated from.
+type SourceDetail struct {
+	Key        string  `json:"key"`
+	Name       string  `json:"name"`
+	Kind       string  `json:"kind"`
+	Resource   string  `json:"resource"`
+	Enabled    bool    `json:"enabled"`
+	Datasource string  `json:"datasource,omitempty"`
+	Query      string  `json:"query,omitempty"`
+	Level      string  `json:"level,omitempty"`
+	Unit       string  `json:"unit,omitempty"`
+	Step       int     `json:"step_seconds,omitempty"`
+	Stat       string  `json:"stat"`
+	Basis      string  `json:"basis"`
+	Scale      float64 `json:"scale"`
+}
+
 // RecommendDetail is stored with every recommendation so it can be explained and replayed.
 type RecommendDetail struct {
-	Bypass        bool                            `json:"bypass"`
-	BypassReason  string                          `json:"bypass_reason,omitempty"`
-	CPU           decision.Field                  `json:"cpu"`
-	Memory        decision.Field                  `json:"memory"`
-	Replicas      decision.Field                  `json:"replicas"`
-	GPU           decision.Field                  `json:"gpu"`
-	Considered    []Considered                    `json:"considered"`
-	ActivePeriods []string                        `json:"active_periods"`
-	Policy        map[string]any                  `json:"policy"`
-	Inputs        map[string][]decision.Candidate `json:"inputs"`
+	Bypass        bool           `json:"bypass"`
+	BypassReason  string         `json:"bypass_reason,omitempty"`
+	CPU           decision.Field `json:"cpu"`
+	Memory        decision.Field `json:"memory"`
+	Replicas      decision.Field `json:"replicas"`
+	GPU           decision.Field `json:"gpu"`
+	Considered    []Considered   `json:"considered"`
+	ActivePeriods []string       `json:"active_periods"`
+	// Periods lists every fixed period of the module with whether it applied; Sources the metrics the figures come from.
+	Periods []PeriodDetail                  `json:"periods,omitempty"`
+	Sources []SourceDetail                  `json:"sources,omitempty"`
+	Policy  map[string]any                  `json:"policy"`
+	Inputs  map[string][]decision.Candidate `json:"inputs"`
 	// Selection ranks the algorithm instances; Algorithm and Score are the one that decided, Multi its calculation
 	// source by source (the figures behind every recommended value).
 	Selection []SelectionRow      `json:"selection,omitempty"`
@@ -74,6 +110,8 @@ type RecommendDetail struct {
 	// DegradeNotes to the sentence behind it. Empty when every field came from a usable forecast.
 	Degraded     map[string]string `json:"degraded,omitempty"`
 	DegradeNotes map[string]string `json:"degrade_notes,omitempty"`
+	// ResourceSpec says how the Pod CPU and memory of the snapshot were decided: rounded, and kept or changed.
+	ResourceSpec *ResourceSpecDetail `json:"resource_spec,omitempty"`
 	// OOM and Heap say what the OOM protection and the JVM heap rule saw, whether or not they acted.
 	OOM  *OOMFloor     `json:"oom,omitempty"`
 	Heap *HeapPressure `json:"heap,omitempty"`
@@ -317,15 +355,19 @@ func (s *Service) recommend(ctx context.Context, moduleID uint, failed map[strin
 	detail := &RecommendDetail{Bypass: m.Bypass, BypassReason: m.BypassReason, ActivePeriods: []string{},
 		Inputs: map[string][]decision.Candidate{}}
 	for _, p := range periods {
-		if !p.Enabled {
-			continue
-		}
 		fp := toPeriod(p)
-		in.Periods = append(in.Periods, fp)
-		if decision.ValidatePeriod(fp) == nil && fp.Active(now, loc) {
-			detail.ActivePeriods = append(detail.ActivePeriods, fp.Name)
+		pd := PeriodDetail{Name: p.Name, Enabled: p.Enabled, Priority: p.Priority, Weekly: p.AbsStart == nil && p.AbsEnd == nil,
+			Start: p.AbsStart, End: p.AbsEnd, Replicas: p.Replicas, CPUMilli: p.CPUMilli, MemoryBytes: p.MemoryBytes}
+		if p.Enabled {
+			in.Periods = append(in.Periods, fp)
+			if decision.ValidatePeriod(fp) == nil && fp.Active(now, loc) {
+				detail.ActivePeriods = append(detail.ActivePeriods, fp.Name)
+				pd.Active = true
+			}
 		}
+		detail.Periods = append(detail.Periods, pd)
 	}
+	detail.Sources = s.sourceDetails(ctx, m)
 	run, err := s.RunStates.RunState(ctx, m.ID)
 	if err != nil {
 		return nil, nil, err
@@ -546,6 +588,13 @@ func (s *Service) recommend(ctx context.Context, moduleID uint, failed map[strin
 		}
 	}
 
+	// the Pod resource spec is decided apart from the replica count: rounded, and kept while the forecast has not moved enough
+	spec, _, err := s.pinResources(ctx, m, now, in.Policy.Bounds, &rec)
+	if err != nil {
+		return nil, nil, err
+	}
+	detail.ResourceSpec = spec
+
 	// a field that came from the fallback chain although a forecast was expected is a degradation, with the reason
 	fields := map[string]decision.Field{"cpu": rec.CPUMilli, "memory": rec.MemoryBytes, "replicas": rec.Replicas, "gpu": rec.GPU}
 	for field, f := range fields {
@@ -573,6 +622,7 @@ func (s *Service) recommend(ctx context.Context, moduleID uint, failed map[strin
 		GPUSet: rec.GPU.Set, GPU: int(rec.GPU.Value), GPUSource: string(rec.GPU.Source),
 		Algorithm: detail.Algorithm, Score: detail.Score, EffectiveMaxReplicas: effectiveMax,
 		Detail: marshal(detail), Degraded: len(detail.Degraded) > 0, OOMFloor: rec.MemoryBytes.Floored,
+		ResourceVersion: spec.Version, ResourceChangedAt: spec.ChangedAt, ResourceHeld: spec.Held,
 	}
 	if len(detail.Degraded) > 0 {
 		row.DegradeReasons = marshal(detail.Degraded)
@@ -584,6 +634,15 @@ func (s *Service) recommend(ctx context.Context, moduleID uint, failed map[strin
 	if row.OOMFloor {
 		s.Telemetry.recordFallback("oom_floor", "memory")
 	}
+	prev, err := s.Predictions.LatestRecommendation(ctx, m.ID)
+	if err != nil {
+		return nil, nil, err
+	}
+	last, err := s.Predictions.LastSnapshotAt(ctx, m.ID)
+	if err != nil {
+		return nil, nil, err
+	}
+	row.Snapshot, row.SnapshotReason = snapshotWorthKeeping(row, prev, last, now)
 	if err := s.Predictions.SaveRecommendation(ctx, row); err != nil {
 		// a concurrent run may have taken the version; one retry resolves it
 		if err2 := s.Predictions.SaveRecommendation(ctx, row); err2 != nil {
@@ -732,4 +791,31 @@ func (s *Service) latestValue(ctx context.Context, a *model.AlgorithmRun, key st
 		return 0, false
 	}
 	return rows[len(rows)-1].Value, true
+}
+
+// sourceDetails describes the metric sources of a module for the explanation. A source whose mapping or datasource can
+// no longer be read is still listed, without them: an explanation never fails the recommendation.
+func (s *Service) sourceDetails(ctx context.Context, m *model.ForecastModule) []SourceDetail {
+	sources, err := s.Modules.Sources(ctx, m.ID)
+	if err != nil {
+		return nil
+	}
+	out := make([]SourceDetail, 0, len(sources))
+	names := map[uint]string{}
+	for _, src := range sources {
+		d := SourceDetail{Key: src.Key, Name: src.Name, Kind: src.Kind, Resource: src.Resource, Enabled: src.Enabled, Stat: src.Stat, Basis: src.Basis, Scale: src.Scale}
+		if mapping, err := s.Mappings.GetByID(ctx, src.MappingID); err == nil && mapping != nil {
+			d.Query, d.Level, d.Unit, d.Step = mapping.Query, mapping.Level, mapping.Unit, mapping.StepSeconds
+			name, ok := names[mapping.DatasourceID]
+			if !ok {
+				if ds, err := s.Datasources.GetByID(ctx, mapping.DatasourceID); err == nil && ds != nil {
+					name = ds.Name
+				}
+				names[mapping.DatasourceID] = name
+			}
+			d.Datasource = name
+		}
+		out = append(out, d)
+	}
+	return out
 }

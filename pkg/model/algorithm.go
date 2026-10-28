@@ -104,7 +104,9 @@ type AlgorithmRun struct {
 
 	LookbackHours  int
 	HorizonMinutes int
-	MaxFillSteps   int
+	// RunIntervalMinutes is how often the module is forecast (0 = every cycle of the scheduled task).
+	RunIntervalMinutes int
+	MaxFillSteps       int
 	// StepSeconds is the sampling granularity of the dataset (0 = the step of each source); MinPoints the fewest
 	// points a source needs before it is forecast.
 	StepSeconds int
@@ -126,10 +128,29 @@ type AlgorithmRun struct {
 // NewRun combines a module and an algorithm config; the sources are the module's.
 func NewRun(m *ForecastModule, c *AlgorithmConfig) *AlgorithmRun {
 	return &AlgorithmRun{ID: m.ID, Name: c.AlgorithmID, AlgorithmID: c.AlgorithmID, Params: c.Params, Weight: c.Weight,
-		Namespace: m.Namespace, Workload: m.Workload, Service: m.Service, Container: m.Container, LookbackHours: m.LookbackHours, HorizonMinutes: m.HorizonMinutes, MaxFillSteps: m.MaxFillSteps, StepSeconds: m.StepSeconds, MinPoints: m.MinPoints, WindowSteps: m.WindowSteps,
+		Namespace: m.Namespace, Workload: m.Workload, Service: m.Service, Container: m.Container, LookbackHours: m.LookbackHours, HorizonMinutes: m.HorizonMinutes, RunIntervalMinutes: m.RunIntervalMinutes, MaxFillSteps: m.MaxFillSteps, StepSeconds: m.StepSeconds, MinPoints: m.MinPoints, WindowSteps: m.WindowSteps,
 		TrainBudgetSeconds: c.TrainBudgetSeconds, FallbackMinHistoryRatio: m.FallbackMinHistoryRatio, MaxMissingRatio: m.MaxMissingRatio,
 		PromoteMinPoints: c.PromoteMinPoints, PromoteMinImprovement: c.PromoteMinImprovement, PromotePeakTolerance: c.PromotePeakTolerance,
 		Sources: m.Sources}
+}
+
+// DefaultRunCycleMinutes is how often the scheduled forecast.run task fires out of the box; a module that sets no run
+// interval of its own is forecast that often.
+const DefaultRunCycleMinutes = 5
+
+// CoverMinutes is how far ahead a forecast has to reach: the forecast period of the module, but never less than the time
+// until the next forecast is made. A forecast that stops before the next one starts leaves the time in between without any
+// prediction (a gap in the chart, and a recommendation that has nothing to say until the next run), so a horizon shorter
+// than the run interval is lengthened to it.
+func (a *AlgorithmRun) CoverMinutes() int {
+	run := a.RunIntervalMinutes
+	if run <= 0 {
+		run = DefaultRunCycleMinutes
+	}
+	if a.HorizonMinutes > run {
+		return a.HorizonMinutes
+	}
+	return run
 }
 
 // Key is the name under which the algorithm's results are stored.

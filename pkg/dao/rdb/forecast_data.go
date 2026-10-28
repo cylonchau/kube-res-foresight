@@ -161,22 +161,32 @@ func (dao *PredictionDAO) ListPredictions(ctx context.Context, f PredictionFilte
 	}
 	page, pageSize = normalizePage(page, pageSize)
 	var list []*model.Prediction
-	err := q.Order("prediction_time DESC, target_time ASC, id ASC").Offset(pageOffset(page, pageSize)).Limit(pageSize).Find(&list).Error
+	err := q.Order("prediction_time DESC, target_time ASC, id DESC").Offset(pageOffset(page, pageSize)).Limit(pageSize).Find(&list).Error
 	return list, total, err
 }
 
 // maxCompareRows bounds the forecasts one comparison reads.
 const maxCompareRows = 300000
 
-// ForCompare returns the forecasts of a metric whose target time is in [from, to], for the algorithms given (all when
-// none), in target order. The newest forecast of every target is picked by the caller.
+// ForCompare returns, for every algorithm and every target time in [from, to], the newest point forecast made at or before
+// that time (the one that applied to it; a forecast made later would be hindsight), for the algorithms given (all when none),
+// in target order. Runs overlap (a forecast every five minutes of a fifteen minute horizon puts three forecasts on every target),
+// so the newest is picked in the database: the read is bounded by what the chart can show, not by how often the module ran,
+// and a long window is not cut off at its newest end by the row limit.
 func (dao *PredictionDAO) ForCompare(ctx context.Context, moduleID uint, metric string, from, to time.Time, algorithms []string) ([]model.Prediction, error) {
-	q := dao.db.WithContext(ctx).Model(&model.Prediction{}).Where("module_id = ? AND metric = ? AND target_time >= ? AND target_time <= ?", moduleID, metric, from, to)
+	point := "quantile_permille IN (0, 500)"
+	newest := dao.db.WithContext(ctx).Model(&model.Prediction{}).
+		Select("algorithm_id AS algo, target_time AS target, MAX(prediction_time) AS newest").
+		Where("module_id = ? AND metric = ? AND target_time >= ? AND target_time <= ? AND prediction_time <= target_time AND "+point, moduleID, metric, from, to).
+		Group("algorithm_id, target_time")
 	if len(algorithms) > 0 {
-		q = q.Where("algorithm_id IN ?", algorithms)
+		newest = newest.Where("algorithm_id IN ?", algorithms)
 	}
+	q := dao.db.WithContext(ctx).Model(&model.Prediction{}).
+		Joins("JOIN (?) AS latest ON latest.algo = forecast_prediction.algorithm_id AND latest.target = forecast_prediction.target_time AND latest.newest = forecast_prediction.prediction_time", newest).
+		Where("forecast_prediction.module_id = ? AND forecast_prediction.metric = ? AND forecast_prediction.quantile_permille IN (0, 500)", moduleID, metric)
 	var rows []model.Prediction
-	err := q.Order("target_time ASC, prediction_time ASC").Limit(maxCompareRows).Find(&rows).Error
+	err := q.Order("forecast_prediction.target_time ASC, forecast_prediction.prediction_time ASC").Limit(maxCompareRows).Find(&rows).Error
 	return rows, err
 }
 
@@ -444,7 +454,22 @@ type Retention struct {
 	Recommendations time.Duration
 	Evaluations     time.Duration
 	Trainings       time.Duration
+	// RecommendationVersions caps the recent recommendations kept per module, snapshot or not (the newest ones): the same answer
+	// repeated every cycle is only needed while it keeps the current recommendation valid. 0 = no cap.
+	RecommendationVersions int
+	// Snapshots caps the snapshots kept per module (the newest ones): the history of what was recommended and what became of it.
+	// 0 = no cap.
+	Snapshots int
+	// Scores caps the algorithm evaluations kept per module (the newest ones; one evaluation scores every algorithm of the
+	// module at one time). 0 = no cap.
+	Scores int
 }
+
+// DefaultScoresPerModule is how many algorithm evaluations a module keeps unless the system parameter says otherwise.
+const DefaultScoresPerModule = 300
+
+// DefaultSnapshotsPerModule is how many snapshots a module keeps unless the system parameter says otherwise.
+const DefaultSnapshotsPerModule = 200
 
 // DefaultRetention keeps predictions for 30 days and the audit-relevant summaries for 180.
 var DefaultRetention = Retention{
@@ -453,6 +478,10 @@ var DefaultRetention = Retention{
 	Recommendations: 180 * 24 * time.Hour,
 	Evaluations:     180 * 24 * time.Hour,
 	Trainings:       30 * 24 * time.Hour,
+	// a module keeps its newest 20 recommendations whatever they are; beyond them only the snapshots stay
+	RecommendationVersions: 20,
+	Snapshots:              DefaultSnapshotsPerModule,
+	Scores:                 DefaultScoresPerModule,
 }
 
 // Prune deletes records older than their retention and reports how many of each were removed. The latest
@@ -479,6 +508,19 @@ func (dao *PredictionDAO) Prune(ctx context.Context, now time.Time, r Retention)
 	if err := del("evaluations", &model.PredictionEvaluation{}, r.Evaluations, "created_at < ?"); err != nil {
 		return removed, err
 	}
+	if r.Scores > 0 {
+		var scored []uint
+		if err := dao.db.WithContext(ctx).Model(&model.AlgorithmScore{}).Distinct().Pluck("module_id", &scored).Error; err != nil {
+			return removed, err
+		}
+		for _, id := range scored {
+			n, err := dao.PruneScores(ctx, id, r.Scores)
+			removed["scores"] += n
+			if err != nil {
+				return removed, err
+			}
+		}
+	}
 	if r.Recommendations <= 0 {
 		return removed, nil
 	}
@@ -493,5 +535,72 @@ func (dao *PredictionDAO) Prune(ctx context.Context, now time.Time, r Retention)
 	}
 	res := q.Delete(&model.Recommendation{})
 	removed["recommendations"] = res.RowsAffected
-	return removed, res.Error
+	if res.Error != nil || r.RecommendationVersions <= 0 {
+		return removed, res.Error
+	}
+	// beyond the newest N of each module only the snapshots stay: the id of the (N+1)th newest is the cut for the others
+	var modules []uint
+	if err := dao.db.WithContext(ctx).Model(&model.Recommendation{}).Distinct().Pluck("module_id", &modules).Error; err != nil {
+		return removed, err
+	}
+	for _, id := range modules {
+		var cut []uint
+		if err := dao.db.WithContext(ctx).Model(&model.Recommendation{}).Where("module_id = ?", id).Order("id DESC").Offset(r.RecommendationVersions).Limit(1).Pluck("id", &cut).Error; err != nil {
+			return removed, err
+		}
+		if len(cut) == 0 {
+			continue
+		}
+		over := dao.db.WithContext(ctx).Where("module_id = ? AND id <= ? AND snapshot = ?", id, cut[0], false).Delete(&model.Recommendation{})
+		removed["recommendations"] += over.RowsAffected
+		if over.Error != nil {
+			return removed, over.Error
+		}
+	}
+	return dao.pruneSnapshots(ctx, modules, r.Snapshots, removed)
+}
+
+// pruneSnapshots keeps the newest max snapshots of each module; the newest recommendation of a module is never removed.
+func (dao *PredictionDAO) pruneSnapshots(ctx context.Context, modules []uint, max int, removed map[string]int64) (map[string]int64, error) {
+	if max <= 0 {
+		return removed, nil
+	}
+	for _, id := range modules {
+		var cut []uint
+		if err := dao.db.WithContext(ctx).Model(&model.Recommendation{}).Where("module_id = ? AND snapshot = ?", id, true).Order("id DESC").Offset(max).Limit(1).Pluck("id", &cut).Error; err != nil {
+			return removed, err
+		}
+		if len(cut) == 0 {
+			continue
+		}
+		var newest []uint
+		if err := dao.db.WithContext(ctx).Model(&model.Recommendation{}).Where("module_id = ?", id).Order("id DESC").Limit(1).Pluck("id", &newest).Error; err != nil {
+			return removed, err
+		}
+		q := dao.db.WithContext(ctx).Where("module_id = ? AND snapshot = ? AND id <= ?", id, true, cut[0])
+		if len(newest) > 0 {
+			q = q.Where("id <> ?", newest[0])
+		}
+		res := q.Delete(&model.Recommendation{})
+		removed["snapshots"] += res.RowsAffected
+		if res.Error != nil {
+			return removed, res.Error
+		}
+	}
+	return removed, nil
+}
+
+// CountPredictions is how many forecasts an algorithm has ever stored for a module metric.
+func (dao *PredictionDAO) CountPredictions(ctx context.Context, moduleID uint, metric, algorithmID string) (int64, error) {
+	var n int64
+	err := dao.db.WithContext(ctx).Model(&model.Prediction{}).Where("module_id = ? AND metric = ? AND algorithm_id = ?", moduleID, metric, algorithmID).Count(&n).Error
+	return n, err
+}
+
+// RunForecast returns the forecast one run wrote (its prediction time, within a second), in target order.
+func (dao *PredictionDAO) RunForecast(ctx context.Context, moduleID uint, metric, algorithmID string, predictionTime time.Time) ([]model.Prediction, error) {
+	var rows []model.Prediction
+	err := dao.db.WithContext(ctx).Where("module_id = ? AND metric = ? AND algorithm_id = ? AND prediction_time >= ? AND prediction_time <= ?",
+		moduleID, metric, algorithmID, predictionTime.Add(-time.Second), predictionTime.Add(time.Second)).Order("target_time ASC").Limit(maxCompareRows).Find(&rows).Error
+	return rows, err
 }

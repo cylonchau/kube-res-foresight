@@ -112,7 +112,7 @@ func budgetFor(b *model.AlgorithmRun) time.Duration {
 
 // horizonOf is how many steps ahead the instance forecasts.
 func horizonOf(b *model.AlgorithmRun, step time.Duration) int {
-	n := int((time.Duration(b.HorizonMinutes)*time.Minute + step - 1) / step)
+	n := int((time.Duration(b.CoverMinutes())*time.Minute + step - 1) / step)
 	if n < 1 {
 		n = 1
 	}
@@ -239,8 +239,10 @@ func coverOf(b *model.AlgorithmRun, target string, def forecast.Definition) []st
 // quantilePermille is the quantile a model's forecast represents: 500 for point forecasts, alpha for the
 // quantile objective of gbdt.
 func quantilePermille(bm *boundModel) int {
-	if g, ok := bm.model.(forecast.GBDT); ok && g.Quantile {
-		return int(g.Alpha*1000 + 0.5)
+	if q, ok := bm.model.(forecast.Quantiled); ok {
+		if level, on := q.QuantileLevel(); on {
+			return int(level*1000 + 0.5)
+		}
 	}
 	return 500
 }

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cylonchau/kube-resource-fcst/pkg/model"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
@@ -102,7 +103,11 @@ func TestEvaluateRecordsRunsWithoutActualsSoTheyAreNotRetried(t *testing.T) {
 	assert.Equal(t, 1, results[0].Evaluated)
 	board, err := f.svc.Leaderboard(ctx, f.module.ID, "cpu", nil, nil)
 	require.NoError(t, err)
-	assert.Empty(t, board, "a run with no actuals says nothing about accuracy")
+	// a run with no actuals says nothing about accuracy: the algorithm is listed, unranked, with the reason
+	require.Len(t, board, 1)
+	assert.Equal(t, 0, board[0].Rank)
+	assert.Equal(t, StatusNoResult, board[0].Status)
+	assert.NotEmpty(t, board[0].Reason)
 }
 
 func TestForecastCollectorExportsBoundedLabelsAndFreshness(t *testing.T) {
@@ -190,4 +195,43 @@ func TestMetricScoresRankTheAlgorithmsOnTheEvaluationsOfTheRealPipeline(t *testi
 	require.NoError(t, err)
 	assert.Empty(t, none.Algorithms)
 	assert.Empty(t, none.Best)
+}
+
+// Two algorithms with the same size of error: the one that runs high ranks above the one that runs low, because a forecast that is
+// too low starves the workload. WAPE alone cannot tell them apart; the leaderboard ranks by RiskWAPE.
+func TestLeaderboardRanksAnAlgorithmThatRunsLowBelowOneThatRunsHigh(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	f.bind(t, "cpu", "naive", nil, 0)
+	f.bind(t, "cpu", "ewma", map[string]any{"alpha": 0.5}, 1)
+	_, err := f.collect(ctx)
+	require.NoError(t, err)
+	_, err = f.predict(ctx)
+	require.NoError(t, err)
+	*f.clock = testNow.Add(20 * time.Minute)
+	_, err = f.collect(ctx)
+	require.NoError(t, err)
+	_, err = f.evaluate(ctx)
+	require.NoError(t, err)
+
+	// the same absolute error, in opposite directions: naive 10 high, ewma 9 low (so ewma has the better WAPE)
+	require.NoError(t, f.db.Model(&model.PredictionEvaluation{}).Where("algorithm_id = ?", "naive").
+		Updates(map[string]any{"wape": 0.10, "mae": 10.0, "bias": 10.0}).Error)
+	require.NoError(t, f.db.Model(&model.PredictionEvaluation{}).Where("algorithm_id = ?", "ewma").
+		Updates(map[string]any{"wape": 0.09, "mae": 9.0, "bias": -9.0}).Error)
+
+	board, err := f.svc.Leaderboard(ctx, f.module.ID, "cpu", nil, nil)
+	require.NoError(t, err)
+	require.Len(t, board, 2)
+	byAlgo := map[string]LeaderboardEntry{}
+	for _, e := range board {
+		byAlgo[e.AlgorithmID] = e
+	}
+	assert.Less(t, byAlgo["ewma"].WAPE, byAlgo["naive"].WAPE, "ewma has the smaller plain error")
+	assert.InDelta(t, 0.10, byAlgo["naive"].RiskWAPE, 1e-9, "an overestimate costs what it costs")
+	assert.InDelta(t, 0.27, byAlgo["ewma"].RiskWAPE, 1e-9, "an underestimate costs three times as much")
+	assert.Equal(t, "naive", board[0].AlgorithmID, "ranked by RiskWAPE")
+	assert.Equal(t, 2, byAlgo["ewma"].Rank)
+	require.NotNil(t, byAlgo["ewma"].BeatsBaseline)
+	assert.False(t, *byAlgo["ewma"].BeatsBaseline, "it does not beat the baseline once running low is counted")
 }

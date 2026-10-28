@@ -74,7 +74,7 @@ var secretFieldPattern = regexp.MustCompile(`(?i)(password|secret|token|credenti
 // logging failure must not affect the request it's describing.
 func OperationLogMiddleware(dao *rdb.OperationLogDAO) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if !(loggedMethods[c.Request.Method] || isAuditExport(c)) || isExcludedFromOperationLog(c.Request.URL.Path) {
+		if !loggedMethods[c.Request.Method] || isExcludedFromOperationLog(c.Request.URL.Path) {
 			c.Next()
 			return
 		}
@@ -220,9 +220,3 @@ func truncate(s string, max int) string {
 
 // OperationLogNoteKey is the context key a handler sets to put its own account of a request in the log.
 const OperationLogNoteKey = "operationLogNote"
-
-// isAuditExport marks the one read that is logged: an audit export hands out records in bulk, so who took what is
-// part of the audit trail itself.
-func isAuditExport(c *gin.Context) bool {
-	return c.Request.Method == http.MethodGet && strings.HasSuffix(c.Request.URL.Path, "/audit/export")
-}
