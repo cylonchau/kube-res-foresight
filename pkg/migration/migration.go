@@ -19,16 +19,25 @@ type permissionSeed struct {
 }
 
 func Migrate(driver string) error {
+	// modules that exist before the prediction switch does keep predicting as they did: the switch is off only for the modules made
+	// after it, so an upgrade stops nothing
+	predictSwitchIsNew := false
 	if model.DB != nil {
 		if err := prepareForecastSchema(model.DB); err != nil {
 			return err
 		}
+		predictSwitchIsNew = predictSwitchMissing(model.DB)
 	}
 	if err := autoMigrateSchema(store.GetInstance(), model.Models...); err != nil {
 		return err
 	}
 	if model.DB == nil {
 		return nil
+	}
+	if predictSwitchIsNew {
+		if err := keepPredictionOfExistingModules(model.DB); err != nil {
+			return err
+		}
 	}
 	if err := normalizeSQLiteTimes(model.DB); err != nil {
 		return err
@@ -85,6 +94,20 @@ func Migrate(driver string) error {
 	return EnsureDefaultConfigs()
 }
 func Upgrade(driver string) error { return Migrate(driver) }
+
+// predictSwitchMissing reports whether the modules of the database were made before the prediction switch existed.
+func predictSwitchMissing(db *gorm.DB) bool {
+	return db.Migrator().HasTable("forecast_module") && !db.Migrator().HasColumn("forecast_module", "predict_enabled")
+}
+
+// keepPredictionOfExistingModules turns the prediction on for the modules that were enabled when the switch was added, in the dynamic mode
+// they ran in: the switch is off only for the modules made after it, so an upgrade stops nothing.
+func keepPredictionOfExistingModules(db *gorm.DB) error {
+	if err := db.Exec("UPDATE forecast_module SET predict_enabled = enabled, predict_mode = ?", model.PredictDynamic).Error; err != nil {
+		return fmt.Errorf("keep the prediction of the existing modules on: %w", err)
+	}
+	return nil
+}
 
 func autoMigrateSchema(s store.Store, models ...interface{}) error {
 	if model.DB == nil {

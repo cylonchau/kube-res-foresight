@@ -200,7 +200,7 @@ func TestAnAlgorithmEnabledAfterAModuleWasCreatedAppliesToItAndEveryOtherModule(
 	f := newFixture(t)
 	ctx := context.Background()
 	f.bind(t, "cpu", "naive", nil, 0)
-	second := &model.ForecastModule{Name: "web", Enabled: true, Mode: model.ModeRecommend, Namespace: "prod", Workload: "web"}
+	second := &model.ForecastModule{PredictEnabled: true, Name: "web", Enabled: true, Mode: model.ModeRecommend, Namespace: "prod", Workload: "web"}
 	require.NoError(t, second.Validate())
 	require.NoError(t, f.svc.Modules.Create(ctx, second))
 	require.NoError(t, f.svc.Modules.SaveSource(ctx, &model.MetricSource{ModuleID: second.ID, Name: "cpu", Kind: "cpu", MappingID: f.cpuMap.ID, Weight: 1, Stat: "max", Enabled: true}))

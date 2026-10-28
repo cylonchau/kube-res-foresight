@@ -329,7 +329,7 @@ func (s *Service) scoreInstance(ctx context.Context, m *model.ForecastModule, in
 		wins = append(wins, scoring.Window{Start: w.start, End: w.end, Predicted: outcomeOf(m, res, currentReplicas(w.start)),
 			Actual: actuals[i].outcome, OOM: actuals[i].oom, Complete: actuals[i].complete && !missing})
 	}
-	result := scoring.Score(wins, scoring.DefaultWeights())
+	result := scoring.Score(wins, scoring.WeightsWithOOM(m.OOMScoreWeight()))
 	// which sources each resource was read from: the basis a person checks the figures against
 	result.Sources = map[string][]string{}
 	for _, src := range sources {

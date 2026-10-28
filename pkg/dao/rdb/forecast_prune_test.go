@@ -59,11 +59,11 @@ func TestPruneDropsOldRecordsButKeepsTheLatestRecommendationOfEveryModule(t *tes
 func TestAModuleKeepsOnlyItsNewestRecommendationVersionsAndTheListCanShowTheCurrentOnes(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:prunecap?mode=memory&cache=shared"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.Recommendation{}, &model.ForecastModule{}))
+	require.NoError(t, db.AutoMigrate(&model.Recommendation{}, &model.ForecastModule{PredictEnabled: true}))
 	now := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
 	// module 3 was deleted: what was recommended for it is not listed
 	for module := uint(1); module <= 2; module++ {
-		require.NoError(t, db.Create(&model.ForecastModule{Name: fmt.Sprintf("m%d", module), Namespace: "ns", WorkloadKind: "Deployment", Workload: fmt.Sprintf("w%d", module)}).Error)
+		require.NoError(t, db.Create(&model.ForecastModule{PredictEnabled: true, Name: fmt.Sprintf("m%d", module), Namespace: "ns", WorkloadKind: "Deployment", Workload: fmt.Sprintf("w%d", module)}).Error)
 	}
 	require.NoError(t, db.Create(&model.Recommendation{ModuleID: 3, Version: 1, Mode: "recommend", ValidUntil: now, CreatedAt: now}).Error)
 	for module := uint(1); module <= 2; module++ {

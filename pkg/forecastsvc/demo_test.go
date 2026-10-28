@@ -22,7 +22,7 @@ func demoService(t *testing.T) (*Service, *gorm.DB) {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s_%d?mode=memory&cache=shared", t.Name(), atomic.AddInt32(&dbSeq, 1))), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent), NowFunc: func() time.Time { return testNow }})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.Datasource{}, &model.MetricMapping{}, &model.ForecastModule{}, &model.AlgorithmConfig{},
+	require.NoError(t, db.AutoMigrate(&model.Datasource{}, &model.MetricMapping{}, &model.ForecastModule{PredictEnabled: true}, &model.AlgorithmConfig{},
 		&model.ModulePeriod{}, &model.MetricSeries{}, &model.MetricSample{}, &model.Prediction{}, &model.BacktestRun{}, &model.Recommendation{},
 		&model.PredictionEvaluation{}, &model.ScalingExecution{}, &model.MetricSource{}, &model.AlgorithmScore{}, &model.AdmissionDecision{}, &model.TrainingRun{}, &model.ScaleOutcome{}, &model.ModuleRunState{}))
 	svc := New(rdb.NewModuleDAO(db), rdb.NewMetricMappingDAO(db), rdb.NewDatasourceDAO(db), rdb.NewSampleDAO(db), rdb.NewPredictionDAO(db))
@@ -109,11 +109,11 @@ func TestDemoIsIdempotentAndRemovesOnlyItself(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, second.Created)
 	assert.Equal(t, first.ModuleID, second.ModuleID)
-	assert.EqualValues(t, 1, count(t, db, &model.ForecastModule{}))
+	assert.EqualValues(t, 1, count(t, db, &model.ForecastModule{PredictEnabled: true}))
 	assert.EqualValues(t, 11, count(t, db, &model.MetricSource{}), "sources are not duplicated")
 
 	require.NoError(t, svc.DeleteDemo(ctx))
-	assert.Zero(t, count(t, db, &model.ForecastModule{}))
+	assert.Zero(t, count(t, db, &model.ForecastModule{PredictEnabled: true}))
 	assert.Zero(t, count(t, db, &model.MetricSource{}))
 	assert.Zero(t, count(t, db, &model.MetricMapping{}))
 	assert.Zero(t, count(t, db, &model.Prediction{}))

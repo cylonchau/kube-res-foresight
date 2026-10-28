@@ -114,6 +114,8 @@ type RecommendDetail struct {
 	Expansion *ExpansionDetail    `json:"expansion,omitempty"`
 	// Replica explains the dynamic replica solve; nil in fixed mode.
 	Replica *ReplicaDetail `json:"replica,omitempty"`
+	// Predict says how the module predicts: off, none (fixed default configuration), fixed (one named algorithm) or dynamic (by score).
+	Predict *PredictDetail `json:"predict,omitempty"`
 	// Ahead explains the forward-looking part of the replica decision: the lead, the windows, the vote of every algorithm, the live load.
 	Ahead *AheadDetail `json:"ahead,omitempty"`
 	// Degraded maps a field that fell back (module fallback or the original value) to the reason code, and
@@ -385,6 +387,7 @@ func (s *Service) recommend(ctx context.Context, moduleID uint, failed map[strin
 		detail.Periods = append(detail.Periods, pd)
 	}
 	detail.Sources = s.sourceDetails(ctx, m)
+	detail.Predict = predictDetailOf(m)
 	run, err := s.RunStates.RunState(ctx, m.ID)
 	if err != nil {
 		return nil, nil, err
@@ -418,9 +421,9 @@ func (s *Service) recommend(ctx context.Context, moduleID uint, failed map[strin
 		case st.hasUsableForecast():
 			st.eligible, st.reason = true, "eligible"
 			switch {
-			case m.MinScore > 0 && !st.scored:
+			case m.MinScore > 0 && !st.scored && m.PredictMode != model.PredictFixed:
 				st.eligible, st.reason = false, fmt.Sprintf("not scored yet; the module needs a score of at least %.0f", m.MinScore)
-			case m.MinScore > 0 && st.score < m.MinScore:
+			case m.MinScore > 0 && st.score < m.MinScore && m.PredictMode != model.PredictFixed:
 				st.eligible, st.reason = false, fmt.Sprintf("score %.1f is below the module minimum %.0f", st.score, m.MinScore)
 			}
 		default:
@@ -775,7 +778,9 @@ func (s *Service) RunData(ctx context.Context, moduleID uint, failed map[string]
 			}
 		}
 	}
-	if predicted, err := s.Predict(ctx, a.ID); err != nil {
+	if predicted, err := s.Predict(ctx, a.ID); errors.Is(err, ErrPredictionOff) {
+		// not an error: the module is not asked to forecast
+	} else if err != nil {
 		res.Errors = append(res.Errors, a.Name+" predict: "+err.Error())
 	} else {
 		res.Predict = predicted

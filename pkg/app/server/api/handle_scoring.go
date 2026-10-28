@@ -58,12 +58,12 @@ func breakdownOf(d scoring.Result, wt scoring.Weights) []BreakdownRow {
 			continue
 		}
 		share := p.weight / total
-		own := 100 * p.accuracy * holes
+		counted := p.accuracy
 		if p.name == "memory" {
-			own *= 1 - d.OOMPenalty
+			counted *= 1 - d.OOMPenalty // an OOM kill is a memory event: it lowers the memory part and no other
 		}
 		rows = append(rows, BreakdownRow{Metric: p.name, Accuracy: p.accuracy, Error: 1 - p.accuracy, Weight: share,
-			Contribution: 100 * share * p.accuracy * (1 - d.OOMPenalty) * holes, Score: own})
+			Contribution: 100 * share * counted * holes, Score: 100 * counted * holes})
 	}
 	return rows
 }

@@ -26,7 +26,7 @@ func TestAShortHorizonIsStoredAsLongAsTheRunIntervalSoNoTimeIsLeftWithoutAForeca
 	f := newFixture(t)
 	ctx := context.Background()
 	f.bind(t, "cpu", "naive", nil, 0)
-	require.NoError(t, f.db.Model(&model.ForecastModule{}).Where("id = ?", f.module.ID).Update("horizon_minutes", 1).Error)
+	require.NoError(t, f.db.Model(&model.ForecastModule{PredictEnabled: true}).Where("id = ?", f.module.ID).Update("horizon_minutes", 1).Error)
 	_, err := f.collect(ctx)
 	require.NoError(t, err)
 	outcomes, err := f.predict(ctx)

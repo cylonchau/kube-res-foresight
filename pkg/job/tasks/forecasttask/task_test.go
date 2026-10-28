@@ -38,7 +38,7 @@ func setup(t *testing.T) *env {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.Datasource{}, &model.MetricMapping{}, &model.ForecastModule{}, &model.AlgorithmConfig{},
+	require.NoError(t, db.AutoMigrate(&model.Datasource{}, &model.MetricMapping{}, &model.ForecastModule{PredictEnabled: true}, &model.AlgorithmConfig{},
 		&model.ModulePeriod{}, &model.MetricSeries{}, &model.MetricSample{}, &model.Prediction{}, &model.BacktestRun{}, &model.Recommendation{}, &model.PredictionEvaluation{},
 		&model.MetricSource{}, &model.AlgorithmScore{}, &model.AdmissionDecision{}, &model.TrainingRun{}, &model.ScaleOutcome{}, &model.ModuleRunState{}, &model.ScalingExecution{}, &model.ScaleOutcome{}))
 	modules := rdb.NewModuleDAO(db)
@@ -56,7 +56,7 @@ func setup(t *testing.T) *env {
 // module makes an enabled module, with a cpu source when asked.
 func (e *env) module(t *testing.T, name, mode string, withSource bool) *model.ForecastModule {
 	t.Helper()
-	m := &model.ForecastModule{Name: name, Enabled: true, Mode: mode, Namespace: "prod", Workload: name, FallbackCPUMilli: 500, LookbackHours: 2}
+	m := &model.ForecastModule{PredictEnabled: true, Name: name, Enabled: true, Mode: mode, Namespace: "prod", Workload: name, FallbackCPUMilli: 500, LookbackHours: 2}
 	require.NoError(t, m.Validate())
 	require.NoError(t, e.modules.Create(context.Background(), m))
 	if withSource {

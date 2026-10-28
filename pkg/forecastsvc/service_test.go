@@ -73,7 +73,7 @@ func newFixture(t *testing.T) *fixture {
 	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s_%d?mode=memory&cache=shared", t.Name(), atomic.AddInt32(&dbSeq, 1))),
 		&gorm.Config{Logger: logger.Default.LogMode(logger.Silent), NowFunc: func() time.Time { return clock }})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.Datasource{}, &model.MetricMapping{}, &model.ForecastModule{}, &model.AlgorithmConfig{},
+	require.NoError(t, db.AutoMigrate(&model.Datasource{}, &model.MetricMapping{}, &model.ForecastModule{PredictEnabled: true}, &model.AlgorithmConfig{},
 		&model.ModulePeriod{}, &model.MetricSeries{}, &model.MetricSample{}, &model.Prediction{}, &model.BacktestRun{}, &model.Recommendation{}, &model.PredictionEvaluation{},
 		&model.ScalingExecution{}, &model.MetricSource{}, &model.AlgorithmScore{}, &model.AdmissionDecision{}, &model.TrainingRun{}, &model.ModuleRunState{}, &model.ScaleOutcome{}))
 
@@ -85,7 +85,7 @@ func newFixture(t *testing.T) *fixture {
 		Query: `sum(rate(rps{namespace="{{namespace}}",pod=~"{{workload}}-.*"}[{{range}}]))`}
 	require.NoError(t, db.Create(cpu).Error)
 	require.NoError(t, db.Create(rps).Error)
-	mod := &model.ForecastModule{Name: "api", Enabled: true, Mode: model.ModeRecommend, Namespace: "prod", Workload: "api", TTLSeconds: 900,
+	mod := &model.ForecastModule{PredictEnabled: true, Name: "api", Enabled: true, Mode: model.ModeRecommend, Namespace: "prod", Workload: "api", TTLSeconds: 900,
 		HeadroomRatio: 1.1, PodCapacityRPS: 100, MinReplicas: 2, MaxReplicas: 30, MinCPUMilli: 100, MaxCPUMilli: 8000,
 		FallbackCPUMilli: 500, FallbackReplicas: 3, Timezone: "UTC", LookbackHours: 72, HorizonMinutes: 15, MaxFillSteps: 3}
 	require.NoError(t, mod.Validate())

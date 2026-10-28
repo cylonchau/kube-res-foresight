@@ -17,14 +17,14 @@ func moduleTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.ForecastModule{}, &model.MetricSource{}, &model.MetricSeries{}, &model.MetricSample{}, &model.ModulePeriod{}, &model.Recommendation{}, &model.Prediction{}, &model.PredictionEvaluation{}, &model.BacktestRun{}, &model.TrainingRun{}, &model.ScaleOutcome{},
+	require.NoError(t, db.AutoMigrate(&model.ForecastModule{PredictEnabled: true}, &model.MetricSource{}, &model.MetricSeries{}, &model.MetricSample{}, &model.ModulePeriod{}, &model.Recommendation{}, &model.Prediction{}, &model.PredictionEvaluation{}, &model.BacktestRun{}, &model.TrainingRun{}, &model.ScaleOutcome{},
 		&model.ModuleRunState{}, &model.AlgorithmScore{}, &model.AlgorithmConfig{}))
 	return db
 }
 
 func newModule(t *testing.T, dao *ModuleDAO, name string) *model.ForecastModule {
 	t.Helper()
-	m := &model.ForecastModule{Name: name, Enabled: true, Namespace: "prod", Workload: name}
+	m := &model.ForecastModule{PredictEnabled: true, Name: name, Enabled: true, Namespace: "prod", Workload: name}
 	require.NoError(t, m.Validate())
 	require.NoError(t, dao.Create(context.Background(), m))
 	return m

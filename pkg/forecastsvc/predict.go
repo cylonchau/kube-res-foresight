@@ -127,6 +127,9 @@ func (s *Service) Predict(ctx context.Context, moduleID uint) ([]PredictOutcome,
 	if err != nil {
 		return nil, err
 	}
+	if !m.Predicts() {
+		return nil, ErrPredictionOff
+	}
 	runs, err := s.runsOf(ctx, m)
 	if err != nil {
 		return nil, err
@@ -313,4 +316,28 @@ func (s *Service) recordTraining(ctx context.Context, b *model.AlgorithmRun, bm 
 	if err := s.Predictions.SaveTraining(ctx, t); err != nil {
 		log.Printf("forecast: training record of %s/%s: %v", out.AlgorithmID, out.Metric, err)
 	}
+}
+
+// PredictDetail says how a module predicts, stored with every recommendation so a value can be traced to the mode that made it.
+type PredictDetail struct {
+	Enabled   bool   `json:"enabled"`
+	Mode      string `json:"mode"`
+	Algorithm string `json:"algorithm,omitempty"`
+	Note      string `json:"note"`
+}
+
+// predictDetailOf describes the prediction mode of a module.
+func predictDetailOf(m *model.ForecastModule) *PredictDetail {
+	d := &PredictDetail{Enabled: m.PredictEnabled, Mode: m.PredictMode, Algorithm: m.PredictAlgorithm}
+	switch {
+	case !m.PredictEnabled:
+		d.Note = "the prediction of the module is switched off: the fixed default configuration applies"
+	case m.PredictMode == model.PredictNone:
+		d.Note = "prediction mode none: the fixed default configuration applies"
+	case m.PredictMode == model.PredictFixed:
+		d.Note = "prediction mode fixed: only " + m.PredictAlgorithm + " forecasts for the module, whatever its score"
+	default:
+		d.Note = "prediction mode dynamic: every enabled algorithm forecasts and they are followed by their scores"
+	}
+	return d
 }

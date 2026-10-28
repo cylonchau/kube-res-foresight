@@ -16,7 +16,7 @@ func TestTheDatasetIsSampledAtTheStepOfTheModuleAndShapedBySource(t *testing.T) 
 	f.bind(t, "cpu", "naive", nil, 0)
 	ctx := context.Background()
 	// the module samples every 5 minutes; the cpu source is averaged and doubled (a unit conversion), two decimals
-	require.NoError(t, f.db.Model(&model.ForecastModule{}).Where("id = ?", f.module.ID).Updates(map[string]any{"step_seconds": 300, "min_points": 20}).Error)
+	require.NoError(t, f.db.Model(&model.ForecastModule{PredictEnabled: true}).Where("id = ?", f.module.ID).Updates(map[string]any{"step_seconds": 300, "min_points": 20}).Error)
 	require.NoError(t, f.db.Model(&model.MetricSource{}).Where("metric_source.key = ?", "cpu").Updates(map[string]any{"scale": 2.0, "precision": 2, "aggregation": "avg"}).Error)
 
 	results, err := f.collect(ctx)
@@ -46,7 +46,7 @@ func TestTheDatasetIsSampledAtTheStepOfTheModuleAndShapedBySource(t *testing.T) 
 	assert.Equal(t, 3, out[0].Points, "a 15 minute horizon is three 5-minute steps")
 
 	// a module asking for more points than the dataset has is not forecast
-	require.NoError(t, f.db.Model(&model.ForecastModule{}).Where("id = ?", f.module.ID).Update("min_points", 100000).Error)
+	require.NoError(t, f.db.Model(&model.ForecastModule{PredictEnabled: true}).Where("id = ?", f.module.ID).Update("min_points", 100000).Error)
 	out, err = f.predict(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, StatusSkipped, out[0].Status)
@@ -63,7 +63,7 @@ func TestADatasetStepFinerThanTheQueryIsRefused(t *testing.T) {
 	f := newFixture(t)
 	f.bind(t, "cpu", "naive", nil, 0)
 	require.NoError(t, f.db.Model(&model.MetricMapping{}).Where("id = ?", f.cpuMap.ID).Update("step_seconds", 300).Error)
-	require.NoError(t, f.db.Model(&model.ForecastModule{}).Where("id = ?", f.module.ID).Update("step_seconds", 60).Error)
+	require.NoError(t, f.db.Model(&model.ForecastModule{PredictEnabled: true}).Where("id = ?", f.module.ID).Update("step_seconds", 60).Error)
 	results, err := f.collect(context.Background())
 	require.NoError(t, err)
 	assert.Contains(t, results[0].Error, "finer")
@@ -87,7 +87,7 @@ func TestTheTrainingWindowKeepsTheNewestStepsAndChangesTheModelVersion(t *testin
 	}
 	assert.Equal(t, 72*60+1, trained(), "without a window the whole history range is the input")
 
-	require.NoError(t, f.db.Model(&model.ForecastModule{}).Where("id = ?", f.module.ID).Update("window_steps", 120).Error)
+	require.NoError(t, f.db.Model(&model.ForecastModule{PredictEnabled: true}).Where("id = ?", f.module.ID).Update("window_steps", 120).Error)
 	f.run(t, "naive")
 	out, err = f.predict(ctx)
 	require.NoError(t, err)
@@ -126,7 +126,7 @@ func TestTheLookbackAndTheWindowNeverStarveAnAlgorithm(t *testing.T) {
 }
 
 func TestAWindowShorterThanTheMinimumDataIsRefused(t *testing.T) {
-	m := &model.ForecastModule{Name: "w", Namespace: "n", Workload: "w", MinPoints: 100, WindowSteps: 50}
+	m := &model.ForecastModule{PredictEnabled: true, Name: "w", Namespace: "n", Workload: "w", MinPoints: 100, WindowSteps: 50}
 	assert.ErrorContains(t, m.Validate(), "window_steps")
 	m.WindowSteps = 100
 	assert.NoError(t, m.Validate())
@@ -138,7 +138,7 @@ func TestAWindowShorterThanTheMinimumDataIsRefused(t *testing.T) {
 func TestAnAlgorithmIsNotSkippedForAShortLookbackOrWindow(t *testing.T) {
 	f := newFixture(t)
 	f.bind(t, "cpu", "seasonal_naive", map[string]any{"season_length_steps": 24}, 0)
-	require.NoError(t, f.db.Model(&model.ForecastModule{}).Where("id = ?", f.module.ID).
+	require.NoError(t, f.db.Model(&model.ForecastModule{PredictEnabled: true}).Where("id = ?", f.module.ID).
 		Updates(map[string]any{"lookback_hours": 1, "window_steps": 10}).Error)
 	ctx := context.Background()
 	results, err := f.collect(ctx)

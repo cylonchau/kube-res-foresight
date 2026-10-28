@@ -23,7 +23,7 @@ func seedModule(t *testing.T, _ uint, mode string, mutate func(*model.ForecastMo
 	for _, key := range []string{ConfigAllowAdmissionMode, ConfigAllowAutoMode} {
 		require.NoError(t, model.DB.Where("config_key = ?", key).Attrs(model.SysConfig{ConfigValue: "true", ConfigName: key}).FirstOrCreate(&model.SysConfig{ConfigKey: key}).Error)
 	}
-	m := &model.ForecastModule{Name: "api-" + mode, Enabled: true, Mode: mode, Namespace: "prod", Workload: "api",
+	m := &model.ForecastModule{PredictEnabled: true, Name: "api-" + mode, Enabled: true, Mode: mode, Namespace: "prod", Workload: "api",
 		TTLSeconds: 900, HeadroomRatio: 1, Timezone: "UTC",
 		MinReplicas: 2, MaxReplicas: 20, MinCPUMilli: 100, MaxCPUMilli: 4000, MinMemoryBytes: 64 << 20, MaxMemoryBytes: 4 << 30}
 	if mutate != nil {
@@ -353,7 +353,7 @@ func TestAdmissionAnswersForAutoModulesAndSetsTheLimitsAModuleManages(t *testing
 	assert.EqualValues(t, 1500, data["resources"].(map[string]any)["cpu_milli"])
 	assert.EqualValues(t, 3000, data["limits"].(map[string]any)["cpu_milli"])
 
-	bad := &model.ForecastModule{Name: "x", Namespace: "n", Workload: "w", LimitCPURatio: 0.5}
+	bad := &model.ForecastModule{PredictEnabled: true, Name: "x", Namespace: "n", Workload: "w", LimitCPURatio: 0.5}
 	assert.ErrorContains(t, bad.Validate(), "limit_cpu_ratio")
 }
 

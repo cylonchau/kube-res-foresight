@@ -19,7 +19,7 @@ func instanceShapeDB(t *testing.T) *gorm.DB {
 	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
 	require.NoError(t, err)
 	// the module table of that version: the current one without what moved onto the module since
-	require.NoError(t, db.AutoMigrate(&model.ForecastModule{}))
+	require.NoError(t, db.AutoMigrate(&model.ForecastModule{PredictEnabled: true}))
 	for _, column := range []string{"service", "container", "lookback_hours", "horizon_minutes", "max_fill_steps", "fallback_min_history_ratio", "max_missing_ratio"} {
 		require.NoError(t, db.Exec("ALTER TABLE forecast_module DROP COLUMN "+column).Error, column)
 	}
@@ -48,7 +48,7 @@ func instanceShapeDB(t *testing.T) *gorm.DB {
 		require.NoError(t, db.Exec(ddl).Error, ddl)
 	}
 	for _, name := range []string{"shop", "web"} {
-		m := &model.ForecastModule{Name: name, Enabled: true, Mode: model.ModeRecommend, Namespace: "prod", WorkloadKind: model.KindDeployment, Workload: name}
+		m := &model.ForecastModule{PredictEnabled: true, Name: name, Enabled: true, Mode: model.ModeRecommend, Namespace: "prod", WorkloadKind: model.KindDeployment, Workload: name}
 		require.NoError(t, m.Validate())
 		require.NoError(t, db.Omit("Sources", "Service", "Container", "LookbackHours", "HorizonMinutes", "MaxFillSteps", "FallbackMinHistoryRatio", "MaxMissingRatio").Create(m).Error)
 	}
@@ -61,7 +61,7 @@ func TestInstanceShapeBecomesModuleSourcesAndPlatformAlgorithms(t *testing.T) {
 	assert.False(t, db.Migrator().HasTable("metric_series"), "history filed under an instance is dropped; it is collected again per module")
 	assert.False(t, db.Migrator().HasTable("metric_source"), "the old sources are set aside while the new table is built")
 	assert.True(t, db.Migrator().HasTable(legacySourceTable))
-	require.NoError(t, db.AutoMigrate(&model.ForecastModule{}, &model.AlgorithmConfig{}, &model.MetricSource{}, &model.MetricSeries{},
+	require.NoError(t, db.AutoMigrate(&model.ForecastModule{PredictEnabled: true}, &model.AlgorithmConfig{}, &model.MetricSource{}, &model.MetricSeries{},
 		&model.MetricSample{}, &model.Prediction{}, &model.BacktestRun{}, &model.PredictionEvaluation{}, &model.AlgorithmScore{}), "the new unique indexes are creatable on the old rows")
 	require.NoError(t, convertLegacyForecast(db))
 
@@ -111,7 +111,7 @@ func TestAFreshDatabaseNeedsNoConversion(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, prepareForecastSchema(db))
-	require.NoError(t, db.AutoMigrate(&model.ForecastModule{}, &model.AlgorithmConfig{}, &model.MetricSource{}))
+	require.NoError(t, db.AutoMigrate(&model.ForecastModule{PredictEnabled: true}, &model.AlgorithmConfig{}, &model.MetricSource{}))
 	require.NoError(t, convertLegacyForecast(db))
 	require.NoError(t, ensureAlgorithmConfigs(db))
 	var baseline model.AlgorithmConfig
@@ -128,7 +128,7 @@ func TestARunThatStoppedHalfWayCanBeRepeated(t *testing.T) {
 	// the schema migration failed here the first time: the new table could not take its index names
 	require.NoError(t, db.Exec("CREATE UNIQUE INDEX idx_metric_source_key ON "+legacySourceTable+"(instance_id, key)").Error)
 	require.NoError(t, prepareForecastSchema(db), "the leftover indexes are dropped again")
-	require.NoError(t, db.AutoMigrate(&model.ForecastModule{}, &model.AlgorithmConfig{}, &model.MetricSource{}, &model.MetricSeries{},
+	require.NoError(t, db.AutoMigrate(&model.ForecastModule{PredictEnabled: true}, &model.AlgorithmConfig{}, &model.MetricSource{}, &model.MetricSeries{},
 		&model.MetricSample{}, &model.Prediction{}, &model.BacktestRun{}, &model.PredictionEvaluation{}, &model.AlgorithmScore{}))
 	require.NoError(t, convertLegacyForecast(db))
 	var n int64

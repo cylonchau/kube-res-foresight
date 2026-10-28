@@ -25,6 +25,10 @@ import (
 // algorithm, history).
 var ErrNotConfigured = errors.New("not configured for this step")
 
+// ErrPredictionOff means the module does not forecast: the prediction is switched off, or its mode is "none". Nothing is wrong; the
+// module runs on its fixed default configuration.
+var ErrPredictionOff = errors.New("the prediction of the module is off")
+
 // QuerierFactory builds the range querier of a datasource; tests replace it.
 type QuerierFactory func(ds *model.Datasource) (collector.RangeQuerier, error)
 
@@ -115,11 +119,22 @@ func (s *Service) EnsureAlgorithms(ctx context.Context) error {
 // runsOf returns what every enabled algorithm does for the module: a module is associated with all of them, so a
 // newly enabled algorithm reaches every module on the next cycle without anything being created or bound.
 func (s *Service) runsOf(ctx context.Context, m *model.ForecastModule) ([]*model.AlgorithmRun, error) {
+	if !m.Predicts() {
+		return nil, nil // prediction off, or mode "none": no algorithm runs for the module
+	}
 	if err := s.EnsureAlgorithms(ctx); err != nil {
 		return nil, err
 	}
-	configs, err := s.Algorithms.Enabled(ctx)
-	if err != nil {
+	var configs []*model.AlgorithmConfig
+	var err error
+	if m.PredictMode == model.PredictFixed {
+		// the module names its algorithm: only that one runs, whether or not the platform page enables it for the other modules
+		c, err := s.Algorithms.Get(ctx, m.PredictAlgorithm)
+		if err != nil {
+			return nil, fmt.Errorf("%w: the algorithm %q of the fixed prediction mode: %v", ErrNotConfigured, m.PredictAlgorithm, err)
+		}
+		configs = []*model.AlgorithmConfig{c}
+	} else if configs, err = s.Algorithms.Enabled(ctx); err != nil {
 		return nil, err
 	}
 	runs := make([]*model.AlgorithmRun, 0, len(configs))

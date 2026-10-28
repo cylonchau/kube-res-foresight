@@ -24,6 +24,24 @@ const (
 	ModeAuto      = "auto"
 )
 
+// Prediction modes of a module (ForecastModule.PredictMode). They apply only while PredictEnabled is true.
+const (
+	// PredictNone does not forecast: the module runs on its fixed default configuration (the fallback values, else what the workload
+	// declares).
+	PredictNone = "none"
+	// PredictFixed forecasts with the one algorithm the module names (PredictAlgorithm); no ranking, no switching.
+	PredictFixed = "fixed"
+	// PredictDynamic forecasts with every enabled algorithm and follows them by their scores (the ranking of the algorithm center).
+	PredictDynamic = "dynamic"
+)
+
+// PredictModes lists the prediction modes.
+var PredictModes = []string{PredictNone, PredictFixed, PredictDynamic}
+
+// DefaultOOMWeight is the share of the memory score one OOM kill takes away when the OOM weight is switched on and sets no value of its
+// own.
+const DefaultOOMWeight = 0.2
+
 // MaxDatasetStepSeconds is the coarsest sampling step of a dataset (one day).
 const MaxDatasetStepSeconds = 86400
 
@@ -129,10 +147,21 @@ type ForecastModule struct {
 	FallbackMinHistoryRatio float64 `gorm:"not null;default:0.8" json:"fallback_min_history_ratio" column_setting:"false"`
 	MaxMissingRatio         float64 `gorm:"not null;default:0.3" json:"max_missing_ratio" column_setting:"false"`
 
-	// OOM protection: when the workload was OOM-killed within OOMLookbackDays the memory recommendation is never
-	// below the working set before the kill (or the limit) times OOMMemoryUplift.
-	OOMLookbackDays int     `gorm:"not null;default:14" json:"oom_lookback_days" column_setting:"false"`
-	OOMMemoryUplift float64 `gorm:"not null;default:1.2" json:"oom_memory_uplift" column_setting:"false"`
+	// PredictEnabled turns the forecasting of the module on. It is off by default: a new module only collects its history and runs on its
+	// fixed default configuration until someone switches the prediction on. PredictMode says how it then predicts (none, fixed, dynamic) and
+	// PredictAlgorithm names the algorithm of the fixed mode.
+	PredictEnabled   bool   `gorm:"not null;default:false" json:"predict_enabled" column_setting:"true"`
+	PredictMode      string `gorm:"type:varchar(10);not null;default:'dynamic'" json:"predict_mode" column_setting:"true"`
+	PredictAlgorithm string `gorm:"type:varchar(40)" json:"predict_algorithm" column_setting:"false"`
+
+	// OOM protection, apart from every other resource setting. It concerns memory only: when the workload was OOM-killed within
+	// OOMLookbackDays the memory recommendation is never below the working set before the kill (or the limit) times OOMMemoryUplift, and
+	// the kills count against the memory score of an algorithm that under-provisioned memory (never against the CPU score) when
+	// OOMWeightEnabled is on, by OOMWeight of the memory score per kill. Off, the kills do not enter any score.
+	OOMLookbackDays  int     `gorm:"not null;default:14" json:"oom_lookback_days" column_setting:"false"`
+	OOMMemoryUplift  float64 `gorm:"not null;default:1.2" json:"oom_memory_uplift" column_setting:"false"`
+	OOMWeightEnabled bool    `gorm:"not null;default:false" json:"oom_weight_enabled" column_setting:"false"`
+	OOMWeight        float64 `gorm:"not null;default:0.2" json:"oom_weight" column_setting:"false"`
 	// JVMHeapPressure is the heap used / heap max above which the replica recommendation is raised; 0 disables.
 	JVMHeapPressure float64 `gorm:"not null;default:0.85" json:"jvm_heap_pressure" column_setting:"false"`
 	// RecoverCycles is how many successful cycles in a row end a degradation.
@@ -201,6 +230,22 @@ type ForecastModule struct {
 }
 
 func (ForecastModule) TableName() string { return "forecast_module" }
+
+// Predicts reports whether the module forecasts at all: the prediction is switched on and its mode is not "none".
+func (m *ForecastModule) Predicts() bool {
+	return m.PredictEnabled && m.PredictMode != PredictNone
+}
+
+// OOMScoreWeight is the share of the memory score one OOM kill takes away: 0 unless the OOM weight is switched on.
+func (m *ForecastModule) OOMScoreWeight() float64 {
+	if !m.OOMWeightEnabled {
+		return 0
+	}
+	if m.OOMWeight > 0 {
+		return m.OOMWeight
+	}
+	return DefaultOOMWeight
+}
 
 // Data is the module as the owner of its metrics and history, for the steps that need no algorithm.
 func (m *ForecastModule) Data() *AlgorithmRun { return NewRun(m, &AlgorithmConfig{}) }
@@ -339,6 +384,26 @@ func (m *ForecastModule) Validate() error {
 	}
 	if m.TargetUtilization < 0 || m.TargetUtilization > 1 {
 		return fmt.Errorf("target_utilization must be between 0 and 1")
+	}
+	switch m.PredictMode {
+	case "":
+		m.PredictMode = PredictDynamic
+	case PredictNone, PredictFixed, PredictDynamic:
+	default:
+		return fmt.Errorf("predict_mode must be one of %v", PredictModes)
+	}
+	m.PredictAlgorithm = strings.TrimSpace(m.PredictAlgorithm)
+	if m.PredictMode == PredictFixed && m.PredictAlgorithm == "" && m.PredictEnabled {
+		return fmt.Errorf("predict_algorithm is required when the prediction mode is fixed")
+	}
+	if m.PredictMode != PredictFixed {
+		m.PredictAlgorithm = ""
+	}
+	if m.OOMWeight == 0 {
+		m.OOMWeight = DefaultOOMWeight
+	}
+	if m.OOMWeight < 0 || m.OOMWeight > 1 {
+		return fmt.Errorf("oom_weight must be between 0 and 1")
 	}
 	if m.OOMLookbackDays == 0 {
 		m.OOMLookbackDays = 14

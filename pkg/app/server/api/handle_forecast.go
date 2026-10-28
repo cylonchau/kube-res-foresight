@@ -65,7 +65,7 @@ func (r *ForecastRouter) modeAllowed(ctx context.Context, mode string) error {
 
 func (r *ForecastRouter) writeError(c *gin.Context, err error) {
 	switch {
-	case errors.Is(err, rdb.ErrNameTaken), errors.Is(err, rdb.ErrModuleEnabled), errors.Is(err, forecastsvc.ErrNotConfigured), errors.Is(err, rdb.ErrWorkloadTaken):
+	case errors.Is(err, rdb.ErrNameTaken), errors.Is(err, rdb.ErrModuleEnabled), errors.Is(err, forecastsvc.ErrNotConfigured), errors.Is(err, forecastsvc.ErrPredictionOff), errors.Is(err, rdb.ErrWorkloadTaken):
 		query.BadRequest(c, err)
 	case errors.Is(err, forecastsvc.ErrObserveOnly), errors.Is(err, forecastsvc.ErrStale):
 		query.ErrorResponse(c, http.StatusConflict, err)
@@ -134,7 +134,9 @@ func (r *ForecastRouter) CreateModule(c *gin.Context) {
 	}
 	m := &model.ForecastModule{
 		Name: req.Name, Description: req.Description, Enabled: req.Enabled == nil || *req.Enabled, Mode: req.Mode,
-		Namespace: strings.TrimSpace(req.Namespace), WorkloadKind: req.WorkloadKind, Workload: strings.TrimSpace(req.Workload), Service: req.Service, Container: req.Container,
+		PredictEnabled: req.PredictEnabled != nil && *req.PredictEnabled, PredictMode: req.PredictMode, PredictAlgorithm: req.PredictAlgorithm,
+		OOMWeightEnabled: req.OOMWeightEnabled != nil && *req.OOMWeightEnabled,
+		Namespace:        strings.TrimSpace(req.Namespace), WorkloadKind: req.WorkloadKind, Workload: strings.TrimSpace(req.Workload), Service: req.Service, Container: req.Container,
 		LookbackHours: req.LookbackHours, HorizonMinutes: req.HorizonMinutes, MaxFillSteps: req.MaxFillSteps,
 		StepSeconds: req.StepSeconds, MinPoints: req.MinPoints, WindowSteps: req.WindowSteps, RunIntervalMinutes: req.RunIntervalMinutes,
 		LimitCPURatio: req.LimitCPURatio, LimitMemoryRatio: req.LimitMemoryRatio,
@@ -155,12 +157,19 @@ func (r *ForecastRouter) CreateModule(c *gin.Context) {
 	if req.JVMHeapPressure != nil {
 		m.JVMHeapPressure = *req.JVMHeapPressure
 	}
+	if req.OOMWeight != nil {
+		m.OOMWeight = *req.OOMWeight
+	}
 	if err := m.Validate(); err != nil {
 		query.BadRequest(c, err)
 		return
 	}
 	// the sources are checked before anything is stored
 	ctx := c.Request.Context()
+	if err := r.checkPredictAlgorithm(ctx, m); err != nil {
+		query.BadRequest(c, err)
+		return
+	}
 	sources := make([]*model.MetricSource, 0, len(req.Sources))
 	var made []uint // mappings written for custom queries, removed again when the module is not created
 	for i := range req.Sources {
@@ -225,6 +234,18 @@ func applyModuleUpdate(m *model.ForecastModule, req *apis.ModuleUpdateReq) {
 	if req.Mode != nil {
 		m.Mode = *req.Mode
 	}
+	if req.PredictEnabled != nil {
+		m.PredictEnabled = *req.PredictEnabled
+	}
+	if req.PredictMode != nil {
+		m.PredictMode = *req.PredictMode
+	}
+	if req.PredictAlgorithm != nil {
+		m.PredictAlgorithm = strings.TrimSpace(*req.PredictAlgorithm)
+	}
+	if req.OOMWeightEnabled != nil {
+		m.OOMWeightEnabled = *req.OOMWeightEnabled
+	}
 	for dst, src := range map[*int]*int{
 		&m.LookbackHours: req.LookbackHours, &m.HorizonMinutes: req.HorizonMinutes, &m.MaxFillSteps: req.MaxFillSteps,
 		&m.StepSeconds: req.StepSeconds, &m.MinPoints: req.MinPoints, &m.WindowSteps: req.WindowSteps, &m.RunIntervalMinutes: req.RunIntervalMinutes,
@@ -250,7 +271,7 @@ func applyModuleUpdate(m *model.ForecastModule, req *apis.ModuleUpdateReq) {
 	for dst, src := range map[*float64]*float64{
 		&m.LimitCPURatio: req.LimitCPURatio, &m.LimitMemoryRatio: req.LimitMemoryRatio, &m.HeadroomRatio: req.HeadroomRatio, &m.PodCapacityRPS: req.PodCapacityRPS, &m.TargetUtilization: req.TargetUtilization,
 		&m.FallbackMinHistoryRatio: req.FallbackMinHistoryRatio, &m.MaxMissingRatio: req.MaxMissingRatio,
-		&m.OOMMemoryUplift: req.OOMMemoryUplift, &m.JVMHeapPressure: req.JVMHeapPressure, &m.MinScore: req.MinScore, &m.ExpandStepRatio: req.ExpandStepRatio,
+		&m.OOMMemoryUplift: req.OOMMemoryUplift, &m.OOMWeight: req.OOMWeight, &m.JVMHeapPressure: req.JVMHeapPressure, &m.MinScore: req.MinScore, &m.ExpandStepRatio: req.ExpandStepRatio,
 	} {
 		if src != nil {
 			*dst = *src
@@ -279,6 +300,10 @@ func (r *ForecastRouter) UpdateModule(c *gin.Context) {
 		query.BadRequest(c, err)
 		return
 	}
+	if err := r.checkPredictAlgorithm(c.Request.Context(), m); err != nil {
+		query.BadRequest(c, err)
+		return
+	}
 	for _, src := range m.Sources {
 		if err := r.checkDataset(c.Request.Context(), m, src); err != nil {
 			query.BadRequest(c, fmt.Errorf("source %q: %w", src.Name, err))
@@ -290,6 +315,20 @@ func (r *ForecastRouter) UpdateModule(c *gin.Context) {
 		return
 	}
 	query.SuccessResponse(c, nil, m)
+}
+
+// checkPredictAlgorithm refuses a fixed prediction mode that names an algorithm the platform does not have.
+func (r *ForecastRouter) checkPredictAlgorithm(ctx context.Context, m *model.ForecastModule) error {
+	if m.PredictMode != model.PredictFixed || m.PredictAlgorithm == "" {
+		return nil
+	}
+	if err := r.Service.EnsureAlgorithms(ctx); err != nil {
+		return err
+	}
+	if _, err := r.Configs.Get(ctx, m.PredictAlgorithm); err != nil {
+		return fmt.Errorf("predict_algorithm %q is not an algorithm of the platform", m.PredictAlgorithm)
+	}
+	return nil
 }
 
 func (r *ForecastRouter) DeleteModule(c *gin.Context) {

@@ -32,7 +32,7 @@ func forecastTestRouter(t *testing.T) (*gin.Engine, *model.MetricMapping) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	db := apiTestDB(t)
-	require.NoError(t, db.AutoMigrate(&model.Datasource{}, &model.MetricMapping{}, &model.ForecastModule{}, &model.AlgorithmConfig{},
+	require.NoError(t, db.AutoMigrate(&model.Datasource{}, &model.MetricMapping{}, &model.ForecastModule{PredictEnabled: true}, &model.AlgorithmConfig{},
 		&model.ModulePeriod{}, &model.MetricSeries{}, &model.MetricSample{}, &model.Prediction{}, &model.BacktestRun{}, &model.Recommendation{}, &model.PredictionEvaluation{}, &model.ScalingExecution{}, &model.MetricSource{}, &model.AlgorithmScore{}, &model.AdmissionDecision{}, &model.TrainingRun{}, &model.ScaleOutcome{}, &model.ModuleRunState{}, &model.SysConfig{}, &model.TaskDefinition{}, &model.Job{}))
 	previous := model.DB
 	model.DB = db
@@ -127,6 +127,13 @@ func forecastTestRouter(t *testing.T) (*gin.Engine, *model.MetricMapping) {
 // createModule creates a module (a Kubernetes workload and its policy) and returns its id.
 func createModule(t *testing.T, r *gin.Engine, body map[string]any) int {
 	t.Helper()
+	if _, has := body["predict_enabled"]; !has {
+		withPrediction := map[string]any{"predict_enabled": true} // a module forecasts only once its prediction is switched on
+		for k, v := range body {
+			withPrediction[k] = v
+		}
+		body = withPrediction
+	}
 	rec := performJSON(t, r, http.MethodPost, "/modules", "", body)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	return int(decodeData(t, rec.Body.Bytes())["id"].(float64))
@@ -1008,4 +1015,54 @@ func TestAnAlgorithmShowsHowFarItHasReachedInThePipeline(t *testing.T) {
 
 	// an algorithm nobody enabled stays disabled
 	assert.Equal(t, "disabled", runtimeOf("knn")["state"])
+}
+
+// The prediction of a module is off until someone switches it on; its mode and the algorithm of the fixed mode are checked, and the
+// OOM weight is the module's own setting.
+func TestAModulePredictsOnlyOnceItIsSwitchedOnAndItsModeIsChecked(t *testing.T) {
+	r, _ := forecastTestRouter(t)
+	base := map[string]any{"name": "pm", "namespace": "prod", "workload": "pm"}
+	with := func(extra map[string]any) map[string]any {
+		out := map[string]any{}
+		for k, v := range base {
+			out[k] = v
+		}
+		for k, v := range extra {
+			out[k] = v
+		}
+		return out
+	}
+	// created through the API without saying anything about the prediction: off, dynamic, OOM weight off
+	rec := performJSON(t, r, http.MethodPost, "/modules", "", with(nil))
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	made := decodeData(t, rec.Body.Bytes())
+	assert.Equal(t, false, made["predict_enabled"])
+	assert.Equal(t, "dynamic", made["predict_mode"])
+	assert.Equal(t, false, made["oom_weight_enabled"])
+	id := int(made["id"].(float64))
+
+	// predicting a module that does not predict is refused with the reason, not as a server error
+	rec = performJSON(t, r, http.MethodPost, fmt.Sprintf("/modules/%d/predict", id), "", nil)
+	assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+	assert.Contains(t, rec.Body.String(), "prediction")
+
+	put := func(body map[string]any) int {
+		return performJSON(t, r, http.MethodPut, fmt.Sprintf("/modules/%d", id), "", body).Code
+	}
+	assert.Equal(t, http.StatusBadRequest, put(map[string]any{"predict_mode": "sometimes"}))
+	assert.Equal(t, http.StatusBadRequest, put(map[string]any{"predict_enabled": true, "predict_mode": "fixed"}), "fixed needs an algorithm")
+	assert.Equal(t, http.StatusBadRequest, put(map[string]any{"predict_enabled": true, "predict_mode": "fixed", "predict_algorithm": "no_such"}))
+	assert.Equal(t, http.StatusBadRequest, put(map[string]any{"oom_weight": 2.0}))
+	require.Equal(t, http.StatusOK, put(map[string]any{"predict_enabled": true, "predict_mode": "fixed", "predict_algorithm": "naive", "oom_weight_enabled": true, "oom_weight": 0.3}))
+	got := decodeData(t, performJSON(t, r, http.MethodGet, fmt.Sprintf("/modules/%d", id), "", nil).Body.Bytes())
+	assert.Equal(t, true, got["predict_enabled"])
+	assert.Equal(t, "fixed", got["predict_mode"])
+	assert.Equal(t, "naive", got["predict_algorithm"])
+	assert.Equal(t, true, got["oom_weight_enabled"])
+	assert.EqualValues(t, 0.3, got["oom_weight"])
+
+	// leaving the fixed mode forgets the algorithm
+	require.Equal(t, http.StatusOK, put(map[string]any{"predict_mode": "dynamic"}))
+	got = decodeData(t, performJSON(t, r, http.MethodGet, fmt.Sprintf("/modules/%d", id), "", nil).Body.Bytes())
+	assert.Equal(t, "", got["predict_algorithm"])
 }

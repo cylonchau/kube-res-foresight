@@ -12,13 +12,17 @@ type ModuleListReq struct {
 // ModuleCreateReq creates a module: a Kubernetes workload (namespace, kind and name) and the policy for applying
 // recommendations to it. Zero values of the optional numbers mean "unset".
 type ModuleCreateReq struct {
-	Name         string `json:"name" binding:"required"`
-	Description  string `json:"description"`
-	Enabled      *bool  `json:"enabled"`
-	Mode         string `json:"mode"`
-	Namespace    string `json:"namespace" binding:"required"`
-	WorkloadKind string `json:"workload_kind"`
-	Workload     string `json:"workload" binding:"required"`
+	Name        string `json:"name" binding:"required"`
+	Description string `json:"description"`
+	Enabled     *bool  `json:"enabled"`
+	Mode        string `json:"mode"`
+	// The prediction of the module: off unless PredictEnabled is true; PredictMode is none, fixed (with PredictAlgorithm) or dynamic.
+	PredictEnabled   *bool  `json:"predict_enabled"`
+	PredictMode      string `json:"predict_mode"`
+	PredictAlgorithm string `json:"predict_algorithm"`
+	Namespace        string `json:"namespace" binding:"required"`
+	WorkloadKind     string `json:"workload_kind"`
+	Workload         string `json:"workload" binding:"required"`
 	// Optional values of the {{service}} and {{container}} PromQL variables of the module's metric sources.
 	Service   string `json:"service"`
 	Container string `json:"container"`
@@ -78,6 +82,9 @@ type ModuleCreateReq struct {
 	OOMMemoryUplift float64  `json:"oom_memory_uplift"`
 	JVMHeapPressure *float64 `json:"jvm_heap_pressure"`
 	RecoverCycles   int      `json:"recover_cycles"`
+	// OOMWeightEnabled lets the OOM kills lower the memory score of an algorithm by OOMWeight each; off, they enter no score.
+	OOMWeightEnabled *bool    `json:"oom_weight_enabled"`
+	OOMWeight        *float64 `json:"oom_weight"`
 
 	// Optional metric sources created together with the module.
 	Sources []SourceReq `json:"sources"`
@@ -85,15 +92,19 @@ type ModuleCreateReq struct {
 
 // ModuleUpdateReq patches a module; absent fields are unchanged. Bypass is changed only through the control API.
 type ModuleUpdateReq struct {
-	Name         *string `json:"name"`
-	Description  *string `json:"description"`
-	Enabled      *bool   `json:"enabled"`
-	Mode         *string `json:"mode"`
-	Namespace    *string `json:"namespace"`
-	WorkloadKind *string `json:"workload_kind"`
-	Workload     *string `json:"workload"`
-	Service      *string `json:"service"`
-	Container    *string `json:"container"`
+	Name        *string `json:"name"`
+	Description *string `json:"description"`
+	Enabled     *bool   `json:"enabled"`
+	Mode        *string `json:"mode"`
+	// See ModuleCreateReq.
+	PredictEnabled   *bool   `json:"predict_enabled"`
+	PredictMode      *string `json:"predict_mode"`
+	PredictAlgorithm *string `json:"predict_algorithm"`
+	Namespace        *string `json:"namespace"`
+	WorkloadKind     *string `json:"workload_kind"`
+	Workload         *string `json:"workload"`
+	Service          *string `json:"service"`
+	Container        *string `json:"container"`
 
 	LookbackHours            *int     `json:"lookback_hours"`
 	HorizonMinutes           *int     `json:"horizon_minutes"`
@@ -145,6 +156,9 @@ type ModuleUpdateReq struct {
 	OOMMemoryUplift *float64 `json:"oom_memory_uplift"`
 	JVMHeapPressure *float64 `json:"jvm_heap_pressure"`
 	RecoverCycles   *int     `json:"recover_cycles"`
+
+	OOMWeightEnabled *bool    `json:"oom_weight_enabled"`
+	OOMWeight        *float64 `json:"oom_weight"`
 }
 
 // AlgorithmListReq filters the algorithm list (the catalog with each algorithm's platform-wide setting).

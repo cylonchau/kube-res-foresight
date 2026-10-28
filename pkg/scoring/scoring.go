@@ -8,8 +8,9 @@
 // Under times as much). The replica count of a window is kept as a derived figure (how many windows it matched) and is
 // scored only for a module with no CPU, memory or GPU source at all.
 //
-// Under-provisioning counts twice as much as over-provisioning, an OOM kill in a window the algorithm under-provisioned
-// lowers the memory score further, and a history with holes lowers it a little. Each resource has its own score from 0 to
+// Under-provisioning counts twice as much as over-provisioning, an OOM kill in a window in which the algorithm under-provisioned
+// memory lowers the memory score further (and only the memory score: an OOM kill says nothing about CPU), when the OOM weight is on,
+// and a history with holes lowers it a little. Each resource has its own score from 0 to
 // 100 (Result.Metrics) and the result is one number from 0 to 100 combining them, plus the figures behind it.
 package scoring
 
@@ -47,14 +48,24 @@ type Weights struct {
 	GPU      float64
 	// Under is the factor by which an under-provision error counts over an over-provision one.
 	Under float64
-	// OOMPenalty is the share of the score lost per OOM in an under-provisioned window, capped by OOMCap.
+	// OOMPenalty is the share of the memory score lost per OOM kill in a window in which memory was under-provisioned, capped by OOMCap.
+	// 0 leaves the kills out of every score (the OOM weight of the module is off).
 	OOMPenalty float64
 	OOMCap     float64
 }
 
-// DefaultWeights are used until a module sets its own.
+// DefaultWeights are the resource weights; the OOM weight is the module's own and is off here.
 func DefaultWeights() Weights {
-	return Weights{Replicas: 1, CPU: 0.35, Memory: 0.45, GPU: 0.2, Under: 2, OOMPenalty: 0.2, OOMCap: 0.6}
+	return Weights{Replicas: 1, CPU: 0.35, Memory: 0.45, GPU: 0.2, Under: 2, OOMCap: 0.6}
+}
+
+// WeightsWithOOM is DefaultWeights with the share of the memory score one OOM kill takes away (0 = the kills are not weighed).
+func WeightsWithOOM(oomWeight float64) Weights {
+	w := DefaultWeights()
+	if oomWeight > 0 {
+		w.OOMPenalty = oomWeight
+	}
+	return w
 }
 
 // Result is the grade of an algorithm over a set of windows.
@@ -68,8 +79,8 @@ type Result struct {
 	GPU          float64 `json:"gpu_accuracy"`
 	ReplicaExact int     `json:"replica_exact"`     // windows where the replica count matched exactly
 	Under        int     `json:"under_provisioned"` // windows where something was under-provisioned
-	OOMEvents    int     `json:"oom_events"`        // OOM kills in under-provisioned windows (what is penalised)
-	OOMPenalty   float64 `json:"oom_penalty"`       // share of the score lost to them
+	OOMEvents    int     `json:"oom_events"`        // OOM kills in windows with memory under-provisioned (what is penalised)
+	OOMPenalty   float64 `json:"oom_penalty"`       // share of the memory score lost to them
 	Completeness float64 `json:"completeness"`      // share of windows that had all their data
 	// Metrics is the grade of each resource by itself: what ranks the algorithms for CPU, for memory and for GPU.
 	Metrics []MetricResult `json:"metrics,omitempty"`
@@ -179,6 +190,11 @@ func (a resourceAcc) accuracy() float64 {
 	return math.Max(0, 1-a.abs/a.actual)
 }
 
+// memoryShort reports whether the prediction left memory short: what an OOM kill answers for.
+func memoryShort(p, a Outcome) bool {
+	return p.HasMemory && a.HasMemory && p.Memory < a.Memory*0.98
+}
+
 // underProvisioned reports whether the prediction would have left the workload short in the window.
 func underProvisioned(p, a Outcome) bool {
 	if p.Replicas < a.Replicas {
@@ -214,8 +230,8 @@ func Score(ws []Window, wt Weights) Result {
 	for _, w := range ws {
 		under := underProvisioned(w.Predicted, w.Actual)
 		oom := 0
-		if under {
-			oom = w.OOM
+		if memoryShort(w.Predicted, w.Actual) {
+			oom = w.OOM // an OOM kill is a memory event: a window short of CPU or replicas does not own it
 		}
 		res.Details = append(res.Details, WindowDetail{Start: w.Start, End: w.End, Predicted: figuresOf(w.Predicted), Actual: figuresOf(w.Actual),
 			Error: errorFigures(w.Predicted, w.Actual, wt.Under), Under: under, OOM: oom, Complete: w.Complete})
@@ -235,10 +251,10 @@ func Score(ws []Window, wt Weights) Result {
 			haveGPU = true
 			gpu.add(w.Predicted.GPU, w.Actual.GPU, wt.Under)
 		}
-		if underProvisioned(w.Predicted, w.Actual) {
+		if under {
 			res.Under++
-			res.OOMEvents += w.OOM
 		}
+		res.OOMEvents += oom
 		if w.Complete {
 			complete++
 		}
@@ -246,6 +262,7 @@ func Score(ws []Window, wt Weights) Result {
 	res.Replicas = replicaSum / float64(len(ws))
 	res.Completeness = float64(complete) / float64(len(ws))
 
+	res.OOMPenalty = math.Min(wt.OOMCap, wt.OOMPenalty*float64(res.OOMEvents))
 	var total, sum float64
 	if haveCPU {
 		res.CPU = cpu.accuracy()
@@ -255,7 +272,7 @@ func Score(ws []Window, wt Weights) Result {
 	if haveMem {
 		res.Memory = mem.accuracy()
 		total += wt.Memory
-		sum += wt.Memory * res.Memory
+		sum += wt.Memory * res.Memory * (1 - res.OOMPenalty) // the kills lower the memory part, not the whole
 	}
 	if haveGPU {
 		res.GPU = gpu.accuracy()
@@ -270,9 +287,8 @@ func Score(ws []Window, wt Weights) Result {
 	if total > 0 {
 		composite = sum / total
 	}
-	res.OOMPenalty = math.Min(wt.OOMCap, wt.OOMPenalty*float64(res.OOMEvents))
 	holes := 0.7 + 0.3*res.Completeness
-	res.Score = 100 * composite * (1 - res.OOMPenalty) * holes
+	res.Score = 100 * composite * holes
 	if haveCPU {
 		res.Metrics = append(res.Metrics, MetricResult{Metric: "cpu", Accuracy: res.CPU, Score: 100 * res.CPU * holes})
 	}
