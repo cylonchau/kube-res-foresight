@@ -1,0 +1,9 @@
+<h2 id="pipeline">Troubleshoot along the workflow</h2>
+<table><thead><tr><th>Symptom</th><th>Check first</th></tr></thead><tbody><tr><td>No history</td><td>Source, template variables, labels, time range, and units.</td></tr><tr><td>Some models have no results</td><td>Sample requirements, parameters, inputs, and runtime in model-run details.</td></tr><tr><td>Evaluation is empty</td><td>Whether target times have arrived and actuals have been collected.</td></tr><tr><td>Fallback advice</td><td>Snapshot sources, input freshness, eligibility, and recovery state.</td></tr><tr><td>Replicas are unchanged</td><td>Authorization, bypass, conflicts, expiry, step limits, and cooldowns.</td></tr><tr><td>Desired count changed but capacity is low</td><td>Current replicas, Ready status, Pod startup, and preparation time.</td></tr></tbody></table>
+<h2 id="metrics">Inspect metrics and curves</h2>
+<p>Use the metric catalog and query tools to compare history, forecasts, actual performance, freshness, and runtime status. Distinguish missing samples from observations; connections across gaps are not measurements.</p>
+<h2 id="external">External monitoring</h2>
+<p>Set <code>metrics.listen</code> to expose <code>/metrics</code>, <code>/healthz</code>, and <code>/readyz</code>. Platform metrics use <code>kube_resource_fcst_*</code>; Operator metrics use <code>kube_resource_fcst_operator_*</code>.</p>
+<p>Metrics observe the workflow rather than replacing snapshots, action reports, or readiness. Synchronous admission does not wait for long Prometheus queries or inference.</p>
+<h2 id="records">Review connected records</h2>
+<p>Follow a module through model runs, forecasts, evaluations, recommendations, admission, and scaling. For offline review, use audit exports with the appropriate scope and permissions.</p>

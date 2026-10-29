@@ -21,7 +21,7 @@ class Page(HTMLParser):
     def handle_starttag(self, tag, attrs):
         attrs = dict(attrs)
         if tag == "html":
-            expected = "en" if self.path.parent.name == "en" else "zh-CN"
+            expected = "en" if self.path.relative_to(ROOT).parts[0] == "en" else "zh-CN"
             self.has_lang = attrs.get("lang") == expected
         if tag == "title":
             self.has_title = True
@@ -68,22 +68,38 @@ def main():
                 errors.append(f"{label}: missing anchor: {link}")
     # Catch accidental source-code drift when the public algorithm count changes.
     builders = (ROOT.parent / "pkg/forecast/builders.go").read_text(encoding="utf-8")
-    algorithm_ids = re.findall(r'^\s*"([a-z_]+)":', builders.split("func recurrent(", 1)[0], re.M)
-    docs = (ROOT / "docs.html").read_text(encoding="utf-8")
+    algorithm_ids = re.findall(r'^\s*"([a-z_]+)":', builders.split("var builtinChecks", 1)[0], re.M)
+    docs = (ROOT / "docs/algorithms.html").read_text(encoding="utf-8")
     if f"{len(algorithm_ids)} 种算法" not in docs:
-        errors.append("docs.html: update documented algorithm count to match builtinBuilders")
-    english_docs = (ROOT / "en/docs.html").read_text(encoding="utf-8")
+        errors.append("docs/algorithms.html: update documented algorithm count to match builtinBuilders")
+    english_docs = (ROOT / "en/docs/algorithms.html").read_text(encoding="utf-8")
     if f"{len(algorithm_ids)} built-in algorithms" not in english_docs:
-        errors.append("en/docs.html: update documented algorithm count to match builtinBuilders")
-    zh_sections = re.findall(r'<section id="([^"]+)"', docs)
-    en_sections = re.findall(r'<section id="([^"]+)"', english_docs)
-    if zh_sections != en_sections:
-        errors.append("documentation chapter anchors differ between languages")
+        errors.append("en/docs/algorithms.html: update documented algorithm count to match builtinBuilders")
+    for zh_path in (ROOT / "docs").glob("*.html"):
+        en_path = ROOT / "en/docs" / zh_path.name
+        if not en_path.is_file():
+            errors.append(f"missing English document: {en_path.relative_to(ROOT)}")
+            continue
+        zh_sections = re.findall(r'<h2 id="([^"]+)"', zh_path.read_text(encoding="utf-8"))
+        en_sections = re.findall(r'<h2 id="([^"]+)"', en_path.read_text(encoding="utf-8"))
+        if zh_sections != en_sections:
+            errors.append(f"documentation anchors differ between languages: {zh_path.name}")
     for path in pages:
         content = path.read_text(encoding="utf-8")
         if re.search(r"platform-progress|执行进度|本次官网交付|完整证据|集群验收|本地测试床", content):
             errors.append(f"{path.relative_to(ROOT)}: internal delivery or test language in public content")
-    for required in (".nojekyll", "index.html", "docs.html", "en/index.html", "en/docs.html", "assets/main.js", "assets/locale.js", "assets/theme.js", "assets/style.css", "assets/adaptive.css", "assets/light.css", "assets/config.js"):
+        if re.search(r"macd_trend|MACD Trend|Naive Bayes|RNN / GRU / LSTM|纯 Go|pure Go", content):
+            errors.append(f"{path.relative_to(ROOT)}: retired model or unwanted implementation-language copy")
+    import json
+    index = json.loads((ROOT / "assets/search-index.json").read_text(encoding="utf-8"))
+    for item in index:
+        if not (ROOT / item["path"]).is_file() or item["lang"] not in ("zh", "en") or not item["text"]:
+            errors.append(f"invalid search entry: {item['path']}")
+    for stylesheet in (ROOT / "assets").glob("*.css"):
+        for target in re.findall(r'url\([\"\']?([^\"\')]+)', stylesheet.read_text(encoding="utf-8")):
+            if not urlsplit(target).scheme and not (stylesheet.parent / target).is_file():
+                errors.append(f"missing stylesheet asset: {target}")
+    for required in (".nojekyll", "index.html", "docs/index.html", "docs.html", "en/index.html", "en/docs/index.html", "en/docs.html", "assets/search-index.json", "assets/legacy-docs.js", "assets/main.js", "assets/locale.js", "assets/theme.js", "assets/style.css", "assets/adaptive.css", "assets/light.css", "assets/config.js"):
         if not (ROOT / required).is_file():
             errors.append(f"missing published file: {required}")
     if errors:

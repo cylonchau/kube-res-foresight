@@ -1,53 +1,61 @@
-# kube-resource-fcst 官网
+# kube-resource-fcst 官网与文档
 
-官网源码位于 `site/`，独立于管理前端 `web/`；平台部署与管理操作请阅读使用指南。
+`website/` 保存网站编辑源，`site/` 保存可直接由 GitHub Pages 托管的页面。
 
-- `index.html`：项目介绍、预测流程示意、可切换功能架构说明、渐进上线与文档入口。
-- `docs.html`：11 个中文章节，覆盖使用流程、功能架构、工作负载管理、数据、算法管理、回测、执行、安全、平台管理和使用边界。
-- `en/index.html`、`en/docs.html`：英文首页与完整使用指南，与中文版保持对应章节和锚点。
-- `assets/locale.js`：按浏览器语言选择中文或英文；导航栏支持切换，记住个人偏好并保留当前章节。
-- `assets/adaptive.css`、`assets/light.css`、`assets/theme.js`：默认跟随浏览器，右上角外观按钮可选择“跟随系统 / 浅色 / 深色”，选择会跨页面保存；无脚本时仍按浏览器主题显示。
-- `assets/config.js`：GitHub 源码仓库与分支配置。默认沿用当前 origin 的公开 URL；迁移仓库后在这里修改。HTML 中的 GitHub 链接是禁用脚本时的回退，也应同步修改。
-- `assets/style.css`、`assets/main.js`：响应式样式与原生交互，无第三方前端运行依赖，无远程字体、追踪或访问凭据。
-- `404.html`：Pages 缺失页面提示。
+## 内容组织
 
-## 本地预览
+- 中英文首页：项目介绍、三项核心能力、功能流程、使用模式与文档入口。
+- 中英文文档中心：开始使用、核心概念、使用指南、运维与管理四组，每种语言包含 12 篇独立指南。
+- 每篇文章具备分组侧栏、页内目录、上一篇/下一篇、代码复制与源文件编辑入口。
+- 顶部支持全文搜索、`Ctrl/Cmd + K`、语言切换和“跟随系统 / 浅色 / 深色”。
+- 手机使用可展开的文档目录；禁用脚本时仍可阅读文章和浏览链接。
 
-从仓库根目录执行：
+页面布局参考 [Crane](https://gocrane.io/zh-cn/) 的官网与分层文档组织，配色、图形和内容为本项目独立编写。
+
+## 编辑与预览
+
+需要 Python 3.12 或更新版本，无额外 Python 依赖：
 
 ```sh
+python scripts/build-site.py
+python scripts/check-site.py
 python -m http.server 4173 --bind 127.0.0.1 --directory site
 ```
 
-打开 `http://127.0.0.1:4173`。预览项目站点前缀时，也可从仓库根目录启动服务器，再访问 `/site/`。
+打开 `http://127.0.0.1:4173/`，文档入口为 `http://127.0.0.1:4173/docs/`。也可从仓库根目录启动服务器，使用 `/site/` 检查项目路径前缀。
 
-## 校验
+| 修改内容 | 编辑位置 |
+|---|---|
+| 文章正文 | `website/content/zh/*.html`、`website/content/en/*.html` |
+| 文章标题、摘要与分组 | `website/content/manifest.json` |
+| 首页内容与公共模板 | `scripts/build-site.py` |
+| 样式、交互与图形 | `website/assets/` |
+| 源码仓库地址与分支 | `site/assets/config.js` |
+| 404 页面 | `site/404.html` |
+
+正文使用 HTML 片段；标题用带显式 `id` 的 `h2`，两个语言版本保持相同锚点。代码块使用 `<pre data-language="Bash"><code>…</code></pre>`，生成时自动添加复制按钮。站内文章链接使用相对路径。
+
+生成脚本会刷新首页、文档、共享资源与 `site/assets/search-index.json`，不要直接修改这些生成文件。`site/assets/config.js` 和 `site/404.html` 独立维护，不会被生成过程覆盖。
+
+## 检查
 
 ```sh
+python scripts/build-site.py
 python scripts/check-site.py
-node --check site/assets/config.js
+node --check site/assets/main.js
 node --check site/assets/locale.js
 node --check site/assets/theme.js
-node --check site/assets/main.js
+node --check site/assets/legacy-docs.js
 ```
 
-Python 校验会检查站内文件、锚点、重复 ID、交互目标、相对链接、语言标记、对应章节与内置算法数量。
+检查覆盖本地资源、锚点、交互目标、语言标记、中英文目录对应、算法数量与搜索索引。算法说明以当前目录为准；更新算法后同步维护两种语言。
 
-## GitHub Pages 发布
+## GitHub Pages
 
-1. 审查官网内容，确认 `assets/config.js` 的仓库地址与分支；更新功能时同步维护中英文说明。
-2. 将 `site/`、`scripts/check-site.py` 和 `.github/workflows/pages.yml` 提交到目标仓库的默认分支。
-3. 仓库 **Settings → Pages → Build and deployment → Source** 选择 **GitHub Actions**。仓库需具备 Pages 使用资格，Actions 需允许引用的官方 actions；环境保护规则需允许默认分支部署。
-4. 在 **Actions → kube-resource-fcst website** 中手动运行工作流，或通过默认分支中相关文件的 push 触发。
-5. `check` 完成校验后，`deploy` 上传 `site/` 并发布。访问部署的 `github-pages` 环境给出的 URL。PR 和其他分支只校验，不发布。
+工作流位于 `.github/workflows/pages.yml`。在仓库 **Settings → Pages → Source** 中选择 **GitHub Actions**，将网站文件合入默认分支或手动运行工作流。
 
-工作流使用 `configure-pages`、`upload-pages-artifact` 与 `deploy-pages`，不需要手写 GitHub Token。Pages 写权限和 OIDC 权限仅授予部署任务。官方流程：
-https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages
+流程会先生成并检查页面，再上传 `site/`。PR 与非默认分支仅运行检查。Pages 的最终地址由 `github-pages` 环境返回。全部链接支持带仓库名的项目路径，不需要服务端路由。
 
-站内链接与资源均为相对路径，适用于 `https://<owner>.github.io/<repo>/` 和用户站点根路径。没有 SPA 路由或构建步骤。`404.html` 的返回链接由发布任务按 Pages 的真实 base URL 写入，因此嵌套错误路径也能返回首页；直接本地预览 404 时使用相对链接。
+原有 `docs.html#quickstart` 等入口会转到对应文章，文章内的语言切换保留当前路径与章节。404 首页链接由发布任务按实际 Pages 地址写入。
 
-## 内容维护
-
-官网围绕功能架构、使用流程、管理场景与安全边界组织内容。维护中英文页面时同步更新标题、正文、导航、搜索提示、图表说明与交互文案。首页曲线标注为示例数据。部署命令随 README、Makefile 与工具链一起维护。
-
-自动语言选择优先使用 URL 中的 `lang=zh/en`，其次使用已保存偏好，再参考浏览器首选语言；中文语言变体使用中文，其余语言使用英文。英文独立页面在未保存偏好时保留英文。禁用存储时，站内链接仍通过语言参数维持选择。禁用 JavaScript 时可直接访问对应语言的页面。
+语言选择顺序为 URL 参数、保存的偏好、浏览器首选语言；中文变体使用中文，其余默认英文。外观默认跟随浏览器，手动选择后跨页面保存。

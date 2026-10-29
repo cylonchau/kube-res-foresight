@@ -1,134 +1,189 @@
 'use strict';
 const english = document.documentElement.lang === 'en';
-const copyText = english ? 'Copy' : '复制';
-const themeToggle = document.getElementById('theme-toggle');
-const themeMenu = document.getElementById('theme-menu');
-const closeThemeMenu = () => {
-  if (themeMenu) themeMenu.hidden = true;
-  themeToggle?.setAttribute('aria-expanded', 'false');
+const lang = english ? 'en' : 'zh';
+const text = (zh, en) => english ? en : zh;
+const root = new URL(document.documentElement.dataset.siteRoot || './', location.href);
+const currentPage = document.documentElement.dataset.pagePath || 'index.html';
+const localUrl = path => {
+  const url = new URL(path, root);
+  url.searchParams.set('lang', lang);
+  return url;
 };
-const refreshThemeControls = () => {
-  const mode = window.KUBE_RESOURCE_FCST_THEME?.getMode() || 'auto';
-  const names = english ? { auto: 'System', light: 'Light', dark: 'Dark' } : { auto: '跟随系统', light: '浅色', dark: '深色' };
-  if (themeToggle) {
-    themeToggle.querySelector('span').textContent = { auto: '◐', light: '☀', dark: '☾' }[mode];
-    const label = `${english ? 'Appearance' : '外观'}: ${names[mode]}`;
-    themeToggle.setAttribute('aria-label', label);
-    themeToggle.title = label;
-  }
-  document.querySelectorAll('.theme-menu [data-theme-mode]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.themeMode === mode)));
-};
-themeToggle?.addEventListener('click', () => {
-  const open = themeMenu.hidden;
-  themeMenu.hidden = !open;
-  themeToggle.setAttribute('aria-expanded', String(open));
-});
-document.querySelectorAll('.theme-menu [data-theme-mode]').forEach(button => button.addEventListener('click', () => {
-  window.KUBE_RESOURCE_FCST_THEME?.setMode(button.dataset.themeMode);
-  closeThemeMenu();
-  themeToggle.focus();
-}));
-document.addEventListener('click', event => { if (!event.target.closest('.theme-control')) closeThemeMenu(); });
-window.addEventListener('kube-resource-fcst-themechange', refreshThemeControls);
-refreshThemeControls();
-const languageRoot = new URL(document.documentElement.dataset.siteRoot || './', location.href);
+const config = window.KUBE_RESOURCE_FCST_SITE;
+if (config) {
+  document.querySelectorAll('[data-repo]').forEach(link => { link.href = config.repository; });
+  document.querySelectorAll('[data-issues]').forEach(link => { link.href = `${config.repository}/issues`; });
+  document.querySelectorAll('[data-source]').forEach(link => { link.href = `${config.repository}/blob/${encodeURIComponent(config.branch)}/${link.dataset.source}`; });
+}
 document.querySelectorAll('[data-language]').forEach(link => {
-  const language = link.dataset.language;
-  const filename = location.pathname.endsWith('docs.html') ? 'docs.html' : 'index.html';
-  const target = new URL(`${language === 'en' ? 'en/' : ''}${filename}`, languageRoot);
-  target.searchParams.set('lang', language);
+  const code = link.dataset.language;
+  const target = new URL((code === 'en' ? 'en/' : '') + currentPage, root);
+  target.searchParams.set('lang', code);
   target.hash = location.hash;
   link.href = target.href;
   link.addEventListener('click', () => {
     const destination = new URL(link.href);
     destination.hash = location.hash;
     link.href = destination.href;
-    try { localStorage.setItem('kube-resource-fcst-language', language); } catch { /* The language is also in the URL. */ }
+    try { localStorage.setItem('kube-resource-fcst-language', code); } catch { /* Retained in the URL. */ }
   });
 });
-// Keep an explicit choice across pages, including browsers with storage disabled.
 document.querySelectorAll('a[href]').forEach(link => {
-  const raw = link.getAttribute('href');
-  if (raw.startsWith('#') || link.hasAttribute('data-language') || link.hasAttribute('data-repo') || link.hasAttribute('data-source')) return;
+  if (link.getAttribute('href').startsWith('#') || link.hasAttribute('data-language') || link.hasAttribute('data-source')) return;
   const target = new URL(link.href);
-  if (target.origin === location.origin && target.pathname.startsWith(languageRoot.pathname)) {
-    target.searchParams.set('lang', english ? 'en' : 'zh');
+  if (target.origin === location.origin && target.pathname.startsWith(root.pathname)) {
+    target.searchParams.set('lang', lang);
     link.href = target.href;
   }
 });
-const site = window.KUBE_RESOURCE_FCST_SITE;
-if (site) {
-  document.querySelectorAll('[data-repo]').forEach(link => { link.href = site.repository; });
-  document.querySelectorAll('[data-source]').forEach(link => {
-    link.href = `${site.repository}/blob/${encodeURIComponent(site.branch)}/${link.dataset.source}`;
-  });
-}
+
 const menu = document.querySelector('.menu-toggle');
+const nav = document.getElementById('site-nav');
+const closeNav = () => { menu?.setAttribute('aria-expanded', 'false'); nav?.classList.remove('is-open'); };
 menu?.addEventListener('click', () => {
   const open = menu.getAttribute('aria-expanded') !== 'true';
-  menu.setAttribute('aria-expanded', String(open));
-  document.querySelector('#site-nav').classList.toggle('is-open', open);
+  menu.setAttribute('aria-expanded', String(open)); nav.classList.toggle('is-open', open);
 });
-document.querySelectorAll('#site-nav a').forEach(link => link.addEventListener('click', () => {
-  menu?.setAttribute('aria-expanded', 'false');
-  document.querySelector('#site-nav').classList.remove('is-open');
-}));
-document.addEventListener('keydown', event => {
-  if (event.key === 'Escape') {
-    if (themeToggle?.getAttribute('aria-expanded') === 'true') themeToggle.focus();
-    closeThemeMenu();
-    if (menu?.getAttribute('aria-expanded') === 'true') menu.focus();
-    menu?.setAttribute('aria-expanded', 'false');
-    document.querySelector('#site-nav')?.classList.remove('is-open');
-  }
-});
-const stages = english ? {
-  collect: ['01 / COLLECT', 'Check your data before forecasting', 'Connect CPU, memory, and request metrics for a workload. Inspect history, gaps, and freshness, then align the dataset for dependable forecast inputs.'],
-  predict: ['02 / PREDICT', 'Compare candidates on the same workload', 'Use backtests and arriving actuals to compare errors and peak underestimation. Scores, rankings, and adoption thresholds determine which candidates can inform recommendations.'],
-  decide: ['03 / DECIDE', 'Review advice with clear sources and expiry', 'Combine workload constraints, schedules, OOM protection, and fallback into resource and replica advice. Review sources, expiry, and degradation reasons before authorizing actions.']
-} : {
-  collect: ['01 / COLLECT', '先确认数据可用，再开始预测', '接入工作负载的 CPU、内存、请求量等指标，查看历史趋势、缺样与新鲜度。通过数据集统一统计口径，为预测准备可信的输入。'],
-  predict: ['02 / PREDICT', '让候选算法接受同一份历史检验', '比较各算法对同一工作负载的预测结果，通过历史回测与后续实测检查误差和峰值低估。结合评分、排名与采用门槛，判断哪些候选可用于推荐。'],
-  decide: ['03 / DECIDE', '输出可解释、有有效期的推荐', '结合 CPU、内存、吞吐等约束与固定周期、OOM 保护和兜底策略，形成资源与副本建议。查看采用来源、有效期和降级原因，授权后再应用并追踪结果。']
+nav?.querySelectorAll('a').forEach(link => link.addEventListener('click', closeNav));
+const sidebarButton = document.querySelector('.docs-nav-toggle');
+const backdrop = document.querySelector('.sidebar-backdrop');
+const closeSidebar = () => {
+  document.documentElement.classList.remove('sidebar-open');
+  sidebarButton?.setAttribute('aria-expanded', 'false');
+  if (backdrop) backdrop.hidden = true;
 };
-document.querySelectorAll('[data-stage]').forEach(button => button.addEventListener('click', () => {
-  document.querySelectorAll('[data-stage]').forEach(item => { item.classList.toggle('active', item === button); item.setAttribute('aria-pressed', String(item === button)); });
-  const stage = stages[button.dataset.stage];
-  ['stage-number', 'stage-title', 'stage-description'].forEach((id, index) => { document.getElementById(id).textContent = stage[index]; });
+sidebarButton?.addEventListener('click', () => {
+  const open = sidebarButton.getAttribute('aria-expanded') !== 'true';
+  document.documentElement.classList.toggle('sidebar-open', open);
+  sidebarButton.setAttribute('aria-expanded', String(open)); backdrop.hidden = !open;
+});
+backdrop?.addEventListener('click', closeSidebar);
+
+const themeButton = document.getElementById('theme-toggle');
+const themeMenu = document.getElementById('theme-menu');
+const closeTheme = () => { if (themeMenu) themeMenu.hidden = true; themeButton?.setAttribute('aria-expanded', 'false'); };
+const refreshTheme = () => {
+  const mode = window.KUBE_RESOURCE_FCST_THEME?.getMode() || 'auto';
+  const names = { auto: text('跟随系统', 'System'), light: text('浅色', 'Light'), dark: text('深色', 'Dark') };
+  if (themeButton) {
+    themeButton.querySelector('span').textContent = { auto: '◐', light: '☀', dark: '☾' }[mode];
+    const title = `${text('外观', 'Appearance')}: ${names[mode]}`;
+    themeButton.title = title; themeButton.setAttribute('aria-label', title);
+  }
+  document.querySelectorAll('.theme-menu [data-theme-mode]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.themeMode === mode)));
+};
+themeButton?.addEventListener('click', () => {
+  const open = themeMenu.hidden;
+  closeNav(); themeMenu.hidden = !open; themeButton.setAttribute('aria-expanded', String(open));
+});
+document.querySelectorAll('.theme-menu [data-theme-mode]').forEach(button => button.addEventListener('click', () => {
+  window.KUBE_RESOURCE_FCST_THEME.setMode(button.dataset.themeMode); closeTheme(); themeButton.focus();
 }));
+document.addEventListener('click', event => { if (!event.target.closest('.theme-control')) closeTheme(); });
+window.addEventListener('kube-resource-fcst-themechange', refreshTheme);
+refreshTheme();
+
 document.querySelectorAll('[data-copy]').forEach(button => button.addEventListener('click', async () => {
   const code = document.getElementById(button.dataset.copy);
-  try {
-    await navigator.clipboard.writeText(code.textContent);
-    button.textContent = english ? 'Copied' : '已复制';
-  } catch {
+  try { await navigator.clipboard.writeText(code.textContent); button.textContent = text('已复制', 'Copied'); }
+  catch {
     const range = document.createRange(); range.selectNodeContents(code);
-    const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
-    button.textContent = english ? 'Selected — copy manually' : '已选中，请手动复制';
+    const selection = getSelection(); selection.removeAllRanges(); selection.addRange(range);
+    button.textContent = text('已选中，请手动复制', 'Selected — copy manually');
   }
-  setTimeout(() => { button.textContent = copyText; }, 2500);
+  setTimeout(() => { button.textContent = text('复制', 'Copy'); }, 2500);
 }));
-const search = document.getElementById('doc-search');
-search?.addEventListener('input', () => {
-  const query = search.value.trim().toLocaleLowerCase();
-  let matches = 0;
-  document.querySelectorAll('.docs-sidebar a[data-topic]').forEach(link => {
-    const section = document.querySelector(link.getAttribute('href'));
-    const match = !query || `${link.textContent} ${link.dataset.topic} ${section?.textContent || ''}`.toLocaleLowerCase().includes(query);
-    link.hidden = !match; if (match) matches++;
-  });
-  document.getElementById('search-status').textContent = query ? english ? `${matches} related chapter${matches === 1 ? '' : 's'}` : `找到 ${matches} 个相关章节` : '';
-});
-if ('IntersectionObserver' in window) {
+
+const tocLinks = [...document.querySelectorAll('.page-toc nav a')];
+if (tocLinks.length && 'IntersectionObserver' in window) {
   const observer = new IntersectionObserver(entries => {
-    entries.forEach(entry => {
-      if (!entry.isIntersecting) return;
-      document.querySelectorAll('.docs-sidebar a[data-topic]').forEach(link => {
-        const current = link.hash === `#${entry.target.id}`;
-        link.classList.toggle('current', current);
-        if (current) link.setAttribute('aria-current', 'location'); else link.removeAttribute('aria-current');
+    for (const entry of entries) {
+      if (!entry.isIntersecting) continue;
+      tocLinks.forEach(link => {
+        const active = link.hash === `#${entry.target.id}`;
+        link.classList.toggle('current', active);
+        if (active) link.setAttribute('aria-current', 'location'); else link.removeAttribute('aria-current');
       });
-    });
-  }, { rootMargin: '-15% 0px -65% 0px' });
-  document.querySelectorAll('.docs-content > section[id]').forEach(section => observer.observe(section));
+    }
+  }, { rootMargin: '-12% 0px -65% 0px' });
+  document.querySelectorAll('.article-body h2[id]').forEach(heading => observer.observe(heading));
 }
+
+const dialog = document.getElementById('search-dialog');
+const input = document.getElementById('doc-search');
+const results = document.getElementById('search-results');
+const status = document.getElementById('search-status');
+let indexPromise;
+let searchIndex = [];
+const highlighted = (element, value, query) => {
+  const offset = value.toLocaleLowerCase().indexOf(query.toLocaleLowerCase());
+  if (!query || offset < 0) { element.textContent = value; return; }
+  element.append(document.createTextNode(value.slice(0, offset)));
+  const mark = document.createElement('mark'); mark.textContent = value.slice(offset, offset + query.length);
+  element.append(mark, document.createTextNode(value.slice(offset + query.length)));
+};
+function renderSearch() {
+  const query = input.value.trim().toLocaleLowerCase();
+  const terms = query.split(/\s+/).filter(Boolean);
+  const found = searchIndex.filter(item => terms.every(term => `${item.title} ${item.summary} ${item.text}`.toLocaleLowerCase().includes(term)))
+    .sort((a, b) => Number(b.title.toLocaleLowerCase().includes(query)) - Number(a.title.toLocaleLowerCase().includes(query)));
+  results.replaceChildren();
+  status.textContent = query ? text(`找到 ${found.length} 篇相关文档`, `${found.length} matching article${found.length === 1 ? '' : 's'}`) : text('选择一篇文档，或输入关键词搜索', 'Choose an article or search by keyword');
+  for (const item of found.slice(0, 8)) {
+    const li = document.createElement('li'); const link = document.createElement('a');
+    link.href = localUrl(item.path).href;
+    const heading = document.createElement('strong'); highlighted(heading, item.title, query);
+    const description = document.createElement('p');
+    const position = query ? item.text.toLocaleLowerCase().indexOf(query) : -1;
+    const snippet = position >= 0 && !item.summary.toLocaleLowerCase().includes(query) ? `${position > 25 ? '…' : ''}${item.text.slice(Math.max(0, position - 25), position + 95)}…` : item.summary;
+    highlighted(description, snippet, query); link.append(heading, description); li.append(link); results.append(li);
+  }
+}
+async function openSearch() {
+  closeNav(); closeTheme(); closeSidebar();
+  if (!dialog.open) dialog.showModal();
+  input.focus();
+  status.textContent = text('正在加载文档…', 'Loading documentation…');
+  try {
+    if (!indexPromise) indexPromise = fetch(new URL('assets/search-index.json', root)).then(response => {
+      if (!response.ok) throw new Error('Search index unavailable'); return response.json();
+    }).catch(error => { indexPromise = undefined; throw error; });
+    searchIndex = (await indexPromise).filter(item => item.lang === lang);
+    renderSearch();
+  } catch {
+    results.replaceChildren();
+    status.textContent = text('暂时无法搜索，请从文档目录继续阅读。', 'Search is unavailable. Browse the documentation instead.');
+    const li = document.createElement('li'); const link = document.createElement('a');
+    link.href = localUrl(`${english ? 'en/' : ''}docs/index.html`).href;
+    link.textContent = text('进入文档中心 →', 'Open documentation →'); li.append(link); results.append(li);
+  }
+}
+document.querySelectorAll('[data-search-open]').forEach(button => button.addEventListener('click', openSearch));
+document.querySelector('[data-search-close]')?.addEventListener('click', () => dialog.close());
+dialog?.addEventListener('click', event => { if (event.target === dialog) {
+  const bounds = dialog.getBoundingClientRect();
+  if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) dialog.close();
+} });
+input?.addEventListener('input', renderSearch);
+dialog?.addEventListener('keydown', event => {
+  const links = [...results.querySelectorAll('a')];
+  if (!links.length) return;
+  const selected = links.indexOf(document.activeElement);
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    event.preventDefault();
+    const next = event.key === 'ArrowDown' ? (selected + 1) % links.length : (selected < 0 ? links.length - 1 : (selected - 1 + links.length) % links.length);
+    links[next].focus();
+  } else if (event.key === 'Enter' && document.activeElement === input) {
+    event.preventDefault(); links[0].click();
+  }
+});
+document.querySelectorAll('.search-trigger kbd').forEach(kbd => { kbd.textContent = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘ K' : 'Ctrl K'; });
+document.addEventListener('keydown', event => {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLocaleLowerCase() === 'k') { event.preventDefault(); openSearch(); }
+  if (event.key === 'Escape') {
+    if (dialog?.open) { event.preventDefault(); dialog.close(); }
+    if (themeButton?.getAttribute('aria-expanded') === 'true') themeButton.focus();
+    if (sidebarButton?.getAttribute('aria-expanded') === 'true') sidebarButton.focus();
+    closeTheme(); closeNav(); closeSidebar();
+  }
+});

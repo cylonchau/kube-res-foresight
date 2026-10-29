@@ -1,0 +1,9 @@
+<h2 id="first-workload">从一个工作负载开始</h2>
+<p>第一次使用，建议先体验演示，再选择一个非关键工作负载接入自己的指标。先观察、再审查建议，最后按需要开放执行。</p>
+<ol class="guide-steps"><li><strong>体验演示。</strong>在模块列表工具栏创建演示数据，查看自动准备的模块、历史指标、预测与推荐。演示中的数值为示例数据。</li><li><strong>添加数据源。</strong>配置 Metrics 数据源与连接信息，检查连接是否可用。</li><li><strong>配置指标模板。</strong>确定要观察的 CPU、内存、请求量等指标，核对查询、单位和聚合范围。</li><li><strong>创建模块。</strong>选择命名空间、工作负载与容器，关联指标模板，配置周期、资源边界、固定周期与兜底值。</li><li><strong>运行与比较。</strong>查看历史质量、各算法预测、回测和实测表现，再审查资源推荐。</li></ol>
+<h2 id="what-to-check">第一次应该看什么</h2>
+<table><thead><tr><th>位置</th><th>重点检查</th></tr></thead><tbody><tr><td>历史与数据集</td><td>查询范围、单位、采样间隔、缺样和新鲜度。</td></tr><tr><td>算法运行情况</td><td>算法是否正常运行；样本不足、参数缺失或超时的原因。</td></tr><tr><td>回测与资源评估</td><td>CPU、内存等资源的预测误差，尤其关注峰值低估。</td></tr><tr><td>推荐详情</td><td>资源和副本建议、约束、共识、有效期及降级原因。</td></tr></tbody></table>
+<h2 id="gradual-rollout">逐步开放自动化</h2>
+<p>模块从 <strong>Observe（观察）</strong>起步，使用 <strong>Recommend（推荐）</strong>审查建议。需要应用配置时，分别授权 <strong>Admission（准入）</strong>和 <strong>Auto（自动）</strong>。两类写入都有全局开关，默认关闭。</p>
+<div class="callout"><strong>先确认，再应用</strong><p>确认指标语义一致、历史充足、建议可解释、上下界与兜底值合理。准入和副本伸缩应分别检查。</p></div>
+<p>尚未部署管理平台？继续阅读<a href="installation.html">安装与部署</a>。</p>

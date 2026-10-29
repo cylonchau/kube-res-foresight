@@ -1,0 +1,23 @@
+<h2 id="components">准备哪些组件</h2>
+<p>管理平台提供控制台、数据管理、预测和推荐；任务引擎负责周期运行。需要调整集群副本时部署 Operator，需要为新 Pod 应用资源建议时配置准入策略。</p>
+<table><thead><tr><th>组件</th><th>用途</th></tr></thead><tbody><tr><td>Platform</td><td>管理界面、API、指标、预测与推荐。</td></tr><tr><td>Job engine</td><td>采集、预测、回测、评估等周期任务，可与平台一起运行。</td></tr><tr><td>Operator</td><td>按授权和边界调整目标工作负载的副本。</td></tr><tr><td>资源准入</td><td>使用有效资源建议处理新 Pod 的 requests / limits。</td></tr></tbody></table>
+<h2 id="build">构建管理平台</h2>
+<p>准备仓库声明的 Go、Node.js 与 pnpm 工具链。管理前端 <code>web/</code> 是独立仓库，构建前需要准备好其源码。</p>
+<pre data-language="Bash"><code>cd web
+pnpm install --frozen-lockfile
+cd ..
+make package-web
+mkdir -p target/bin
+go build -o target/bin/kube-resource-fcst ./cmd</code></pre>
+<h2 id="configure">配置与启动</h2>
+<p>参考 <code>config.yaml</code> 配置数据库、监听地址、日志和稳定的 JWT 密钥。数据库支持 SQLite、MySQL、PostgreSQL。环境变量使用 <code>KUBE_RESOURCE_FCST_</code> 前缀，凭据加密密钥使用 <code>KUBE_RESOURCE_FCST_SECRET_KEY</code>。</p>
+<pre data-language="Bash"><code># 首次安装：显式迁移
+target/bin/kube-resource-fcst server --config config.yaml --migration
+
+# 启动管理平台与任务引擎
+target/bin/kube-resource-fcst all --config config.yaml</code></pre>
+<p>示例服务端口为 <code>20001</code>，启动后访问 <code>http://localhost:20001</code>。也可分别运行 <code>server</code> 与 <code>job</code>。</p>
+<h2 id="upgrade">已有安装与执行组件</h2>
+<p>保留已有数据库连接、路径及密钥值。升级前先备份，再审阅 <code>--upgrade</code> 的清理范围；普通启动不执行退役表清理。</p>
+<p>Operator 与准入需要目标集群权限、凭据、证书及相应策略。先保持观察模式，检查资源引用和副本所有权，再开放执行。</p>
+<p><a data-source="deploy/README.md" href="https://github.com/cylonchau/hermes">部署说明 ↗</a> · <a data-source="deploy/helm/kube-resource-fcst-operator/README.md" href="https://github.com/cylonchau/hermes">Operator 安装说明 ↗</a></p>

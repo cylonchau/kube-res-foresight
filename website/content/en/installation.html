@@ -1,0 +1,23 @@
+<h2 id="components">Choose the components</h2>
+<p>The platform provides the console, data management, forecasting, and advice. The job engine runs recurring work. Add the Operator for replica changes and admission policies for resource advice on new Pods.</p>
+<table><thead><tr><th>Component</th><th>Purpose</th></tr></thead><tbody><tr><td>Platform</td><td>Console, API, metrics, forecasts, and recommendations.</td></tr><tr><td>Job engine</td><td>Recurring collection, forecasts, backtests, and evaluations; can run with the platform.</td></tr><tr><td>Operator</td><td>Adjust workload replicas within authorization and bounds.</td></tr><tr><td>Resource admission</td><td>Apply valid resource advice to new Pod requests / limits.</td></tr></tbody></table>
+<h2 id="build">Build the platform</h2>
+<p>Use the Go, Node.js, and pnpm toolchains declared by the repository. The <code>web/</code> frontend is a separate repository; prepare its sources before building.</p>
+<pre data-language="Bash"><code>cd web
+pnpm install --frozen-lockfile
+cd ..
+make package-web
+mkdir -p target/bin
+go build -o target/bin/kube-resource-fcst ./cmd</code></pre>
+<h2 id="configure">Configure and start</h2>
+<p>Set the database, listener, logging, and stable JWT key in <code>config.yaml</code>. Choose SQLite, MySQL, or PostgreSQL. Environment variables use <code>KUBE_RESOURCE_FCST_</code>; credentials use the encryption key <code>KUBE_RESOURCE_FCST_SECRET_KEY</code>.</p>
+<pre data-language="Bash"><code># First installation: explicit migration
+target/bin/kube-resource-fcst server --config config.yaml --migration
+
+# Start the platform and job engine
+target/bin/kube-resource-fcst all --config config.yaml</code></pre>
+<p>The example port is <code>20001</code>. Open <code>http://localhost:20001</code> after startup. The <code>server</code> and <code>job</code> commands can also run separately.</p>
+<h2 id="upgrade">Existing installations and execution</h2>
+<p>Keep the existing database connection, path, and key values. Back up before upgrading and review the cleanup performed by <code>--upgrade</code>. Normal startup does not remove retired tables.</p>
+<p>Prepare cluster permissions, credentials, certificates, and policies for execution. Begin in Observe and review resource references and replica ownership before authorizing changes.</p>
+<p><a data-source="deploy/README.md" href="https://github.com/cylonchau/hermes">Deployment guide ↗</a> · <a data-source="deploy/helm/kube-resource-fcst-operator/README.md" href="https://github.com/cylonchau/hermes">Operator installation ↗</a></p>

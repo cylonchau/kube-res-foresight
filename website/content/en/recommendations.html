@@ -1,0 +1,11 @@
+<h2 id="snapshot">Read a recommendation snapshot</h2>
+<p>A snapshot records resource advice, desired replicas, decisive factors, sources, version, and expiry. It explains what to configure and why; execution records show what was actually applied.</p>
+<h2 id="look-ahead">Allow time for capacity to become ready</h2>
+<p>Scaling only when demand arrives may be too late. Look-ahead decisions account for collection, prediction, control loops, Pod readiness, and node preparation where needed, then evaluate the corresponding future window.</p>
+<p>Scale-up and scale-down use different perspectives. Reductions require caution across future demand, live load, and readiness rather than reacting to a brief dip.</p>
+<h2 id="consensus">Multi-model consensus</h2>
+<p>Available candidates participate in the look-ahead window. Confidence combines scores with recent tracking error. A configured weighted quantile combines predictions before live load and safeguards settle the decision.</p>
+<p>Read consensus alongside the final replica count, constraints, and actual use. Without eligible predictions, use schedules, fallback, or unchanged values according to module rules.</p>
+<h2 id="constraints">Resource and replica constraints</h2>
+<ul><li>CPU, memory, throughput, or JVM pressure may be decisive.</li><li>Replica changes respect minimums, maximums, hard ceilings, steps, and cooldowns.</li><li>OOM floors and memory peaks provide protection beyond smoothed point forecasts.</li><li>Configured or estimated per-Pod capacity needs comparison with workload load tests.</li></ul>
+<div class="callout"><strong>Advice, writes, and readiness are separate stages</strong><p>A submitted replica change does not mean the new Pods are Ready. Inspect actual replicas, readiness, and subsequent resource behavior.</p></div>

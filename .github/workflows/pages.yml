@@ -4,11 +4,15 @@ on:
   push:
     paths:
       - 'site/**'
+      - 'website/**'
+      - 'scripts/build-site.py'
       - 'scripts/check-site.py'
       - '.github/workflows/pages.yml'
   pull_request:
     paths:
       - 'site/**'
+      - 'website/**'
+      - 'scripts/build-site.py'
       - 'scripts/check-site.py'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
@@ -29,7 +33,9 @@ jobs:
         with:
           python-version: '3.x'
       - name: Validate static website
-        run: python scripts/check-site.py
+        run: |
+          python scripts/build-site.py
+          python scripts/check-site.py
       - uses: actions/setup-node@v6
         with:
           node-version: '24'
@@ -39,6 +45,7 @@ jobs:
           node --check site/assets/locale.js
           node --check site/assets/theme.js
           node --check site/assets/main.js
+          node --check site/assets/legacy-docs.js
 
   deploy:
     if: github.event_name != 'pull_request' && github.ref_name == github.event.repository.default_branch

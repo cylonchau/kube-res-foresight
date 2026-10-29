@@ -1,0 +1,10 @@
+<h2 id="workload-first">以工作负载为中心</h2>
+<p>一个模块描述一个 Kubernetes 工作负载及其预测、资源和执行策略。指标提供输入，算法预测未来变化，推荐把预测和约束转成建议，执行与实测结果再反馈到下一轮评估。</p>
+<div class="flow-line"><span>指标接入</span><b>→</b><span>预测与评估</span><b>→</b><span>资源推荐</span><b>→</b><span>受控执行</span><b>→</b><span>实际表现</span></div>
+<h2 id="relationships">模块、指标与算法</h2>
+<table><thead><tr><th>概念</th><th>管理什么</th></tr></thead><tbody><tr><td>工作负载模块</td><td>目标、指标模板、周期、阈值、资源边界、模式和兜底策略。</td></tr><tr><td>指标模板</td><td>查询和变量、指标含义、单位与聚合范围，在模块中按目标渲染。</td></tr><tr><td>数据集</td><td>采样、聚合、换算、精度与缺失处理，让历史保持统一口径。</td></tr><tr><td>算法</td><td>平台级启用、参数、权重、预算和采用门槛，统一作用于模块。</td></tr><tr><td>推荐快照</td><td>某次计算的资源和副本建议、来源、约束、版本和有效期。</td></tr></tbody></table>
+<h2 id="modes">四种运行模式</h2>
+<ul><li><strong>Observe：</strong>采集、预测和比较，不应用资源变更。</li><li><strong>Recommend：</strong>审查资源与副本建议，理解决定因素。</li><li><strong>Admission：</strong>为新 Pod 应用授权的资源建议。</li><li><strong>Auto：</strong>由 Operator 在边界、步长和冷却限制内调整副本。</li></ul>
+<h2 id="boundaries">使用边界</h2>
+<p>平台面向单集群，不承担跨集群迁移。历史观测、容量估计、未来预测与实际 Ready 容量需要分别阅读。单 Pod 容量估计不能直接视为真实最大承载能力。</p>
+<p>同一工作负载只能由一个控制者写副本。准入只处理新 Pod，运行中的资源配置需要新建或滚动更新应用。</p>

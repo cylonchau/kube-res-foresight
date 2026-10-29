@@ -1,0 +1,10 @@
+<h2 id="rolling">Rolling backtests</h2>
+<p>Move forecast origins forward through time. Each run uses only history available before that origin, including all additional input metrics. Match windows and horizons to actual operating decisions.</p>
+<h2 id="measures">Read resource prediction performance</h2>
+<p>Accuracy concerns resources such as CPU, memory, and GPU. Replica counts are derived from resource demand and constraints; distinguish them from actual and Ready replicas.</p>
+<table><thead><tr><th>Measure</th><th>Meaning and use</th></tr></thead><tbody><tr><td><abbr title="WAPE = sum of absolute forecast errors / sum of absolute actual values. Compare the same resource and window.">WAPE</abbr></td><td>Total absolute error relative to total absolute actual values over the same window.</td></tr><tr><td>Peak underestimation</td><td>The risk of predicting less than actual high-water demand.</td></tr><tr><td>Resource accuracy and score</td><td>Read resource performance, completeness, and protection factors together. Scores do not override execution bounds.</td></tr><tr><td>Actual evaluation</td><td>Link observations to predictions after their target times arrive.</td></tr></tbody></table>
+<h2 id="ranking">Scores, rankings, and consensus</h2>
+<p>The rankings page shows current performance and historical changes. Rank helps compare candidates; look-ahead decisions combine available forecasts and confidence rather than simply following the top-ranked method.</p>
+<p>Inspect training and run details for window, version, parameters, duration, and reasons. Recheck performance after configuration changes.</p>
+<h2 id="actuals">Wait for actuals and keep evaluating</h2>
+<p>Future target times do not yet have actual observations; missing evaluations are not zero error. Continue reviewing resource behavior and outcomes as inputs and workload patterns change.</p>

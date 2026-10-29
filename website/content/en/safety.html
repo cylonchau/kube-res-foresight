@@ -1,0 +1,11 @@
+<h2 id="authorization">Modes and authorization</h2>
+<p>Observe and Recommend help build an understanding of workload behavior. Admission and automatic scaling require both global authorization and a suitable module mode. Writes are disabled by default.</p>
+<h2 id="schedule">Scheduled overrides</h2>
+<p>Set fixed resources or replicas for defined business windows, including start, end, timezone, priority, and covered fields. Other fields follow their normal policies; normal calculation resumes after the window.</p>
+<p>Schedules use explicit IANA timezones and storage stays in UTC. The platform defaults to UTC+8 and pages display UTC+8. Never write converted display times back as storage values.</p>
+<h2 id="fallback">Degradation and recovery</h2>
+<p>Each field follows bypass → schedule → eligible model → module fallback → unchanged. Values must remain valid, fresh, and within bounds. OOM floors apply outside bypass.</p>
+<p>Record reasons for insufficient history, stale inputs, model failure, or missing eligible forecasts. Consecutive healthy cycles are required before recovery to avoid unstable switching.</p>
+<h2 id="bypass">When manual intervention is needed</h2>
+<ol><li>Enable Bypass and record a reason.</li><li>Disable the corresponding global setting and return to Recommend or Observe.</li><li>Review snapshots, action records, and actual resources.</li><li>Fix inputs or policy and compare results before gradually restoring authorization.</li></ol>
+<div class="callout"><strong>Stopping future actions does not undo previous changes</strong><p>Bypass and global settings do not restore earlier resource or replica configurations automatically. Consider current service state and action history when restoring them.</p></div>

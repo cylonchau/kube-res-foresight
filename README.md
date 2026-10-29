@@ -12,9 +12,10 @@
 
 ## 项目官网
 
-中文官网源码位于 [site/](site/README.md)，重点介绍功能架构、工作负载管理、使用流程、算法选优、资源推荐、安全回退与监控审计；独立于管理控制台，无需构建即可预览：
+中英文官网与文档中心位于 [site/](site/README.md)，编辑源位于 `website/`。首页介绍项目与功能，文档按入门、核心概念、使用指南、运维管理分组。修改后生成页面，再启动预览：
 
 ```sh
+python scripts/build-site.py
 python -m http.server 4173 --bind 127.0.0.1 --directory site
 ```
 

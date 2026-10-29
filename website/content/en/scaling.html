@@ -1,0 +1,10 @@
+<h2 id="replicas">Let the Operator adjust replicas</h2>
+<p>Configure the target workload, replica bounds, step limits, and cooldowns. Auto requires authorization at both module and global levels before the Operator applies valid advice.</p>
+<p>Manage settings directly through platform modules or use declarative PredictiveScaler configuration. Both require a clear target and replica owner.</p>
+<h2 id="one-controller">One replica owner per target</h2>
+<p>Do not let the Operator, HPA, KEDA, or duplicate scalers write the same workload. Stop the previous controller and release ownership before reviewing the new controller in Observe.</p>
+<h2 id="admission">Apply resource advice to new Pods</h2>
+<p>Admission reads the latest valid recommendation and adjusts CPU / memory requests and configured limits on new Pods. Unavailable advice should preserve original resources and allow deployment.</p>
+<p>New recommendations do not immediately change running Pods. Apply settings through creation or rolling updates. Assess and authorize memory-limit reductions separately.</p>
+<h2 id="outcomes">Review actual outcomes</h2>
+<p>Inspect scaling and admission details for advice, applied results, and pause or failure reasons. Check current and Ready replicas, workload demand, and resource use to distinguish a submitted change from ready capacity.</p>
