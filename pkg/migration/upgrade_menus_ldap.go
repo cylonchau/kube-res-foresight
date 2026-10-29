@@ -32,6 +32,7 @@ var menuSuccessors = map[string][]string{
 	"forecast_input-sets":          {"forecast_algorithms"},
 	"forecast-results_runs":        {"forecast-results_algorithm-runs"},
 	"forecast-actions_snapshots":   {"forecast-actions_recommendations"},
+	"datasource_presets":           {"datasource_metric-mappings", "forecast-modules_modules"},
 }
 
 // migrateMenuGrants copies the grants of retired menus to their successors (and to the successors' parent

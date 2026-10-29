@@ -36,3 +36,6 @@ UI 沿用 web/src/views/system/config 等表单，宽屏弹窗自适应小屏。
 **推荐分位数（保形预测）**：每个非基线算法都有 `quantile_level`（0=点预测，默认；>0.5 如 0.9=「实际值不超过这条线」）和 `calibration_windows`（默认 8），由 `forecast.Conformal` 包装：在历史里取几个更早的截止点重跑本算法，按预测步收集误差，取 `ceil((K+1)·level)` 位的误差加到预测上；只读给定历史、同输入同输出；多跑 K 次预测，慢算法要放宽训练时间预算。参数在默认值时不进规范化存储，旧设置与模型版本不变；基线（naive、seasonal_naive）不提供，保持基线语义。分位预测存为 `quantile_permille`=level×1000，回测按该分位算 pinball 与覆盖率，晋升走分位规则（覆盖率不低于 level−0.1，且 pinball 胜过同分位下的基线；不按 WAPE，因为故意偏高的线必输）。
 
 算法质量改进（2026-10-28 评审）：问题清单、选型取舍与工作包 A0～A8 见 [改进计划](references/improvement-plan.md)。执行顺序是先测基线（A0）、修回测公平与低估敏感评分（A1/A2），再补算法；新增或改动算法前先读它，别绕过评估问题直接堆算法。
+- **预测模式（R21）**：模块 `predict_enabled`（默认关）＋`predict_mode`（none／fixed／dynamic）＋`predict_algorithm`；`runsOf` 是唯一的过滤点：关闭或 none 时没有算法运行，fixed 只运行指定算法（不套最低综合分，非基线仍须回测晋升），dynamic 同前。预测范围 = max(预测期, 运行间隔, 提前量×`forecast.lead_cover_factor`)。
+- **短期修正（R21）**：`forecast.ShortTerm` 包住「记得很久」的算法（`forecast.LongMemory`：seasonal_naive、hist_percentile、seasonal_profile、mstl、holt_winters、peak_envelope 及变体；组合预测只包这类成员），用起点之前的数据回看最近几分钟的预测误差，超过触发阈值的上涨加到预测上并衰减，下降默认不跟；参数 `forecast.short_term_*` 进入模型版本。新增长记忆算法要决定是否列入 `longMemory`。
+- **组合预测（impl 2）**：误差按「少给 ×`under_weight`」计，权重＝误差倒数的 `sharpness` 次方，`trim_ratio` 倍于最好者的成员剔除，计入最新 `recent_steps` 步。

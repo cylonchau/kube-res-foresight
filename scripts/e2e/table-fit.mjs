@@ -12,7 +12,7 @@ const routes = (process.env.ROUTES || [
   'forecast-results/evaluations', 'forecast-results/leaderboard', 'forecast-results/algorithm-runs', 'forecast-results/history',
   'forecast-actions/admissions', 'forecast-actions/executions', 'forecast-actions/recommendations', 'forecast-actions/fallbacks',
   'forecast/algorithms', 'forecast/score-records', 'forecast/ranking', 'forecast-modules/modules', 'monitoring/datasets', 'monitoring/curves',
-  'datasource/connections', 'datasource/metric-mappings', 'datasource/presets', 'system/config', 'system/secret-keys', 'system/operation-log', 'system/login-log',
+  'datasource/connections', 'datasource/metric-mappings', 'system/config', 'system/secret-keys', 'system/operation-log', 'system/login-log',
   'task-center/definition', 'task-center/audit', 'authorization/user', 'authorization/role'
 ].join(',')).split(',');
 

@@ -37,7 +37,7 @@
 |---|---|---|---|---|
 | **数据接入** | 数据源连接 | /datasource/connections | Prometheus 与演示数据源 | 原「连接管理」改名 |
 | | 指标映射 | /datasource/metric-mappings | 指标种类（含新增 JVM/K8s 配置类）与 PromQL | 原页，新增指标种类 |
-| | 内置指标预设库 | /datasource/presets | 预设、演示数据 | 原「指标预设」改名 |
+| | ~~内置指标预设库~~ | ~~/datasource/presets~~ | R21 删除：预设在指标模板表单里挑选，演示数据在模块列表 | |
 | **预测管理** | 预测模块管理 | /forecast/modules | 模块基本信息、数据映射、边界、**Fallback 默认值**、副本求解、固定周期、算法绑定入口 | 原「预测模块」，Fallback 区独立成块 |
 | | 预测算法与参数模板 | /forecast/algorithms | 算法目录、参数 schema、参数模板、使用情况与追溯 | 原「算法」，拆去模板页签：目录与模板各自独立标签→ 改为两个二级菜单见下 |
 | | 算法参数模板 | /forecast/algorithm-templates | 模板列表、编辑、同步 | 从「算法」页拆出 |

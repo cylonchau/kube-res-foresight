@@ -11,7 +11,7 @@
 5. Webhook 决不等待 Kafka、Prometheus 长查询或模型推理；仅读取最新已验证、未过期的推荐快照；异常即保留原资源配置。`failurePolicy: Ignore` 是网络/调用失败保护，不是错误推荐的数值保护。
 6. 不修改 kubelet 二进制。准入是 Kubernetes API Server 的 Admission Webhook；运行中资源修改须通过 Kubernetes API（版本适配）和 Operator 完成。
 7. 重大默认值、算法权重、节日覆盖、Namespace/工作负载开关都必须可由 UI 管理，有版本、操作者和审计记录。
-8. 默认时区 UTC 存储、前端按配置显示；调度周期按显式 IANA 时区解释，区间起止清晰定义。不得静默转换时区。
+8. 存储用 UTC（SQLite 为带 +00:00 的文本）；平台默认时区 UTC+8（`KUBE_RESOURCE_FCST_TIMEZONE` 可改），用于日志、数据库会话、新模块的周期和页面显示（页面固定按 UTC+8，不随浏览器）；调度周期按显式 IANA 时区解释，区间起止清晰定义。时间只在显示时转换一次，不得静默转换时区，也不得把显示时区写回存储。
 9. 不在未经回测、安全检查和授权的情况下自动调低内存 limits；按 Observe→Recommend→Admission→Auto 渐进上线。
 
 ## 技术栈基线（设计选型，非现成产品事实）

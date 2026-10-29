@@ -17,6 +17,8 @@ var retiredMenuCodes = map[string]bool{
 	"forecast-actions_audit-exports": true, "forecast_ranking-history": true, "forecast-results_trends": true, "forecast-results_backtests": true, "monitoring_metrics": true,
 	// the training records open over the algorithm run status, the snapshot history over the resource recommendation
 	"forecast-results_runs": true, "forecast-actions_snapshots": true,
+	// the preset library is read where a template is made (its picker), and the demo where modules are listed
+	"datasource_presets": true,
 }
 
 // retiredButtonCodes are API permissions of removed features; the upgrade deletes them with their grants.
