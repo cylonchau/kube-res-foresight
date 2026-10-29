@@ -8,3 +8,6 @@
 <h2 id="boundaries">Usage boundaries</h2>
 <p>The platform manages a single cluster, not cross-cluster migration. Read historical observations, capacity estimates, future forecasts, and actual Ready capacity separately. Estimated per-Pod capacity is not a measured maximum.</p>
 <p>Keep one replica controller per workload. Admission affects new Pods; running resource configurations require creation or rolling updates.</p>
+<h2 id="prediction-and-action">Configure models and actions separately</h2>
+<p>Prediction mode determines how advice is calculated: no prediction, a fixed algorithm, or dynamic algorithms. Operating mode determines permitted actions: Observe, Recommend, Admission, or Auto. Configure them independently to compare models while keeping cluster resources unchanged.</p>
+<p>New modules start with prediction disabled. Once enabled, fixed mode runs the selected method; dynamic mode uses enabled methods and combines their votes for dynamic replica decisions. See <a href="algorithms.html#prediction-modes">models and prediction modes</a> for eligibility rules.</p>

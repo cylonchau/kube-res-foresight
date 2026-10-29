@@ -8,3 +8,6 @@
 <p>Store timestamps in UTC. The platform defaults to UTC+8, configurable through <code>KUBE_RESOURCE_FCST_TIMEZONE</code> for logs, database sessions, and new module schedules. Pages display UTC+8 regardless of browser timezone. Schedule intervals use explicit IANA timezones.</p>
 <h2 id="audit">Logs, retention, and export</h2>
 <p>Login logs record authentication; operation logs track configuration and exports. Recommendation, execution, admission, and degradation records explain resource changes. Set retention for review needs and back up both the database and stable encryption key.</p>
+<h2 id="history-controls">Control history and admission record volume</h2>
+<p>Set <code>forecast.history_retention_days</code> to override history retention; the default 0 keeps each record type's built-in period. <code>forecast.evaluation_max_per_module</code> keeps the latest 20,000 measured evaluations per module by default, with a minimum of 100.</p>
+<p>When workload revision information is available, admission normally records creation and the first Pod of each new revision. Later scaling or replacement Pods are processed normally without individual records. Enable <code>forecast.admission_record_scaling</code> to include them. Requests without revision information continue to be recorded individually.</p>

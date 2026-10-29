@@ -9,3 +9,9 @@
 <h2 id="bypass">When manual intervention is needed</h2>
 <ol><li>Enable Bypass and record a reason.</li><li>Disable the corresponding global setting and return to Recommend or Observe.</li><li>Review snapshots, action records, and actual resources.</li><li>Fix inputs or policy and compare results before gradually restoring authorization.</li></ol>
 <div class="callout"><strong>Stopping future actions does not undo previous changes</strong><p>Bypass and global settings do not restore earlier resource or replica configurations automatically. Consider current service state and action history when restoring them.</p></div>
+<h2 id="oom">Configure OOM memory protection separately</h2>
+<p>Modules separate OOM protection from prediction metrics. Configure lookback, memory uplift, and heap pressure, then connect OOM counts, pre-OOM working set, memory limits, and JVM heap metrics. Rules missing their required inputs do not apply, and recommendation details identify the missing inputs.</p>
+<p>OOM score weighting is disabled by default. When enabled, it penalizes memory scores only where memory was underallocated in the evaluation window; CPU scores are unaffected. Memory floors provide protection while scores compare models.</p>
+<h2 id="operator-cache">When the platform is temporarily unreachable</h2>
+<p>By default, the Operator can use a cached decision for 10 minutes after the last successful response. Cached decisions allow scale-up only, discard the urgent flag, and retain cooldown and step limits. Once expired, fallback replicas cannot be below the current count; otherwise replicas remain unchanged.</p>
+<p>Module configuration is cached for one hour by default; replicas stay unchanged if configuration also expires. After recovery, two consecutive responses are required before scale-down is allowed by default. An explicit no-decision response clears cached decisions. The cache is in memory and does not survive Operator restarts.</p>

@@ -7,3 +7,6 @@
 <p>指标用于观察链路，不替代推荐快照、执行报告或实际就绪状态。同步准入不等待 Prometheus 长查询或模型推理。</p>
 <h2 id="records">结合记录复盘</h2>
 <p>从模块定位算法运行、预测、资源评估、推荐、准入和执行。需要离线核对时使用审计导出，并确认导出时间范围和权限。</p>
+<h2 id="decision-health">观察决策来源与扩容延迟</h2>
+<p>平台正常响应、缓存接管、恢复中和缓存过期是不同状态。通过 <code>kube_resource_fcst_operator_decision_source_total</code> 与 <code>kube_resource_fcst_operator_decision_cache_age_seconds</code> 观察决策来源与缓存年龄，再结合扩容及时性和 Ready 曲线排查预测落后或容量就绪偏慢。</p>
+<p>预测关闭时没有算法结果属于预期状态。排查前先检查模块预测方式，再查看数据、模型和执行链路。</p>

@@ -10,7 +10,7 @@
     "installation": {"zh": ["安装与部署", "准备管理平台、任务引擎与执行组件，了解配置和启动方式。"], "en": ["Installation", "Prepare the platform, job engine, and optional execution components."]},
     "concepts": {"zh": ["功能架构与核心概念", "理解工作负载模块、指标模板、算法与执行策略之间的关系。"], "en": ["Capabilities and concepts", "Understand modules, metric templates, models, and operating policies."]},
     "metrics": {"zh": ["指标接入与数据质量", "配置数据源、指标模板和数据集，为预测准备可信输入。"], "en": ["Metrics and data quality", "Connect sources, templates, and datasets to prepare dependable inputs."]},
-    "algorithms": {"zh": ["算法管理", "了解预测方法、参数、运行预算和自定义算法。"], "en": ["Model management", "Explore forecasting methods, settings, runtime budgets, and customization."]},
+    "algorithms": {"zh": ["算法与模型管理", "选择固定或动态算法，了解模型目录、短期修正与采用规则。"], "en": ["Models and prediction modes", "Choose fixed or dynamic methods, explore models, corrections, and eligibility."]},
     "evaluation": {"zh": ["回测与效果评估", "比较资源预测与实际用量，理解准确度、误差和算法排名。"], "en": ["Backtesting and evaluation", "Compare resource forecasts with actual use and understand scores and rankings."]},
     "recommendations": {"zh": ["资源推荐与前瞻决策", "理解多算法共识、提前量和各项约束如何形成最终建议。"], "en": ["Recommendations and look-ahead", "Learn how model consensus, lead time, and constraints shape resource advice."]},
     "scaling": {"zh": ["资源准入与弹性伸缩", "分别开放新 Pod 资源配置与副本调整，追踪实际执行结果。"], "en": ["Admission and scaling", "Enable Pod resource advice and replica scaling separately, then review outcomes."]},

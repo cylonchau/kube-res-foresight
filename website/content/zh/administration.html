@@ -8,3 +8,6 @@
 <p>时间存储使用 UTC。平台默认时区为 UTC+8，可通过 <code>KUBE_RESOURCE_FCST_TIMEZONE</code> 配置，作用于日志、数据库会话与新模块周期；页面固定按 UTC+8 显示，不跟随浏览器时区。调度区间仍按显式 IANA 时区解释。</p>
 <h2 id="audit">日志、保留与导出</h2>
 <p>登录日志记录认证行为，操作日志记录配置和导出等操作。推荐、执行、准入和降级记录帮助解释资源变化。按复盘周期设置保留要求，备份数据库及稳定的凭据加密密钥。</p>
+<h2 id="history-controls">控制历史保留与准入记录量</h2>
+<p>通过系统参数 <code>forecast.history_retention_days</code> 统一配置历史保留天数；默认 0 使用各类记录内置保留周期。<code>forecast.evaluation_max_per_module</code> 默认每模块保留最新 20,000 条实测评估，最少 100 条。</p>
+<p>具备工作负载版本信息时，准入默认记录创建及每个新版本的首个 Pod；扩容和替换产生的后续 Pod 仍正常处理，但不逐一记录。需要完整记录时启用 <code>forecast.admission_record_scaling</code>。没有版本信息的请求继续逐次记录。</p>

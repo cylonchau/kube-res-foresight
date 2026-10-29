@@ -106,11 +106,11 @@ def home(lang):
     ]
     features = [
         ("layers", "工作负载模块", "Workload modules", "一个工作负载，一份指标、周期、边界与兜底策略。", "One workload with its own metrics, intervals, bounds, and fallback.", "concepts"),
-        ("chart", "多算法预测与回测", "Forecasting and backtests", "统一管理预测方法，在相同窗口下比较资源表现。", "Manage methods centrally and compare resource performance on shared windows.", "algorithms"),
+        ("chart", "模型预测与动态选择", "Models and dynamic selection", "按模块选择固定算法或动态算法，用回测与实测决定采用。", "Choose a fixed method or dynamic algorithms per module, guided by backtests and actuals.", "algorithms"),
         ("clock", "前瞻资源决策", "Look-ahead decisions", "把容量就绪时间纳入考虑，综合多个候选形成共识。", "Account for readiness time and combine multiple candidates into consensus.", "recommendations"),
         ("sliders", "固定周期与回退", "Schedules and fallback", "为明确时段配置保障规则，异常时按策略回退。", "Define business windows and explicit behavior when inputs fail.", "safety"),
-        ("shield", "资源保护与执行边界", "Resource safeguards", "检查 OOM、上下界、步长、冷却及副本控制冲突。", "Respect OOM protection, bounds, steps, cooldowns, and replica ownership.", "scaling"),
-        ("book", "监控与审计追溯", "Monitoring and audit", "串起预测、推荐、准入与伸缩，解释每一次资源变化。", "Trace each change across forecasts, recommendations, admission, and scaling.", "monitoring"),
+        ("shield", "内存保护与断连恢复", "Memory and outage protection", "独立配置 OOM 保护，断连时使用有时限的决策缓存并暂停缩容。", "Configure OOM protection and bridge outages with time-limited, scale-up-only cached decisions.", "safety"),
+        ("book", "扩容及时性与追溯", "Scaling timeliness and audit", "结合就绪时间与真实负载评估扩容及时性，追踪推荐到执行。", "Evaluate capacity readiness against actual demand and trace advice through execution.", "scaling"),
     ]
     pillars_html = "".join(f'<article class="pillar"><div class="pillar-icon">{icon(i)}</div><h3>{label(lang, zh, en)}</h3><p>{label(lang, zhd, end)}</p><a class="text-link" href="{link("docs/"+page+".html")}">{label(lang, "了解更多", "Learn more")} {icon("arrow")}</a></article>' for i, zh, en, zhd, end, page in pillars)
     features_html = "".join(f'<a class="feature-item" href="{link("docs/"+page+".html")}"><span class="feature-icon">{icon(i)}</span><div><h3>{label(lang, zh, en)}</h3><p>{label(lang, zhd, end)}</p></div>{icon("arrow")}</a>' for i, zh, en, zhd, end, page in features)
@@ -196,7 +196,7 @@ def legacy(lang):
 def write(path, content):
     destination = OUTPUT / path
     destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_text(content, encoding="utf-8")
+    destination.write_text(content, encoding="utf-8", newline="\n")
 
 
 def main():
