@@ -197,6 +197,8 @@ func (s *Service) predictRun(ctx context.Context, b *model.AlgorithmRun) ([]Pred
 		step := time.Duration(series.StepSeconds) * time.Second
 		h := horizonOf(b, step)
 
+		s.keepTuned(ctx, b, bm, key, &in, h, step, predictedAt)
+
 		fctx, cancel := context.WithTimeout(ctx, budgetFor(b))
 		started := time.Now()
 		values, err := bm.model.Forecast(fctx, in, h)

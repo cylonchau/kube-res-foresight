@@ -24,6 +24,10 @@ type Input struct {
 	// first). Only algorithms that declare support use them, and only through their values strictly before the
 	// step being predicted, so a covariate can never carry information from the future.
 	Covariates map[string][]float64
+	// Series names the series in the forecasts of a model that keeps something about it between calls (the fine-tuned
+	// copy of a model service). It is set only for a live forecast: a backtest or a replay cuts the history and drops
+	// it, so those never use a copy that was tuned on data after their cutoff.
+	Series string
 }
 
 // TimeAt returns the timestamp of history index i (negative or past the end are valid).

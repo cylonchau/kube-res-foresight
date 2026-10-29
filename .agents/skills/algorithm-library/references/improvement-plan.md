@@ -77,7 +77,7 @@
 | A8 全局模型（设计） | 未开始 | |
 
 F2、F3、F4 已处理；F7 由 A4 处理；A3 补上分位输出；F1 由 A5 提供直接多步选项（默认仍递归）；F5、F6、F8、F9 仍未处理。已知后果：起点和窗口变了，旧回测记录与新记录的 WAPE 不可直接比较；已存的晋升按新的规则重跑回测才会更新。
-| A9 小型时序基础模型离线评估 | 已完成（离线评估，不接入） | 用现成镜像 `kingfs/unitshub`（Chronos-2、TimesFM 2.5）+ `scripts/tsfm-eval`，在平台自己的回测路径上与统计算法同起点对比。Chronos-2 的 WAPE 最低、P90 覆盖率达名义水平，但低估加权误差与 theta/ewma 差距不足以排先后；该镜像的 TimesFM 输出异常。数据只有约 5 小时合成负载，结论是“暂不接入”。详见 [foundation-models-a9.md](foundation-models-a9.md) |
+| A9 小型时序基础模型离线评估 | 已完成（离线评估，不接入） | 用现成镜像 `kingfs/unitshub`（Chronos-2、TimesFM 2.5）+ `scripts/tsfm-eval`，在平台自己的回测路径上与统计算法同起点对比。Chronos-2 的 WAPE 最低、P90 覆盖率达名义水平，但低估加权误差与 theta/ewma 差距不足以排先后；该镜像的 TimesFM 输出异常。数据只有约 5 小时合成负载，结论是“暂不接入”。详见 [foundation-models-a9.md](foundation-models-a9.md)。后续已把它做成可选的算法 `model_service`（默认关，微调参数由平台定义并传给服务） |
 | A10 周期画像分位数 | 已完成 | 新算法 `seasonal_profile`（统计类，默认不启用）：样本按 UTC 加 `utc_offset_minutes` 的「周几 + 一天中的时刻」分桶（`bucket_minutes` 须整除 1440），按 `half_life_days` 衰减，预测取所在桶的加权百分位（`percentile` 默认 90）；桶样本少于 `min_samples_per_bucket` 退到「每天同一时刻」，再不够退到整段历史的百分位，所以永远有答案、历史短时就是 hist_percentile。区分周几要至少两周历史。单测 `profile_envelope_combination_regime_test.go` |
 | A11 峰值包络趋势 | 已完成（「预计多久触顶」只是函数） | 新算法 `peak_envelope`：包络 = 最近 `envelope_window_steps` 步的滚动最大值，Theil-Sen 直线（最多 300 个点）外推；默认下降的斜率按平、不低于当前包络（`allow_decline=false`，用于防 OOM）、不为负。`TimeToLimit` 算包络到某个上限的时间（超过历史长度 10 倍不下结论）；**它还没有显示在页面或 OOM 说明里**。预测的是峰值，不适合拿去和均值比准确度 |
 | A12 组合预测 | 已完成（与计划略有不同） | 新算法 `combination`：`members`（2 到 6 个 id，默认 ewma,holt_winters,theta）、`mode`（inverse_error｜median）、`error_windows`。**与计划的区别：成员用各自的默认参数运行，只能选不需要必填参数的算法；权重来自这份历史自己的滚动误差，不读平台的晋升状态和算法页给成员设置的参数**——要用晋升状态配权重需要把组合做进预测流水线，没有做。组合和别的算法一样被回测、评分、晋升 |

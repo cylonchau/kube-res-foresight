@@ -1,6 +1,10 @@
 package forecast
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+	"time"
+)
 
 // builtinBuilders construct the models of the algorithms that ship with the platform. The parameters are already
 // validated and complete, so a lookup cannot miss.
@@ -16,6 +20,13 @@ var builtinBuilders = map[string]Builder{
 		return HoltWinters{Season: pInt(p, "season_length_steps"), Trend: pBool(p, "trend"), Damped: pBool(p, "damped"),
 			Alpha: pFloat(p, "alpha"), Beta: pFloat(p, "beta"), Gamma: pFloat(p, "gamma"),
 			Multiplicative: p["seasonal_mode"].(string) == "multiplicative", DampingPhi: pFloat(p, "damping_phi"), NonNegative: pBool(p, "non_negative")}, nil
+	},
+	"model_service": func(p map[string]any) (Model, error) {
+		return ModelService{Protocol: p["protocol"].(string), Endpoint: strings.TrimRight(p["endpoint"].(string), "/"), APIKeyEnv: p["api_key_env"].(string),
+			Timeout: time.Duration(pInt(p, "timeout_seconds")) * time.Second, FitTimeout: 30 * time.Minute, Quantile: pFloat(p, "service_quantile"),
+			Settings: TuneSettings{IntervalHours: pInt(p, "finetune_interval_hours"), Mode: p["finetune_mode"].(string), Steps: pInt(p, "finetune_steps"),
+				LearningRate: pFloat(p, "finetune_learning_rate"), BatchSize: pInt(p, "finetune_batch_size"), ContextLength: pInt(p, "finetune_context_length"),
+				MinPoints: pInt(p, "finetune_min_points")}}, nil
 	},
 	"theta": func(p map[string]any) (Model, error) {
 		return Theta{Season: pInt(p, "season_length_steps"), Alpha: pFloat(p, "alpha")}, nil
@@ -66,6 +77,22 @@ var builtinBuilders = map[string]Builder{
 
 // builtinChecks reject combinations of parameters that are each valid alone.
 var builtinChecks = map[string]func(raw map[string]any) error{
+	"model_service": func(raw map[string]any) error {
+		if e, _ := raw["endpoint"].(string); e != "" && !strings.HasPrefix(e, "http://") && !strings.HasPrefix(e, "https://") {
+			return fmt.Errorf("endpoint must start with http:// or https://")
+		}
+		if q, ok := rawNum(raw, "service_quantile"); ok && q != 0 && q < 0.5 {
+			return fmt.Errorf("service_quantile must be 0 (the mean) or at least 0.5, got %v", q)
+		}
+		protocol, _ := raw["protocol"].(string)
+		if protocol == "" {
+			protocol = ProtocolFinetune
+		}
+		if hours, ok := rawNum(raw, "finetune_interval_hours"); ok && hours > 0 && protocol != ProtocolFinetune {
+			return fmt.Errorf("protocol %s cannot be fine-tuned; use the finetune protocol or set finetune_interval_hours to 0", protocol)
+		}
+		return nil
+	},
 	"ewma": func(raw map[string]any) error {
 		_, hasAlpha := rawNum(raw, "alpha")
 		span, hasSpan := rawNum(raw, "span")

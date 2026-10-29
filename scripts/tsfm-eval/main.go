@@ -78,7 +78,7 @@ func (r *remote) invokeFT(in forecast.Input, horizon int) ([]float64, error) {
 		var fit struct {
 			Seconds float64 `json:"seconds"`
 		}
-		if err := post("/v1/fit", map[string]any{"series_id": sid, "values": in.Values, "horizon": horizon, "steps": r.tune}, &fit); err != nil {
+		if err := post("/v1/fit", map[string]any{"model_key": sid, "values": in.Values, "horizon": horizon, "steps": r.tune}, &fit); err != nil {
 			return nil, err
 		}
 		r.fitSeconds += fit.Seconds
@@ -91,7 +91,7 @@ func (r *remote) invokeFT(in forecast.Input, horizon int) ([]float64, error) {
 		Tuned     bool                 `json:"tuned"`
 		Quantiles map[string][]float64 `json:"quantiles"`
 	}
-	if err := post("/v1/predict", map[string]any{"series_id": sid, "values": in.Values, "horizon": horizon, "quantiles": []float64{q}}, &out); err != nil {
+	if err := post("/v1/predict", map[string]any{"model_key": sid, "values": in.Values, "horizon": horizon, "quantiles": []float64{q}}, &out); err != nil {
 		return nil, err
 	}
 	if out.Tuned != (r.tune > 0) {
