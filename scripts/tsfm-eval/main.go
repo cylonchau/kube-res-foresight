@@ -49,7 +49,7 @@ type remote struct {
 	fitSeconds  float64
 }
 
-func (r *remote) ID() string      { return r.label }
+func (r *remote) ID() string { return r.label }
 func (r *remote) MinSamples() int {
 	if r.tune > 0 {
 		return 200 // a copy tuned on fewer points than this learns the noise of the few windows it is given
