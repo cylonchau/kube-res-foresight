@@ -13,6 +13,7 @@ docs/*
 !docs/renaming.md
 !docs/汇报与演示.md
 **/node_modules/
+**/__pycache__/
 **/dist/
 !pkg/app/router/dist/
 pkg/app/router/dist/*

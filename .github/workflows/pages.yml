@@ -60,6 +60,11 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+      - name: Generate the Pages artifact from source
+        run: python scripts/build-site.py
       - uses: actions/configure-pages@v5
         id: pages
       - name: Set the 404 home URL
