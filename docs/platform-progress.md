@@ -522,3 +522,8 @@ all ten management pages and the shared product title. Screenshots were inspecte
 - 用现成的第三方镜像 `kingfs/unitshub`（Chronos-2、TimesFM 2.5，各一个容器，REST 调用，仅 CPU）而不是自己封装；新增 `scripts/tsfm-eval`，读平台库副本，用平台自己的回测在同一批起点上给基础模型和统计算法打分。开始时我自建了服务与镜像，构建 47 分钟仍在下载 CUDA 依赖，已中止并删除，没有留下结果。
 - 结果（8 条序列、各 7 个起点，视野 10 步）：Chronos-2 的 WAPE 0.145（统计算法最好 0.163），低估加权误差 0.324（theta 0.298、combination 0.308、ewma 0.313），差距不足以排先后；Chronos P90 覆盖率 0.90、峰值低估 0.059；TimesFM 在该镜像里输出异常（光滑正弦上就跳变），覆盖率 0.33。每次预测 Chronos 约 0.1 秒、TimesFM 约 1 秒。结论：暂不接入，详见 [foundation-models-a9.md](../.agents/skills/algorithm-library/references/foundation-models-a9.md)。
 - **没做、没验证**：两个现成镜像都只有预测接口，没有训练/微调接口，“周期提交数据训练”没有评估（需自己封装 Granite TTM 或 AutoGluon，另列）；数据只有约 5 小时合成负载；ridge_ar、gbdt 因必填参数没有参与对比，knn 在 load-web 上历史不足；没有查 TimesFM 异常的原因；镜像未做安全审查；没有接入平台算法注册表。
+
+2026-10-29：A9 补充，Chronos-2 微调服务与前后对比
+- 新增 `scripts/tsfm-eval/finetune/app.py`：挂载进现成的 unitshub chronos 镜像运行（该镜像的 chronos 包自带 Chronos-2 微调，Bolt 没有；无 peft，所以是全参数微调），提供提交序列微调和预测两个接口；评估程序支持 `ft` / `ft:N` 比较预训练与微调。
+- 机制验证（`load-web` 两条序列、各 4 个起点、微调 30 步）：微调后 WAPE 0.171 对预训练 0.173，低估加权误差 0.424 对 0.408，每次预测约 40 秒。**样本太少，不是结论**。
+- **没做**：几天以上真实历史上的正式对比（现有每条序列约 16 小时，集群中途停过一段）；微调超参和 LoRA；微调后模型的保存与复用；TimesFM 异常原因。

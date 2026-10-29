@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -40,18 +41,85 @@ type remote struct {
 	key      string
 	quantile float64 // 0 = the mean forecast
 	client   *http.Client
+	tune     int // ft only: fine-tuning steps submitted before every prediction (0 = the pretrained model)
+	tag      string
 
 	calls       int
 	wallSeconds float64
+	fitSeconds  float64
 }
 
 func (r *remote) ID() string      { return r.label }
-func (r *remote) MinSamples() int { return 30 }
+func (r *remote) MinSamples() int {
+	if r.tune > 0 {
+		return 200 // a copy tuned on fewer points than this learns the noise of the few windows it is given
+	}
+	return 30
+}
+
+// invokeFT is the fine-tuning front (finetune/app.py): submit the history before the cutoff, then predict from the copy
+// tuned on it. The series id carries the cutoff, so a tuned copy is never used for another cutoff.
+func (r *remote) invokeFT(in forecast.Input, horizon int) ([]float64, error) {
+	post := func(path string, body, out any) error {
+		raw, _ := json.Marshal(body)
+		resp, err := r.client.Post(r.url+path, "application/json", bytes.NewReader(raw))
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+		data, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("%s: %d %.200s", path, resp.StatusCode, strings.TrimSpace(string(data)))
+		}
+		return json.Unmarshal(data, out)
+	}
+	sid := fmt.Sprintf("%s@%d", r.tag, in.End.Unix())
+	if r.tune > 0 {
+		var fit struct {
+			Seconds float64 `json:"seconds"`
+		}
+		if err := post("/v1/fit", map[string]any{"series_id": sid, "values": in.Values, "horizon": horizon, "steps": r.tune}, &fit); err != nil {
+			return nil, err
+		}
+		r.fitSeconds += fit.Seconds
+	}
+	q := 0.5
+	if r.quantile > 0 {
+		q = r.quantile
+	}
+	var out struct {
+		Tuned     bool                 `json:"tuned"`
+		Quantiles map[string][]float64 `json:"quantiles"`
+	}
+	if err := post("/v1/predict", map[string]any{"series_id": sid, "values": in.Values, "horizon": horizon, "quantiles": []float64{q}}, &out); err != nil {
+		return nil, err
+	}
+	if out.Tuned != (r.tune > 0) {
+		return nil, fmt.Errorf("the service answered with tuned=%v, expected %v", out.Tuned, r.tune > 0)
+	}
+	return out.Quantiles[fmt.Sprintf("%g", q)], nil
+}
 
 func (r *remote) Forecast(_ context.Context, in forecast.Input, horizon int) ([]float64, error) {
 	started := time.Now()
 	var body map[string]any
 	switch r.kind {
+	case "ft":
+		vals, err := r.invokeFT(in, horizon)
+		if err != nil {
+			return nil, err
+		}
+		if len(vals) != horizon {
+			return nil, fmt.Errorf("asked for %d steps, got %d", horizon, len(vals))
+		}
+		for i, v := range vals {
+			if v < 0 {
+				vals[i] = 0
+			}
+		}
+		r.calls++
+		r.wallSeconds += time.Since(started).Seconds()
+		return vals, nil
 	case "chronos":
 		q := r.quantile
 		if q == 0 {
@@ -112,6 +180,7 @@ type row struct {
 	module, source, label string
 	res                   backtest.Result
 	perCall               float64
+	fitPer                float64
 	note                  string
 }
 
@@ -209,7 +278,20 @@ func run(dbPath, key string, models, locals []string, horizon, cutoffs int, only
 		for _, spec := range models {
 			kind, url, ok := strings.Cut(spec, "=")
 			if !ok {
-				return fmt.Errorf("-models %q: want kind=url", spec)
+				return fmt.Errorf("-models %q: want kind=url (ft:STEPS=url fine-tunes STEPS steps before every prediction)", spec)
+			}
+			if k, steps, tuned := strings.Cut(kind, ":"); tuned && k == "ft" {
+				n, err := strconv.Atoi(steps)
+				if err != nil || n <= 0 {
+					return fmt.Errorf("-models %q: bad number of steps", spec)
+				}
+				label := fmt.Sprintf("chronos2-tuned-%d", n)
+				cands = append(cands, candidate{r: &remote{kind: "ft", label: label, url: url, tune: n, client: client, tag: fmt.Sprintf("%s/%s/%d", s.Name, s.Metric, n)}, label: label, alpha: 0.5})
+				continue
+			}
+			if kind == "ft" {
+				cands = append(cands, candidate{r: &remote{kind: "ft", label: "chronos2-pretrained", url: url, client: client, tag: fmt.Sprintf("%s/%s/0", s.Name, s.Metric)}, label: "chronos2-pretrained", alpha: 0.5})
+				continue
 			}
 			cands = append(cands, candidate{r: &remote{kind: kind, label: kind, url: url, key: key, client: client}, label: kind, alpha: 0.5})
 			if kind == "chronos" {
@@ -238,6 +320,7 @@ func run(dbPath, key string, models, locals []string, horizon, cutoffs int, only
 			}
 			if c.r != nil && c.r.calls > 0 {
 				r.perCall = c.r.wallSeconds / float64(c.r.calls)
+				r.fitPer = c.r.fitSeconds / float64(c.r.calls)
 			} else if len(origins) > 0 {
 				r.perCall = time.Since(started).Seconds() / float64(len(origins))
 			}
@@ -251,8 +334,8 @@ func run(dbPath, key string, models, locals []string, horizon, cutoffs int, only
 func printTables(rows []row, horizon int) {
 	fmt.Println("## Per series")
 	fmt.Println()
-	fmt.Println("| module | source | model | cutoffs | points | WAPE | risk WAPE | peak under | coverage | s per forecast | note |")
-	fmt.Println("|---|---|---|---|---|---|---|---|---|---|---|")
+	fmt.Println("| module | source | model | cutoffs | points | WAPE | risk WAPE | peak under | coverage | s per forecast | s of it fitting | note |")
+	fmt.Println("|---|---|---|---|---|---|---|---|---|---|---|---|")
 	for _, r := range rows {
 		if r.res.Points == 0 {
 			fmt.Printf("| %s | %s | %s | | | | | | | | %s |\n", r.module, r.source, r.label, r.note)
