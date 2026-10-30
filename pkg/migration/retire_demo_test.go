@@ -72,3 +72,27 @@ func TestRetireDemoLeavesADatasourceThatIsNotOfTheDemoType(t *testing.T) {
 	require.Empty(t, removed)
 	require.EqualValues(t, 1, count(t, db, &model.Datasource{}, "name = ?", retiredDemoDatasource))
 }
+
+// The records of scaling and replaced Pods were let in by a switch; neither is an admission. The upgrade removes the switch and those
+// records and leaves every real admission.
+func TestRetireScaleAdmissionsRemovesOnlyTheScaleRecordsAndTheirSwitch(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(model.Models...))
+	require.NoError(t, db.Create(&model.SysConfig{ConfigKey: retiredAdmissionScaleKey, ConfigValue: "true", ConfigName: "x"}).Error)
+	require.NoError(t, db.Create(&model.SysConfig{ConfigKey: "forecast.decision_max_age_seconds", ConfigValue: "60", ConfigName: "y"}).Error)
+	for _, origin := range []string{"deploy", "rollout", "scale", "scale", ""} {
+		require.NoError(t, db.Create(&model.AdmissionDecision{ModuleID: 1, Namespace: "prod", Workload: "api", Origin: origin}).Error)
+	}
+
+	n, err := retireScaleAdmissions(db)
+	require.NoError(t, err)
+	require.EqualValues(t, 2, n)
+	require.Zero(t, count(t, db, &model.SysConfig{}, "config_key = ?", retiredAdmissionScaleKey))
+	require.EqualValues(t, 1, count(t, db, &model.SysConfig{}, "config_key = ?", "forecast.decision_max_age_seconds"), "other parameters stay")
+	require.EqualValues(t, 3, count(t, db, &model.AdmissionDecision{}, "origin <> ?", "scale"), "the creation, the rollout and the record without an origin stay")
+
+	n, err = retireScaleAdmissions(db)
+	require.NoError(t, err)
+	require.Zero(t, n, "a second run finds nothing")
+}

@@ -307,7 +307,6 @@ type AdmissionDecision struct {
 // Origins of an admission request.
 const (
 	AdmissionRollout = "rollout"
-	AdmissionScale   = "scale"
 	AdmissionDeploy  = "deploy"
 )
 

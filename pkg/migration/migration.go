@@ -79,6 +79,11 @@ func Migrate(driver string) error {
 	for _, what := range removedDemo {
 		fmt.Printf("upgrade: removed the retired demo: %s\n", what)
 	}
+	if n, err := retireScaleAdmissions(model.DB); err != nil {
+		return err
+	} else if n > 0 {
+		fmt.Printf("upgrade: removed %d admission records of scaling or replaced Pods (they are not admissions)\n", n)
+	}
 	if err := repairBrokenRemarks(model.DB); err != nil {
 		return err
 	}
@@ -267,7 +272,6 @@ func EnsureDefaultConfigs() error {
 		{ConfigKey: "forecast.short_term_down_share", ConfigValue: "0", ConfigName: "Short-Term Correction: Share Of A Fall Followed", Remark: "The share of a fall below the long-period forecast that is followed. 0 never lowers the forecast (an algorithm that forecasts high on purpose, a percentile or an envelope, stays high); 1 follows fully."},
 		{ConfigKey: "forecast.history_retention_days", ConfigValue: "0", ConfigName: "History Retention Days", Remark: "How many days the forecast history is kept: predictions, trainings, backtests, measured evaluations, recommendations, the operator's reports, admission records and scale-up records. The hourly task deletes what is older. 0 keeps the built-in periods (30 days for predictions, trainings, reports and records; 180 days for backtests, evaluations and recommendations). Snapshots and algorithm evaluations are capped by their own parameters. Not below 7 days if the dynamic replica uncertainty should rest on a month of evaluations."},
 		{ConfigKey: "forecast.evaluation_max_per_module", ConfigValue: "20000", ConfigName: "Measured Evaluations Kept Per Module", Remark: "How many measured evaluations (a finished forecast compared with the load that came) a module keeps, the newest ones. The hourly task deletes the older ones, so the evaluation pages stay light. At least 100."},
-		{ConfigKey: "forecast.admission_record_scaling", ConfigValue: "false", ConfigName: "Record Scaling Pods As Admissions", Remark: "An admission record is kept for the creation of a workload and for the first Pod of each new revision (a deployment or an update). The further Pods of a revision, which scaling up or a replaced Pod creates, are answered the same but not recorded. true also records them."},
 		{ConfigKey: "forecast.score_max_per_module", ConfigValue: "300", ConfigName: "Algorithm Evaluations Kept Per Module", Remark: "How many algorithm evaluations (one evaluation scores every algorithm of the module at one time) a module keeps in the score records; the oldest beyond it are deleted automatically, for example 30 or 300."},
 		{ConfigKey: "forecast.resource_hold_hours", ConfigValue: "24", ConfigName: "Pod Resource Hold Hours", Remark: "A decrease of the Pod CPU and memory spec waits until the spec has stood this many hours; an increase, a fixed period, a bypass and the OOM protection act at once."},
 		{ConfigKey: "sys.auth.login_failure_threshold", ConfigValue: "3", ConfigName: "Login Failures Before Captcha", Remark: "Failed logins within the window after which the account and address must solve a captcha (1-100)."},

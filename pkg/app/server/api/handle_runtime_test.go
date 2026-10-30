@@ -405,7 +405,7 @@ func TestOperatorModulesListsTheWorkloadsTheOperatorMayScaleStraightFromTheModul
 }
 
 // A record is a deployment, an update or a creation that reached the admission policy: the first Pod of a revision the platform had
-// not seen. The further Pods of that revision (the operator scaling up, a replaced Pod) are answered but not kept, unless asked for.
+// not seen. The further Pods of that revision (the operator scaling up, a replaced Pod) are answered but never kept.
 func TestOnlyARolloutAndTheCreationOfAWorkloadAreKeptAsAdmissionRecords(t *testing.T) {
 	r, cpu := forecastTestRouter(t)
 	m := seedModule(t, cpu.ID, model.ModeAdmission, nil)
@@ -436,14 +436,11 @@ func TestOnlyARolloutAndTheCreationOfAWorkloadAreKeptAsAdmissionRecords(t *testi
 	require.Len(t, list, 3)
 	assert.Equal(t, "rollout", list[2].(map[string]any)["origin"])
 
-	// asked for, the Pods of a known revision are kept too, and marked
-	require.NoError(t, model.DB.Create(&model.SysConfig{ConfigKey: ConfigAdmissionRecordScaling, ConfigValue: "true", ConfigName: "x"}).Error)
+	// there is no switch that keeps them: scaling and replaced Pods are not admissions
 	ask(base + "&revision=def")
-	list = records()
-	require.Len(t, list, 4)
-	assert.Equal(t, "scale", list[3].(map[string]any)["origin"])
+	assert.Len(t, records(), 3)
 
 	// a caller that sends no revision keeps one record per request, as before
 	ask(base)
-	assert.Len(t, records(), 5)
+	assert.Len(t, records(), 4)
 }

@@ -376,14 +376,11 @@ type AdmissionAnswer struct {
 	Score     float64 `json:"score,omitempty"`
 }
 
-// ConfigAdmissionRecordScaling makes the platform also keep a record for the Pods that scaling or a replacement creates in a revision
-// it has already seen; by default only the first Pod of a new revision (a rollout) and the creation of the workload are kept.
-const ConfigAdmissionRecordScaling = "forecast.admission_record_scaling"
-
-// recordAdmission keeps the record of an admission request, unless the request is one more Pod of a revision the platform already
-// answered for (scaling up, or a replaced Pod): that is a real admission of the Kyverno policy, but not a deployment, update or
-// creation, and an operator that scales a workload every few minutes would otherwise fill the page with them. The decision about a
-// request and its record are made under one lock, so the Pods of one rollout that arrive together are one rollout, not several.
+// recordAdmission keeps the record of an admission: the creation of a workload, and the first Pod of a revision the platform had not seen
+// (a deployment or an update). Scaling up and a replaced Pod create more Pods of a revision that was already answered for: they are
+// answered the same, but they are not admissions of a deployment, an update or a creation, so no record is kept (there is no switch for
+// it). The decision about a request and its record are made under one lock, so the Pods of one rollout that arrive together are one
+// rollout, not several.
 func (r *RuntimeRouter) recordAdmission(c *gin.Context, m *model.ForecastModule, namespace, workload, container string, out *AdmissionAnswer, original [2]int64) {
 	ctx := c.Request.Context()
 	revision := clip(strings.TrimSpace(c.Query("revision")), 64)
@@ -396,10 +393,7 @@ func (r *RuntimeRouter) recordAdmission(c *gin.Context, m *model.ForecastModule,
 	case revision != "":
 		origin = model.AdmissionRollout
 		if last, err := r.Predictions.LatestAdmission(ctx, m.ID); err == nil && last != nil && last.Revision == revision {
-			origin = model.AdmissionScale
-			if !r.modeOpen(c, ConfigAdmissionRecordScaling) {
-				return
-			}
+			return // one more Pod of a revision already answered for: scaling or a replaced Pod, not an admission to record
 		}
 	}
 	_ = r.Predictions.SaveAdmission(ctx, &model.AdmissionDecision{ModuleID: m.ID, Namespace: clip(namespace, 253),

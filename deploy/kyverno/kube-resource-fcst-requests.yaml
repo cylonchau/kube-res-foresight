@@ -18,7 +18,7 @@
 #
 # The platform keeps an admission record for the first Pod of each revision (a deployment or an update: the pod-template-hash of a
 # Deployment, the controller revision of a StatefulSet or DaemonSet, sent as `revision`). The further Pods of a revision, which scaling
-# or a replaced Pod creates, are answered the same but not recorded unless forecast.admission_record_scaling is true.
+# or a replaced Pod creates, are answered the same but never recorded: they are not admissions of a deployment or an update.
 #
 # Only NEW Pods are changed: a running Pod keeps its values until its workload rolls (kubectl rollout restart).
 # The platform matches the module by namespace, kind and name; the Deployment name is the ReplicaSet name without its hash.

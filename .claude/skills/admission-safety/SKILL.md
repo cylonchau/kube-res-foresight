@@ -9,7 +9,7 @@ description: 用于 kube-resource-fcst Pod 资源准入、固定周期、默认�
 
 ## 准入记录只留真实的部署／更新（R20）
 
-`admission_decision` 只由 `GET /admission/recommendations` 写，预测、周期计算、副本决策从不写。策略传 `revision`（pod-template-hash 或 controller-revision-hash）：创建工作负载的询问（`container=-`）记「创建」，一个版本的第一个 Pod 记「部署／更新」，同版本其余 Pod（扩容、替换）照常回答但不记，除非 `forecast.admission_record_scaling=true`。判断与写入在 `RuntimeRouter.admissionMu` 下完成。改这里要同步 `TestOnlyARolloutAndTheCreationOfAWorkloadAreKeptAsAdmissionRecords` 和 `deploy/kyverno/kube-resource-fcst-requests.yaml`。
+`admission_decision` 只由 `GET /admission/recommendations` 写，预测、周期计算、副本决策从不写。策略传 `revision`（pod-template-hash 或 controller-revision-hash）：创建工作负载的询问（`container=-`）记「创建」，一个版本的第一个 Pod 记「部署／更新」，同版本其余 Pod（扩容、替换）不是准入操作：照常回答但**不记录，也没有开关**（2026-10-31 删除了 `forecast.admission_record_scaling` 与「扩容／替换」来源；`--migration` 会删掉已有的这类记录）。`rollout restart` 在 Kyverno 看来和更新一样是新版本的第一个 Pod，无法区分，仍记为「部署／更新」。判断与写入在 `RuntimeRouter.admissionMu` 下完成。改这里要同步 `TestOnlyARolloutAndTheCreationOfAWorkloadAreKeptAsAdmissionRecords` 和 `deploy/kyverno/kube-resource-fcst-requests.yaml`。
 
 ## 实施流程
 
