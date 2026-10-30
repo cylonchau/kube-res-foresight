@@ -1,13 +1,10 @@
-// Package controller holds the reconciler of kube-resource-fcst-operator. The scaling rules live in Plan, a pure
-// function, so every safety rule can be tested without a cluster; the Reconciler only gathers its inputs and
-// applies its result.
+// Package controller holds the scaling engine of kube-resource-fcst-operator. The scaling rules live in MakePlan, a pure
+// function, so every safety rule can be tested without a cluster; the Applier only gathers its inputs and applies its result.
 package controller
 
 import (
 	"fmt"
 	"time"
-
-	"github.com/cylonchau/kube-resource-fcst/pkg/operator/api/v1alpha1"
 )
 
 // Decision is the desired replica count read from a decision source.
@@ -15,7 +12,7 @@ type Decision struct {
 	Replicas   int32
 	Source     string
 	Version    int64
-	ValidUntil *time.Time // nil = never expires (static)
+	ValidUntil *time.Time // nil = never expires
 	CreatedAt  *time.Time // when the source made the decision, nil when it does not say
 	Reason     string
 	// Algorithm and Score are the algorithm instance behind the decision and its score (platform decisions).
@@ -48,7 +45,7 @@ const (
 // PlanInput is everything the scaling rules depend on.
 type PlanInput struct {
 	Now       time.Time
-	Spec      v1alpha1.PredictiveScalerSpec
+	Spec      Spec
 	Current   int32
 	Ready     int32
 	LastScale *time.Time
@@ -176,9 +173,9 @@ func MakePlan(in PlanInput) Plan {
 	if urgent {
 		p.Reason += "; urgent: the load is above the forecast, no cooldown and no step limit"
 	}
-	if !boundsForced && !urgent && rule.Cooldown != nil && in.LastScale != nil {
-		if since := in.Now.Sub(*in.LastScale); since < rule.Cooldown.Duration {
-			p.Blocked = fmt.Sprintf("cooldown: %s since the last scaling action, %s required", since.Round(time.Second), rule.Cooldown.Duration)
+	if !boundsForced && !urgent && rule.Cooldown > 0 && in.LastScale != nil {
+		if since := in.Now.Sub(*in.LastScale); since < rule.Cooldown {
+			p.Blocked = fmt.Sprintf("cooldown: %s since the last scaling action, %s required", since.Round(time.Second), rule.Cooldown)
 			p.Desired, p.Action = in.Current, ActionNone
 			return p
 		}

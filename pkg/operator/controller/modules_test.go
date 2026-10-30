@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/operator/api/v1alpha1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
@@ -71,10 +70,9 @@ func moduleSync(t *testing.T, p *fakePlatform, objs ...client.Object) (*ModuleSy
 	srv := httptest.NewServer(p.handler())
 	t.Cleanup(srv.Close)
 	c := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(objs...).Build()
-	platform := &PlatformDecider{Reader: c, Endpoint: &PlatformEndpoint{URL: srv.URL, Credential: "ak:sk", Client: srv.Client()}}
-	rec := &Reconciler{Client: c, Scheme: testScheme(t), Reporter: platform, NoCRD: true, Now: func() time.Time { return now },
-		Deciders: map[v1alpha1.DecisionSource]Decider{v1alpha1.SourcePlatformAPI: platform}}
-	return &ModuleSync{Reconciler: rec, Platform: platform}, c
+	platform := &PlatformDecider{Endpoint: &PlatformEndpoint{URL: srv.URL, Credential: "ak:sk", Client: srv.Client()}}
+	applier := &Applier{Client: c, Reporter: platform, Now: func() time.Time { return now }, Decider: platform}
+	return &ModuleSync{Applier: applier, Platform: platform}, c
 }
 
 func replicasOf(t *testing.T, c client.Client) int32 {
@@ -88,16 +86,16 @@ func apiModule() PlatformModule {
 	return PlatformModule{Name: "api", Namespace: "prod", WorkloadKind: "Deployment", Workload: "api", MinReplicas: 2, MaxReplicas: 10, ScaleUpMaxStep: 3}
 }
 
-func TestModuleSyncScalesAWorkloadFromTheModuleConfigWithoutAnyPredictiveScaler(t *testing.T) {
+func TestModuleSyncScalesAWorkloadFromTheModuleConfigAndCreatesNothingInTheCluster(t *testing.T) {
 	p := &fakePlatform{modules: []PlatformModule{apiModule()}, replicas: 9}
 	s, c := moduleSync(t, p, deployment(4, 4))
 
 	s.Once(context.Background())
 	assert.EqualValues(t, 7, replicasOf(t, c), "the module's scale-up step of 3 limits the move from 4 to 9")
 	assert.Equal(t, "kube-resource-fcst-AK ak:sk", p.seenAuth)
-	var scalers v1alpha1.PredictiveScalerList
-	require.NoError(t, c.List(context.Background(), &scalers))
-	assert.Empty(t, scalers.Items, "no object is created in the cluster")
+	var deployments appsv1.DeploymentList
+	require.NoError(t, c.List(context.Background(), &deployments))
+	assert.Len(t, deployments.Items, 1, "the only object in the cluster is the workload, whose replicas were written")
 	require.NotEmpty(t, p.reports)
 	assert.Equal(t, "api", p.reports[len(p.reports)-1].Module, "the platform is told which module acted")
 
@@ -134,7 +132,7 @@ func TestModuleSyncLeavesTheReplicasAloneWhenThePlatformCannotBeReadOrTheModuleI
 	assert.EqualValues(t, 4, replicasOf(t, c))
 }
 
-func TestModuleSyncRefusesAModuleWithoutAUsableMaximumAndYieldsToAPredictiveScalerObject(t *testing.T) {
+func TestAModuleWithoutAUsableMaximumIsRefused(t *testing.T) {
 	bad := apiModule()
 	bad.MaxReplicas = 0
 	_, err := bad.Scaler(nil)
@@ -143,27 +141,23 @@ func TestModuleSyncRefusesAModuleWithoutAUsableMaximumAndYieldsToAPredictiveScal
 	bad.MinReplicas = 11
 	_, err = bad.Scaler(nil)
 	assert.Error(t, err)
-
-	p := &fakePlatform{modules: []PlatformModule{apiModule()}, replicas: 9}
-	s, c := moduleSync(t, p, deployment(4, 4), scaler(v1alpha1.ModeObserve))
-	s.Reconciler.NoCRD = false
-	s.Once(context.Background())
-	assert.EqualValues(t, 4, replicasOf(t, c), "an explicit PredictiveScaler of the same workload takes precedence")
 }
 
-func TestModuleDrivenScalerCarriesTheModulePace(t *testing.T) {
+func TestTheScalerOfAModuleCarriesTheModulePace(t *testing.T) {
 	m := apiModule()
 	m.FallbackReplicas, m.ScaleDownCooldownSeconds, m.ScaleDownMaxStep = 4, 120, 2
 	last := now.Add(-time.Minute)
-	ps, err := m.Scaler(&last)
+	sc, err := m.Scaler(&last)
 	require.NoError(t, err)
-	assert.True(t, IsModuleDriven(ps))
-	assert.Equal(t, v1alpha1.ModeAuto, ps.Spec.Mode)
-	require.NotNil(t, ps.Spec.FallbackReplicas)
-	assert.EqualValues(t, 4, *ps.Spec.FallbackReplicas)
-	assert.EqualValues(t, 3, ps.Spec.Behavior.ScaleUp.MaxStep)
-	assert.Nil(t, ps.Spec.Behavior.ScaleUp.Cooldown)
-	assert.Equal(t, 120*time.Second, ps.Spec.Behavior.ScaleDown.Cooldown.Duration)
-	assert.Equal(t, "api", ps.Spec.Decision.PlatformAPI.Module)
-	require.NotNil(t, ps.Status.LastScaleTime, "the cooldown clock survives between rounds")
+	assert.Equal(t, "api", sc.Module)
+	assert.Equal(t, "module-api", sc.Name)
+	assert.Equal(t, TargetRef{Kind: "Deployment", Name: "api"}, sc.Target)
+	require.NotNil(t, sc.Spec.FallbackReplicas)
+	assert.EqualValues(t, 4, *sc.Spec.FallbackReplicas)
+	assert.EqualValues(t, 3, sc.Spec.Behavior.ScaleUp.MaxStep)
+	assert.Zero(t, sc.Spec.Behavior.ScaleUp.Cooldown)
+	assert.EqualValues(t, 2, sc.Spec.Behavior.ScaleDown.MaxStep)
+	assert.Equal(t, 120*time.Second, sc.Spec.Behavior.ScaleDown.Cooldown)
+	require.NotNil(t, sc.LastScale, "the cooldown clock survives between rounds")
+	assert.True(t, sc.LastScale.Equal(last))
 }

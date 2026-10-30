@@ -4,15 +4,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/operator/api/v1alpha1"
 	"github.com/stretchr/testify/assert"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 var now = time.Date(2026, 3, 4, 10, 0, 0, 0, time.UTC)
 
-func spec() v1alpha1.PredictiveScalerSpec {
-	return v1alpha1.PredictiveScalerSpec{MinReplicas: 2, MaxReplicas: 20}
+func spec() Spec {
+	return Spec{MinReplicas: 2, MaxReplicas: 20}
 }
 
 func fresh(replicas int32) *Decision {
@@ -99,17 +97,17 @@ func TestCooldownHoldsAThatDirectionOnly(t *testing.T) {
 	last := now.Add(-30 * time.Second)
 	pi := in(4, 4, fresh(9))
 	pi.LastScale = &last
-	pi.Spec.Behavior.ScaleUp.Cooldown = &metav1.Duration{Duration: time.Minute}
+	pi.Spec.Behavior.ScaleUp.Cooldown = time.Minute
 	p := MakePlan(pi)
 	assert.Equal(t, ActionNone, p.Action)
 	assert.Contains(t, p.Blocked, "cooldown")
 
-	pi.Spec.Behavior.ScaleUp.Cooldown = &metav1.Duration{Duration: 10 * time.Second}
+	pi.Spec.Behavior.ScaleUp.Cooldown = 10 * time.Second
 	assert.Equal(t, ActionUp, MakePlan(pi).Action, "the cooldown has passed")
 
 	pi = in(9, 9, fresh(4))
 	pi.LastScale = &last
-	pi.Spec.Behavior.ScaleUp.Cooldown = &metav1.Duration{Duration: time.Hour}
+	pi.Spec.Behavior.ScaleUp.Cooldown = time.Hour
 	assert.Equal(t, ActionDown, MakePlan(pi).Action, "the up cooldown does not hold a scale-down")
 }
 
@@ -117,7 +115,7 @@ func TestCooldownDoesNotBlockBoundsEnforcement(t *testing.T) {
 	last := now.Add(-time.Second)
 	pi := in(30, 30, fresh(10))
 	pi.LastScale = &last
-	pi.Spec.Behavior.ScaleDown.Cooldown = &metav1.Duration{Duration: time.Hour}
+	pi.Spec.Behavior.ScaleDown.Cooldown = time.Hour
 	p := MakePlan(pi)
 	assert.Equal(t, ActionDown, p.Action)
 }
@@ -176,7 +174,7 @@ func TestThePlatformsHardBoundsHoldEvenWhenTheSpecIsWider(t *testing.T) {
 
 func TestAnUrgentScaleUpIgnoresTheCooldownAndTheStepLimit(t *testing.T) {
 	s := spec()
-	s.Behavior.ScaleUp = v1alpha1.ScaleRule{MaxStep: 2, Cooldown: &metav1.Duration{Duration: 5 * time.Minute}}
+	s.Behavior.ScaleUp = ScaleRule{MaxStep: 2, Cooldown: 5 * time.Minute}
 	last := now.Add(-time.Minute)
 	pi := PlanInput{Now: now, Spec: s, Current: 4, Ready: 4, LastScale: &last, Decision: fresh(14)}
 	held := MakePlan(pi)
@@ -190,6 +188,6 @@ func TestAnUrgentScaleUpIgnoresTheCooldownAndTheStepLimit(t *testing.T) {
 
 	// urgency never loosens a scale-down
 	pi.Current, pi.Ready, pi.Decision = 14, 14, &Decision{Replicas: 4, Urgent: true, ValidUntil: fresh(4).ValidUntil}
-	pi.Spec.Behavior.ScaleDown = v1alpha1.ScaleRule{MaxStep: 1}
+	pi.Spec.Behavior.ScaleDown = ScaleRule{MaxStep: 1}
 	assert.EqualValues(t, 13, MakePlan(pi).Desired)
 }

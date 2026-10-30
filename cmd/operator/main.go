@@ -1,4 +1,4 @@
-// Command kube-resource-fcst-operator runs only the PredictiveScaler controller. It does not link the web assets,
+// Command kube-resource-fcst-operator scales the workloads of the platform modules. It does not link the web assets,
 // so the image stays small and needs nothing but cluster access.
 package main
 

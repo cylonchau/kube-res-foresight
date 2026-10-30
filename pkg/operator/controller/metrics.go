@@ -5,8 +5,6 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
-
-	"github.com/cylonchau/kube-resource-fcst/pkg/operator/api/v1alpha1"
 )
 
 // Metrics are the business metrics of kube-resource-fcst-operator, served by the controller-runtime metrics endpoint.
@@ -19,8 +17,6 @@ type Metrics struct {
 	conflicts         *prometheus.CounterVec
 	platformRequests  *prometheus.CounterVec
 	platformDuration  prometheus.Histogram
-	prometheusReads   *prometheus.CounterVec
-	prometheusLatency prometheus.Histogram
 
 	desired, current, ready *prometheus.GaugeVec
 	decisionValid           *prometheus.GaugeVec
@@ -34,21 +30,17 @@ type Metrics struct {
 func NewMetrics(reg prometheus.Registerer) *Metrics {
 	m := &Metrics{
 		reconciles: prometheus.NewCounterVec(prometheus.CounterOpts{Name: "kube_resource_fcst_operator_reconciles_total",
-			Help: "Evaluations of a PredictiveScaler by result (applied, observed, held, conflict, error)."}, []string{"result"}),
+			Help: "Evaluations of a module by result (applied, observed, held, conflict, error)."}, []string{"result"}),
 		reconcileDuration: prometheus.NewHistogram(prometheus.HistogramOpts{Name: "kube_resource_fcst_operator_reconcile_duration_seconds",
 			Help: "Time one evaluation took.", Buckets: []float64{0.005, 0.025, 0.1, 0.25, 0.5, 1, 2.5, 5, 10}}),
 		scaleActions: prometheus.NewCounterVec(prometheus.CounterOpts{Name: "kube_resource_fcst_operator_scale_actions_total",
 			Help: "Scaling actions by direction (up, down) and result (applied, failed, observed when only reported)."}, []string{"direction", "result"}),
 		conflicts: prometheus.NewCounterVec(prometheus.CounterOpts{Name: "kube_resource_fcst_operator_conflicts_total",
-			Help: "Evaluations skipped because another autoscaler controls the target, by source (hpa, keda, predictivescaler)."}, []string{"source"}),
+			Help: "Evaluations skipped because another autoscaler controls the target, by source (hpa, keda)."}, []string{"source"}),
 		platformRequests: prometheus.NewCounterVec(prometheus.CounterOpts{Name: "kube_resource_fcst_operator_platform_requests_total",
 			Help: "Requests to the kube-resource-fcst platform by result (ok, error)."}, []string{"result"}),
 		platformDuration: prometheus.NewHistogram(prometheus.HistogramOpts{Name: "kube_resource_fcst_operator_platform_request_duration_seconds",
 			Help: "Time one platform request took.", Buckets: []float64{0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10}}),
-		prometheusReads: prometheus.NewCounterVec(prometheus.CounterOpts{Name: "kube_resource_fcst_operator_prometheus_reads_total",
-			Help: "Reads of the Prometheus decision source by result (ok, error)."}, []string{"result"}),
-		prometheusLatency: prometheus.NewHistogram(prometheus.HistogramOpts{Name: "kube_resource_fcst_operator_prometheus_read_duration_seconds",
-			Help: "Time one Prometheus read took.", Buckets: []float64{0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10}}),
 		desired: prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "kube_resource_fcst_operator_desired_replicas",
 			Help: "Replicas the operator wants after the safety checks."}, []string{"module"}),
 		current: prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "kube_resource_fcst_operator_current_replicas",
@@ -68,17 +60,17 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 	}
 	if reg != nil {
 		reg.MustRegister(m.reconciles, m.reconcileDuration, m.scaleActions, m.conflicts, m.platformRequests, m.platformDuration,
-			m.prometheusReads, m.prometheusLatency, m.desired, m.current, m.ready, m.decisionValid, m.decisionExpiresIn, m.decisionAge, m.decisionSources, m.cacheAge)
+			m.desired, m.current, m.ready, m.decisionValid, m.decisionExpiresIn, m.decisionAge, m.decisionSources, m.cacheAge)
 	}
 	return m
 }
 
 // moduleLabel names the series of a scaler: the platform module it follows, else its own name.
-func moduleLabel(ps *v1alpha1.PredictiveScaler) string {
-	if ps.Spec.Decision.PlatformAPI != nil && ps.Spec.Decision.PlatformAPI.Module != "" {
-		return ps.Spec.Decision.PlatformAPI.Module
+func moduleLabel(s *Scaler) string {
+	if s.Module != "" {
+		return s.Module
 	}
-	return ps.Name
+	return s.Name
 }
 
 // conflictSource classifies the conflict message of the reconciler.
@@ -88,15 +80,13 @@ func conflictSource(conflict string) string {
 		return "hpa"
 	case strings.HasPrefix(conflict, "KEDA"):
 		return "keda"
-	case strings.HasPrefix(conflict, "PredictiveScaler"):
-		return "predictivescaler"
 	}
 	return "other"
 }
 
 // The recording methods are safe on a nil *Metrics.
 
-func (m *Metrics) recordReconcile(ps *v1alpha1.PredictiveScaler, result string, took time.Duration, current, ready, desired int32, in PlanInput, plan Plan, now time.Time) {
+func (m *Metrics) recordReconcile(ps *Scaler, result string, took time.Duration, current, ready, desired int32, in PlanInput, plan Plan, now time.Time) {
 	if m == nil {
 		return
 	}
@@ -155,14 +145,6 @@ func (m *Metrics) recordPlatform(err error, took time.Duration) {
 	}
 	m.platformRequests.WithLabelValues(resultOf(err)).Inc()
 	m.platformDuration.Observe(took.Seconds())
-}
-
-func (m *Metrics) recordPrometheus(err error, took time.Duration) {
-	if m == nil {
-		return
-	}
-	m.prometheusReads.WithLabelValues(resultOf(err)).Inc()
-	m.prometheusLatency.Observe(took.Seconds())
 }
 
 func resultOf(err error) string {

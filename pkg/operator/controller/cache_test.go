@@ -7,11 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/operator/api/v1alpha1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
@@ -22,7 +20,7 @@ type scriptedDecider struct {
 	err      error
 }
 
-func (s *scriptedDecider) Decide(context.Context, *v1alpha1.PredictiveScaler) (*Decision, error) {
+func (s *scriptedDecider) Decide(context.Context, *Scaler) (*Decision, error) {
 	if s.err != nil {
 		return nil, s.err
 	}
@@ -30,9 +28,8 @@ func (s *scriptedDecider) Decide(context.Context, *v1alpha1.PredictiveScaler) (*
 	return &d, nil
 }
 
-func cachedScaler() *v1alpha1.PredictiveScaler {
-	return &v1alpha1.PredictiveScaler{ObjectMeta: metav1.ObjectMeta{Name: "module-api", Namespace: "prod"},
-		Spec: v1alpha1.PredictiveScalerSpec{Decision: v1alpha1.Decision{PlatformAPI: &v1alpha1.PlatformAPIDecision{Module: "api"}}}}
+func cachedScaler() *Scaler {
+	return &Scaler{Name: "module-api", Namespace: "prod", Module: "api"}
 }
 
 var errDown = unreachable(errors.New("connection refused"))
@@ -160,7 +157,7 @@ func TestARememberedOrRecoveringDecisionRaisesTheReplicasButNeverLowersThem(t *t
 
 	// without the urgent flag the cooldown of the module applies to a remembered scale-up
 	pi := in(4, 4, cached(8))
-	pi.Spec.Behavior.ScaleUp = v1alpha1.ScaleRule{Cooldown: &metav1.Duration{Duration: 5 * time.Minute}}
+	pi.Spec.Behavior.ScaleUp = ScaleRule{Cooldown: 5 * time.Minute}
 	last := now.Add(-time.Minute)
 	pi.LastScale = &last
 	assert.Equal(t, ActionNone, MakePlan(pi).Action)
@@ -207,12 +204,11 @@ func TestAnOutageOfThePlatformDoesNotThrowTheWorkloadToTheFallbackAndBack(t *tes
 	srv := httptest.NewServer(p.handler())
 	t.Cleanup(srv.Close)
 	c := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(deployment(4, 4)).Build()
-	platform := &PlatformDecider{Reader: c, Endpoint: &PlatformEndpoint{URL: srv.URL, Credential: "ak:sk", Client: srv.Client()}}
+	platform := &PlatformDecider{Endpoint: &PlatformEndpoint{URL: srv.URL, Credential: "ak:sk", Client: srv.Client()}}
 	policy := CachePolicy{TTL: 10 * time.Minute, ConfigTTL: time.Hour, RecoverSuccesses: 2}
 	cached := &CachingDecider{Inner: platform, Policy: policy, Now: func() time.Time { return clock }}
-	rec := &Reconciler{Client: c, Scheme: testScheme(t), Reporter: platform, NoCRD: true, Now: func() time.Time { return clock },
-		Deciders: map[v1alpha1.DecisionSource]Decider{v1alpha1.SourcePlatformAPI: cached}}
-	s := &ModuleSync{Reconciler: rec, Platform: platform, Cache: ModuleCache{Policy: policy, Now: func() time.Time { return clock }}}
+	applier := &Applier{Client: c, Reporter: platform, Now: func() time.Time { return clock }, Decider: cached}
+	s := &ModuleSync{Applier: applier, Platform: platform, Cache: ModuleCache{Policy: policy, Now: func() time.Time { return clock }}}
 	round := func(advance time.Duration) int32 {
 		clock = clock.Add(advance)
 		s.Once(context.Background())

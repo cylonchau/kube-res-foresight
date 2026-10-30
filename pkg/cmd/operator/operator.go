@@ -1,6 +1,6 @@
-// Package operator implements the kube-resource-fcst-operator command: a controller-runtime manager that runs the
-// PredictiveScaler reconciler. It needs a cluster, never the platform database; decisions come from the
-// platform over HTTP.
+// Package operator implements the kube-resource-fcst-operator command: a controller-runtime manager that reads the modules of the
+// platform over HTTP and writes the replicas of their workloads. It needs a cluster, never the platform database, and creates no
+// resource of its own in the cluster: the platform modules are the only configuration.
 package operator
 
 import (
@@ -14,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/operator/api/v1alpha1"
 	"github.com/cylonchau/kube-resource-fcst/pkg/operator/controller"
 	"github.com/cylonchau/kube-resource-fcst/pkg/timezone"
 	"github.com/cylonchau/kube-resource-fcst/pkg/timing"
@@ -37,7 +36,7 @@ type Options struct {
 	LeaderID    string
 	Namespace   string
 
-	// Platform-driven scaling: the workloads of the platform's auto modules are scaled without PredictiveScaler objects.
+	// PlatformURL is the platform whose auto modules are scaled; it is required.
 	PlatformURL            string
 	PlatformCredentialFile string
 	PlatformCAFile         string
@@ -48,17 +47,12 @@ type Options struct {
 	CacheTTL         time.Duration
 	ConfigCacheTTL   time.Duration
 	RecoverSuccesses int
-	// Scalers keeps the PredictiveScaler controller on; turn it off when the CRD is not installed.
-	Scalers bool
 }
 
-// NewScheme returns a scheme with the built-in kinds and the PredictiveScaler API.
+// NewScheme returns a scheme with the built-in kinds.
 func NewScheme() (*runtime.Scheme, error) {
 	s := runtime.NewScheme()
 	if err := clientgoscheme.AddToScheme(s); err != nil {
-		return nil, err
-	}
-	if err := v1alpha1.AddToScheme(s); err != nil {
 		return nil, err
 	}
 	return s, nil
@@ -69,7 +63,7 @@ func NewCommand() *cobra.Command {
 	opts := &Options{}
 	cmd := &cobra.Command{
 		Use:   "operator",
-		Short: "Start kube-resource-fcst-operator, the PredictiveScaler controller",
+		Short: "Start kube-resource-fcst-operator, which scales the workloads of the platform modules",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return Run(cmd.Context(), opts)
@@ -81,14 +75,13 @@ func NewCommand() *cobra.Command {
 	f.BoolVar(&opts.LeaderElect, "leader-elect", true, "Elect a leader so only one replica scales; keep it on for any replicated deployment.")
 	f.StringVar(&opts.LeaderID, "leader-election-id", "kube-resource-fcst-operator.autoscaling.kube-resource-fcst.io", "Name of the leader election lease.")
 	f.StringVar(&opts.Namespace, "namespace", "", "Watch only this namespace; empty watches all namespaces.")
-	f.StringVar(&opts.PlatformURL, "platform-url", "", "Base URL of the kube-resource-fcst platform. Set it to scale the workloads of the platform's auto modules directly from the module configuration: no PredictiveScaler object is needed.")
+	f.StringVar(&opts.PlatformURL, "platform-url", "", "Base URL of the kube-resource-fcst platform whose auto modules are scaled directly from the module configuration (required).")
 	f.StringVar(&opts.PlatformCredentialFile, "platform-credential-file", "", "File holding the developer credential \"<access key>:<access secret>\" (mount a Secret); the KUBE_RESOURCE_FCST_PLATFORM_CREDENTIAL variable is used when empty.")
 	f.StringVar(&opts.PlatformCAFile, "platform-ca-file", "", "PEM CA bundle used to verify the platform certificate.")
 	f.DurationVar(&opts.PlatformInterval, "platform-sync-interval", 30*time.Second, "Starting value of how often the platform's modules are read and applied; once the platform answers, its setting operator.sync_interval_seconds is used.")
 	f.DurationVar(&opts.CacheTTL, "decision-cache-ttl", controller.DefaultCacheTTL, "Starting value (the platform's setting operator.decision_cache_ttl_seconds takes over once it answers). How long after its last answer the platform's decision and module list are remembered and used when the platform cannot be reached (replicas may still rise to the remembered decision, never fall). Past it the safe degradation applies: the fallback replicas, else the current ones. 0 turns the cache off.")
 	f.DurationVar(&opts.ConfigCacheTTL, "module-cache-ttl", controller.DefaultConfigTTL, "Starting value (the platform's setting operator.module_cache_ttl_seconds takes over once it answers). How long the platform's last list of modules (bounds, pace, fallback) is used when the platform cannot be reached. Longer than the decision cache, so the safe degradation after the decision has expired can use the module's own bounds and fallback. Past it nothing is evaluated and the replicas stay.")
 	f.IntVar(&opts.RecoverSuccesses, "decision-recover-answers", controller.DefaultRecoverSuccesses, "Starting value (the platform's setting operator.recover_answers takes over once it answers). How many answers in a row a platform that is back after an outage must give before the workload may be scaled down again (scaling up follows at once).")
-	f.BoolVar(&opts.Scalers, "predictivescaler-crd", true, "Run the PredictiveScaler controller. Turn it off (and do not install the CRD) when the platform modules are the only configuration.")
 	return cmd
 }
 
@@ -124,6 +117,9 @@ func platformEndpoint(opts *Options) (*controller.PlatformEndpoint, error) {
 
 // Run starts the manager and blocks until ctx ends.
 func Run(ctx context.Context, opts *Options) error {
+	if strings.TrimSpace(opts.PlatformURL) == "" {
+		return errors.New("--platform-url is required: the operator scales the workloads of the platform's modules")
+	}
 	timezone.Apply() // log lines in the platform's zone
 	ctrl.SetLogger(zap.New(zap.UseDevMode(false)))
 	scheme, err := NewScheme()
@@ -155,42 +151,21 @@ func Run(ctx context.Context, opts *Options) error {
 	initial.ModuleCacheTTLSeconds = int(opts.ConfigCacheTTL / time.Second)
 	initial.RecoverAnswers = opts.RecoverSuccesses
 	settings := controller.NewSettingsStore(initial)
-	platform := &controller.PlatformDecider{Reader: mgr.GetAPIReader(), Metrics: opMetrics, Settings: settings}
+	platform := &controller.PlatformDecider{Metrics: opMetrics, Settings: settings}
 	cachePolicy := settings.CachePolicy()
 	cachedPlatform := &controller.CachingDecider{Inner: platform, Policy: cachePolicy, Source: settings.CachePolicy, Metrics: opMetrics}
-	reconciler := &controller.Reconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("kube-resource-fcst-operator"),
-		Deciders: map[v1alpha1.DecisionSource]controller.Decider{
-			v1alpha1.SourceStatic:      controller.StaticDecider{},
-			v1alpha1.SourcePlatformAPI: cachedPlatform,
-			v1alpha1.SourcePrometheus:  &controller.PrometheusDecider{Reader: mgr.GetAPIReader(), Metrics: opMetrics},
-		},
-		Reporter: platform,
-		Metrics:  opMetrics,
+	applier := &controller.Applier{Client: mgr.GetClient(), Decider: cachedPlatform, Reporter: platform, Metrics: opMetrics}
+	endpoint, err := platformEndpoint(opts)
+	if err != nil {
+		return err
 	}
-	reconciler.NoCRD = !opts.Scalers
-	if opts.Scalers {
-		if err := reconciler.SetupWithManager(mgr); err != nil {
-			return fmt.Errorf("register the PredictiveScaler controller: %w", err)
-		}
+	platform.Endpoint = endpoint
+	if err := mgr.Add(&controller.SettingsRefresher{Store: settings, Platform: platform}); err != nil {
+		return fmt.Errorf("register the platform settings refresh: %w", err)
 	}
-	if opts.PlatformURL != "" {
-		endpoint, err := platformEndpoint(opts)
-		if err != nil {
-			return err
-		}
-		platform.Endpoint = endpoint
-		if err := mgr.Add(&controller.SettingsRefresher{Store: settings, Platform: platform}); err != nil {
-			return fmt.Errorf("register the platform settings refresh: %w", err)
-		}
-		if err := mgr.Add(&controller.ModuleSync{Reconciler: reconciler, Platform: platform, Interval: opts.PlatformInterval, Settings: settings, Namespace: opts.Namespace,
-			Cache: controller.ModuleCache{Policy: cachePolicy, Source: settings.CachePolicy}}); err != nil {
-			return fmt.Errorf("register the platform module sync: %w", err)
-		}
-	} else if !opts.Scalers {
-		return errors.New("nothing to run: give --platform-url, or keep --predictivescaler-crd on")
+	if err := mgr.Add(&controller.ModuleSync{Applier: applier, Platform: platform, Interval: opts.PlatformInterval, Settings: settings, Namespace: opts.Namespace,
+		Cache: controller.ModuleCache{Policy: cachePolicy, Source: settings.CachePolicy}}); err != nil {
+		return fmt.Errorf("register the platform module sync: %w", err)
 	}
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		return err

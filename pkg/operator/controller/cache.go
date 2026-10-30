@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"sync"
 	"time"
-
-	"github.com/cylonchau/kube-resource-fcst/pkg/operator/api/v1alpha1"
 )
 
 // This file is the operator's local memory of what the platform last said, so that an unreachable platform does not throw the
@@ -122,15 +120,15 @@ func (c *CachingDecider) now() time.Time {
 	return time.Now()
 }
 
-func cacheKey(ps *v1alpha1.PredictiveScaler) string { return ps.Namespace + "/" + ps.Name }
+func cacheKey(s *Scaler) string { return s.Namespace + "/" + s.Name }
 
 // Decide implements Decider.
-func (c *CachingDecider) Decide(ctx context.Context, ps *v1alpha1.PredictiveScaler) (*Decision, error) {
-	d, err := c.Inner.Decide(ctx, ps)
+func (c *CachingDecider) Decide(ctx context.Context, s *Scaler) (*Decision, error) {
+	d, err := c.Inner.Decide(ctx, s)
 	if c.policy().TTL <= 0 {
 		return d, err
 	}
-	now, key, module := c.now(), cacheKey(ps), moduleLabel(ps)
+	now, key, module := c.now(), cacheKey(s), moduleLabel(s)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.entries == nil {

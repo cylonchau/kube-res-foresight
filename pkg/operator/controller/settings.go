@@ -9,9 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/operator/api/v1alpha1"
 	"github.com/cylonchau/kube-resource-fcst/pkg/timing"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -118,11 +116,7 @@ func (r *SettingsRefresher) Once(ctx context.Context) {
 }
 
 func (r *SettingsRefresher) fetch(ctx context.Context) (timing.OperatorSettings, error) {
-	probe := &v1alpha1.PredictiveScaler{
-		ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{AnnotationModuleDriven: "true"}},
-		Spec:       v1alpha1.PredictiveScalerSpec{Decision: v1alpha1.Decision{PlatformAPI: &v1alpha1.PlatformAPIDecision{}}},
-	}
-	data, err := r.Platform.do(ctx, probe, http.MethodGet, "/api/v1/operator/settings", url.Values{}, nil)
+	data, err := r.Platform.do(ctx, http.MethodGet, "/api/v1/operator/settings", url.Values{}, nil)
 	if err != nil {
 		return timing.OperatorSettings{}, err
 	}
