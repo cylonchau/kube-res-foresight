@@ -8,8 +8,10 @@ import (
 	"github.com/cylonchau/kube-resource-fcst/pkg/ldapauth"
 	"github.com/cylonchau/kube-resource-fcst/pkg/model"
 	"github.com/cylonchau/kube-resource-fcst/pkg/store"
+	"github.com/cylonchau/kube-resource-fcst/pkg/timing"
 	"gorm.io/gorm"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -172,7 +174,7 @@ func seedPlatformPermissions() error {
 		{permission: model.Permission{Name: "Login Logs", Code: "system_login-log", Type: "MENU", FeRoute: "/system/login-log", FeComponent: "view.system_login-log", Icon: "carbon:user-activity", Sort: 4, Visible: true, Status: true}, parentCode: "system"},
 		{permission: model.Permission{Name: "API Credentials", Code: "system_secret-keys", Type: "MENU", FeRoute: "/system/secret-keys", FeComponent: "view.system_secret-keys", Icon: "carbon:password", Sort: 3, Visible: true, Status: true}, parentCode: "system"},
 		{permission: model.Permission{Name: "Admission Recommendations (read)", Code: "forecast:admission:read", Type: "BUTTON", BeApis: `["GET /api/v1/admission/recommendations"]`, Status: true}},
-		{permission: model.Permission{Name: "Operator Decisions (read, report)", Code: "forecast:operator:use", Type: "BUTTON", BeApis: `["GET /api/v1/operator/modules","GET /api/v1/operator/decisions","POST /api/v1/operator/reports"]`, Status: true}},
+		{permission: model.Permission{Name: "Operator Decisions (read, report)", Code: "forecast:operator:use", Type: "BUTTON", BeApis: `["GET /api/v1/operator/modules","GET /api/v1/operator/settings","GET /api/v1/operator/decisions","POST /api/v1/operator/reports"]`, Status: true}},
 		{permission: model.Permission{Name: "Metric Query Test (read)", Code: "forecast:query:test", Type: "BUTTON", BeApis: `["POST /api/v1/metric-queries/test"]`, Status: true}},
 		{permission: model.Permission{Name: "Read APIs", Code: "sys:all:read", Type: "BUTTON", BeApis: `["GET /api/v1/*"]`, Status: true}},
 		{permission: model.Permission{Name: "Write APIs", Code: "sys:all:write", Type: "BUTTON", BeApis: `["POST /api/v1/*","PUT /api/v1/*","DELETE /api/v1/*"]`, Status: true}},
@@ -273,6 +275,10 @@ func EnsureDefaultConfigs() error {
 		{ConfigKey: "sys.login_log.retention_days", ConfigValue: "90", ConfigName: "Login Log Retention Days", Remark: "Login history older than this is deleted by the server every hour."},
 		{ConfigKey: "sys.operation_log.retention_days", ConfigValue: "90", ConfigName: "Operation Log Retention Days"},
 		{ConfigKey: "ui.table.default_visible_columns", ConfigValue: "5", ConfigName: "Default Visible Table Columns"},
+	}
+	// the time limits of the platform and of the operator: parameters, not numbers in the code (see package timing)
+	for _, p := range timing.All() {
+		configs = append(configs, model.SysConfig{ConfigKey: p.Key, ConfigValue: strconv.Itoa(p.Default), ConfigName: p.Name, Remark: p.Remark})
 	}
 	configs = append(configs, ldapauth.DefaultConfigs()...) // LDAP login is an ordinary system parameter group, off by default
 	for i := range configs {

@@ -208,6 +208,7 @@ func RegisteredRouter(e *gin.Engine) {
 	v1Group.POST("/controls/:id/resume", forecastHandler.Resume)
 	runtimeHandler := &v1.RuntimeRouter{Modules: rdb.NewModuleDAO(model.DB), Predictions: rdb.NewPredictionDAO(model.DB), RunStates: rdb.NewRunStateDAO(model.DB), Config: rdb.NewSysConfigDAO(model.DB), Fresh: forecastService}
 	v1Group.GET("/operator/modules", runtimeHandler.OperatorModules)
+	v1Group.GET("/operator/settings", runtimeHandler.OperatorSettings)
 	v1Group.GET("/operator/decisions", runtimeHandler.Decision)
 	v1Group.POST("/operator/reports", runtimeHandler.Report)
 	v1Group.GET("/admission/recommendations", runtimeHandler.Admission)

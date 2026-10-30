@@ -387,7 +387,7 @@ func (s *Service) replayForecast(ctx context.Context, b *model.AlgorithmRun, bm 
 			}
 		}
 	}
-	rctx, cancel := context.WithTimeout(ctx, budgetFor(b))
+	rctx, cancel := context.WithTimeout(ctx, s.budgetFor(ctx, b))
 	defer cancel()
 	values, err := bm.model.Forecast(rctx, train, steps)
 	if err != nil {

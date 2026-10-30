@@ -119,6 +119,7 @@ func forecastTestRouter(t *testing.T) (*gin.Engine, *model.MetricMapping) {
 	r.POST("/algorithms/batch", h.BatchAlgorithms)
 	r.POST("/modules/batch", h.BatchModules)
 	r.GET("/operator/decisions", rt.Decision)
+	r.GET("/operator/settings", rt.OperatorSettings)
 	r.POST("/operator/reports", rt.Report)
 	r.GET("/admission/recommendations", rt.Admission)
 	r.GET("/scaling-decisions", rt.ListExecutions)
@@ -1168,4 +1169,32 @@ func TestSavingAModelServiceChecksOnlyWhatChanged(t *testing.T) {
 	saved = decodeData(t, performJSON(t, r, http.MethodGet, "/algorithms/model_service", "", nil).Body.Bytes())
 	assert.Equal(t, false, saved["enabled"], "the switch was saved")
 	assert.Equal(t, "http://chronos:8000", saved["values"].(map[string]any)["endpoint"], "and the endpoint was kept")
+}
+
+// The operator is told its time limits by the platform: the system parameters, kept in range, the default for one that is missing or
+// unreadable. They are not numbers of the operator's own.
+func TestTheOperatorIsGivenItsTimeLimitsBySystemParameters(t *testing.T) {
+	r, _ := forecastTestRouter(t)
+	settings := func() map[string]any {
+		rec := performJSON(t, r, http.MethodGet, "/operator/settings", "", nil)
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		return decodeData(t, rec.Body.Bytes())
+	}
+	got := settings()
+	assert.EqualValues(t, 10, got["request_timeout_seconds"], "nothing stored: the default")
+	assert.EqualValues(t, 30, got["sync_interval_seconds"])
+	assert.EqualValues(t, 600, got["decision_cache_ttl_seconds"])
+	assert.EqualValues(t, 3600, got["module_cache_ttl_seconds"])
+	assert.EqualValues(t, 2, got["recover_answers"])
+	assert.EqualValues(t, 60, got["settings_refresh_seconds"])
+
+	for key, value := range map[string]string{"operator.request_timeout_seconds": "25", "operator.sync_interval_seconds": "1",
+		"operator.decision_cache_ttl_seconds": "0", "operator.recover_answers": "many"} {
+		require.NoError(t, model.DB.Create(&model.SysConfig{ConfigKey: key, ConfigValue: value, ConfigName: key}).Error)
+	}
+	got = settings()
+	assert.EqualValues(t, 25, got["request_timeout_seconds"], "what an administrator saved")
+	assert.EqualValues(t, 5, got["sync_interval_seconds"], "below the range: the lowest allowed")
+	assert.EqualValues(t, 0, got["decision_cache_ttl_seconds"], "0 turns the cache off")
+	assert.EqualValues(t, 2, got["recover_answers"], "not a number: the default")
 }

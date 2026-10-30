@@ -16,6 +16,7 @@ import (
 	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
 	"github.com/cylonchau/kube-resource-fcst/pkg/forecastsvc"
 	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-resource-fcst/pkg/timing"
 )
 
 // checkSource verifies that a source's mapping exists and measures the kind of the source.
@@ -385,7 +386,8 @@ func (r *ForecastRouter) ModuleCompare(c *gin.Context) {
 }
 
 func (r *ForecastRouter) stepCtx(c *gin.Context) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(c.Request.Context(), pipelineTimeout)
+	// one manually triggered pipeline step is bounded by a system parameter, not a number in the code
+	return context.WithTimeout(c.Request.Context(), r.Service.Timing(c.Request.Context(), timing.PipelineTimeout))
 }
 
 // ModuleCollect pulls the history of the module's sources.

@@ -104,7 +104,7 @@ func (s *Service) backtestRun(ctx context.Context, m *model.AlgorithmRun, metric
 		if withCovariates {
 			data = input
 		}
-		rctx, cancel := context.WithTimeout(ctx, budgetFor(m))
+		rctx, cancel := context.WithTimeout(ctx, s.budgetFor(ctx, m))
 		defer cancel()
 		res, err := backtest.Run(rctx, data, model, cfg)
 		if err != nil && rctx.Err() == context.DeadlineExceeded && ctx.Err() == nil {

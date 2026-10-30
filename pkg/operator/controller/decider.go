@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/cylonchau/kube-resource-fcst/pkg/operator/api/v1alpha1"
+	"github.com/cylonchau/kube-resource-fcst/pkg/timing"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -75,6 +76,8 @@ type PlatformDecider struct {
 	Endpoint *PlatformEndpoint
 	// HTTPClient overrides the transport (tests); nil builds one per request from the CA secret.
 	HTTPClient *http.Client
+	// Settings gives the time limits the platform sets (how long one request may take); nil takes the defaults.
+	Settings *SettingsStore
 }
 
 type platformEnvelope struct {
@@ -117,7 +120,11 @@ func (d *PlatformDecider) httpClient(ctx context.Context, ps *v1alpha1.Predictiv
 	cfg := ps.Spec.Decision.PlatformAPI
 	timeout := time.Duration(cfg.TimeoutSeconds) * time.Second
 	if timeout <= 0 {
-		timeout = 5 * time.Second
+		// the scaler sets none: the platform's setting, else the default
+		timeout = timing.Seconds(timing.OperatorRequestTimeout.Default)
+		if d.Settings != nil {
+			timeout = d.Settings.RequestTimeout()
+		}
 	}
 	if d.HTTPClient != nil {
 		return d.HTTPClient, nil
@@ -156,6 +163,13 @@ func (d *PlatformDecider) request(ctx context.Context, ps *v1alpha1.PredictiveSc
 			return nil, errors.New("the operator was not started with a platform url and credential")
 		}
 		rawURL, credential, httpClient = d.Endpoint.URL, d.Endpoint.Credential, d.Endpoint.Client
+		if d.Settings != nil {
+			// how long one answer may take is a setting of the platform, read again from time to time: it bounds this request, not
+			// the client, which only carries a ceiling
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, d.Settings.RequestTimeout())
+			defer cancel()
+		}
 	} else {
 		if credential, err = d.secret(ctx, ps.Namespace, cfg.AccessKeySecretRef); err != nil {
 			return nil, err

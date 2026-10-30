@@ -11,6 +11,7 @@ import (
 	"github.com/cylonchau/kube-resource-fcst/pkg/forecast"
 	"github.com/cylonchau/kube-resource-fcst/pkg/model"
 	"github.com/cylonchau/kube-resource-fcst/pkg/multimetric"
+	"github.com/cylonchau/kube-resource-fcst/pkg/timing"
 )
 
 // The change preview answers "what would the replicas have been if this setting had been in force": it replays the recent past twice, with
@@ -23,8 +24,6 @@ const (
 	MaxPreviewHours     = 24 * 14
 	// MaxPreviewWindows bounds how many origins are replayed; a longer window is refused, not thinned out.
 	MaxPreviewWindows = 400
-	// PreviewBudget is the longest a preview may run.
-	PreviewBudget = 60 * time.Second
 	// previewUnderWeight is how much worse a replica too few is than one too many in the risk error, as in the evaluation of the algorithms.
 	previewUnderWeight = 3.0
 )
@@ -137,7 +136,8 @@ func (s *Service) PreviewChange(ctx context.Context, moduleID uint, hours int, c
 		return nil, err
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, PreviewBudget)
+	budget := s.Timing(ctx, timing.PreviewBudget)
+	ctx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
 
 	bs := boundSet(runs)
@@ -188,11 +188,11 @@ func (s *Service) PreviewChange(ctx context.Context, moduleID uint, hours int, c
 	truthModule.HeadroomRatio = 1
 	need := s.replayNeed(&truthModule, cur, curGrids, curWhy, specs, currentReplicas)
 
-	curPred, err := s.replaySide(ctx, m, cur, curGrids, curWhy, specs, currentReplicas)
+	curPred, err := s.replaySide(ctx, budget, m, cur, curGrids, curWhy, specs, currentReplicas)
 	if err != nil {
 		return nil, err
 	}
-	propPred, err := s.replaySide(ctx, proposedModule, proposedRun, propGrids, propWhy, specs, currentReplicas)
+	propPred, err := s.replaySide(ctx, budget, proposedModule, proposedRun, propGrids, propWhy, specs, currentReplicas)
 	if err != nil {
 		return nil, err
 	}
@@ -399,7 +399,7 @@ func (s *Service) replayNeed(m *model.ForecastModule, run *model.AlgorithmRun, g
 }
 
 // replaySide is the replicas a setting asked for at each window, forecast from the data before the window; 0 where it could not forecast it.
-func (s *Service) replaySide(ctx context.Context, m *model.ForecastModule, run *model.AlgorithmRun, grids map[string]forecast.Input, why map[string]string, specs []replayWindow, current func(time.Time) int) ([]int, error) {
+func (s *Service) replaySide(ctx context.Context, budget time.Duration, m *model.ForecastModule, run *model.AlgorithmRun, grids map[string]forecast.Input, why map[string]string, specs []replayWindow, current func(time.Time) int) ([]int, error) {
 	bm, err := bind(run)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrPreviewInvalid, err)
@@ -407,7 +407,7 @@ func (s *Service) replaySide(ctx context.Context, m *model.ForecastModule, run *
 	out := make([]int, len(specs))
 	for i, w := range specs {
 		if err := ctx.Err(); err != nil {
-			return nil, fmt.Errorf("%w: it did not finish in %s", ErrPreviewTooLong, PreviewBudget)
+			return nil, fmt.Errorf("%w: it did not finish in %s", ErrPreviewTooLong, budget)
 		}
 		values, ok := replayInputs(run, grids, w, func(src *model.MetricSource) ([]float64, bool) {
 			return s.replayForecast(ctx, run, bm, src, grids, w.start, w.end)
@@ -419,7 +419,7 @@ func (s *Service) replaySide(ctx context.Context, m *model.ForecastModule, run *
 		out[i] = outcomeOf(m, res, current(w.start)).Replicas
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, fmt.Errorf("%w: it did not finish in %s", ErrPreviewTooLong, PreviewBudget)
+		return nil, fmt.Errorf("%w: it did not finish in %s", ErrPreviewTooLong, budget)
 	}
 	return out, nil
 }

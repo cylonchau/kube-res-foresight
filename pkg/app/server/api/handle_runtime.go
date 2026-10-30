@@ -15,6 +15,7 @@ import (
 	"github.com/cylonchau/kube-resource-fcst/pkg/forecastsvc"
 	"github.com/cylonchau/kube-resource-fcst/pkg/logger"
 	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-resource-fcst/pkg/timing"
 	"github.com/gin-gonic/gin"
 )
 
@@ -35,6 +36,7 @@ type RuntimeRouter struct {
 	Fresh interface {
 		FreshRecommendation(ctx context.Context, moduleID uint, maxAge time.Duration) (*model.Recommendation, bool, error)
 		DecisionMaxAge(ctx context.Context) time.Duration
+		RefreshWait(ctx context.Context) time.Duration
 	}
 	Now func() time.Time
 }
@@ -64,6 +66,24 @@ func storedDetail(rec *model.Recommendation) forecastsvc.RecommendDetail {
 	return d
 }
 
+// OperatorSettings answers GET /operator/settings with the time limits the operator runs on (request timeout, sync interval, cache
+// lifetimes, how often to ask again). They are system parameters; the operator keeps the last answer and asks again from time to time,
+// so a change reaches a running operator without a restart or a new flag.
+// @Summary Operator settings
+// @Tags Forecast
+// @Router /api/v1/operator/settings [get]
+func (r *RuntimeRouter) OperatorSettings(c *gin.Context) {
+	settings := timing.DefaultOperatorSettings()
+	if r.Config != nil {
+		ctx := c.Request.Context()
+		settings = timing.LoadOperator(func(key string) (string, bool) {
+			v, err := r.Config.GetValueOrDefault(ctx, key, "")
+			return v, err == nil && v != ""
+		})
+	}
+	query.SuccessResponse(c, nil, settings)
+}
+
 // OperatorDecision is the answer to the operator.
 type OperatorDecision struct {
 	Available  bool       `json:"available"`
@@ -91,18 +111,15 @@ type OperatorDecision struct {
 	HardMaxReplicas int `json:"hard_max_replicas,omitempty"`
 }
 
-// decisionRefreshBudget is how long a request of the operator waits for the platform to make the recommendation again before it reads
-// the stored one. It is shorter than the timeout of the operator's own request (10 seconds), so the answer comes before the operator
-// hangs up; the refresh itself goes on and the next poll finds its result.
-const decisionRefreshBudget = 8 * time.Second
-
 // latestRecommendation is the recommendation the operator should act on: the stored one when it is recent enough, else one the platform
 // makes first (see forecastsvc.FreshRecommendation). A refresh that fails or runs out of time leaves the stored one.
 func (r *RuntimeRouter) latestRecommendation(c *gin.Context, moduleID uint) (*model.Recommendation, bool, error) {
 	ctx := c.Request.Context()
 	if r.Fresh != nil {
 		if maxAge := r.Fresh.DecisionMaxAge(ctx); maxAge > 0 {
-			refreshCtx, cancel := context.WithTimeout(ctx, decisionRefreshBudget)
+			// how long the request waits is a system parameter, always below the time the operator waits for its own request: the
+			// answer comes before the operator hangs up, and the refresh itself goes on and the next poll finds its result
+			refreshCtx, cancel := context.WithTimeout(ctx, r.Fresh.RefreshWait(ctx))
 			defer cancel()
 			rec, refreshed, err := r.Fresh.FreshRecommendation(refreshCtx, moduleID, maxAge)
 			if err == nil {

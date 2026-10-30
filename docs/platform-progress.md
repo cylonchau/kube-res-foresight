@@ -557,3 +557,12 @@ all ten management pages and the shared product title. Screenshots were inspecte
 - **基线与候选**：Seasonal（seasonal_naive）是基线是有意的——回测本来就把“最后一个值”和“前一天同一时刻”作为两个隐式基线，候选要胜过它们才晋升；基线不需要晋升、永远有资格。分类与实际运行逻辑一致，没有改。说明写进了算法管理页“类别”列的“?”和 algorithm-library 技能。
 - **`context canceled` 日志**：operator 的请求 10 秒超时，而平台为它重算推荐的预算是 15 秒，operator 先挂断，请求上下文取消，重算被拦腰截断，每个算法的训练记录都因取消而写不进去并逐条打日志，最后还把 500 记成错误。现在重算在自己的上下文里跑完（上限 5 分钟，同一模块只跑一个），请求最多等 8 秒就读已存的推荐，下次轮询读到新结果；被取消的请求不再记成错误，训练记录写入因取消失败也不再刷日志。单测覆盖：请求放弃等待后重算仍完成并写入推荐和训练记录。
 - **没验证、没解决**：算法重算本身慢（日志里 module 5 有 knn、mstl、random_forest 等十几个算法同时在跑）这件事没变，只是不再被截断；是否要减少同时启用的算法或把重算挪到后台定时，需要你决定。没有 MySQL/PostgreSQL；没有在用户自己的实例上验证。
+
+2026-10-30：时间限制改为系统参数（数据库），operator 经平台接口取得并缓存、定期刷新
+- **要求**：超时、间隔、缓存时长这类参数不能写死在代码里，要放到数据库，operator 通过平台接口取得，缓存并定期刷新。
+- **做了什么**：新增 `pkg/timing`（表驱动，每个限制有 key、默认值、允许范围和说明；种子、读取、校验共用一份定义）。12 个限制现在是 `sys_config` 的行，系统参数页可改：平台用的 6 个（`forecast.decision_refresh_wait_seconds` 8、`refresh_budget_seconds` 300、`pipeline_timeout_seconds` 300、`preview_budget_seconds` 60、`fine_tune_budget_seconds` 1800、`train_budget_seconds` 120）由 `forecastsvc.Service.Timing` 读，改了最多 10 秒（参数缓存）生效，不用重启；operator 用的 6 个（`operator.request_timeout_seconds` 10、`sync_interval_seconds` 30、`decision_cache_ttl_seconds` 600、`module_cache_ttl_seconds` 3600、`recover_answers` 2、`settings_refresh_seconds` 60）由新接口 `GET /api/v1/operator/settings` 下发（开发者凭据权限 `forecast:operator:use` 加了这一条，需要执行一次 `--migration` 才会进已有的库）。系统参数页新增“Operator 参数”分类。
+- **operator 侧**：`SettingsStore` 保存当前值，`SettingsRefresher` 启动时取一次、之后按 `settings_refresh_seconds` 刷新；取不到就保留最后一次的值；平台没发的字段（旧平台）保持原值，不变成 0；值不在范围内取最近的端点。每个请求用平台设置的超时，HTTP 客户端只带 120 秒的上限；模块同步的间隔和缓存时长每次使用时读当前值，改了不用重启。命令行 `--platform-sync-interval`、`--decision-cache-ttl`、`--module-cache-ttl`、`--decision-recover-answers` 现在只是平台第一次回答之前的启动值。
+- **一致性**：请求等重算的时间（`RefreshWait`）始终比 operator 的请求超时至少短 1 秒，否则 operator 先挂断，这就是上一条日志问题的根因。
+- **验证**：`pkg/timing`、`forecastsvc/timing_test.go`、`handle_forecast_test.go`（接口）、`operator/controller/settings_test.go`（取到并采用、平台不可用时保留最后一次、越界取端点、缺字段保持原值、按设置的间隔再取、请求被设置的超时截断、缓存策略与同步间隔随设置变化、operator 默认值等于参数默认值）通过；临时实例上用配置接口把请求超时改成 25、同步间隔改成 1（越界），接口在缓存过期后返回 25 和 5；系统参数页中英文都能搜到并带分类标签，无页面报错。
+- **没验证**：没有在真实集群里运行 operator（需要集群和凭据），operator 侧只用假平台的单测验证；没有看 helm 部署里把新参数下发的完整链路；不在这套里的超时：CRD 里每个 PredictiveScaler 自己的 `timeoutSeconds`（没设时才用平台的请求超时）、Prometheus 决策源的超时、调度器认领/心跳、LDAP 与通知的超时、`executionFreshness` 等业务窗口——它们是否也要进数据库需要你决定。
+- **已知的既有问题**：`TestLDAPParametersAreEditedLikeAnyOtherSystemParameter` 偶发失败（在不含本次改动的 HEAD 上 25 次里失败 3 次，本次改动后 25 次里 1 次），与本次无关，没有修。

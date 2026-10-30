@@ -24,9 +24,6 @@ var ErrTimeout = errors.New("the forecast timed out")
 // staleSteps is how many steps behind the newest sample may be before history is considered stale.
 const staleSteps = 5
 
-// defaultTrainBudget bounds one forecast when the instance sets no budget.
-const defaultTrainBudget = 120 * time.Second
-
 // Outcome statuses of a per-algorithm step.
 const (
 	StatusOK      = "ok"
@@ -107,14 +104,6 @@ func bind(b *model.AlgorithmRun) (*boundModel, error) {
 		version = ModelVersion(def, canonical+"|"+sig)
 	}
 	return &boundModel{binding: b, key: b.Key(), def: def, model: m, params: canonical, version: version}, nil
-}
-
-// budgetFor is the time one forecast of the algorithm may take.
-func budgetFor(b *model.AlgorithmRun) time.Duration {
-	if b.TrainBudgetSeconds > 0 {
-		return time.Duration(b.TrainBudgetSeconds) * time.Second
-	}
-	return defaultTrainBudget
 }
 
 // horizonOf is how many steps ahead the instance forecasts.
@@ -199,7 +188,7 @@ func (s *Service) predictRun(ctx context.Context, b *model.AlgorithmRun) ([]Pred
 
 		s.keepTuned(ctx, b, bm, key, &in, h, step, predictedAt)
 
-		fctx, cancel := context.WithTimeout(ctx, budgetFor(b))
+		fctx, cancel := context.WithTimeout(ctx, s.budgetFor(ctx, b))
 		started := time.Now()
 		values, err := bm.model.Forecast(fctx, in, h)
 		took := time.Since(started)

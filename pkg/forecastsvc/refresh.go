@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-resource-fcst/pkg/timing"
 )
 
 // ConfigDecisionMaxAge is the system parameter that says how old the recommendation the operator reads may be, in seconds: 0 turns
@@ -91,15 +92,12 @@ type refreshFlight struct {
 	err       error
 }
 
-// refreshBudget bounds one refresh: it is the whole pipeline of a module, and some algorithms are slow.
-const refreshBudget = 5 * time.Minute
-
 func (s *Service) refreshFlightOf(ctx context.Context, moduleID uint, maxAge time.Duration) *refreshFlight {
 	flight := &refreshFlight{done: make(chan struct{})}
 	if v, loaded := s.flights.LoadOrStore(moduleID, flight); loaded {
 		return v.(*refreshFlight)
 	}
-	work, cancel := context.WithTimeout(context.WithoutCancel(ctx), refreshBudget)
+	work, cancel := context.WithTimeout(context.WithoutCancel(ctx), s.Timing(ctx, timing.RefreshBudget))
 	go func() {
 		defer cancel()
 		defer close(flight.done)

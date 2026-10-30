@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/cylonchau/kube-resource-fcst/pkg/apis"
 	"github.com/cylonchau/kube-resource-fcst/pkg/app/query"
@@ -19,9 +18,6 @@ import (
 	"github.com/cylonchau/kube-resource-fcst/pkg/model"
 	"github.com/gin-gonic/gin"
 )
-
-// pipelineTimeout bounds one manually triggered pipeline step.
-const pipelineTimeout = 5 * time.Minute
 
 // ForecastRouter serves modules (Kubernetes workloads) with their metric sources and fixed periods, the platform-wide
 // algorithm settings and the forecasting pipeline.

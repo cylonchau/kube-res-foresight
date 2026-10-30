@@ -95,14 +95,24 @@ type cacheEntry struct {
 
 // CachingDecider remembers what the inner decider answered and bridges a platform that cannot be reached (see the rules above).
 type CachingDecider struct {
-	Inner   Decider
-	Policy  CachePolicy
+	Inner  Decider
+	Policy CachePolicy
+	// Source, when set, gives the policy in force at each use: the platform's settings can change while the operator runs. Policy is
+	// what stands until there is a Source.
+	Source  func() CachePolicy
 	Metrics *Metrics
 	// Now is the clock; nil uses the wall clock.
 	Now func() time.Time
 
 	mu      sync.Mutex
 	entries map[string]*cacheEntry
+}
+
+func (c *CachingDecider) policy() CachePolicy {
+	if c.Source != nil {
+		return c.Source()
+	}
+	return c.Policy
 }
 
 func (c *CachingDecider) now() time.Time {
@@ -117,7 +127,7 @@ func cacheKey(ps *v1alpha1.PredictiveScaler) string { return ps.Namespace + "/" 
 // Decide implements Decider.
 func (c *CachingDecider) Decide(ctx context.Context, ps *v1alpha1.PredictiveScaler) (*Decision, error) {
 	d, err := c.Inner.Decide(ctx, ps)
-	if c.Policy.TTL <= 0 {
+	if c.policy().TTL <= 0 {
 		return d, err
 	}
 	now, key, module := c.now(), cacheKey(ps), moduleLabel(ps)
@@ -135,11 +145,11 @@ func (c *CachingDecider) Decide(ctx context.Context, ps *v1alpha1.PredictiveScal
 			c.entries[key] = e
 		}
 		if e.outage {
-			e.outage, e.recovering, e.streak = false, c.Policy.RecoverSuccesses > 1, 0
+			e.outage, e.recovering, e.streak = false, c.policy().RecoverSuccesses > 1, 0
 		}
 		if e.recovering {
 			e.streak++
-			if e.streak >= c.Policy.RecoverSuccesses {
+			if e.streak >= c.policy().RecoverSuccesses {
 				e.recovering = false
 			}
 		}
@@ -147,7 +157,7 @@ func (c *CachingDecider) Decide(ctx context.Context, ps *v1alpha1.PredictiveScal
 		out := *d
 		out.Recovering = e.recovering
 		if out.Recovering {
-			out.Reason += fmt.Sprintf("; the platform is back (answer %d of %d): scale-down waits", e.streak, c.Policy.RecoverSuccesses)
+			out.Reason += fmt.Sprintf("; the platform is back (answer %d of %d): scale-down waits", e.streak, c.policy().RecoverSuccesses)
 			c.Metrics.recordDecisionSource(module, DecisionFromRecovering, 0)
 		} else {
 			c.Metrics.recordDecisionSource(module, DecisionFromPlatform, 0)
@@ -167,18 +177,18 @@ func (c *CachingDecider) Decide(ctx context.Context, ps *v1alpha1.PredictiveScal
 	}
 	e.outage, e.recovering, e.streak = true, false, 0
 	age := now.Sub(e.at)
-	if age > c.Policy.TTL {
+	if age > c.policy().TTL {
 		c.Metrics.recordDecisionSource(module, DecisionCacheExpired, age)
-		return nil, fmt.Errorf("%w; the remembered decision is %s old, past the %s it may stand in", err, age.Round(time.Second), c.Policy.TTL)
+		return nil, fmt.Errorf("%w; the remembered decision is %s old, past the %s it may stand in", err, age.Round(time.Second), c.policy().TTL)
 	}
 	out := e.decision
 	out.Cached, out.CacheAge = true, age
 	out.Urgent = false // "the load is above the forecast now" is not true of a stale answer
-	until := e.at.Add(c.Policy.TTL)
+	until := e.at.Add(c.policy().TTL)
 	out.ValidUntil = &until
 	out.Source = "cache:" + out.Source
 	out.Reason = fmt.Sprintf("platform unreachable (%v); the decision of %s ago stands in until %s after the last answer: %s",
-		err, age.Round(time.Second), c.Policy.TTL, out.Reason)
+		err, age.Round(time.Second), c.policy().TTL, out.Reason)
 	c.Metrics.recordDecisionSource(module, DecisionFromCache, age)
 	return &out, nil
 }
@@ -187,12 +197,21 @@ func (c *CachingDecider) Decide(ctx context.Context, ps *v1alpha1.PredictiveScal
 // reach the platform keeps scaling with the configuration it last had, for at most the TTL.
 type ModuleCache struct {
 	Policy CachePolicy
+	// Source, when set, gives the policy in force at each use (see CachingDecider).
+	Source func() CachePolicy
 	Now    func() time.Time
 
 	mu      sync.Mutex
 	modules []PlatformModule
 	at      time.Time
 	have    bool
+}
+
+func (m *ModuleCache) policy() CachePolicy {
+	if m.Source != nil {
+		return m.Source()
+	}
+	return m.Policy
 }
 
 func (m *ModuleCache) now() time.Time {
@@ -212,7 +231,7 @@ func (m *ModuleCache) Remember(modules []PlatformModule) {
 // Stand returns the remembered list when err is a failure to reach the platform and the list is no older than the config TTL; the age is
 // returned with it. Otherwise ok is false and the caller leaves the replicas as they are.
 func (m *ModuleCache) Stand(err error) (modules []PlatformModule, age time.Duration, ok bool) {
-	if m.Policy.TTL <= 0 || !IsUnreachable(err) {
+	if m.policy().TTL <= 0 || !IsUnreachable(err) {
 		return nil, 0, false
 	}
 	m.mu.Lock()
@@ -220,9 +239,9 @@ func (m *ModuleCache) Stand(err error) (modules []PlatformModule, age time.Durat
 	if !m.have {
 		return nil, 0, false
 	}
-	ttl := m.Policy.ConfigTTL
+	ttl := m.policy().ConfigTTL
 	if ttl <= 0 {
-		ttl = m.Policy.TTL
+		ttl = m.policy().TTL
 	}
 	age = m.now().Sub(m.at)
 	if age > ttl {

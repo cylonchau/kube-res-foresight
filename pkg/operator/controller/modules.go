@@ -92,6 +92,9 @@ type ModuleSync struct {
 	Reconciler *Reconciler
 	Platform   *PlatformDecider
 	Interval   time.Duration
+	// Settings, when set, gives the interval in force at each round (the platform's setting, which may change while the operator runs);
+	// Interval stands without it.
+	Settings *SettingsStore
 	// Cache keeps the list of modules the platform last gave, so a round that cannot reach the platform goes on with it for the TTL; the zero
 	// value turns it off.
 	Cache ModuleCache
@@ -107,20 +110,28 @@ func (s *ModuleSync) NeedLeaderElection() bool { return true }
 
 // Start runs until ctx ends.
 func (s *ModuleSync) Start(ctx context.Context) error {
-	interval := s.Interval
-	if interval < minEvaluationInterval {
-		interval = defaultEvaluationInterval
-	}
 	log := logf.FromContext(ctx).WithName("module-sync")
-	log.Info("scaling the workloads of the platform's auto modules", "interval", interval.String())
+	log.Info("scaling the workloads of the platform's auto modules", "interval", s.interval().String())
 	for {
 		s.Once(ctx)
 		select {
 		case <-ctx.Done():
 			return nil
-		case <-time.After(interval):
+		case <-time.After(s.interval()):
 		}
 	}
+}
+
+// interval is the time between two rounds: the setting of the platform when there is one, else Interval.
+func (s *ModuleSync) interval() time.Duration {
+	interval := s.Interval
+	if s.Settings != nil {
+		interval = s.Settings.SyncInterval()
+	}
+	if interval < minEvaluationInterval {
+		interval = defaultEvaluationInterval
+	}
+	return interval
 }
 
 // platformModules lists the modules the platform wants scaled.

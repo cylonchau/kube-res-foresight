@@ -7,10 +7,8 @@ import (
 
 	"github.com/cylonchau/kube-resource-fcst/pkg/forecast"
 	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-resource-fcst/pkg/timing"
 )
-
-// tuneBudget bounds one fine-tune request; a fine-tune is slow (tens of seconds on a CPU) and runs in the background.
-const tuneBudget = 30 * time.Minute
 
 // seriesKey names a series at a model service: the module, the source and the algorithm instance, so two instances of
 // the service (or two modules) never share a fine-tuned copy.
@@ -55,7 +53,7 @@ func (s *Service) keepTuned(ctx context.Context, b *model.AlgorithmRun, bm *boun
 
 func (s *Service) tuneIfStale(b *model.AlgorithmRun, bm *boundModel, t forecast.Tunable, source string, in forecast.Input, horizon int, step time.Duration, at time.Time) {
 	set := t.Tuning()
-	ctx, cancel := context.WithTimeout(context.Background(), tuneBudget)
+	ctx, cancel := context.WithTimeout(context.Background(), s.Timing(context.Background(), timing.FineTuneBudget))
 	defer cancel()
 	when, held, err := t.TunedAt(ctx, in.Series)
 	if err == nil && held && at.Sub(when) < time.Duration(set.IntervalHours)*time.Hour {
