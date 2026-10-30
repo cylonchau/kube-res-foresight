@@ -85,6 +85,6 @@ B1 → B3，B2 独立。B1 先做：它把已有的指标汇总成同一口径�
 
 | 包 | 状态 | 证据 |
 |---|---|---|
-| B1 预测效果报告 | 已实现，部分验证 | 提交 `733ee09`（后端）、`809552d`（菜单）、web 提交见进度文档；`pkg/decision/effect_test.go`、`pkg/forecastsvc/effect_test.go`、`handle_forecast_test.go`；Playwright 看过中英文与窄屏；三个小节只验证了“样本不足”分支 |
+| B1 预测效果报告 | 已实现，部分验证 | 提交 `733ee09`（后端）、`809552d`（菜单）、web 提交 `6cdbe85`；`pkg/decision/effect_test.go`、`pkg/forecastsvc/effect_test.go`、`handle_forecast_test.go`；Playwright 看过中英文与窄屏；三个小节只验证了“样本不足”分支 |
 | B2 变更影响预览 | 已实现，部分验证 | 同上；`pkg/forecastsvc/preview_test.go`；Playwright 填余量 1.5 跑了一次；见“与原计划的差别” |
 | B3 告警联动 | 未开始 | |
