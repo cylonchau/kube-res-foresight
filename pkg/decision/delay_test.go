@@ -25,7 +25,28 @@ func TestTheDelayIndicatorsPassWhenCapacityIsAskedForInTime(t *testing.T) {
 	assert.Equal(t, IndicatorPass, got["reach_over_lead"].Verdict)
 	assert.InDelta(t, 2, got["reach_over_lead"].Value, 1e-9)
 	assert.Equal(t, IndicatorPass, got["decision_wait_seconds"].Verdict)
-	assert.Equal(t, IndicatorPass, DelayVerdict(DelayIndicators(DelayInputs{Timely: 18, Late: 1, LateSeconds: []float64{30}, Scaled: 19, ReachSeconds: 600, LeadSeconds: 300, DecisionWaitSeconds: 90})))
+	assert.Equal(t, IndicatorPass, DelayVerdict(DelayIndicators(DelayInputs{Timely: 18, Late: 1, LateSeconds: []float64{30}, Scaled: 19, PeakUnder: []float64{0.05, 0.04, 0.06, 0.03, 0.05}, ReachSeconds: 600, LeadSeconds: 300, DecisionWaitSeconds: 90})))
+}
+
+// "达标" needs every piece of evidence: a good figure beside figures that could not be judged yet is not a pass.
+func TestTheDelayVerdictPassesOnlyWhenEveryEvidenceIndicatorWasJudgedAndMet(t *testing.T) {
+	base := DelayInputs{Timely: 18, Late: 1, LateSeconds: []float64{30}, Scaled: 19, PeakUnder: []float64{0.05, 0.04, 0.06, 0.03, 0.05}, ReachSeconds: 600, LeadSeconds: 300, DecisionWaitSeconds: 90}
+	assert.Equal(t, IndicatorPass, DelayVerdict(DelayIndicators(base)))
+
+	onlyTheForecast := DelayInputs{PeakUnder: base.PeakUnder, ReachSeconds: 600, LeadSeconds: 300, DecisionWaitSeconds: 90}
+	assert.Equal(t, IndicatorInsufficient, DelayVerdict(DelayIndicators(onlyTheForecast)), "no scale-up was judged: the good peak figure alone does not pass")
+
+	noForecastEvidence := base
+	noForecastEvidence.PeakUnder = nil
+	assert.Equal(t, IndicatorInsufficient, DelayVerdict(DelayIndicators(noForecastEvidence)), "the scale-ups are fine but the forecast was never evaluated")
+
+	fewScaleUps := base
+	fewScaleUps.Timely, fewScaleUps.Late, fewScaleUps.LateSeconds, fewScaleUps.Scaled = 2, 0, nil, 2
+	assert.Equal(t, IndicatorInsufficient, DelayVerdict(DelayIndicators(fewScaleUps)), "two judged scale-ups prove nothing")
+
+	failing := onlyTheForecast
+	failing.PeakUnder = []float64{0.4, 0.5, 0.3, 0.6, 0.4}
+	assert.Equal(t, IndicatorFail, DelayVerdict(DelayIndicators(failing)), "a failed indicator decides even when the rest cannot be judged")
 }
 
 func TestTheDelayIndicatorsFailWhenTheForecastIsBehindTheLoad(t *testing.T) {

@@ -137,24 +137,29 @@ func DelayIndicators(in DelayInputs) []Indicator {
 	return out
 }
 
-// DelayVerdict is the verdict of the whole set: fail if any indicator fails; pass only when the scale-ups themselves were judged and met
-// their targets (the configuration indicators can fail a module, they cannot pass it alone); else insufficient.
+// evidenceIndicators are the four that say whether capacity was asked for in time, from what really happened to the scale-ups and to the
+// forecasts. The configuration indicators (reach over the lead, the decision wait) can fail a module; they are not evidence of delay.
+var evidenceIndicators = map[string]bool{"timely_rate": true, "late_p90_seconds": true, "emergency_share": true, "peak_under_p90": true}
+
+// DelayVerdict is the verdict of the whole set. Fail if any indicator fails: a failed one is evidence even when the rest cannot be judged.
+// Pass only when all four evidence indicators could be judged and met their targets: a module whose scale-ups have not been judged yet is
+// not "达标" because the one figure that could be read happened to be good. Anything else is insufficient.
 func DelayVerdict(indicators []Indicator) string {
-	measured, failed := 0, false
+	passed, failed := 0, false
 	for _, i := range indicators {
 		switch i.Verdict {
 		case IndicatorFail:
 			failed = true
 		case IndicatorPass:
-			if i.Key != "reach_over_lead" && i.Key != "decision_wait_seconds" {
-				measured++
+			if evidenceIndicators[i.Key] {
+				passed++
 			}
 		}
 	}
 	switch {
 	case failed:
 		return IndicatorFail
-	case measured == 0:
+	case passed < len(evidenceIndicators):
 		return IndicatorInsufficient
 	}
 	return IndicatorPass

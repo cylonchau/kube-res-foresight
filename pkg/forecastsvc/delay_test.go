@@ -28,6 +28,16 @@ func TestTheDelayReportJudgesTheScaleUpsOfTheWindow(t *testing.T) {
 	add(6*time.Hour, decision.VerdictUnneeded, 0, false)
 	add(90*time.Hour, decision.VerdictLate, 900, true) // outside the window
 
+	// the scale-ups alone do not make a pass: the forecast of the algorithm in use has to have been evaluated too
+	first, err := f.svc.DelayReport(ctx, f.module.ID, 24)
+	require.NoError(t, err)
+	assert.Equal(t, decision.IndicatorInsufficient, first.Verdict, "good scale-ups, but no evaluated forecast: not enough to say 达标")
+	require.NoError(t, f.db.Create(&model.ModuleRunState{ModuleID: f.module.ID, Selected: "naive"}).Error)
+	for i := 0; i < 5; i++ {
+		require.NoError(t, f.db.Create(&model.PredictionEvaluation{ModuleID: f.module.ID, Metric: "cpu", AlgorithmID: "naive", ModelVersion: "v",
+			PredictionTime: testNow.Add(-time.Duration(i+1) * time.Hour), Points: 10, Expected: 10, PeakUnder: 0.05}).Error)
+	}
+
 	rep, err := f.svc.DelayReport(ctx, f.module.ID, 24)
 	require.NoError(t, err)
 	assert.Equal(t, 12, rep.Scaled, "the scale-up of four days ago is not in the window")
