@@ -29,3 +29,5 @@ description: 用于 kube-resource-fcst 需求拆解、菜单权限、管理页�
 5. 按验收参考选择相关验证；报告实际结果与未实现内容。示例、计划和依赖存在不能算交付。
 
 LDAP 须覆盖 LDAPS/StartTLS、CA、用户/组查询与角色映射、禁用同步、失败审计及本地应急管理员；JWT/Casbin 不代表 LDAP 已完成。
+
+**P8 产品闭环（规划，未开始）**：预测效果报告（B1）、变更影响预览（B2）、告警联动（B3）的范围、验收和顺序见 [product-closure-p8.md](references/product-closure-p8.md)；开工前先读它，页面遵守用户已定的规则（不用页签、历史页不加数据列表、字段带“?”说明）。

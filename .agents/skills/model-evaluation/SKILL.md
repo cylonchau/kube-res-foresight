@@ -34,3 +34,4 @@ description: 用于 kube-resource-fcst 准确率、时间滚动回测、算法�
 - **选算法要看最近的跟踪误差（R18）**：回放评分每几小时才重算，只看它会让一个已经落后的 top1 一直被选。每次决策都用最近 10 步里「该时刻之前最后一次预测」与实际值算 WAPE 和偏差（`forecastsvc.Tracking`）；至少 3 步且 WAPE 超过 50% 的算法本轮不参与选择，只要还有别的算法没有落后；全部落后时按评分。落后的原因写进决策说明，不静默切换。
 - **OOM 只扣内存分（R21）**：评分里 OOM 只在「该窗口内存给少了」时计入，只降低内存得分（每次扣 `oom_weight`，上限 60%），CPU 与副本得分不受影响；模块的 `oom_weight_enabled` 默认关，关时 OOM 不进任何评分（`scoring.WeightsWithOOM`）。
 - **预测延迟验收（R21）**：`decision.DelayIndicators` 六项（扩容及时率≥90%、迟到 P90≤60 s、实时兜底占比≤20%、峰值低估 P90≤15%、预测期/提前量≥1、决策等待≤120 s），样本不足不评判，配置类两项不能单独让模块达标；`GET /modules/{id}/delay-report`。目标是代码常量，改动要评审。
+- **效果报告与变更预览（P8，规划）**：B1 把准确度、延迟验收、超配、稳定性汇成一份按模块的报告，B2 用历史回放预览配置变更的影响（只读，不写预测与推荐），口径沿用本技能的低估加权误差与 `DelayReport`；范围与验收见 [requirements/references/product-closure-p8.md](../requirements/references/product-closure-p8.md)。未实现。
