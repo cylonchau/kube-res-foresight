@@ -3,7 +3,7 @@
 面向 Kubernetes 资源预测、Pod 弹性扩容与容量规划的平台，包含以下业务模块：
 
 - 数据源与预测：Prometheus 数据源、指标映射与内置指标预设、一键演示（程序生成的合成数据）、算法管理（平台级统一配置并自动应用到所有模块）、模块（Kubernetes 工作负载，自带多指标来源与预测周期）、加权综合计算、动态多约束副本数求解、评分排名与自动选择、回测、推荐与实测评估、统一指标查询。
-- kube-resource-fcst-operator：按 PredictiveScaler CRD 控制副本（替代 HPA/KEDA），决策来源为平台、Prometheus 或固定值，并导出 kube_resource_fcst_operator_* 指标。
+- kube-resource-fcst-operator：读平台的自动模块并写副本（替代 HPA/KEDA；没有 CRD，决策来源只有平台），并导出 kube_resource_fcst_operator_* 指标。
 - 系统管理：系统参数、登录日志、操作日志、API 凭据。
 - 授权管理：用户、角色、菜单和 API 权限。
 - 任务中心：任务定义、调度、执行记录和失败重试。

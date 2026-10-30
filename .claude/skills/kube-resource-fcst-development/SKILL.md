@@ -21,7 +21,7 @@ description: 开发、排查、评审或规划当前仓库 kube-resource-fcst �
 | 前后端、配置、构建、采集与 SDK | [公共约束](../../../.agents/skills/constraint/SKILL.md)，按范围继续读 frontend.md / bankend.md |
 | 需求、菜单、系统设置、数据源、验收 | [requirements](../../../.agents/skills/requirements/SKILL.md) |
 | 算法、训练推理、特征、动态参数 | [algorithm-library](../../../.agents/skills/algorithm-library/SKILL.md) |
-| CRD、Controller、动态副本与指标 | [control-plane](../../../.agents/skills/control-plane/SKILL.md) |
+| Operator、动态副本与指标 | [control-plane](../../../.agents/skills/control-plane/SKILL.md) |
 | Kyverno 接入、资源快照、准入与回退 | [admission-safety](../../../.agents/skills/admission-safety/SKILL.md) |
 | 回测、准确率、晋升和领域审计 | [model-evaluation](../../../.agents/skills/model-evaluation/SKILL.md) |
 
@@ -31,7 +31,7 @@ description: 开发、排查、评审或规划当前仓库 kube-resource-fcst �
 - 持久化沿用现有 GORM、DAO 与显式迁移，兼容 SQLite/MySQL/PostgreSQL；不强制 PostgreSQL。
 - 算法按当前调研筛选，纯 Go 实现，首期统计基线与岭回归/GBDT 对照；金融技术指标不进入算法目录或验收，没有例外（macd_trend 已移除）。准确率与性能需真实滚动回测证据。
 - 预测流水线（pkg/collector、forecast、backtest、decision、forecastsvc）、LDAP、operator、准入接口已实现，只用合成数据/模拟外部系统验证：新算法走 forecast 注册表并配单测；回测必须保持无泄漏；decision、MakePlan 保持纯函数；admission/auto 由系统设置关闭，每次回答都检查开关。
-- 副本由 kube-resource-fcst-operator 按 PredictiveScaler CRD 唯一控制（替代 HPA/KEDA），不能与 HPA/KEDA 或 Kyverno 双写；准入同步链路不等待模型、Kafka 或 Prometheus 长查询。
+- 副本由 kube-resource-fcst-operator 按平台模块唯一控制（替代 HPA/KEDA；没有 CRD），不能与 HPA/KEDA 或 Kyverno 双写；准入同步链路不等待模型、Kafka 或 Prometheus 长查询。
 - kube-resource-fcst-operator 使用 Go 的 Operator SDK / Kubebuilder（controller-runtime）框架，不手写 informer/workqueue；已实现控制器逻辑与清单，只用 fake client 验证，未在真实集群验证。
 - 新版文档与旧技能的 Kyverno/独立 Webhook、三模块和动态决策来源差异，按执行进度 P0 先对齐；不得默默采用冲突设计或宣称功能已实现。
 - 前端复用现有 Vue/Naive UI 和表格模式；根仓库与 `web` 独立管理 Git，保留用户已有修改。

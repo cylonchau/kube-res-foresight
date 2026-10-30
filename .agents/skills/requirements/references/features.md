@@ -1,5 +1,8 @@
 # 01 功能需求说明（中文）
 
+> **2026-10-31：自定义资源 PredictiveScaler（CRD）已移除。** operator 只读平台的模块并写副本，不在集群里创建任何资源；下文提到 CRD、PredictiveScaler、Static/Prometheus 决策来源、Observe 模式的地方是当时的设计，不再适用。现状见 `.agents/skills/control-plane/SKILL.md`。
+
+
 > 来源：根目录 `docs/01-功能需求.md`。本文件为规划需求，现有代码能力及冲突处理以 [代码地图](repository-map.md) 和 [融合约定](integration-decisions.md) 为准；不代表页面已经实现。
 
 ## 1. 范围

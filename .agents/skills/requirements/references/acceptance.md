@@ -1,5 +1,8 @@
 # 04 验收标准与实施顺序
 
+> **2026-10-31：自定义资源 PredictiveScaler（CRD）已移除。** operator 只读平台的模块并写副本，不在集群里创建任何资源；下文提到 CRD、PredictiveScaler、Static/Prometheus 决策来源、Observe 模式的地方是当时的设计，不再适用。现状见 `.agents/skills/control-plane/SKILL.md`。
+
+
 > 来源：根目录 `docs/04-验收标准与实施阶段.md`。以下是未来阶段验收，不是完成报告；当前能力见 [代码地图](repository-map.md)。日期与数值仅为测试样例。
 
 ## 阶段 1：基础与管理

@@ -1,5 +1,8 @@
 # 03 数据、CRD、API 与 Metrics 契约
 
+> **2026-10-31：自定义资源 PredictiveScaler（CRD）已移除。** operator 只读平台的模块并写副本，不在集群里创建任何资源；下文提到 CRD、PredictiveScaler、Static/Prometheus 决策来源、Observe 模式的地方是当时的设计，不再适用。现状见 `.agents/skills/control-plane/SKILL.md`。
+
+
 > 来源：根目录 `docs/03-数据与接口契约.md`。所有新增接口、表和事件为规划；先对照 [代码地图](repository-map.md) 复用现有身份/权限/存储，再依据 [融合约定](integration-decisions.md) 确定 API group、指标前缀与版本方案。
 
 以下均为**本项目拟定的自定义接口设计**，不是 Kubernetes 原生已存在的 kind/field。

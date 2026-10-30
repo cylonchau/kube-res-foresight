@@ -1,5 +1,8 @@
 # 预测系统页面与功能重构：现状核对、菜单、验收标准与降级规则
 
+> **2026-10-31：自定义资源 PredictiveScaler（CRD）已移除。** operator 只读平台的模块并写副本，不在集群里创建任何资源；下文提到 CRD、PredictiveScaler、Static/Prometheus 决策来源、Observe 模式的地方是当时的设计，不再适用。现状见 `.agents/skills/control-plane/SKILL.md`。
+
+
 > **注意（2026-10-25）：** 算法已改为平台级统一配置并自动应用到所有模块，指标来源回到模块，不再有算法实例与绑定。本文中与此冲突的描述以 [module-algorithm-spec.md](module-algorithm-spec.md) 为准。
 
 对应 2026-10-24 提出的「预测系统功能与页面优化」6 条需求。本文是实施前的补充规格：先把菜单、验收标准、降级规则定下来，再动手；与项目既有约束冲突或需要你拍板的地方集中在第 0 节。

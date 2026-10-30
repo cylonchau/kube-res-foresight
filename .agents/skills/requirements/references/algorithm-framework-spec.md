@@ -1,5 +1,8 @@
 # 算法框架、Prometheus 数据集与评分页面：规格
 
+> **2026-10-31：自定义资源 PredictiveScaler（CRD）已移除。** operator 只读平台的模块并写副本，不在集群里创建任何资源；下文提到 CRD、PredictiveScaler、Static/Prometheus 决策来源、Observe 模式的地方是当时的设计，不再适用。现状见 `.agents/skills/control-plane/SKILL.md`。
+
+
 对应 2026-10-25 的「Kubernetes 预测扩缩容系统优化需求（精简分类后）」。在 [module-algorithm-spec](module-algorithm-spec.md)（模块 → 自动关联所有启用算法）的基础上补充：可扩展算法框架、自定义公式算法、训练记录、模块数据集、数据周期、拆分后的评分页面。与之冲突处以本文为准。
 
 系统结构：**模块管理 → Metrics 数据集 → 算法框架 → 自动训练/预测 → 算法评估排名 → 预测结果 → Controller/Kyverno 执行**。

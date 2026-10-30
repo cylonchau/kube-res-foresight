@@ -1,5 +1,8 @@
 # kube-resource-fcst 名称与升级说明
 
+> **2026-10-31：自定义资源 PredictiveScaler（CRD）已移除。** operator 只读平台的模块并写副本，不在集群里创建任何资源；下文提到 CRD、PredictiveScaler、Static/Prometheus 决策来源、Observe 模式的地方是当时的设计，不再适用。现状见 `.agents/skills/control-plane/SKILL.md`。
+
+
 项目名称统一为 `kube-resource-fcst`。本说明只涉及名称与接入标识变化，不要求重建业务数据库。
 
 | 用途 | 当前名称 |

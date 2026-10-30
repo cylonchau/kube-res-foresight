@@ -582,3 +582,12 @@ all ten management pages and the shared product title. Screenshots were inspecte
 - **logo**：整体居中，左右各一份相同内边距，并扣掉图形自带的 1 像素左侧空白；实测标题两侧留白差在 1 像素以内。
 - **没验证**：以上都只在临时实例、SQLite、假 Prometheus 上验证；没有在你自己的浏览器里看 logo；Pod·小时和 SLO 没有真实数据；没有 MySQL/PostgreSQL。
 - **待你定**：“现在没有 CRD 了”——代码里 PredictiveScaler CRD、控制器、清单和 `--predictivescaler-crd`（默认开）还在，我没有动，先确认要怎么处理。
+
+2026-10-31：删除 CRD（PredictiveScaler）
+- **背景**：用户说“现在没有 CRD 了”，并选择“彻底删除 CRD 支持”。PredictiveScaler 只是把模块里已有的内容再写一遍，两处会不同步；operator 早就能只读平台模块（R21），CRD 路径成了第二套要同步维护的配置。
+- **删掉了什么**：`pkg/operator/api/v1alpha1`（类型、deepcopy、API group）；`reconciler.go` 的 CRD 控制器（状态条件、事件、`SetupWithManager`）；Static 与 Prometheus 两个决策来源（`prometheus.go`、`kube_resource_fcst_operator_prometheus_*` 指标）；Observe 模式；命令行 `--predictivescaler-crd`；每个 CRD 自带的平台地址、Secret 引用与超时；`deploy/operator/crd`、三个示例、Helm 的 `crds/`、`deploy/testbed/load-scalers.yaml`；RBAC 里对 `predictivescalers`、`secrets`、`events` 的权限；operator 冲突检测里“更早的 PredictiveScaler”。
+- **现在是什么**：`controller.Scaler`（内存里的普通结构，`PlatformModule.Scaler` 每轮从平台模块构造）→ `Applier.Evaluate`（读目标、`CachingDecider`/`PlatformDecider` 问平台、`MakePlan`、经 scale 子资源写副本、上报）；`ModuleSync` 按平台设置的间隔逐轮评估；`--platform-url` 必填，没有它 operator 拒绝启动。`MakePlan` 和缓存、恢复、紧急扩容、设置刷新的行为不变（原单测按新类型移植，规则的用例全部保留）。HPA、KEDA 冲突检测保留。
+- **清单与文档**：Helm 的 `platform.url` 变为必填（`required`），去掉 `predictiveScalerCRD`；纯清单 `manager.yaml` 带上平台参数和凭据 Secret 的挂载；README、NOTES、deploy/README、testbed 脚本与说明、AGENTS.md、control-plane 技能、代码地图都改成没有 CRD；较早的规格和需求文档（docs/0x、requirements 的几份）没有改写，只在开头加了一条 2026-10-31 的说明。官网 scaling 页同步并重新生成了 `site/`。
+- **数据与迁移**：operator 不在集群里存任何东西，所以没有数据要迁移。集群里已有的 CRD 和 PredictiveScaler 对象没有任何东西再读它们，由部署者自己删除（Helm README 里写了命令，没有替你执行）。
+- **验证**：`go build ./...`、`go vet`、`go test ./pkg/...` 通过（operator 的 applier、规则、缓存、设置、模块同步、指标、命令行都有用例；新增“没有任何自定义资源类型”“不给平台地址拒绝启动”“没有 `--predictivescaler-crd` 参数”）。**没有验证**：没有在真实集群里跑；没有用 Helm 渲染过 chart（本机没有 helm），`manager.yaml` 和 chart 模板是手改的；`controller-gen` 没有重新生成 `deploy/operator/rbac/role.yaml`，是照 `rbac.go` 的标记手改的。
+- **没处理的既有问题**：`scripts/check-site.py` 报文档站“算法数量与 builtinBuilders 不一致”，在我动手前就是这样（A9 加了 model_service 之后没更新官网的“14 种算法”）。

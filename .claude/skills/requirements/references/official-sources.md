@@ -1,5 +1,8 @@
 # 官方与项目资料（已按能力类型区分）
 
+> **2026-10-31：自定义资源 PredictiveScaler（CRD）已移除。** operator 只读平台的模块并写副本，不在集群里创建任何资源；下文提到 CRD、PredictiveScaler、Static/Prometheus 决策来源、Observe 模式的地方是当时的设计，不再适用。现状见 `.agents/skills/control-plane/SKILL.md`。
+
+
 > 来源：根目录 `docs/06-官方参考资料.md`。算法来源于 2026-10-23 核查，详见 [算法调研](../../algorithm-library/references/research.md)；其余继承资料的版本结论仍需实施时按目标集群核实，不代表已运行验证。
 
 - [Kubernetes Admission Webhook](https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/)：由 API Server 调用，分 Mutating/Validating。

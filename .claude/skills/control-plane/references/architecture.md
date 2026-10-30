@@ -1,5 +1,8 @@
 # 02 系统架构与控制职责
 
+> **2026-10-31：自定义资源 PredictiveScaler（CRD）已移除。** operator 只读平台的模块并写副本，不在集群里创建任何资源；下文提到 CRD、PredictiveScaler、Static/Prometheus 决策来源、Observe 模式的地方是当时的设计，不再适用。现状见 `.agents/skills/control-plane/SKILL.md`。
+
+
 > 来源：根目录 `docs/02-系统架构.md`。以下是目标架构，非当前已部署组件。接入现有结构见 [代码地图](../../requirements/references/repository-map.md)，冲突与未决项见 [融合约定](../../requirements/references/integration-decisions.md)。版本敏感能力需在实施时核实。
 
 ## 总体数据流

@@ -1,5 +1,8 @@
 # 融合约定与来源追踪
 
+> **2026-10-31：自定义资源 PredictiveScaler（CRD）已移除。** operator 只读平台的模块并写副本，不在集群里创建任何资源；下文提到 CRD、PredictiveScaler、Static/Prometheus 决策来源、Observe 模式的地方是当时的设计，不再适用。现状见 `.agents/skills/control-plane/SKILL.md`。
+
+
 用户当前任务决定范围，AGENTS.md 提供边界，技能提供执行流程，references 保存详细研究。根目录 docs 原稿保留；技能包自带参考，不依赖不存在的 docs/01-… 路径。
 
 | 原调研 | 技能内落点（以 .agents/skills 为基准） |
