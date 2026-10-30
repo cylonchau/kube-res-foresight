@@ -439,6 +439,62 @@ func (r *ForecastRouter) ModuleDelayReport(c *gin.Context) {
 	query.SuccessResponse(c, nil, rep)
 }
 
+// ModuleEffectReport serves what the forecasts of a module were worth over the last hours (since_hours, 24 by default, at most 720):
+// accuracy, delay, wasted capacity, stability and who decided. It reads stored facts and changes nothing.
+// @Summary Effect report of a module
+// @Tags Forecast
+// @Router /api/v1/modules/{id}/effect-report [get]
+func (r *ForecastRouter) ModuleEffectReport(c *gin.Context) {
+	id, ok := parseUintParam(c, "id")
+	if !ok {
+		return
+	}
+	hours := 0
+	if raw := c.Query("since_hours"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 || n > forecastsvc.MaxEffectHours {
+			query.BadRequest(c, fmt.Errorf("since_hours must be a whole number between 1 and %d", forecastsvc.MaxEffectHours))
+			return
+		}
+		hours = n
+	}
+	rep, err := r.Service.EffectReport(c.Request.Context(), id, hours)
+	if err != nil {
+		r.writeError(c, err)
+		return
+	}
+	query.SuccessResponse(c, nil, rep)
+}
+
+// ChangePreviewReq is the setting to try and the window to replay it over.
+type ChangePreviewReq struct {
+	SinceHours int `json:"since_hours"`
+	forecastsvc.PreviewChange
+}
+
+// ModuleChangePreview replays the last hours with the saved setting and with the posted change and returns both timelines. It reads stored
+// history and writes nothing: no prediction, recommendation, training record or score, and nothing is saved on the module or the algorithm.
+// @Summary Preview the effect of a change on a module
+// @Tags Forecast
+// @Router /api/v1/modules/{id}/change-preview [post]
+func (r *ForecastRouter) ModuleChangePreview(c *gin.Context) {
+	id, ok := parseUintParam(c, "id")
+	if !ok {
+		return
+	}
+	var req ChangePreviewReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		query.BadRequest(c, err)
+		return
+	}
+	rep, err := r.Service.PreviewChange(c.Request.Context(), id, req.SinceHours, req.PreviewChange)
+	if err != nil {
+		r.writeError(c, err)
+		return
+	}
+	query.SuccessResponse(c, nil, rep)
+}
+
 // ModuleRun collects and predicts in one call, as the scheduled task does.
 func (r *ForecastRouter) ModuleRun(c *gin.Context) {
 	id, ok := parseUintParam(c, "id")

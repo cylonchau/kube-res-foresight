@@ -90,6 +90,8 @@ func forecastTestRouter(t *testing.T) (*gin.Engine, *model.MetricMapping) {
 	r.POST("/modules/:id/collect", h.ModuleCollect)
 	r.POST("/modules/:id/predict", h.ModulePredict)
 	r.GET("/modules/:id/delay-report", h.ModuleDelayReport)
+	r.GET("/modules/:id/effect-report", h.ModuleEffectReport)
+	r.POST("/modules/:id/change-preview", h.ModuleChangePreview)
 	r.POST("/modules/:id/run", h.ModuleRun)
 	r.POST("/modules/:id/backtest", h.ModuleBacktest)
 	r.GET("/modules/:id/backtests", h.ModuleBacktests)
@@ -1088,4 +1090,37 @@ func TestTheDelayReportIsServedWithItsIndicatorsAndTargets(t *testing.T) {
 		assert.True(t, keys[k], k)
 	}
 	assert.Equal(t, http.StatusNotFound, performJSON(t, r, http.MethodGet, "/modules/9999/delay-report", "", nil).Code)
+}
+
+func TestTheEffectReportIsServedWithEverySectionAndRefusesABadWindow(t *testing.T) {
+	r, _ := forecastTestRouter(t)
+	id := createModule(t, r, map[string]any{"name": "er", "namespace": "prod", "workload": "er"})
+	rec := performJSON(t, r, http.MethodGet, fmt.Sprintf("/modules/%d/effect-report?since_hours=48", id), "", nil)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	got := decodeData(t, rec.Body.Bytes())
+	assert.EqualValues(t, 48, got["hours"])
+	for _, section := range []string{"accuracy", "delay", "waste", "stability", "adoption"} {
+		assert.Contains(t, got, section)
+	}
+	assert.Equal(t, false, got["waste"].(map[string]any)["enough"], "a new module has no data to judge")
+
+	for _, bad := range []string{"0", "-3", "abc", "721"} {
+		assert.Equal(t, http.StatusBadRequest, performJSON(t, r, http.MethodGet, fmt.Sprintf("/modules/%d/effect-report?since_hours=%s", id, bad), "", nil).Code, bad)
+	}
+	assert.Equal(t, http.StatusNotFound, performJSON(t, r, http.MethodGet, "/modules/9999/effect-report", "", nil).Code)
+}
+
+func TestTheChangePreviewRefusesAnEmptyOrInvalidChangeAndUnknownModules(t *testing.T) {
+	r, _ := forecastTestRouter(t)
+	id := createModule(t, r, map[string]any{"name": "cp", "namespace": "prod", "workload": "cp"})
+	post := func(id any, body map[string]any) int {
+		return performJSON(t, r, http.MethodPost, fmt.Sprintf("/modules/%v/change-preview", id), "", body).Code
+	}
+	assert.Equal(t, http.StatusBadRequest, post(id, map[string]any{}), "nothing to compare")
+	assert.Equal(t, http.StatusBadRequest, post(id, map[string]any{"headroom_ratio": 0.2}), "out of range")
+	assert.Equal(t, http.StatusBadRequest, post(id, map[string]any{"headroom_ratio": "x"}), "not a number")
+	assert.Equal(t, http.StatusBadRequest, post(id, map[string]any{"headroom_ratio": 1.3, "since_hours": 100000}), "window too long")
+	assert.Equal(t, http.StatusNotFound, post(9999, map[string]any{"headroom_ratio": 1.3}))
+	// a valid change on a module with no history cannot be replayed, and says so instead of inventing a timeline
+	assert.Equal(t, http.StatusBadRequest, post(id, map[string]any{"headroom_ratio": 1.3}))
 }
