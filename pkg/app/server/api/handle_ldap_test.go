@@ -259,9 +259,12 @@ func TestLDAPParametersAreEditedLikeAnyOtherSystemParameter(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, set("ldap.start_tls", "maybe").Code)
 	assert.Equal(t, http.StatusBadRequest, set("ldap.timeout_seconds", "500").Code)
 
-	for key, v := range map[string]string{"ldap.url": "ldaps://ldap.example.org", "ldap.user_base_dn": "ou=people,dc=example,dc=org",
-		"ldap.bind_dn": "cn=svc,dc=example,dc=org", "ldap.bind_password": "svc-secret"} {
-		require.Equal(t, http.StatusOK, set(key, v).Code, key)
+	// a password is refused while there is no bind DN to use it with (it used to be dropped without a word, depending on the order the
+	// parameters were saved in), so the DN comes first
+	assert.Equal(t, http.StatusBadRequest, set("ldap.bind_password", "svc-secret").Code, "no bind DN yet")
+	for _, kv := range [][2]string{{"ldap.url", "ldaps://ldap.example.org"}, {"ldap.user_base_dn", "ou=people,dc=example,dc=org"},
+		{"ldap.bind_dn", "cn=svc,dc=example,dc=org"}, {"ldap.bind_password", "svc-secret"}} {
+		require.Equal(t, http.StatusOK, set(kv[0], kv[1]).Code, kv[0])
 	}
 	assert.NotEqual(t, "svc-secret", value("ldap.bind_password"), "the password is stored encrypted")
 	assert.NotContains(t, performJSON(t, a.router, http.MethodGet, "/configs", "", nil).Body.String(), "svc-secret")

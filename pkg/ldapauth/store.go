@@ -184,6 +184,11 @@ func WithValue(row *model.LDAPSetting, key, value string) (*model.LDAPSetting, e
 			return nil, fmt.Errorf("%s must be a whole number of seconds", key)
 		}
 	case keyBindPassword:
+		if value != "" && row.BindDN == "" {
+			// without a bind DN the password is never used, and keeping it out of the row silently would answer "saved" for a value that
+			// is gone: the order matters, so say it
+			return nil, fmt.Errorf("%s needs the bind DN (%s) to be set first", key, keyBindDN)
+		}
 		if value != "" {
 			enc, err := cryptoutils.EncryptValue(value)
 			if err != nil {
