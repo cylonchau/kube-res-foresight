@@ -108,3 +108,48 @@ func TestGetUserRoutesIncludesUserCenterBeforeMigration(t *testing.T) {
 		t.Fatalf("user-center route missing from response: %s", response.Body.String())
 	}
 }
+
+// Whoever may see the dashboard lands on it after login; the others land where they did before.
+func TestTheDashboardIsTheLandingPageOfWhoeverMaySeeIt(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	landing := func(withDashboard bool) string {
+		db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := db.AutoMigrate(&model.Permission{}); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.Create(&model.Permission{Name: "Modules", Code: "forecast-modules", Type: "DIRECTORY", FeRoute: "/forecast-modules", FeComponent: "layout.base", Visible: true, Status: true}).Error; err != nil {
+			t.Fatal(err)
+		}
+		if withDashboard {
+			if err := db.Create(&model.Permission{Name: "Dashboard", Code: "dashboard", Type: "MENU", FeRoute: "/dashboard", FeComponent: "view.dashboard", Visible: true, Status: true}).Error; err != nil {
+				t.Fatal(err)
+			}
+		}
+		previousDB := model.DB
+		model.DB = db
+		t.Cleanup(func() { model.DB = previousDB })
+		response := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(response)
+		ctx.Request = httptest.NewRequest(http.MethodGet, "/api/v1/route/get-user-routes", nil)
+		ctx.Set("roles", []string{"ADMIN"})
+		(&RouteRouter{}).GetUserRoutes(ctx)
+		var body struct {
+			Data struct {
+				Home string `json:"home"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		return body.Data.Home
+	}
+	if got := landing(true); got != "dashboard" {
+		t.Fatalf("landing page with the dashboard: %q", got)
+	}
+	if got := landing(false); got != homeRoute {
+		t.Fatalf("landing page without it: %q", got)
+	}
+}

@@ -142,6 +142,7 @@ func seedPlatformPermissions() error {
 	}
 	seeds := []permissionSeed{
 		{permission: model.Permission{Name: "User Center", Code: "user-center", Type: "MENU", FeRoute: "/user-center", FeComponent: "view.user-center", Sort: 1, Visible: false, Status: true}},
+		{permission: model.Permission{Name: "Dashboard", Code: "dashboard", Type: "MENU", FeRoute: "/dashboard", FeComponent: "view.dashboard", Icon: "carbon:home", Sort: 2, Visible: true, Status: true, BeApis: `["GET /api/v1/dashboard"]`}},
 		{permission: model.Permission{Name: "Authorization", Code: "authorization", Type: "DIRECTORY", FeRoute: "/authorization", FeComponent: "layout.base", Icon: "carbon:user-role", Sort: 60, Visible: true, Status: true}},
 		{permission: model.Permission{Name: "Users", Code: "authorization_user", Type: "MENU", FeRoute: "/authorization/user", FeComponent: "view.authorization_user", Icon: "carbon:user", Sort: 1, Visible: true, Status: true}, parentCode: "authorization"},
 		{permission: model.Permission{Name: "Roles", Code: "authorization_role", Type: "MENU", FeRoute: "/authorization/role", FeComponent: "view.authorization_role", Icon: "carbon:group", Sort: 2, Visible: true, Status: true}, parentCode: "authorization"},

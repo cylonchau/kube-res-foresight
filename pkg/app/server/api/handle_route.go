@@ -83,7 +83,13 @@ func (rr *RouteRouter) GetUserRoutes(c *gin.Context) {
 		}
 		roots = append(roots, item)
 	}
-	query.SuccessResponse(c, nil, gin.H{"home": homeRoute, "routes": roots})
+	home := homeRoute
+	for _, root := range roots {
+		if root["name"] == "dashboard" {
+			home = "dashboard" // whoever may see the home page lands on it
+		}
+	}
+	query.SuccessResponse(c, nil, gin.H{"home": home, "routes": roots})
 }
 
 func filterRetiredRoutePermissions(permissions []model.Permission) []model.Permission {

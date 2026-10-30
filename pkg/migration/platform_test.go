@@ -37,7 +37,7 @@ func TestPlatformCleanupPreservesGenericTasksAndAuthorization(t *testing.T) {
 	require.False(t, db.Migrator().HasTable("market_kline"))
 	var roots []model.Permission
 	require.NoError(t, db.Where("parent_id = 0 AND visible = ? AND type <> ?", true, "BUTTON").Find(&roots).Error)
-	require.Len(t, roots, 9)
+	require.Len(t, roots, 10, "the nine directories of the platform and the dashboard, the page after login")
 	for _, root := range roots {
 		require.True(t, model.IsPlatformRoute(root.Code))
 	}

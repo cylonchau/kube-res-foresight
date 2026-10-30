@@ -29,7 +29,7 @@ func IsRetiredPermission(code string) bool { return retiredMenuCodes[code] || re
 
 // IsPlatformRoute limits navigation to the supported modules and the hidden profile page.
 func IsPlatformRoute(code string) bool {
-	if code == "user-center" {
+	if code == "user-center" || code == "dashboard" {
 		return true
 	}
 	if code == "system_coins" || retiredMenuCodes[code] {

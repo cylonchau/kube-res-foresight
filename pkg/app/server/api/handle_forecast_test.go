@@ -120,6 +120,7 @@ func forecastTestRouter(t *testing.T) (*gin.Engine, *model.MetricMapping) {
 	r.POST("/modules/batch", h.BatchModules)
 	r.GET("/operator/decisions", rt.Decision)
 	r.GET("/operator/settings", rt.OperatorSettings)
+	r.GET("/dashboard", h.Dashboard)
 	r.POST("/operator/reports", rt.Report)
 	r.GET("/admission/recommendations", rt.Admission)
 	r.GET("/scaling-decisions", rt.ListExecutions)
@@ -1197,4 +1198,22 @@ func TestTheOperatorIsGivenItsTimeLimitsBySystemParameters(t *testing.T) {
 	assert.EqualValues(t, 5, got["sync_interval_seconds"], "below the range: the lowest allowed")
 	assert.EqualValues(t, 0, got["decision_cache_ttl_seconds"], "0 turns the cache off")
 	assert.EqualValues(t, 2, got["recover_answers"], "not a number: the default")
+}
+
+func TestTheDashboardIsServedWithEverySectionAndRefusesABadWindow(t *testing.T) {
+	r, _ := forecastTestRouter(t)
+	createModule(t, r, map[string]any{"name": "dash", "namespace": "prod", "workload": "dash"})
+	rec := performJSON(t, r, http.MethodGet, "/dashboard?since_hours=72", "", nil)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	got := decodeData(t, rec.Body.Bytes())
+	assert.EqualValues(t, 72, got["hours"])
+	assert.EqualValues(t, 6, got["bucket_hours"], "six-hour bars beyond two days")
+	for _, section := range []string{"modules", "totals", "attention", "activity"} {
+		assert.Contains(t, got, section)
+	}
+	assert.EqualValues(t, 1, got["modules"].(map[string]any)["total"])
+	assert.NotNil(t, got["attention"], "a list, empty or not: never null")
+	for _, bad := range []string{"0", "-1", "x", "721"} {
+		assert.Equal(t, http.StatusBadRequest, performJSON(t, r, http.MethodGet, "/dashboard?since_hours="+bad, "", nil).Code, bad)
+	}
 }

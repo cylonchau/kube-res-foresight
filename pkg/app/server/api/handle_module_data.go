@@ -474,6 +474,29 @@ type ChangePreviewReq struct {
 	forecastsvc.PreviewChange
 }
 
+// Dashboard serves the home page: the modules by what they are, the ones that need a look, and what the operator applied over the last
+// hours (since_hours, 24 by default, at most 720). It reads stored facts and changes nothing.
+// @Summary Home page
+// @Tags Forecast
+// @Router /api/v1/dashboard [get]
+func (r *ForecastRouter) Dashboard(c *gin.Context) {
+	hours := 0
+	if raw := c.Query("since_hours"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 || n > forecastsvc.MaxEffectHours {
+			query.BadRequest(c, fmt.Errorf("since_hours must be a whole number between 1 and %d", forecastsvc.MaxEffectHours))
+			return
+		}
+		hours = n
+	}
+	out, err := r.Service.Dashboard(c.Request.Context(), hours)
+	if err != nil {
+		r.writeError(c, err)
+		return
+	}
+	query.SuccessResponse(c, nil, out)
+}
+
 // ModuleChangePreview replays the last hours with the saved setting and with the posted change and returns both timelines. It reads stored
 // history and writes nothing: no prediction, recommendation, training record or score, and nothing is saved on the module or the algorithm.
 // @Summary Preview the effect of a change on a module
