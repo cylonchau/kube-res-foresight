@@ -480,7 +480,7 @@ func TestARefreshTheOperatorStoppedWaitingForFinishesAndIsStored(t *testing.T) {
 		return inner(query, ts)
 	}
 
-	*f.clock = f.clock.Add(10 * time.Minute)
+	*f.clock = f.clock.Add(11 * time.Minute) // older than the 10 minutes forecasts are reused for: the refresh forecasts again, and is slow
 	short, cancel := context.WithTimeout(ctx, 150*time.Millisecond)
 	defer cancel()
 	rec, refreshed, err := f.svc.FreshRecommendation(short, f.module.ID, time.Minute)
@@ -501,4 +501,68 @@ func TestARefreshTheOperatorStoppedWaitingForFinishesAndIsStored(t *testing.T) {
 	_, refreshed, err = f.svc.FreshRecommendation(ctx, f.module.ID, time.Minute)
 	require.NoError(t, err)
 	assert.False(t, refreshed, "the next poll finds it recent")
+}
+
+// When the operator asks and the stored recommendation is old, the platform decides again on the load measured now, on the forecasts
+// the scheduled task made a few minutes ago: the algorithms are not run a second time. The new samples are collected, and they move the
+// decision (a load that jumped since the last run raises the replicas at once); only forecasts older than the parameter are made again.
+func TestARefreshDecidesOnTheNewLoadWithoutRunningTheAlgorithmsAgain(t *testing.T) {
+	f := aheadFixture(t)
+	ctx := context.Background()
+	f.fullCycle(t)
+	count := func(table any) int64 {
+		var n int64
+		require.NoError(t, f.db.Model(table).Count(&n).Error)
+		return n
+	}
+	predictions, trainings := count(&model.Prediction{}), count(&model.TrainingRun{})
+	first, err := f.svc.Predictions.LatestRecommendation(ctx, f.module.ID)
+	require.NoError(t, err)
+
+	// five minutes later the load has jumped; the scheduled task has not run since
+	*f.clock = f.clock.Add(5 * time.Minute)
+	f.querier.value = func(query string, ts time.Time) float64 {
+		if contains(query, "kube_deployment") {
+			return 4
+		}
+		return 1500
+	}
+	queriesBefore := len(f.querier.queries)
+	rec, refreshed, err := f.svc.FreshRecommendation(ctx, f.module.ID, time.Minute)
+	require.NoError(t, err)
+	assert.True(t, refreshed)
+	assert.Greater(t, rec.Version, first.Version)
+	assert.Greater(t, len(f.querier.queries), queriesBefore, "the newest samples were collected")
+	assert.Equal(t, predictions, count(&model.Prediction{}), "no algorithm forecast again")
+	assert.Equal(t, trainings, count(&model.TrainingRun{}), "and none left a record of running")
+	assert.Equal(t, 15, rec.Replicas, "the load measured now needs 15 Pods: the decision followed it")
+	assert.True(t, rec.Urgent)
+
+	// the forecasts are older than the parameter: they are made again, as part of the refresh
+	*f.clock = f.clock.Add(30 * time.Minute)
+	rec2, refreshed, err := f.svc.FreshRecommendation(ctx, f.module.ID, time.Minute)
+	require.NoError(t, err)
+	assert.True(t, refreshed)
+	assert.Greater(t, rec2.Version, rec.Version)
+	assert.Greater(t, count(&model.Prediction{}), predictions, "forecasts that old are made again")
+	assert.Greater(t, count(&model.TrainingRun{}), trainings)
+}
+
+// The age forecasts may have is the system parameter: a short one makes the same refresh forecast again.
+func TestTheForecastReuseAgeIsTheSystemParameter(t *testing.T) {
+	f := aheadFixture(t)
+	ctx := context.Background()
+	f.fullCycle(t)
+	predictions := func() int64 {
+		var n int64
+		require.NoError(t, f.db.Model(&model.Prediction{}).Count(&n).Error)
+		return n
+	}
+	before := predictions()
+	f.setParameter(t, "forecast.decision_forecast_max_age_seconds", "60") // the lowest allowed
+	*f.clock = f.clock.Add(5 * time.Minute)
+	_, refreshed, err := f.svc.FreshRecommendation(ctx, f.module.ID, time.Minute)
+	require.NoError(t, err)
+	assert.True(t, refreshed)
+	assert.Greater(t, predictions(), before, "five minutes is older than the 60 seconds asked for: forecast again")
 }

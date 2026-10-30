@@ -757,6 +757,35 @@ type PipelineResult struct {
 	Errors    []string              `json:"errors,omitempty"`
 }
 
+// RunCollect collects the newest samples of the sources of one module and forecasts nothing: the measured load of now is what a decision
+// made between two scheduled runs needs, and the forecasts of the last run are still good.
+func (s *Service) RunCollect(ctx context.Context, moduleID uint) (*PipelineResult, error) {
+	lock := s.pipelineLock(moduleID)
+	lock.Lock()
+	defer lock.Unlock()
+	a, err := s.Modules.Get(ctx, moduleID)
+	if err != nil {
+		return nil, err
+	}
+	res := &PipelineResult{}
+	s.collectInto(ctx, a, res)
+	return res, nil
+}
+
+// collectInto collects the history of the sources of a module into res, with the errors it met.
+func (s *Service) collectInto(ctx context.Context, a *model.ForecastModule, res *PipelineResult) {
+	if collected, err := s.Collect(ctx, a.ID); err != nil {
+		res.Errors = append(res.Errors, a.Name+" collect: "+err.Error())
+	} else {
+		res.Collect = collected
+		for _, c := range collected {
+			if c.Error != "" {
+				res.Errors = append(res.Errors, fmt.Sprintf("%s collect %s: %s", a.Name, c.Metric, c.Error))
+			}
+		}
+	}
+}
+
 // RunData performs the scheduled data work of one module: collect the history of its sources, then run every
 // enabled algorithm on it. It reports the algorithm forecasts that failed in failed, keyed by algorithm and source.
 func (s *Service) RunData(ctx context.Context, moduleID uint, failed map[string]string) (*PipelineResult, error) {
@@ -768,16 +797,7 @@ func (s *Service) RunData(ctx context.Context, moduleID uint, failed map[string]
 		return nil, err
 	}
 	res := &PipelineResult{}
-	if collected, err := s.Collect(ctx, a.ID); err != nil {
-		res.Errors = append(res.Errors, a.Name+" collect: "+err.Error())
-	} else {
-		res.Collect = collected
-		for _, c := range collected {
-			if c.Error != "" {
-				res.Errors = append(res.Errors, fmt.Sprintf("%s collect %s: %s", a.Name, c.Metric, c.Error))
-			}
-		}
-	}
+	s.collectInto(ctx, a, res)
 	if predicted, err := s.Predict(ctx, a.ID); errors.Is(err, ErrPredictionOff) {
 		// not an error: the module is not asked to forecast
 	} else if err != nil {

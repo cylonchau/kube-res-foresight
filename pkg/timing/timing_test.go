@@ -32,7 +32,7 @@ func TestEveryLimitHasAKeyADefaultInsideItsRangeAndText(t *testing.T) {
 		assert.NotEmpty(t, p.Name, p.Key)
 		assert.NotEmpty(t, p.Remark, p.Key)
 	}
-	assert.Len(t, seen, 12)
+	assert.Len(t, seen, 13)
 }
 
 func TestOperatorSettingsAreReadFromTheStoredTextAndNormalized(t *testing.T) {

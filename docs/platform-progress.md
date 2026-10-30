@@ -566,3 +566,9 @@ all ten management pages and the shared product title. Screenshots were inspecte
 - **验证**：`pkg/timing`、`forecastsvc/timing_test.go`、`handle_forecast_test.go`（接口）、`operator/controller/settings_test.go`（取到并采用、平台不可用时保留最后一次、越界取端点、缺字段保持原值、按设置的间隔再取、请求被设置的超时截断、缓存策略与同步间隔随设置变化、operator 默认值等于参数默认值）通过；临时实例上用配置接口把请求超时改成 25、同步间隔改成 1（越界），接口在缓存过期后返回 25 和 5；系统参数页中英文都能搜到并带分类标签，无页面报错。
 - **没验证**：没有在真实集群里运行 operator（需要集群和凭据），operator 侧只用假平台的单测验证；没有看 helm 部署里把新参数下发的完整链路；不在这套里的超时：CRD 里每个 PredictiveScaler 自己的 `timeoutSeconds`（没设时才用平台的请求超时）、Prometheus 决策源的超时、调度器认领/心跳、LDAP 与通知的超时、`executionFreshness` 等业务窗口——它们是否也要进数据库需要你决定。
 - **已知的既有问题**：`TestLDAPParametersAreEditedLikeAnyOtherSystemParameter` 偶发失败（在不含本次改动的 HEAD 上 25 次里失败 3 次，本次改动后 25 次里 1 次），与本次无关，没有修。
+
+2026-10-31：按需重算只重算决策；标题 logo 与文字对齐
+- **按需重算**：operator 来取决策而库里的推荐太旧时，平台现在先 `RunCollect` 采集最新样本（实测负载、在用副本），再在**已存的预测**上重新求副本数，不再把所有算法重跑一遍。只有最新一条训练记录比新参数 `forecast.decision_forecast_max_age_seconds`（默认 600 秒，60–86400）还旧——例如定时任务没在跑——才用 `RunData` 全部重算。它不写训练记录，所以不影响 `Due`。原因：定时重算 5 分钟一次而推荐只允许 60 秒的年龄，operator 每 30 秒来一次，几乎每次都会在 API 进程里把十几个算法重复跑一遍。
+- **验证**：单测覆盖——重算时不新增预测与训练记录，但采集了新样本，负载突增后副本立刻升到 15 并标为紧急；预测比参数旧时才重新预测；参数改成最低值后同样的重算会重新预测；原有的“重算不被 operator 挂断截断”测试改成在预测过期的前提下运行。`go test ./pkg/...` 通过（`TestLDAPParametersAreEditedLikeAnyOtherSystemParameter` 是既有的偶发失败，重跑通过）。
+- **没验证**：没有在真实集群或真实 Prometheus 上看这条路径；我没有测量一个模块一次完整重算和“只重算决策”各要多久，所以“省了多少”没有数字；部署是 `all` 还是分开部署 `server` 加 `job` 我不知道，这条路径仍在 API 进程里运行（只是不再跑算法）。
+- **logo**：量了你的截图：logo 与文字彼此只差 0.5 像素，但整体比容器中心高约 2 像素。原因是 svg 的图形在 64 高的画布里偏上（图形纵向 2 到 59.1，中心 30.55，不是 32），再加上组件里为此补的 `translate-y-1px`。把 svg 的 viewBox 改成 `0 -1.45 64 64`（图形居中），去掉 `translate-y-1px`；同步了 web 的 6 个 svg、文档站的 `website/assets` 与 `site/assets` 的 favicon.svg，并重新生成了 favicon.ico 与 apple-touch-icon。实测：logo 的纵向中心正好是头部中心，文字差 0.25 像素。没有在你自己的浏览器里看。

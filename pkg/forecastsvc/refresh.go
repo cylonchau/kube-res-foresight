@@ -137,12 +137,26 @@ func (s *Service) refreshNow(ctx context.Context, moduleID uint, maxAge time.Dur
 	if due, err := s.Due(ctx, m); err != nil || !due {
 		return rec, false, err
 	}
+	// The decision is made on the load measured now. The forecasts are not made again when the scheduled task made them recently: the
+	// algorithms are the slow part, they ran a few minutes ago and nothing in the new samples changes what they said, while the new
+	// samples are what moves the decision (the live load, the replicas in force). Only forecasts older than the parameter are made
+	// again, so a platform whose scheduled task is not running still decides on forecasts that are current.
 	failures := map[string]string{}
-	data, err := s.RunData(ctx, moduleID, failures)
-	if err != nil {
-		return rec, false, err
+	var cycleErrors []string
+	if s.forecastsAreCurrent(ctx, m) {
+		collected, err := s.RunCollect(ctx, moduleID)
+		if err != nil {
+			return rec, false, err
+		}
+		cycleErrors = collected.Errors
+	} else {
+		data, err := s.RunData(ctx, moduleID, failures)
+		if err != nil {
+			return rec, false, err
+		}
+		cycleErrors = data.Errors
 	}
-	if _, err := s.RunModule(ctx, moduleID, failures, data.Errors); err != nil {
+	if _, err := s.RunModule(ctx, moduleID, failures, cycleErrors); err != nil {
 		return rec, false, err
 	}
 	newest, err := s.Predictions.LatestRecommendation(ctx, moduleID)
@@ -150,4 +164,15 @@ func (s *Service) refreshNow(ctx context.Context, moduleID uint, maxAge time.Dur
 		return rec, false, err
 	}
 	return newest, newest != nil && (rec == nil || newest.Version != rec.Version), nil
+}
+
+// forecastsAreCurrent says whether the newest forecasts of the module are recent enough to decide on again: the newest training record
+// (every forecast run of every algorithm files one, whatever came of it, and a due scheduled run looks at the same one) is no older
+// than forecast.decision_forecast_max_age_seconds. With no record there is nothing to decide on.
+func (s *Service) forecastsAreCurrent(ctx context.Context, m *model.ForecastModule) bool {
+	last, ok, err := s.Predictions.LatestTrainingAt(ctx, m.ID)
+	if err != nil || !ok {
+		return false
+	}
+	return s.now().Sub(last) <= s.Timing(ctx, timing.DecisionForecastMaxAge)
 }

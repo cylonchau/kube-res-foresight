@@ -33,6 +33,9 @@ var (
 	RefreshBudget = Param{Key: "forecast.refresh_budget_seconds", Default: 300, Min: 10, Max: 3600,
 		Name:   "Recommendation Refresh Budget (seconds)",
 		Remark: "The longest one refresh of a module may run (collect, forecast with every algorithm, decide). It runs on its own, not tied to the request of the operator that asked for it (10-3600)."}
+	DecisionForecastMaxAge = Param{Key: "forecast.decision_forecast_max_age_seconds", Default: 600, Min: 60, Max: 86400,
+		Name:   "Forecast Reuse Age On Operator Refresh (seconds)",
+		Remark: "When the operator asks and the stored recommendation is too old, the platform decides again on the newest measured load. It reuses the forecasts the scheduled task made if they are no older than this, and only forecasts again with every algorithm when they are older (for example when the scheduled task is not running). Keep it above forecast.run period so the algorithms are not run a second time between two scheduled runs (60-86400)."}
 	PipelineTimeout = Param{Key: "forecast.pipeline_timeout_seconds", Default: 300, Min: 10, Max: 3600,
 		Name:   "Manual Pipeline Step Timeout (seconds)",
 		Remark: "The longest a step triggered by hand from the pages (collect, predict, backtest, evaluate, run) may take (10-3600)."}
@@ -71,7 +74,7 @@ var (
 
 // All lists every limit, for the system parameter seed.
 func All() []Param {
-	return []Param{DecisionRefreshWait, RefreshBudget, PipelineTimeout, PreviewBudget, FineTuneBudget, TrainBudget,
+	return []Param{DecisionRefreshWait, DecisionForecastMaxAge, RefreshBudget, PipelineTimeout, PreviewBudget, FineTuneBudget, TrainBudget,
 		OperatorRequestTimeout, OperatorSyncInterval, OperatorDecisionCacheTTL, OperatorModuleCacheTTL, OperatorRecoverAnswers, OperatorSettingsRefresh}
 }
 
