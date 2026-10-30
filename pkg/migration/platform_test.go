@@ -127,6 +127,7 @@ func TestSeedPlatformPermissionsIncludesTheSplitForecastMenus(t *testing.T) {
 		"forecast-results_algorithm-runs": "forecast-results", "forecast-actions_admissions": "forecast-actions",
 		"forecast-results_history": "forecast-results", "forecast-results_evaluations": "forecast-results",
 		"forecast-results_leaderboard":     "forecast-results",
+		"forecast-results_effect":          "forecast-results",
 		"forecast-actions_recommendations": "forecast-actions", "forecast-actions_executions": "forecast-actions",
 		"forecast-actions_fallbacks": "forecast-actions",
 		"monitoring_curves":          "monitoring",
