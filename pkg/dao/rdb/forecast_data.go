@@ -435,6 +435,30 @@ func (dao *PredictionDAO) SaveExecution(ctx context.Context, e *model.ScalingExe
 	return dao.db.WithContext(ctx).Create(e).Error
 }
 
+// SaveExecutionOnce stores a report that carries a record id exactly once: a report whose id is already stored (it was sent again) is
+// not stored a second time, and created is false. A report without an id is stored as it comes.
+func (dao *PredictionDAO) SaveExecutionOnce(ctx context.Context, e *model.ScalingExecution) (created bool, err error) {
+	if e.RecordID == nil {
+		return true, dao.SaveExecution(ctx, e)
+	}
+	exists := func() (bool, error) {
+		var n int64
+		err := dao.db.WithContext(ctx).Model(&model.ScalingExecution{}).Where("record_id = ?", *e.RecordID).Count(&n).Error
+		return n > 0, err
+	}
+	if found, err := exists(); err != nil || found {
+		return false, err
+	}
+	if err := dao.SaveExecution(ctx, e); err != nil {
+		// two sends of the same report that arrive together: the other one won the unique index
+		if found, ferr := exists(); ferr == nil && found {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
 // ListExecutions returns operator reports newest first.
 func (dao *PredictionDAO) ListExecutions(ctx context.Context, moduleID uint, result string, page, pageSize int) ([]*model.ScalingExecution, int64, error) {
 	q := dao.db.WithContext(ctx).Model(&model.ScalingExecution{})

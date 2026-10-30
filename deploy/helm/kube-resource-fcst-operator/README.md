@@ -53,10 +53,12 @@ chart has not been rendered with `helm template` since the custom resource was r
 A module is scaled when it is enabled, in **auto** mode and not in bypass, while the system setting `forecast.allow_auto_mode` is open.
 What is edited on the module (replica bounds, fallback replicas, per-direction step and cooldown, mode, bypass, enabled) is in force at
 the next round; nothing is generated into the cluster. If the platform cannot be read, the operator goes on for a limited time with the
-decision and the module list it remembers (it may raise the replicas, never lower them); past that the replicas are left where they are.
+decision and the module list it remembers (it may raise the replicas, never lower them); when nothing usable is remembered the replicas
+are held for `degrade_hold_seconds`, and only then does the module's fallback apply, in steps. After the platform is back a scale-down waits for
+the stable period. What the operator did meanwhile is queued (and kept in an emptyDir spool file) and reported, once each, when the platform answers.
 
 The time limits of the operator are system parameters of the platform (`operator.request_timeout_seconds`, `sync_interval_seconds`,
-`decision_cache_ttl_seconds`, `module_cache_ttl_seconds`, `recover_answers`, `settings_refresh_seconds`). The operator asks the platform
+`decision_cache_ttl_seconds`, `module_cache_ttl_seconds`, `recover_answers`, `settings_refresh_seconds`, `degrade_hold_seconds`, `degrade_cooldown_seconds`, `recover_stable_seconds`). The operator asks the platform
 for them and again from time to time; the flags and `platform.syncInterval` are only the values it starts with.
 
 ## Upgrade and uninstall

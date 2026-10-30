@@ -44,7 +44,7 @@ spec:
             method: GET
             service:
               url: >-
-                PLATFORM_URL/api/v1/admission/recommendations?namespace={{request.namespace}}&kind={{request.object.kind}}&workload={{request.object.metadata.name}}&container=-
+                PLATFORM_URL/api/v1/admission/recommendations?namespace={{request.namespace}}&kind={{request.object.kind}}&workload={{request.object.metadata.name}}&container=-&request_uid={{request.uid}}&operation={{request.operation}}
               headers:
                 - key: Authorization
                   value: "kube-resource-fcst-AK {{ credential }}"

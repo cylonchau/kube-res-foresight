@@ -3,7 +3,10 @@ package api
 import (
 	"context"
 	"fmt"
+	"math"
 	"net/http"
+	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -123,6 +126,51 @@ func TestOperatorDecisionRefusesNonAutoAndKeptOriginals(t *testing.T) {
 	assert.Contains(t, data["reason"], "original")
 }
 
+// An action the operator took while the platform was away is reported when it is back: dated when it was taken, stored once however
+// often it is sent, and traceable to the operator and to what the replicas followed.
+func TestAReportKeptDuringAnOutageIsStoredOnceAtTheTimeTheOperatorActed(t *testing.T) {
+	r, cpu := forecastTestRouter(t)
+	m := seedModule(t, cpu.ID, model.ModeAuto, nil)
+	acted := runtimeNow.Add(-40 * time.Minute)
+	report := map[string]any{"module": m.Name, "namespace": "prod", "scaler": "api", "target_kind": "Deployment", "target_name": "api",
+		"current": 4, "ready": 4, "desired": 7, "action": "ScaleUp", "result": "applied", "reason": "degraded", "record_id": "ab12cd34-7",
+		"occurred_at": acted.Format(time.RFC3339), "decision_source": "fallback", "state": "degraded", "operator": "operator-0"}
+	for i := 0; i < 3; i++ {
+		require.Equal(t, http.StatusOK, performJSON(t, r, http.MethodPost, "/operator/reports", "", report).Code, "a repeat is acknowledged")
+	}
+	var rows []model.ScalingExecution
+	require.NoError(t, model.DB.Where("module_id = ?", m.ID).Find(&rows).Error)
+	require.Len(t, rows, 1, "one record per record id")
+	row := rows[0]
+	require.NotNil(t, row.RecordID)
+	assert.Equal(t, "ab12cd34-7", *row.RecordID)
+	assert.WithinDuration(t, acted, row.CreatedAt, time.Second, "dated when the operator acted")
+	require.NotNil(t, row.ReportedAt)
+	assert.WithinDuration(t, runtimeNow, *row.ReportedAt, time.Second, "and the platform keeps when it heard of it")
+	assert.Equal(t, "fallback", row.DecisionSource)
+	assert.Equal(t, "degraded", row.DegradeState)
+	assert.Equal(t, "operator-0", row.Operator)
+
+	// another action is another record; a time in the future or from long ago is not believed
+	report["record_id"], report["occurred_at"] = "ab12cd34-8", runtimeNow.Add(3*time.Hour).Format(time.RFC3339)
+	require.Equal(t, http.StatusOK, performJSON(t, r, http.MethodPost, "/operator/reports", "", report).Code)
+	report["record_id"], report["occurred_at"] = "ab12cd34-9", runtimeNow.Add(-90*24*time.Hour).Format(time.RFC3339)
+	require.Equal(t, http.StatusOK, performJSON(t, r, http.MethodPost, "/operator/reports", "", report).Code)
+	require.NoError(t, model.DB.Where("module_id = ?", m.ID).Order("id").Find(&rows).Error)
+	require.Len(t, rows, 3)
+	for _, later := range rows[1:] {
+		assert.WithinDuration(t, runtimeNow, later.CreatedAt, time.Minute, "the platform's own time stands in for an implausible one")
+	}
+
+	// a report that carries no id (an older operator) is stored as it comes
+	delete(report, "record_id")
+	require.Equal(t, http.StatusOK, performJSON(t, r, http.MethodPost, "/operator/reports", "", report).Code)
+	require.Equal(t, http.StatusOK, performJSON(t, r, http.MethodPost, "/operator/reports", "", report).Code)
+	var total int64
+	require.NoError(t, model.DB.Model(&model.ScalingExecution{}).Where("module_id = ?", m.ID).Count(&total).Error)
+	assert.EqualValues(t, 5, total)
+}
+
 func TestOperatorReportsAreValidatedAndListed(t *testing.T) {
 	r, cpu := forecastTestRouter(t)
 	m := seedModule(t, cpu.ID, model.ModeAuto, nil)
@@ -206,6 +254,11 @@ func TestAdmissionDropsRequestsThatBreakLimitsOrBounds(t *testing.T) {
 	assert.Equal(t, true, data["apply"])
 }
 
+var requestUIDs atomic.Int64
+
+// nextUID is the uid of a new admission request, as Kyverno's request.uid would be: only a request that carries one is recorded.
+func nextUID() string { return "req-" + strconv.FormatInt(requestUIDs.Add(1), 10) }
+
 func TestAdmissionHonoursBypassDisabledModulesAndKeptOriginals(t *testing.T) {
 	r, cpu := forecastTestRouter(t)
 	m := seedModule(t, cpu.ID, model.ModeAdmission, nil)
@@ -213,7 +266,7 @@ func TestAdmissionHonoursBypassDisabledModulesAndKeptOriginals(t *testing.T) {
 	url := "/admission/recommendations?namespace=prod&workload=api&container=app"
 
 	require.NoError(t, model.DB.Model(m).Update("bypass", true).Error)
-	data := answer(t, performJSON(t, r, http.MethodGet, url, "", nil).Body.Bytes())
+	data := answer(t, performJSON(t, r, http.MethodGet, url+"&request_uid="+nextUID(), "", nil).Body.Bytes())
 	assert.Equal(t, false, data["apply"])
 	assert.Contains(t, data["reason"], "bypass")
 	var refusals int64
@@ -256,7 +309,7 @@ func TestSwitchingAModeOffStopsTheEndpointsEvenForModulesAlreadyInIt(t *testing.
 	data := answer(t, performJSON(t, off, http.MethodGet, decision, "", nil).Body.Bytes())
 	assert.Equal(t, false, data["available"])
 	assert.Contains(t, data["reason"], "switched off")
-	data = answer(t, performJSON(t, off, http.MethodGet, admit, "", nil).Body.Bytes())
+	data = answer(t, performJSON(t, off, http.MethodGet, admit+"&request_uid="+nextUID(), "", nil).Body.Bytes())
 	assert.Equal(t, false, data["apply"])
 	assert.Contains(t, data["reason"], "switched off")
 	assert.Equal(t, true, data["managed"], "a module manages it even though the switch is off")
@@ -284,13 +337,13 @@ func TestAdmissionCarriesGPUAndEveryAnswerIsRecorded(t *testing.T) {
 	})
 	base := "/admission/recommendations?namespace=prod&workload=api&container=app"
 
-	data := answer(t, performJSON(t, r, http.MethodGet, base+"&cpu_milli=500&memory_bytes=1000", "", nil).Body.Bytes())
+	data := answer(t, performJSON(t, r, http.MethodGet, base+"&cpu_milli=500&memory_bytes=1000&request_uid="+nextUID(), "", nil).Body.Bytes())
 	assert.Equal(t, true, data["apply"])
 	assert.EqualValues(t, 2, data["resources"].(map[string]any)["gpu"])
 	assert.Equal(t, "gpu_lstm", data["algorithm"])
 
 	require.NoError(t, model.DB.Model(m).Update("max_gpu", 1).Error)
-	data = answer(t, performJSON(t, r, http.MethodGet, base+"&limit_cpu_milli=1000&limit_memory_bytes=1000", "", nil).Body.Bytes())
+	data = answer(t, performJSON(t, r, http.MethodGet, base+"&limit_cpu_milli=1000&limit_memory_bytes=1000&request_uid="+nextUID(), "", nil).Body.Bytes())
 	assert.Equal(t, false, data["apply"], "a GPU count above the module's maximum is dropped")
 
 	rec := performJSON(t, r, http.MethodGet, "/admissions?module_id="+itoa(int(m.ID))+"&sort_by=created_at&sort_order=asc", "", nil)
@@ -412,7 +465,7 @@ func TestOnlyARolloutAndTheCreationOfAWorkloadAreKeptAsAdmissionRecords(t *testi
 	seedRecommendation(t, m, nil)
 	base := "/admission/recommendations?namespace=prod&workload=api&container=app"
 	ask := func(url string) {
-		rec := performJSON(t, r, http.MethodGet, url, "", nil)
+		rec := performJSON(t, r, http.MethodGet, url+"&request_uid="+nextUID(), "", nil)
 		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	}
 	records := func() []any {
@@ -440,7 +493,60 @@ func TestOnlyARolloutAndTheCreationOfAWorkloadAreKeptAsAdmissionRecords(t *testi
 	ask(base + "&revision=def")
 	assert.Len(t, records(), 3)
 
-	// a caller that sends no revision keeps one record per request, as before
+	// a caller that sends no revision keeps one record per request
 	ask(base)
 	assert.Len(t, records(), 4)
+}
+
+// The memory limit is the request times the module's limit ratio, nothing else: a request of 10 GiB and a ratio of 1.2 give 12 GiB. The
+// OOM uplift acts on the request (the floor of the recommendation) before this, and is not applied to the limit again.
+func TestTheMemoryLimitIsTheRequestTimesTheLimitRatioAndNothingElse(t *testing.T) {
+	r, _ := forecastTestRouter(t)
+	m := seedModule(t, 0, model.ModeAdmission, func(x *model.ForecastModule) {
+		x.LimitMemoryRatio, x.OOMMemoryUplift, x.MaxMemoryBytes = 1.2, 1.5, 0
+	})
+	seedRecommendation(t, m, func(rec *model.Recommendation) {
+		rec.MemorySet, rec.MemoryBytes, rec.OOMFloor = true, 10<<30, true // a request the OOM floor already raised
+	})
+	data := answer(t, performJSON(t, r, http.MethodGet, "/admission/recommendations?namespace=prod&workload=api&container=app", "", nil).Body.Bytes())
+	require.Equal(t, true, data["apply"], data["reason"])
+	assert.EqualValues(t, 10<<30, data["resources"].(map[string]any)["memory_bytes"])
+	assert.EqualValues(t, int64(math.Ceil(float64(int64(10)<<30)*1.2)), data["limits"].(map[string]any)["memory_bytes"], "10 GiB x 1.2: the OOM uplift of 1.5 is not in it")
+
+	// a module with no ratio leaves the limit as the workload declares it: no limit is invented
+	require.NoError(t, model.DB.Model(m).Update("limit_memory_ratio", 0).Error)
+	data = answer(t, performJSON(t, r, http.MethodGet, "/admission/recommendations?namespace=prod&workload=api&container=app", "", nil).Body.Bytes())
+	assert.Empty(t, data["limits"])
+}
+
+// A record stands for a real admission request, named by its uid (Kyverno's request.uid): the same question asked by a person, a script
+// or the operator is answered but leaves nothing, and a request that is retried is one record.
+func TestAnAdmissionRecordNeedsTheUIDOfARealAdmissionRequestAndIsKeptOncePerUID(t *testing.T) {
+	r, cpu := forecastTestRouter(t)
+	m := seedModule(t, cpu.ID, model.ModeAdmission, nil)
+	seedRecommendation(t, m, nil)
+	base := "/admission/recommendations?namespace=prod&workload=api&container=app&revision=abc"
+	count := func() int64 {
+		var n int64
+		require.NoError(t, model.DB.Model(&model.AdmissionDecision{}).Where("module_id = ?", m.ID).Count(&n).Error)
+		return n
+	}
+
+	data := answer(t, performJSON(t, r, http.MethodGet, base, "", nil).Body.Bytes())
+	assert.Equal(t, true, data["apply"], "a question without a request uid is answered as any other")
+	assert.Zero(t, count(), "and leaves no admission record")
+
+	uid := nextUID()
+	assert.Equal(t, true, answer(t, performJSON(t, r, http.MethodGet, base+"&operation=create&request_uid="+uid, "", nil).Body.Bytes())["apply"])
+	assert.EqualValues(t, 1, count())
+	assert.Equal(t, true, answer(t, performJSON(t, r, http.MethodGet, base+"&request_uid="+uid, "", nil).Body.Bytes())["apply"], "the retry is answered")
+	assert.EqualValues(t, 1, count(), "a request with a uid that is already recorded is not recorded again")
+
+	var row model.AdmissionDecision
+	require.NoError(t, model.DB.Where("module_id = ?", m.ID).Take(&row).Error)
+	require.NotNil(t, row.RequestUID)
+	assert.Equal(t, uid, *row.RequestUID)
+	assert.Equal(t, "CREATE", row.Operation)
+	assert.Equal(t, "rollout", row.Origin)
+	assert.Equal(t, "api", row.Workload)
 }

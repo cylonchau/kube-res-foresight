@@ -26,7 +26,7 @@
 - 控制：`POST /controls/{id}/bypass`（reason 必填）、`POST /controls/{id}/resume`，id 为模块 ID；经操作日志中间件审计。
 
 - 评估与审计：`POST /modules/{id}/evaluate`、`GET /modules/{id}/leaderboard?metric=&since_hours=`、`GET /evaluations`、`GET /scaling-decisions`（operator 上报）。审计导出接口 `GET /audit/export` 与页面已在问题修复 R3 中删除；记录页只保留列表内「导出所选」（浏览器端 CSV）。
-- 机器接口（开发者凭据，各有独立权限）：`GET /operator/decisions?module=`（replicas、算法与评分、有效期，以及 min_replicas 硬下限、max_replicas 当前有效上限与 hard_max_replicas 安全硬上限；operator 对超出者收回）、`POST /operator/reports`、`GET /admission/recommendations?namespace=&workload=&container=[&cpu_milli=&memory_bytes=&limit_*]`（回答含 CPU/内存 requests 与 GPU 卡数，GPU 只对新 Pod 生效；每个回答，含拒绝，写入准入决策记录）。admission/auto 模式需系统设置 forecast.allow_admission_mode / forecast.allow_auto_mode 为 true，且每次回答都会检查。
+- 机器接口（开发者凭据，各有独立权限）：`GET /operator/decisions?module=`（replicas、算法与评分、有效期，以及 min_replicas 硬下限、max_replicas 当前有效上限与 hard_max_replicas 安全硬上限；operator 对超出者收回）、`POST /operator/reports`（每条带 operator 生成的唯一 `record_id`、`occurred_at`、`decision_source`、`state`、`operator`；同一 `record_id` 重发只存一条，补报的记录按 `occurred_at` 入库）、`GET /admission/recommendations?namespace=&workload=&container=[&cpu_milli=&memory_bytes=&limit_*]`（回答含 CPU/内存 requests 与 GPU 卡数，GPU 只对新 Pod 生效；每个带 Kyverno `request_uid`（`request.uid`）和 `operation` 的回答，含拒绝，写入准入决策记录，同一 uid 只记一次；没有 `request_uid` 的询问只回答、不记录）。admission/auto 模式需系统设置 forecast.allow_admission_mode / forecast.allow_auto_mode 为 true，且每次回答都会检查。
 - LDAP（仅管理员）：`GET/PUT /ldap/settings`（含 `group_role_mappings`，每行 `目录组=角色编码`，保存时校验角色存在）、`POST /ldap/test`、`POST /ldap/sync`；配置存为 `ldap.*` 系统参数（不出现在通用系统参数接口），密码与 CA 加密存储、读取不回显。组映射独立的 `/ldap/mappings` 接口已移除。
 - 指标端点（metrics.listen）：`/metrics`、`/healthz`、`/readyz`。
 

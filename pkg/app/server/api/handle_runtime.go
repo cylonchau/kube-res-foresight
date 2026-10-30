@@ -283,7 +283,22 @@ type ReportReq struct {
 	Result          string `json:"result" binding:"required"`
 	Reason          string `json:"reason"`
 	DecisionVersion int64  `json:"decision_version"`
+	// RecordID is the operator's id of the action (unique; a repeat is acknowledged and not stored again), OccurredAt when the operator
+	// took it (a report that was queued during an outage arrives late), DecisionSource, State and Operator what it followed, the state of
+	// the module in an outage and the Pod.
+	RecordID       string     `json:"record_id"`
+	OccurredAt     *time.Time `json:"occurred_at"`
+	DecisionSource string     `json:"decision_source"`
+	State          string     `json:"state"`
+	Operator       string     `json:"operator"`
 }
+
+// maxReportAge and maxReportSkew bound the time an operator may claim for an action: a queued report may be old (a long outage) but not
+// older than the data kept, and it cannot be from the future.
+const (
+	maxReportAge  = 30 * 24 * time.Hour
+	maxReportSkew = 5 * time.Minute
+)
 
 func clip(s string, n int) string {
 	if len(s) > n {
@@ -318,8 +333,19 @@ func (r *RuntimeRouter) Report(c *gin.Context) {
 		ModuleID: m.ID, Namespace: clip(req.Namespace, 253), Scaler: clip(req.Scaler, 253), TargetKind: clip(req.TargetKind, 32),
 		TargetName: clip(req.TargetName, 253), Current: req.Current, Ready: req.Ready, Desired: req.Desired,
 		Action: clip(req.Action, 16), Result: req.Result, Reason: clip(req.Reason, 512), DecisionVersion: req.DecisionVersion,
+		DecisionSource: clip(req.DecisionSource, 16), DegradeState: clip(req.State, 16), Operator: clip(req.Operator, 253),
 	}
-	if err := r.Predictions.SaveExecution(c.Request.Context(), row); err != nil {
+	now := r.now()
+	row.ReportedAt, row.CreatedAt = &now, now
+	if id := strings.TrimSpace(req.RecordID); id != "" {
+		id = clip(id, 64)
+		row.RecordID = &id
+	}
+	// the action is dated when the operator took it, not when the platform heard of it
+	if at := req.OccurredAt; at != nil && !at.IsZero() && at.After(now.Add(-maxReportAge)) && !at.After(now.Add(maxReportSkew)) {
+		row.CreatedAt = at.UTC()
+	}
+	if _, err := r.Predictions.SaveExecutionOnce(c.Request.Context(), row); err != nil {
 		query.InternalError(c, err)
 		return
 	}
@@ -376,16 +402,26 @@ type AdmissionAnswer struct {
 	Score     float64 `json:"score,omitempty"`
 }
 
-// recordAdmission keeps the record of an admission: the creation of a workload, and the first Pod of a revision the platform had not seen
+// recordAdmission keeps the record of an admission, only for a request that carries the uid of a real admission request: the creation of a workload, and the first Pod of a revision the platform had not seen
 // (a deployment or an update). Scaling up and a replaced Pod create more Pods of a revision that was already answered for: they are
 // answered the same, but they are not admissions of a deployment, an update or a creation, so no record is kept (there is no switch for
 // it). The decision about a request and its record are made under one lock, so the Pods of one rollout that arrive together are one
 // rollout, not several.
 func (r *RuntimeRouter) recordAdmission(c *gin.Context, m *model.ForecastModule, namespace, workload, container string, out *AdmissionAnswer, original [2]int64) {
 	ctx := c.Request.Context()
+	// A record stands for a real admission request: the caller (the Kyverno policy) names it by its uid. A call without one is a person
+	// or a script asking what the answer would be, or the operator: it is answered like any other and leaves no record. A uid that
+	// already has a record is a retry of the same request.
+	uid := clip(strings.TrimSpace(c.Query("request_uid")), 64)
+	if uid == "" {
+		return
+	}
 	revision := clip(strings.TrimSpace(c.Query("revision")), 64)
 	r.admissionMu.Lock()
 	defer r.admissionMu.Unlock()
+	if seen, err := r.Predictions.HasAdmissionRequest(ctx, uid); err != nil || seen {
+		return
+	}
 	origin := ""
 	switch {
 	case container == "-":
@@ -400,7 +436,8 @@ func (r *RuntimeRouter) recordAdmission(c *gin.Context, m *model.ForecastModule,
 		Workload: clip(workload, 253), Container: clip(container, 253), Applied: out.Apply, Reason: clip(out.Reason, 512), Version: out.Version,
 		CPUMilli: out.Resources.CPUMilli, MemoryBytes: out.Resources.MemoryBytes, GPU: out.Resources.GPU,
 		OriginalCPUMilli: original[0], OriginalMemoryBytes: original[1], LimitCPUMilli: out.Limits.CPUMilli, LimitMemoryBytes: out.Limits.MemoryBytes,
-		WorkloadKind: clip(c.Query("kind"), 16), Mode: m.Mode, Algorithm: clip(out.Algorithm, 40), Revision: revision, Origin: origin})
+		WorkloadKind: clip(c.Query("kind"), 16), Mode: m.Mode, Algorithm: clip(out.Algorithm, 40), Revision: revision, Origin: origin,
+		RequestUID: &uid, Operation: clip(strings.ToUpper(strings.TrimSpace(c.Query("operation"))), 12)})
 }
 
 // Admission answers GET /admission/recommendations?namespace=&workload=&container= with the requests a new Pod

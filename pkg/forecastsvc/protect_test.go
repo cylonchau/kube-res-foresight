@@ -303,6 +303,53 @@ func TestOOMWithoutABaselineIsReportedButGivesNoFloor(t *testing.T) {
 	assert.Contains(t, floor.Reason, "no working set")
 }
 
+// Two coefficients, one job each: the OOM uplift raises the memory REQUEST after a kill, the limit ratio turns the final request into the
+// limit. When the module sets the limit itself, the limit seen on the workload already carries the ratio, so the floor starts from the
+// request that limit came from: the ratio is not counted into the floor, and the uplift is not counted into the limit.
+func TestTheOOMUpliftAndTheLimitRatioAreNotStackedOnEachOther(t *testing.T) {
+	ctx := context.Background()
+	floorOf := func(t *testing.T, ratio float64) OOMFloor {
+		f := newFixture(t)
+		for _, kind := range []string{"oom", "oom_working_set", "k8s_mem_limits"} {
+			f.addAux(t, kind)
+		}
+		f.bind(t, "cpu", "naive", nil, 0)
+		oomAt := testNow.Add(-2 * time.Hour)
+		f.values(map[string]func(time.Time) float64{
+			"oom_working_set": func(time.Time) float64 { return 1 * gib },
+			"k8s_mem_limits":  func(time.Time) float64 { return 3 * gib },
+			"oom": func(ts time.Time) float64 {
+				if ts.Equal(oomAt) {
+					return 1
+				}
+				return 0
+			},
+		})
+		_, err := f.collect(ctx)
+		require.NoError(t, err)
+		mod, err := f.svc.Modules.Get(ctx, f.module.ID)
+		require.NoError(t, err)
+		bs, err := f.svc.boundSet(ctx, mod)
+		require.NoError(t, err)
+		f.module.LimitMemoryRatio = ratio
+		floor, err := f.svc.oomFloor(ctx, f.module, bs, testNow)
+		require.NoError(t, err)
+		require.True(t, floor.Active, floor.Reason)
+		return floor
+	}
+
+	// the limit is not the module's: the limit of 3 GiB on the workload is the base, x the uplift of 1.2
+	own := floorOf(t, 0)
+	assert.EqualValues(t, int64(math.Ceil(3*gib*1.2)), own.FloorBytes)
+
+	// the module sets the limit as request x 1.5: the limit of 3 GiB came from a request of 2 GiB, which is the base; x 1.2 = 2.4 GiB, and
+	// the limit admission then gives is 2.4 GiB x 1.5 = 3.6 GiB: one uplift and one ratio, not 3 x 1.2 = 3.6 GiB as a request (and 5.4 GiB as a limit)
+	managed := floorOf(t, 1.5)
+	assert.EqualValues(t, int64(math.Ceil(2*gib*1.2)), managed.FloorBytes)
+	assert.Contains(t, managed.Reason, "limit ratio")
+	assert.Less(t, managed.FloorBytes, own.FloorBytes)
+}
+
 func TestHeapPressureRaisesDynamicReplicas(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()

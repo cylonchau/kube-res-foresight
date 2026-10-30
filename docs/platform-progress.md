@@ -603,3 +603,14 @@ all ten management pages and the shared product title. Screenshots were inspecte
 - **做了什么**：新增首页（菜单码 `dashboard`，有这个菜单时登录后落在它上面）：一排数字（已启用/全部模块、四种运行模式各几个、需要关注几个、窗口内扩容/缩容次数、失败运行）、一张堆叠柱图（operator 已执行的扩缩容，按时间段累计，没有执行的时间段显示 0）、一个分页列表（需要关注的模块：异常标签、算法、推荐副本和时间、最近失败，操作“效果报告”跳到该模块的效果页，效果页读 `?module=`）。时间范围沿用统一的时间控件。
 - **后端**：`GET /api/v1/dashboard?since_hours=`（默认 24，最大 720）；固定条数的查询，与模块数无关；只读。异常旗标：连续失败 ≥3 次、结果降级、推荐已过期、应有推荐却从未产生、已旁路；观察模式和不预测的模块不因没有推荐被标记。
 - **验证**：`go test ./pkg/...`（`dashboard_test.go`、接口、落地页、菜单种子）、`vue-tsc`、语言包测试通过；在临时库（端口 20111）用 Chromium 看了中/英文 1440 宽和中文 800 宽，落地页是首页、数字/图/列表显示、无横向滚动、无控制台错误；把演示模块切到旁路后列表出现该行，点“效果报告”跳到效果页；之后已改回。没有真实集群，没有在 MySQL/PostgreSQL 上跑，也没有在用户自己的浏览器里看过。
+
+2026-10-31：平台失联与恢复、离线记录、准入记录来源、Limit 系数
+- **问题**：平台不可达且没有可用缓存时，operator 立即套兜底副本并扩容；平台恢复后只按“回答次数”判断，立刻缩容；上报失败的记录直接丢；准入记录没有能证明来源的字段；OOM 系数与 Limit 系数在模块设了 Limit 比例时会叠加。
+- **失联与恢复（`pkg/operator/controller/cache.go`、`plan.go`）**：每个模块一个状态：`normal`→`cached`（缓存决策不到 TTL，只上调）→`holding`（无可用记忆：**当前副本原样保持，不套兜底**，`operator.degrade_hold_seconds` 默认 300 秒）→`degraded`（保持期满：兜底只上调、单步、两次至少隔 `operator.degrade_cooldown_seconds`）；平台回答后 `recovering`：下调要等连续 `operator.recover_answers` 次回答**并且**过了 `operator.recover_stable_seconds`（默认 300 秒）。三个新时间是系统参数，经 `/operator/settings` 下发。测试顺带抓到一个真缺口：缓存决策恰好满 TTL 时缓存判有效、`MakePlan` 判过期，会不经保持期直接套兜底，已改为严格小于 TTL。
+- **离线记录不丢（`outbox.go`）**：上报先进发件箱再发送，平台不可达时留在队列（内存，`--report-spool-file` 可落到 emptyDir 文件，容器重启也在），恢复后按发生顺序补报，上限 10000 条，超出丢最老并计数；平台明确拒绝（400/404/409/413/422）的丢弃并计数，不堵后面的。Helm 与纯清单已加 emptyDir 和参数。
+- **唯一关联字段**：执行记录 `record_id`（operator 生成，唯一索引，重发只存一条）＋`occurred_at`（动作时间，入库为 `created_at`）、`reported_at`、`decision_source`、`degrade_state`、`operator`；准入记录 `request_uid`（Kyverno 的 `request.uid`，唯一索引）＋`operation`，**没有 `request_uid` 的询问只回答、不记录**（Kyverno 策略两个文件已带上 `request_uid`、`operation`）。页面：执行记录页和准入记录页的列设置里可选这些列。
+- **职责与边界**：operator 不连数据库（`TestTheOperatorHasNoPathToTheDatabase` 检查整棵依赖树：自己只能用 5 个包，不得出现 ORM、驱动）；只写 scale 子资源，不改 requests/limits（`TestScalingNeverChangesTheRequestsOrLimitsOfTheWorkload`）；准入记录只由 Kyverno 的询问产生。规则表和职责表在 `docs/02-系统架构.md` 三（附二）。
+- **Limit 与 OOM 系数**：模块仍只配 request、比例和冷却；`limit = 最终 request × limit 比例`（10 GiB × 1.2 = 12 GiB）。OOM 系数只抬 request 的地板；模块设了 limit 比例时，地板基数取“工作负载上的 limit ÷ 比例”，不再把比例算进地板，也不会再乘到 limit 上。表单提示写明顺序。
+- **验证**：`go vet`、`go test ./pkg/...` 通过（新增：状态机三个单测、`MakePlan` 保持/降级/步进、整段断线的端到端、发件箱的顺序/重启/拒绝/溢出、依赖树、不改 requests/limits、平台去重与动作时间、准入 uid、Limit/OOM 不叠加）；`vue-tsc`、语言包测试通过；临时库（20111）真 HTTP：设置下发、同一 `record_id` 发三次只存一条且按动作时间入库、无 `request_uid` 不记录、同 uid 只记一次，两个页面无控制台错误。
+- **没验证**：真实集群和真实断线（operator 只用 fake client 与模拟平台验证）、Kyverno 真实的 `request.uid` 渲染、MySQL/PostgreSQL 上的唯一索引迁移、Helm 渲染（没有 helm）。旧行没有 `record_id`/`request_uid`（可空唯一索引）。已知取舍：任何一次连不上平台，之后都要过稳定期才能缩容（短暂抖动也会推迟缩容 5 分钟）。
+

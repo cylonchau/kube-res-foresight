@@ -86,6 +86,7 @@ func (a *Applier) Evaluate(ctx context.Context, s *Scaler, key string) {
 		}
 		rep.Namespace, rep.Scaler, rep.TargetKind, rep.TargetName = s.Namespace, s.Name, s.Target.Kind, s.Target.Name
 		rep.Result = res
+		rep.OccurredAt, rep.DecisionSource, rep.State = now, plan.UsedSource, stateOf(in)
 		if a.shouldReport(key, rep) {
 			if err := a.Reporter.Report(ctx, s, rep); err != nil {
 				log.Info("could not report to the platform", "error", err.Error())
@@ -124,6 +125,7 @@ func (a *Applier) Evaluate(ctx context.Context, s *Scaler, key string) {
 			in.DecisionErr = "no decision source"
 		} else if d, err := a.Decider.Decide(ctx, s); err != nil {
 			in.DecisionErr = err.Error()
+			in.Degrade, in.FallbackCooldown = DegradeStateOf(err)
 		} else {
 			in.Decision = d
 		}
@@ -161,6 +163,19 @@ func (a *Applier) Evaluate(ctx context.Context, s *Scaler, key string) {
 		log.Info("scaled target", "target", s.Target.Name, "from", current, "to", plan.Desired, "reason", plan.Reason)
 	}
 	finish(outcome, rep)
+}
+
+// stateOf is the state of the module in an outage of the platform that the evaluation saw (see CachingDecider).
+func stateOf(in PlanInput) string {
+	switch {
+	case in.Degrade != "":
+		return in.Degrade
+	case in.Decision != nil && in.Decision.Cached:
+		return StateCached
+	case in.Decision != nil && in.Decision.Recovering:
+		return StateRecovering
+	}
+	return StateNormal
 }
 
 var scaledObjectList = schema.GroupVersionKind{Group: "keda.sh", Version: "v1alpha1", Kind: "ScaledObjectList"}

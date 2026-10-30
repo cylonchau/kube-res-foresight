@@ -54,6 +54,10 @@ type PlanInput struct {
 	DecisionErr string
 	// Conflict is non-empty when another autoscaler controls the same target.
 	Conflict string
+	// Degrade is StateHolding or StateDegraded when the platform cannot be reached and nothing usable is remembered (see CachingDecider),
+	// else empty; FallbackCooldown is the least time between two applications of the fallback in state degraded.
+	Degrade          string
+	FallbackCooldown time.Duration
 }
 
 // Plan is the outcome of the rules.
@@ -69,7 +73,8 @@ type Plan struct {
 // MakePlan applies the scaling rules, in order:
 //  1. A conflicting autoscaler means the operator does nothing.
 //  2. A fresh decision is the target. A missing or expired decision uses the fallback, else freezes the
-//     current replicas. Anything but a fresh decision never scales down.
+//     current replicas; while the platform is unreachable and nothing usable is remembered the replicas are held first (Degrade),
+//     and the fallback comes after the hold, paced by the degrade cooldown. Anything but a fresh decision never scales down.
 //  3. The target is clamped to [min, max]; the bounds also apply when the current count is outside them.
 //  4. Scaling down is held while not every replica is Ready, unless the current count exceeds the maximum.
 //  5. A direction acts only after its cooldown; bounds enforcement is exempt.
@@ -100,7 +105,11 @@ func MakePlan(in PlanInput) Plan {
 		p.Reason = "no decision"
 	}
 	if !p.DecisionValid {
-		if spec.FallbackReplicas != nil {
+		if in.Degrade == StateHolding {
+			// the platform is away and nothing usable is remembered: the fallback is the module's default and may be far from the
+			// workload as it is, so it waits for the hold to end
+			p.Reason += "; holding the current replicas (the fallback waits for the hold to end)"
+		} else if spec.FallbackReplicas != nil {
 			target, p.UsedSource = *spec.FallbackReplicas, "fallback"
 			p.Reason += "; using fallback replicas"
 		} else {
@@ -109,6 +118,9 @@ func MakePlan(in PlanInput) Plan {
 		if target < in.Current {
 			target = in.Current
 			p.Reason += "; scale-down is never done without a fresh decision"
+		}
+		if in.Degrade == StateDegraded && p.UsedSource == "fallback" && target > in.Current {
+			p.Reason += "; degraded: the platform has been away past the hold"
 		}
 	}
 
@@ -163,6 +175,15 @@ func MakePlan(in PlanInput) Plan {
 		p.Blocked = fmt.Sprintf("only %d of %d replicas are Ready: scale-down is held", in.Ready, in.Current)
 		p.Desired, p.Action = in.Current, ActionNone
 		return p
+	}
+
+	// the fallback of a degraded module is applied in steps spaced by the degrade cooldown, whatever the module's own cooldown is
+	if !boundsForced && p.UsedSource == "fallback" && in.Degrade == StateDegraded && in.FallbackCooldown > 0 && in.LastScale != nil {
+		if since := in.Now.Sub(*in.LastScale); since < in.FallbackCooldown {
+			p.Blocked = fmt.Sprintf("degraded: %s since the last scaling action, the fallback is applied once per %s", since.Round(time.Second), in.FallbackCooldown)
+			p.Desired, p.Action = in.Current, ActionNone
+			return p
+		}
 	}
 
 	rule := spec.Behavior.ScaleUp

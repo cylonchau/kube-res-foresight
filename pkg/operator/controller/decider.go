@@ -34,6 +34,15 @@ type Report struct {
 	Result          string `json:"result"` // applied, observed, held, conflict, error
 	Reason          string `json:"reason"`
 	DecisionVersion int64  `json:"decision_version"`
+	// RecordID identifies this record for good: the operator makes it when the report is queued (see Outbox) and the platform keeps one
+	// row per id, so a report that is sent twice is stored once. OccurredAt is when the operator took the action, which is not when the
+	// platform hears of it after an outage. DecisionSource says what the replicas followed (decision, cache, fallback or frozen), State
+	// the state of the module in an outage of the platform (normal, cached, holding, degraded, recovering) and Operator the Pod.
+	RecordID       string    `json:"record_id,omitempty"`
+	OccurredAt     time.Time `json:"occurred_at"`
+	DecisionSource string    `json:"decision_source,omitempty"`
+	State          string    `json:"state,omitempty"`
+	Operator       string    `json:"operator,omitempty"`
 }
 
 // Reporter delivers a Report; failures are logged by the caller and never affect scaling.
@@ -131,10 +140,15 @@ func (d *PlatformDecider) request(ctx context.Context, method, path string, quer
 		return nil, unreachable(err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, unreachable(fmt.Errorf("platform answered %d", resp.StatusCode))
+		return nil, unreachable(&statusError{Code: resp.StatusCode})
 	}
 	return data, nil
 }
+
+// statusError is the HTTP status of an answer that was not a 200.
+type statusError struct{ Code int }
+
+func (e *statusError) Error() string { return fmt.Sprintf("platform answered %d", e.Code) }
 
 // Decide implements Decider.
 func (d *PlatformDecider) Decide(ctx context.Context, s *Scaler) (*Decision, error) {

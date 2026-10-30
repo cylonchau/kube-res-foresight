@@ -75,10 +75,14 @@ func maxValue(samples []model.MetricSample) float64 {
 	return v
 }
 
-// oomFloor computes the least memory a module may be given: when an OOM kill was seen within OOMLookbackDays
-// the memory is never below max(working set before the kill, memory limit) x OOMMemoryUplift. Without an OOM
-// mapping or without events the floor is inactive. An OOM with no usable baseline is reported but gives no floor
-// (inventing a number would be worse than saying so).
+// oomFloor computes the least memory REQUEST a module may be given: when an OOM kill was seen within OOMLookbackDays
+// the request is never below max(working set before the kill, request in force) x OOMMemoryUplift. The request in force is
+// the memory limit seen on the workload, and when the module sets the limit itself (LimitMemoryRatio > 0, limit = request x
+// ratio) it is that limit divided by the ratio: the limit already carries the ratio, so taking it as it stands would count
+// the ratio twice, and the limit that admission then derives from the raised request (request x ratio) a third time.
+// The two coefficients have one job each: the OOM uplift raises the request after a kill, the limit ratio turns the final
+// request into the limit; neither is applied to the other's result. Without an OOM mapping or without events the floor is
+// inactive. An OOM with no usable baseline is reported but gives no floor (inventing a number would be worse than saying so).
 func (s *Service) oomFloor(ctx context.Context, m *model.ForecastModule, bs boundSet, now time.Time) (OOMFloor, error) {
 	out := OOMFloor{Uplift: m.OOMMemoryUplift}
 	if len(bs.sourcesOfKind("oom")) == 0 {
@@ -117,8 +121,12 @@ func (s *Service) oomFloor(ctx context.Context, m *model.ForecastModule, bs boun
 		out.Limit = int64(maxValue(lim))
 	}
 	base := out.WorkingSet
-	if out.Limit > base {
-		base = out.Limit
+	inForce := out.Limit
+	if m.LimitMemoryRatio > 0 && inForce > 0 {
+		inForce = int64(math.Ceil(float64(inForce) / m.LimitMemoryRatio))
+	}
+	if inForce > base {
+		base = inForce
 	}
 	if base == 0 { // no OOM detail: the memory the workload itself used before the kill is the best evidence left
 		if mem, err := s.auxRange(ctx, bs, model.MetricMemory, last.Add(-window), last); err != nil {
@@ -132,8 +140,13 @@ func (s *Service) oomFloor(ctx context.Context, m *model.ForecastModule, bs boun
 		return out, nil
 	}
 	out.Active, out.FloorBytes = true, int64(math.Ceil(float64(base)*m.OOMMemoryUplift))
-	out.Reason = fmt.Sprintf("%d OOM kill(s) in %d days, latest %s; max(working set %d, limit %d) x %.2g",
-		out.Events, m.OOMLookbackDays, last.Format(time.RFC3339), out.WorkingSet, out.Limit, m.OOMMemoryUplift)
+	if m.LimitMemoryRatio > 0 && out.Limit > 0 {
+		out.Reason = fmt.Sprintf("%d OOM kill(s) in %d days, latest %s; max(working set %d, request in force %d = limit %d / limit ratio %.2g) x OOM uplift %.2g",
+			out.Events, m.OOMLookbackDays, last.Format(time.RFC3339), out.WorkingSet, inForce, out.Limit, m.LimitMemoryRatio, m.OOMMemoryUplift)
+	} else {
+		out.Reason = fmt.Sprintf("%d OOM kill(s) in %d days, latest %s; max(working set %d, limit %d) x OOM uplift %.2g",
+			out.Events, m.OOMLookbackDays, last.Format(time.RFC3339), out.WorkingSet, out.Limit, m.OOMMemoryUplift)
+	}
 	return out, nil
 }
 

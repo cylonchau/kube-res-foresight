@@ -72,12 +72,13 @@ func TestTheOperatorTakesItsTimeLimitsFromThePlatformAndKeepsTheLastWhenItIsGone
 	assert.True(t, r.Store.FetchedAt().IsZero())
 
 	p.set(map[string]any{"request_timeout_seconds": 20, "sync_interval_seconds": 15, "decision_cache_ttl_seconds": 120, "module_cache_ttl_seconds": 900,
-		"recover_answers": 4, "settings_refresh_seconds": 30}, false, 0)
+		"recover_answers": 4, "settings_refresh_seconds": 30, "degrade_hold_seconds": 120, "degrade_cooldown_seconds": 90, "recover_stable_seconds": 240}, false, 0)
 	r.Once(ctx)
 	assert.Equal(t, 20*time.Second, r.Store.RequestTimeout())
 	assert.Equal(t, 15*time.Second, r.Store.SyncInterval())
 	assert.Equal(t, 30*time.Second, r.Store.RefreshInterval())
-	assert.Equal(t, CachePolicy{TTL: 2 * time.Minute, ConfigTTL: 15 * time.Minute, RecoverSuccesses: 4}, r.Store.CachePolicy())
+	assert.Equal(t, CachePolicy{TTL: 2 * time.Minute, ConfigTTL: 15 * time.Minute, RecoverSuccesses: 4,
+		DegradeHold: 2 * time.Minute, DegradeCooldown: 90 * time.Second, RecoverStable: 4 * time.Minute}, r.Store.CachePolicy())
 	assert.False(t, r.Store.FetchedAt().IsZero())
 
 	// the platform is gone: the last answer stands

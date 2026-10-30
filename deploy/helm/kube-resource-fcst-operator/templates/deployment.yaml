@@ -52,6 +52,7 @@ spec:
             {{- if .Values.platform.caSecret.name }}
             - --platform-ca-file=/etc/kube-resource-fcst/platform-ca/{{ .Values.platform.caSecret.key }}
             {{- end }}
+            - --report-spool-file=/var/spool/kube-resource-fcst-operator/reports.jsonl
             {{- range .Values.operator.extraArgs }}
             - {{ . | quote }}
             {{- end }}
@@ -73,6 +74,8 @@ spec:
             initialDelaySeconds: 5
             periodSeconds: 10
           volumeMounts:
+            - name: report-spool
+              mountPath: /var/spool/kube-resource-fcst-operator
             - name: platform-credential
               mountPath: /etc/kube-resource-fcst/platform
               readOnly: true
@@ -86,6 +89,9 @@ spec:
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
       volumes:
+        - name: report-spool
+          emptyDir:
+            sizeLimit: 64Mi
         - name: platform-credential
           secret:
             secretName: {{ required "platform.credentialSecret.name is required with platform.url" .Values.platform.credentialSecret.name }}

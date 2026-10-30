@@ -67,7 +67,8 @@ func (s *SettingsStore) RefreshInterval() time.Duration {
 // CachePolicy is the cache policy the settings give.
 func (s *SettingsStore) CachePolicy() CachePolicy {
 	g := s.Get()
-	return CachePolicy{TTL: timing.Seconds(g.DecisionCacheTTLSeconds), ConfigTTL: timing.Seconds(g.ModuleCacheTTLSeconds), RecoverSuccesses: g.RecoverAnswers}
+	return CachePolicy{TTL: timing.Seconds(g.DecisionCacheTTLSeconds), ConfigTTL: timing.Seconds(g.ModuleCacheTTLSeconds), RecoverSuccesses: g.RecoverAnswers,
+		DegradeHold: timing.Seconds(g.DegradeHoldSeconds), DegradeCooldown: timing.Seconds(g.DegradeCooldownSeconds), RecoverStable: timing.Seconds(g.RecoverStableSeconds)}
 }
 
 // SettingsRefresher keeps a SettingsStore up to date. It runs on every replica (the settings are needed by the one that is elected,
@@ -151,5 +152,8 @@ func (r *SettingsRefresher) fetch(ctx context.Context) (timing.OperatorSettings,
 	set("module_cache_ttl_seconds", &merged.ModuleCacheTTLSeconds, env.Data.ModuleCacheTTLSeconds)
 	set("recover_answers", &merged.RecoverAnswers, env.Data.RecoverAnswers)
 	set("settings_refresh_seconds", &merged.SettingsRefreshSeconds, env.Data.SettingsRefreshSeconds)
+	set("degrade_hold_seconds", &merged.DegradeHoldSeconds, env.Data.DegradeHoldSeconds)
+	set("degrade_cooldown_seconds", &merged.DegradeCooldownSeconds, env.Data.DegradeCooldownSeconds)
+	set("recover_stable_seconds", &merged.RecoverStableSeconds, env.Data.RecoverStableSeconds)
 	return merged, nil
 }

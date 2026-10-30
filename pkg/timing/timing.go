@@ -72,7 +72,16 @@ var (
 		Remark: "How long the last list of modules (bounds, pace, fallback) is used while the platform cannot be reached. Longer than the decision cache, so the safe degradation after the decision has expired still has the bounds and the fallback of the module (0-604800)."}
 	OperatorRecoverAnswers = Param{Key: "operator.recover_answers", Default: 2, Min: 1, Max: 100,
 		Name:   "Operator Answers Before Scaling Down Again",
-		Remark: "How many answers in a row a platform that is back after an outage must give before the workload may be scaled down again; scaling up follows at once (1-100)."}
+		Remark: "How many answers in a row a platform that is back after an outage must give (and for how long, see the stable period) before the workload may be scaled down again; scaling up follows at once (1-100)."}
+	OperatorDegradeHold = Param{Key: "operator.degrade_hold_seconds", Default: 300, Min: 0, Max: 86400,
+		Name:   "Operator Degrade Hold (seconds)",
+		Remark: "When the platform cannot be reached and no usable decision is remembered (it expired, or the operator restarted during the outage), the operator keeps the current replicas for this long before it applies the module's fallback replicas. An outage shorter than the decision cache plus this hold changes nothing. 0 applies the fallback at once (0-86400)."}
+	OperatorDegradeCooldown = Param{Key: "operator.degrade_cooldown_seconds", Default: 300, Min: 0, Max: 86400,
+		Name:   "Operator Degrade Cooldown (seconds)",
+		Remark: "Once the hold has ended, the fallback replicas are applied at most once in this time (and still at most the module's step per action), so a long outage raises the workload in steps and never in one jump. 0 leaves the pace to the module's own scale-up cooldown (0-86400)."}
+	OperatorRecoverStable = Param{Key: "operator.recover_stable_seconds", Default: 300, Min: 0, Max: 86400,
+		Name:   "Operator Stable Period After Recovery (seconds)",
+		Remark: "After an outage the platform must keep answering for this long, and give the number of answers above, before the workload may be scaled down again; scaling up follows at once. 0 turns the time condition off (0-86400)."}
 	OperatorSettingsRefresh = Param{Key: "operator.settings_refresh_seconds", Default: 60, Min: 10, Max: 3600,
 		Name:   "Operator Settings Refresh (seconds)",
 		Remark: "How often the operator asks the platform for these settings again. It keeps the last answer when the platform cannot be reached (10-3600)."}
@@ -81,7 +90,8 @@ var (
 // All lists every limit, for the system parameter seed.
 func All() []Param {
 	return []Param{DecisionRefreshWait, DecisionForecastMaxAge, CapacitySLOTarget, RefreshBudget, PipelineTimeout, PreviewBudget, FineTuneBudget, TrainBudget,
-		OperatorRequestTimeout, OperatorSyncInterval, OperatorDecisionCacheTTL, OperatorModuleCacheTTL, OperatorRecoverAnswers, OperatorSettingsRefresh}
+		OperatorRequestTimeout, OperatorSyncInterval, OperatorDecisionCacheTTL, OperatorModuleCacheTTL, OperatorRecoverAnswers, OperatorSettingsRefresh,
+		OperatorDegradeHold, OperatorDegradeCooldown, OperatorRecoverStable}
 }
 
 // Clamp brings a number into the range of the limit.
@@ -115,6 +125,10 @@ type OperatorSettings struct {
 	ModuleCacheTTLSeconds   int `json:"module_cache_ttl_seconds"`
 	RecoverAnswers          int `json:"recover_answers"`
 	SettingsRefreshSeconds  int `json:"settings_refresh_seconds"`
+	// DegradeHoldSeconds, DegradeCooldownSeconds and RecoverStableSeconds are the time rules of an outage of the platform and of its end.
+	DegradeHoldSeconds     int `json:"degrade_hold_seconds"`
+	DegradeCooldownSeconds int `json:"degrade_cooldown_seconds"`
+	RecoverStableSeconds   int `json:"recover_stable_seconds"`
 }
 
 // DefaultOperatorSettings are the limits before the platform has been asked, and for any the platform does not send.
@@ -123,6 +137,8 @@ func DefaultOperatorSettings() OperatorSettings {
 		RequestTimeoutSeconds: OperatorRequestTimeout.Default, SyncIntervalSeconds: OperatorSyncInterval.Default,
 		DecisionCacheTTLSeconds: OperatorDecisionCacheTTL.Default, ModuleCacheTTLSeconds: OperatorModuleCacheTTL.Default,
 		RecoverAnswers: OperatorRecoverAnswers.Default, SettingsRefreshSeconds: OperatorSettingsRefresh.Default,
+		DegradeHoldSeconds: OperatorDegradeHold.Default, DegradeCooldownSeconds: OperatorDegradeCooldown.Default,
+		RecoverStableSeconds: OperatorRecoverStable.Default,
 	}
 }
 
@@ -135,6 +151,9 @@ func (s OperatorSettings) Normalize() OperatorSettings {
 		ModuleCacheTTLSeconds:   OperatorModuleCacheTTL.Clamp(s.ModuleCacheTTLSeconds),
 		RecoverAnswers:          OperatorRecoverAnswers.Clamp(s.RecoverAnswers),
 		SettingsRefreshSeconds:  OperatorSettingsRefresh.Clamp(s.SettingsRefreshSeconds),
+		DegradeHoldSeconds:      OperatorDegradeHold.Clamp(s.DegradeHoldSeconds),
+		DegradeCooldownSeconds:  OperatorDegradeCooldown.Clamp(s.DegradeCooldownSeconds),
+		RecoverStableSeconds:    OperatorRecoverStable.Clamp(s.RecoverStableSeconds),
 	}
 }
 
@@ -151,5 +170,7 @@ func LoadOperator(read func(key string) (string, bool)) OperatorSettings {
 		RequestTimeoutSeconds: get(OperatorRequestTimeout), SyncIntervalSeconds: get(OperatorSyncInterval),
 		DecisionCacheTTLSeconds: get(OperatorDecisionCacheTTL), ModuleCacheTTLSeconds: get(OperatorModuleCacheTTL),
 		RecoverAnswers: get(OperatorRecoverAnswers), SettingsRefreshSeconds: get(OperatorSettingsRefresh),
+		DegradeHoldSeconds: get(OperatorDegradeHold), DegradeCooldownSeconds: get(OperatorDegradeCooldown),
+		RecoverStableSeconds: get(OperatorRecoverStable),
 	}
 }

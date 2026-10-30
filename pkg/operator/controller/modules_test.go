@@ -27,6 +27,8 @@ type fakePlatform struct {
 	validUntil time.Time
 	reports    []Report
 	seenAuth   string
+	// rejectModule is a module whose reports the platform refuses for good (404), as it would after the module was deleted.
+	rejectModule string
 }
 
 func (p *fakePlatform) handler() http.Handler {
@@ -59,6 +61,10 @@ func (p *fakePlatform) handler() http.Handler {
 	mux.HandleFunc("/api/v1/operator/reports", guard(func(w http.ResponseWriter, r *http.Request) {
 		var rep Report
 		_ = json.NewDecoder(r.Body).Decode(&rep)
+		if p.rejectModule != "" && rep.Module == p.rejectModule {
+			http.Error(w, "module not found", http.StatusNotFound)
+			return
+		}
 		p.reports = append(p.reports, rep)
 		reply(w, nil)
 	}))

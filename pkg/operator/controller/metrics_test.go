@@ -46,7 +46,7 @@ func TestOperatorMetricsAfterOneAppliedEvaluation(t *testing.T) {
 		assert.NotContains(t, mf.GetName(), "prometheus_read", "the Prometheus decision source is gone")
 		for _, metric := range mf.GetMetric() {
 			for _, l := range metric.GetLabel() {
-				assert.Contains(t, []string{"module", "direction", "result", "source", "le"}, l.GetName(), "%s has an unbounded label", mf.GetName())
+				assert.Contains(t, []string{"module", "direction", "result", "source", "reason", "le"}, l.GetName(), "%s has an unbounded label", mf.GetName())
 			}
 		}
 	}

@@ -98,6 +98,13 @@ func (dao *PredictionDAO) SaveAdmission(ctx context.Context, d *model.AdmissionD
 	return dao.db.WithContext(ctx).Create(d).Error
 }
 
+// HasAdmissionRequest says whether the admission request with this uid already has a record.
+func (dao *PredictionDAO) HasAdmissionRequest(ctx context.Context, uid string) (bool, error) {
+	var n int64
+	err := dao.db.WithContext(ctx).Model(&model.AdmissionDecision{}).Where("request_uid = ?", uid).Count(&n).Error
+	return n > 0, err
+}
+
 // LatestAdmission is the newest admission record of a module, nil when it has none.
 func (dao *PredictionDAO) LatestAdmission(ctx context.Context, moduleID uint) (*model.AdmissionDecision, error) {
 	var d model.AdmissionDecision

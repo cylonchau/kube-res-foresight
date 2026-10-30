@@ -47,6 +47,9 @@ type Options struct {
 	CacheTTL         time.Duration
 	ConfigCacheTTL   time.Duration
 	RecoverSuccesses int
+	// ReportSpoolFile is where the reports of scaling actions that the platform has not yet acknowledged are kept, so they survive a
+	// restart of the operator during an outage of the platform; empty keeps them in memory only.
+	ReportSpoolFile string
 }
 
 // NewScheme returns a scheme with the built-in kinds.
@@ -79,9 +82,10 @@ func NewCommand() *cobra.Command {
 	f.StringVar(&opts.PlatformCredentialFile, "platform-credential-file", "", "File holding the developer credential \"<access key>:<access secret>\" (mount a Secret); the KUBE_RESOURCE_FCST_PLATFORM_CREDENTIAL variable is used when empty.")
 	f.StringVar(&opts.PlatformCAFile, "platform-ca-file", "", "PEM CA bundle used to verify the platform certificate.")
 	f.DurationVar(&opts.PlatformInterval, "platform-sync-interval", 30*time.Second, "Starting value of how often the platform's modules are read and applied; once the platform answers, its setting operator.sync_interval_seconds is used.")
-	f.DurationVar(&opts.CacheTTL, "decision-cache-ttl", controller.DefaultCacheTTL, "Starting value (the platform's setting operator.decision_cache_ttl_seconds takes over once it answers). How long after its last answer the platform's decision and module list are remembered and used when the platform cannot be reached (replicas may still rise to the remembered decision, never fall). Past it the safe degradation applies: the fallback replicas, else the current ones. 0 turns the cache off.")
+	f.DurationVar(&opts.CacheTTL, "decision-cache-ttl", controller.DefaultCacheTTL, "Starting value (the platform's setting operator.decision_cache_ttl_seconds takes over once it answers). How long after its last answer the platform's decision and module list are remembered and used when the platform cannot be reached (replicas may still rise to the remembered decision, never fall). Past it the replicas are held for the platform's operator.degrade_hold_seconds, then the fallback replicas may apply in steps (operator.degrade_cooldown_seconds). 0 turns the cache off.")
 	f.DurationVar(&opts.ConfigCacheTTL, "module-cache-ttl", controller.DefaultConfigTTL, "Starting value (the platform's setting operator.module_cache_ttl_seconds takes over once it answers). How long the platform's last list of modules (bounds, pace, fallback) is used when the platform cannot be reached. Longer than the decision cache, so the safe degradation after the decision has expired can use the module's own bounds and fallback. Past it nothing is evaluated and the replicas stay.")
 	f.IntVar(&opts.RecoverSuccesses, "decision-recover-answers", controller.DefaultRecoverSuccesses, "Starting value (the platform's setting operator.recover_answers takes over once it answers). How many answers in a row a platform that is back after an outage must give before the workload may be scaled down again (scaling up follows at once).")
+	f.StringVar(&opts.ReportSpoolFile, "report-spool-file", "", "File that keeps the reports of scaling actions the platform has not acknowledged yet (put it in a volume that outlives the container, an emptyDir for instance). They are sent again, oldest first, when the platform answers; without a file they are kept in memory only.")
 	return cmd
 }
 
@@ -154,12 +158,20 @@ func Run(ctx context.Context, opts *Options) error {
 	platform := &controller.PlatformDecider{Metrics: opMetrics, Settings: settings}
 	cachePolicy := settings.CachePolicy()
 	cachedPlatform := &controller.CachingDecider{Inner: platform, Policy: cachePolicy, Source: settings.CachePolicy, Metrics: opMetrics}
-	applier := &controller.Applier{Client: mgr.GetClient(), Decider: cachedPlatform, Reporter: platform, Metrics: opMetrics}
+	// what the operator does is reported through an outbox: a report the platform cannot take now is kept and sent when it can
+	outbox := &controller.Outbox{Sink: platform, File: opts.ReportSpoolFile, Metrics: opMetrics}
+	if err := outbox.Load(); err != nil {
+		return err
+	}
+	applier := &controller.Applier{Client: mgr.GetClient(), Decider: cachedPlatform, Reporter: outbox, Metrics: opMetrics}
 	endpoint, err := platformEndpoint(opts)
 	if err != nil {
 		return err
 	}
 	platform.Endpoint = endpoint
+	if err := mgr.Add(outbox); err != nil {
+		return fmt.Errorf("register the report outbox: %w", err)
+	}
 	if err := mgr.Add(&controller.SettingsRefresher{Store: settings, Platform: platform}); err != nil {
 		return fmt.Errorf("register the platform settings refresh: %w", err)
 	}

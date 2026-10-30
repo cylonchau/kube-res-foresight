@@ -302,6 +302,12 @@ type AdmissionDecision struct {
 	// asked when the workload object itself is created) or empty (the caller did not say).
 	Revision string `gorm:"type:varchar(64)" json:"revision" column_setting:"false"`
 	Origin   string `gorm:"type:varchar(12)" json:"origin" column_setting:"true"`
+	// RequestUID is the uid of the admission request (Kyverno's request.uid, which is the API server's AdmissionReview uid): the one
+	// field that ties a record to a real admission event. A record exists only for a request that carries it, and is stored once per
+	// uid (Kyverno asks again when a call is retried). Operation is the admission operation (CREATE or UPDATE) the caller named. Rows
+	// from before this field existed have neither.
+	RequestUID *string `gorm:"type:varchar(64);uniqueIndex" json:"request_uid" column_setting:"true"`
+	Operation  string  `gorm:"type:varchar(12)" json:"operation" column_setting:"false"`
 }
 
 // Origins of an admission request.

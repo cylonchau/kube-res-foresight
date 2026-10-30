@@ -24,6 +24,8 @@ type Metrics struct {
 	decisionAge             *prometheus.GaugeVec
 	decisionSources         *prometheus.CounterVec
 	cacheAge                *prometheus.GaugeVec
+	outboxPending           prometheus.Gauge
+	outboxDropped           *prometheus.CounterVec
 }
 
 // NewMetrics builds the instruments and registers them on reg.
@@ -52,15 +54,19 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		decisionExpiresIn: prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "kube_resource_fcst_operator_decision_expires_in_seconds",
 			Help: "Seconds until the decision in use expires; negative once it has."}, []string{"module"}),
 		decisionSources: prometheus.NewCounterVec(prometheus.CounterOpts{Name: "kube_resource_fcst_operator_decision_source_total",
-			Help: "Decisions read, by where they came from: platform, cache (the platform could not be reached and its last answer stood in), recovering (the platform is back, scale-down still waits), expired (the remembered answer was too old), unreachable (nothing remembered)."}, []string{"source"}),
+			Help: "Decisions read, by where they came from: platform, cache (the platform could not be reached and its last answer stood in), holding (nothing usable is remembered: the replicas are kept), degraded (the hold is over: the fallback may apply), recovering (the platform is back, scale-down still waits)."}, []string{"source"}),
 		cacheAge: prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "kube_resource_fcst_operator_decision_cache_age_seconds",
 			Help: "Age of the remembered decision standing in for an unreachable platform; 0 while the platform answers."}, []string{"module"}),
+		outboxPending: prometheus.NewGauge(prometheus.GaugeOpts{Name: "kube_resource_fcst_operator_report_outbox_pending",
+			Help: "Reports of scaling actions waiting to be delivered to the platform (it could not be reached); 0 when everything is delivered."}),
+		outboxDropped: prometheus.NewCounterVec(prometheus.CounterOpts{Name: "kube_resource_fcst_operator_report_outbox_dropped_total",
+			Help: "Reports dropped from the outbox by reason: overflow (the queue was full) or rejected (the platform refused it for good)."}, []string{"reason"}),
 		decisionAge: prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "kube_resource_fcst_operator_decision_age_seconds",
 			Help: "Age of the decision in use, where the source states when it was made."}, []string{"module"}),
 	}
 	if reg != nil {
 		reg.MustRegister(m.reconciles, m.reconcileDuration, m.scaleActions, m.conflicts, m.platformRequests, m.platformDuration,
-			m.desired, m.current, m.ready, m.decisionValid, m.decisionExpiresIn, m.decisionAge, m.decisionSources, m.cacheAge)
+			m.desired, m.current, m.ready, m.decisionValid, m.decisionExpiresIn, m.decisionAge, m.decisionSources, m.cacheAge, m.outboxPending, m.outboxDropped)
 	}
 	return m
 }
@@ -117,6 +123,22 @@ func (m *Metrics) recordDecisionSource(module, source string, age time.Duration)
 	}
 	m.decisionSources.WithLabelValues(source).Inc()
 	m.cacheAge.WithLabelValues(module).Set(age.Seconds())
+}
+
+// recordOutbox sets the number of reports waiting for the platform.
+func (m *Metrics) recordOutbox(pending int) {
+	if m == nil {
+		return
+	}
+	m.outboxPending.Set(float64(pending))
+}
+
+// recordOutboxDrop counts reports dropped from the outbox.
+func (m *Metrics) recordOutboxDrop(reason string, n int) {
+	if m == nil {
+		return
+	}
+	m.outboxDropped.WithLabelValues(reason).Add(float64(n))
 }
 
 // recordReconcileFailure counts an evaluation that failed before the target was read, so it has no replicas to report.

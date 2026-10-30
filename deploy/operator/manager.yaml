@@ -65,6 +65,9 @@ spec:
             # These two are the values the operator starts with; the platform's system parameters operator.sync_interval_seconds and
             # operator.decision_cache_ttl_seconds take over once it answers, and are read again from time to time.
             # - --platform-sync-interval=30s
+            # What the operator did while the platform could not be reached is kept here and reported when it can (oldest first, each
+            # action once): the file is in an emptyDir, so it survives a restart of the container.
+            - --report-spool-file=/var/spool/kube-resource-fcst-operator/reports.jsonl
           ports:
             - name: metrics
               containerPort: 8080
@@ -93,12 +96,17 @@ spec:
             - name: platform-credential
               mountPath: /etc/kube-resource-fcst/platform
               readOnly: true
+            - name: report-spool
+              mountPath: /var/spool/kube-resource-fcst-operator
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
       volumes:
+        - name: report-spool
+          emptyDir:
+            sizeLimit: 64Mi
         - name: platform-credential
           secret:
             # kubectl -n kube-resource-fcst-system create secret generic kube-resource-fcst-platform --from-literal=credential='<access key>:<access secret>'

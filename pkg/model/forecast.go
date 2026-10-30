@@ -684,6 +684,16 @@ type ScalingExecution struct {
 	Result          string `gorm:"type:varchar(16);not null;index" json:"result" column_setting:"true"`
 	Reason          string `gorm:"type:varchar(512)" json:"reason" column_setting:"true"`
 	DecisionVersion int64  `gorm:"not null;default:0" json:"decision_version" column_setting:"false"`
+	// RecordID is the id the operator gave the action when it took it, unique across the platform: a report that is sent again (the
+	// answer was lost, or the platform was away and the operator kept it) is stored once. Rows written before this field existed have
+	// none. CreatedAt is when the operator acted; ReportedAt is when the platform heard of it, later by the length of an outage.
+	RecordID   *string    `gorm:"type:varchar(64);uniqueIndex" json:"record_id" column_setting:"true"`
+	ReportedAt *time.Time `json:"reported_at" column_setting:"false"`
+	// DecisionSource is what the replicas followed (decision, cache, fallback or frozen), DegradeState the state of the module in an
+	// outage of the platform (normal, cached, holding, degraded, recovering) and Operator the Pod that acted.
+	DecisionSource string `gorm:"type:varchar(16)" json:"decision_source" column_setting:"false"`
+	DegradeState   string `gorm:"type:varchar(16)" json:"degrade_state" column_setting:"false"`
+	Operator       string `gorm:"type:varchar(253)" json:"operator" column_setting:"false"`
 }
 
 func (ScalingExecution) TableName() string { return "scaling_execution" }

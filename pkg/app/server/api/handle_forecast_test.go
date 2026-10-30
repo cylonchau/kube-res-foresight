@@ -1188,6 +1188,9 @@ func TestTheOperatorIsGivenItsTimeLimitsBySystemParameters(t *testing.T) {
 	assert.EqualValues(t, 3600, got["module_cache_ttl_seconds"])
 	assert.EqualValues(t, 2, got["recover_answers"])
 	assert.EqualValues(t, 60, got["settings_refresh_seconds"])
+	assert.EqualValues(t, 300, got["degrade_hold_seconds"], "how long the replicas are held before any fallback")
+	assert.EqualValues(t, 300, got["degrade_cooldown_seconds"], "the pace of the fallback once it applies")
+	assert.EqualValues(t, 300, got["recover_stable_seconds"], "how long a platform that is back must keep answering before a scale-down")
 
 	for key, value := range map[string]string{"operator.request_timeout_seconds": "25", "operator.sync_interval_seconds": "1",
 		"operator.decision_cache_ttl_seconds": "0", "operator.recover_answers": "many"} {
