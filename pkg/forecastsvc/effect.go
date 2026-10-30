@@ -3,6 +3,7 @@ package forecastsvc
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
 	"github.com/cylonchau/kube-resource-fcst/pkg/decision"
 	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-resource-fcst/pkg/timing"
 )
 
 // The effect report gathers what the platform already measured into one answer per module: is the forecast accurate, are the scale-ups in
@@ -35,12 +37,13 @@ type EffectReport struct {
 	// Algorithm is the algorithm in use now, whose evaluated runs the accuracy is made of.
 	Algorithm string `json:"algorithm,omitempty"`
 
-	Accuracy  []AccuracyRow  `json:"accuracy"`
-	Delay     *DelayReport   `json:"delay"`
-	Waste     WasteSection   `json:"waste"`
-	Stability StabilityPart  `json:"stability"`
-	Adoption  AdoptionPart   `json:"adoption"`
-	Tuning    *TuningSection `json:"tuning,omitempty"`
+	Accuracy  []AccuracyRow   `json:"accuracy"`
+	Delay     *DelayReport    `json:"delay"`
+	Waste     WasteSection    `json:"waste"`
+	Capacity  CapacitySection `json:"capacity"`
+	Stability StabilityPart   `json:"stability"`
+	Adoption  AdoptionPart    `json:"adoption"`
+	Tuning    *TuningSection  `json:"tuning,omitempty"`
 }
 
 // AccuracyRow is the back-filled accuracy of one metric of the algorithm in use: the runs whose actuals have arrived.
@@ -141,6 +144,7 @@ func (s *Service) EffectReport(ctx context.Context, moduleID uint, hours int) (*
 		return nil, err
 	}
 	rep.Waste = s.wasteOf(ctx, m, recs, since, now)
+	rep.Capacity = s.capacityOf(ctx, m, since, now, hours)
 	rep.Adoption = adoptionOf(recs)
 
 	execs, err := s.Predictions.AppliedExecutionsSince(ctx, moduleID, since)
@@ -219,20 +223,12 @@ func (s *Service) wasteOf(ctx context.Context, m *model.ForecastModule, recs []*
 		return out
 	}
 
-	cfg := decision.SolverConfig{PodCPUCores: float64(m.PodCPURequestMilli) / 1000, PodMemoryBytes: float64(m.PodMemoryRequestBytes), TargetUtilization: m.TargetUtilization}
-	if m.CapacityMode != model.CapacityModeEstimate {
-		cfg.CapacityRPS = m.PodCapacityRPS
-	}
-	bs, err := s.boundSet(ctx, m)
-	if err != nil {
-		out.Note = "the sources of the module could not be read: " + err.Error()
+	needs, _, note := s.measuredNeeds(ctx, m, since, now)
+	if note != "" {
+		out.Note = note
 		return out
 	}
-	if len(s.demandSources(ctx, bs, cfg)) == 0 {
-		out.Note = "the load cannot be turned into replicas: no workload-level CPU, memory or request-rate series with a per-Pod request or capacity"
-		return out
-	}
-	out.Waste = decision.WasteOf(held, s.demandNeeds(ctx, bs, cfg, since, now))
+	out.Waste = decision.WasteOf(held, needs)
 	out.Enough = out.Judged >= MinEffectSamples
 	if out.Judged > 0 {
 		out.OverShare = float64(out.Over) / float64(out.Judged)
@@ -336,4 +332,99 @@ func clipText(s string, n int) string {
 		return string(r[:n])
 	}
 	return s
+}
+
+// measuredNeeds is the replicas the measured load of the module needed at each moment of [since, now]: the largest of what its CPU, memory
+// and request rate ask for at the target utilization, with no safety margin (the way the scale-ups are judged). When it cannot be made,
+// note says why: it needs a workload-level series and what one Pod carries.
+func (s *Service) measuredNeeds(ctx context.Context, m *model.ForecastModule, since, now time.Time) ([]decision.NeedPoint, boundSet, string) {
+	cfg := decision.SolverConfig{PodCPUCores: float64(m.PodCPURequestMilli) / 1000, PodMemoryBytes: float64(m.PodMemoryRequestBytes), TargetUtilization: m.TargetUtilization}
+	if m.CapacityMode != model.CapacityModeEstimate {
+		cfg.CapacityRPS = m.PodCapacityRPS
+	}
+	bs, err := s.boundSet(ctx, m)
+	if err != nil {
+		return nil, nil, "the sources of the module could not be read: " + err.Error()
+	}
+	if len(s.demandSources(ctx, bs, cfg)) == 0 {
+		return nil, bs, "the load cannot be turned into replicas: no workload-level CPU, memory or request-rate series with a per-Pod request or capacity"
+	}
+	return s.demandNeeds(ctx, bs, cfg, since, now), bs, ""
+}
+
+// MinCapacityPoints is how many measured moments the Pod-hours and the SLO need before they are read, and MinCapacityCoverage the share of
+// the window those moments have to stand for.
+const (
+	MinCapacityPoints   = 12
+	MinCapacityCoverage = 0.5
+)
+
+// CapacitySection is what ran against what was needed: Pod-hours and the capacity SLO of the window, from the measured Ready replicas and
+// the measured load. It is a measurement of the execution, not of the recommendations (those are the waste section).
+type CapacitySection struct {
+	decision.Capacity
+	// Coverage is the share of the window the compared moments stand for.
+	Coverage float64 `json:"coverage"`
+	Enough   bool    `json:"enough"`
+	// Target is the capacity SLO (a share) and Verdict pass, fail or insufficient against it.
+	Target  float64 `json:"target"`
+	Verdict string  `json:"verdict"`
+	Note    string  `json:"note,omitempty"`
+}
+
+func (s *Service) capacityOf(ctx context.Context, m *model.ForecastModule, since, now time.Time, hours int) CapacitySection {
+	out := CapacitySection{Verdict: decision.IndicatorInsufficient}
+	out.Target = float64(s.targetPercent(ctx, timing.CapacitySLOTarget)) / 100
+	needs, bs, note := s.measuredNeeds(ctx, m, since, now)
+	if note != "" {
+		out.Note = note
+		return out
+	}
+	ref := bs.firstOfKind("replicas")
+	if ref == nil {
+		out.Note = "the module has no ready-replicas series, so what ran cannot be measured"
+		return out
+	}
+	series, err := s.Samples.Series(ctx, ref.Inst.ID, ref.Src.Key)
+	if err != nil {
+		out.Note = "the ready-replicas series has no samples yet"
+		return out
+	}
+	rows, err := s.Samples.Range(ctx, series.ID, since, now)
+	if err != nil {
+		out.Note = "the ready-replicas series could not be read: " + err.Error()
+		return out
+	}
+	replicas := make([]decision.ReplicaSample, 0, len(rows))
+	for _, r := range rows {
+		if r.Value >= 0 && !math.IsNaN(r.Value) {
+			replicas = append(replicas, decision.ReplicaSample{At: time.Unix(r.TS, 0).UTC(), Replicas: int(math.Round(r.Value))})
+		}
+	}
+	out.Capacity = decision.CapacityOf(replicas, needs)
+	if hours > 0 {
+		out.Coverage = out.CoveredHours / float64(hours)
+	}
+	out.Enough = out.Points >= MinCapacityPoints && out.Coverage >= MinCapacityCoverage
+	switch {
+	case !out.Enough:
+		out.Note = "too few measured moments (or too little of the window) to read the Pod-hours and the SLO"
+	case out.Attainment >= out.Target:
+		out.Verdict = decision.IndicatorPass
+	default:
+		out.Verdict = decision.IndicatorFail
+	}
+	return out
+}
+
+// targetPercent reads a percent parameter, kept in its range.
+func (s *Service) targetPercent(ctx context.Context, p timing.Param) int {
+	if s.Config == nil {
+		return p.Default
+	}
+	raw, err := s.Config.GetValueOrDefault(ctx, p.Key, "")
+	if err != nil {
+		return p.Default
+	}
+	return p.Parse(raw)
 }

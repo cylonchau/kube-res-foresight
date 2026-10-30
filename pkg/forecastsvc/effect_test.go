@@ -5,7 +5,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cylonchau/kube-resource-fcst/pkg/decision"
 	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-resource-fcst/pkg/timing"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -155,4 +157,71 @@ func TestTheEffectReportShowsTheFineTunedCopyOfAModelService(t *testing.T) {
 	assert.Equal(t, 1, rep.Tuning.Failed)
 	assert.InDelta(t, 2, rep.Tuning.AgeHours, 1e-9)
 	assert.Contains(t, rep.Tuning.LastFailure, "out of memory")
+}
+
+// Pod-hours and the capacity SLO are measured on the Ready replicas that ran against the replicas the measured load needed.
+func TestTheEffectReportMeasuresPodHoursAndTheCapacitySLO(t *testing.T) {
+	f := aheadFixture(t) // 4 replicas Ready all the time, 300 rps at 100 rps per Pod: 3 needed
+	ctx := context.Background()
+	_, err := f.collect(ctx)
+	require.NoError(t, err)
+
+	rep, err := f.svc.EffectReport(ctx, f.module.ID, 24)
+	require.NoError(t, err)
+	c := rep.Capacity
+	require.True(t, c.Enough, c.Note)
+	assert.Equal(t, decision.IndicatorPass, c.Verdict)
+	assert.InDelta(t, 1.0, c.Attainment, 1e-9)
+	assert.InDelta(t, 0.99, c.Target, 1e-9, "the default target")
+	assert.InDelta(t, 4*c.CoveredHours, c.ActualPodHours, 1e-6)
+	assert.InDelta(t, 3*c.CoveredHours, c.NeededPodHours, 1e-6)
+	assert.InDelta(t, 1*c.CoveredHours, c.SurplusPodHours, 1e-6, "one Pod more than the load needed, all the time")
+	assert.Zero(t, c.ShortfallPodHours)
+	assert.Zero(t, c.ShortMinutes)
+}
+
+// A stretch in which the load needed more Pods than were Ready counts against the SLO, and the target is a system parameter.
+func TestTheCapacitySLOFailsWhenTheLoadNeededMorePodsThanWereReady(t *testing.T) {
+	f := aheadFixture(t)
+	ctx := context.Background()
+	f.querier.value = func(query string, ts time.Time) float64 {
+		if contains(query, "kube_deployment") {
+			return 4
+		}
+		if ts.After(testNow.Add(-3 * time.Hour)) {
+			return 700 // 7 Pods needed in the last three hours
+		}
+		return 300
+	}
+	_, err := f.collect(ctx)
+	require.NoError(t, err)
+
+	rep, err := f.svc.EffectReport(ctx, f.module.ID, 24)
+	require.NoError(t, err)
+	c := rep.Capacity
+	require.True(t, c.Enough, c.Note)
+	assert.Equal(t, decision.IndicatorFail, c.Verdict)
+	assert.Less(t, c.Attainment, 0.99)
+	assert.Greater(t, c.ShortfallPodHours, 0.0)
+	assert.InDelta(t, 3*60.0, c.ShortMinutes, 5, "about three hours short")
+	assert.InDelta(t, 9.0, c.ShortfallPodHours, 0.2, "three Pods short for three hours is nine Pod-hours: 7 needed minus 4 Ready")
+
+	// a lower target is a parameter, not a number in the code: 80 percent is met by the share of the 24 hours that was not short
+	f.setParameter(t, timing.CapacitySLOTarget.Key, "80")
+	again, err := f.svc.EffectReport(ctx, f.module.ID, 24)
+	require.NoError(t, err)
+	assert.InDelta(t, 0.8, again.Capacity.Target, 1e-9)
+}
+
+// Without a Ready-replicas series what ran cannot be measured; the section says so instead of a figure.
+func TestThePodHoursNeedAReadyReplicasSeries(t *testing.T) {
+	f := newFixture(t)
+	f.bind(t, "rps", "naive", nil, 0)
+	_, err := f.collect(context.Background())
+	require.NoError(t, err)
+	rep, err := f.svc.EffectReport(context.Background(), f.module.ID, 24)
+	require.NoError(t, err)
+	assert.False(t, rep.Capacity.Enough)
+	assert.Equal(t, decision.IndicatorInsufficient, rep.Capacity.Verdict)
+	assert.Contains(t, rep.Capacity.Note, "ready-replicas")
 }

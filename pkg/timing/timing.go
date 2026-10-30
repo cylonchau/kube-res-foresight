@@ -50,6 +50,12 @@ var (
 		Remark: "The longest one forecast of one algorithm may take when the algorithm sets no budget of its own on the algorithm page (5-3600)."}
 )
 
+// CapacitySLOTarget is not a time but the target the capacity SLO is judged against, kept with the limits because it is read and bounded the
+// same way: the share of the time at least as many replicas were Ready as the measured load needed (see forecastsvc EffectReport).
+var CapacitySLOTarget = Param{Key: "forecast.slo_capacity_target_percent", Default: 99, Min: 50, Max: 100,
+	Name:   "Capacity SLO Target (percent)",
+	Remark: "The capacity SLO of a module is the share of the measured time in which at least as many replicas were Ready as the measured load needed (at the target utilization, with no safety margin). The effect report says it is met when the share reaches this percent. It is a capacity target, not a latency or error-rate target (50-100)."}
+
 // Operator limits (read by the operator from the platform).
 var (
 	OperatorRequestTimeout = Param{Key: "operator.request_timeout_seconds", Default: 10, Min: 1, Max: 120,
@@ -74,7 +80,7 @@ var (
 
 // All lists every limit, for the system parameter seed.
 func All() []Param {
-	return []Param{DecisionRefreshWait, DecisionForecastMaxAge, RefreshBudget, PipelineTimeout, PreviewBudget, FineTuneBudget, TrainBudget,
+	return []Param{DecisionRefreshWait, DecisionForecastMaxAge, CapacitySLOTarget, RefreshBudget, PipelineTimeout, PreviewBudget, FineTuneBudget, TrainBudget,
 		OperatorRequestTimeout, OperatorSyncInterval, OperatorDecisionCacheTTL, OperatorModuleCacheTTL, OperatorRecoverAnswers, OperatorSettingsRefresh}
 }
 

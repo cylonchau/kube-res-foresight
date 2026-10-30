@@ -572,3 +572,13 @@ all ten management pages and the shared product title. Screenshots were inspecte
 - **验证**：单测覆盖——重算时不新增预测与训练记录，但采集了新样本，负载突增后副本立刻升到 15 并标为紧急；预测比参数旧时才重新预测；参数改成最低值后同样的重算会重新预测；原有的“重算不被 operator 挂断截断”测试改成在预测过期的前提下运行。`go test ./pkg/...` 通过（`TestLDAPParametersAreEditedLikeAnyOtherSystemParameter` 是既有的偶发失败，重跑通过）。
 - **没验证**：没有在真实集群或真实 Prometheus 上看这条路径；我没有测量一个模块一次完整重算和“只重算决策”各要多久，所以“省了多少”没有数字；部署是 `all` 还是分开部署 `server` 加 `job` 我不知道，这条路径仍在 API 进程里运行（只是不再跑算法）。
 - **logo**：量了你的截图：logo 与文字彼此只差 0.5 像素，但整体比容器中心高约 2 像素。原因是 svg 的图形在 64 高的画布里偏上（图形纵向 2 到 59.1，中心 30.55，不是 32），再加上组件里为此补的 `translate-y-1px`。把 svg 的 viewBox 改成 `0 -1.45 64 64`（图形居中），去掉 `translate-y-1px`；同步了 web 的 6 个 svg、文档站的 `website/assets` 与 `site/assets` 的 favicon.svg，并重新生成了 favicon.ico 与 apple-touch-icon。实测：logo 的纵向中心正好是头部中心，文字差 0.25 像素。没有在你自己的浏览器里看。
+
+2026-10-31：LDAP 偶发失败的根因、延迟验收总评、准入记录、历史页曲线与记忆、Pod·小时与容量 SLO、logo 两侧留白
+- **LDAP 测试偶发失败（根因）**：`ldapauth.WithValue` 在绑定 DN 为空时会把绑定密码静默清空；测试用 map 随机顺序保存参数，先存密码再存 DN 就丢密码，接口还返回成功。这是产品上的静默丢数据：现在先存密码而没有绑定 DN 会返回 400（“需要先设置绑定 DN”），测试顺序固定并断言这个拒绝；连续运行 40 次通过（之前 25 次里失败 1–3 次）。
+- **延迟验收总评**：四项证据（扩容及时率、迟到 P90、实时兜底占比、峰值低估 P90）全部能判断且达标才“达标”，任何一项不达标就“未达标”，其余“样本不足”；副本预测期与决策等待只能让它失败，不能单独让它通过。单测与 forecastsvc 的延迟报告测试已按新规则改。
+- **准入记录**：同一版本其余 Pod（扩容、被替换产生的）不是准入操作，现在永远不记录，删除了 `forecast.admission_record_scaling` 开关和“扩容／替换”来源（过滤项、文案、技能、Kyverno 策略注释）；`--migration` 会删除这个参数和已有的 origin=scale 记录（单测覆盖，会打印删除条数）。**没做到的**：`kubectl rollout restart` 在 Kyverno 看来和更新一样是新版本的第一个 Pod，无法区分，仍记为“部署／更新”；调用方不传 `revision`（旧策略）时仍每个请求记一条。
+- **历史页曲线**：对比接口 `/modules/:id/compare` 原来返回库里所有有过预测的算法（包括已停用的 knn，它的旧预测还在），现在只返回当前为该模块运行的算法；请求里点名一个已停用的算法也不会把它带回来（单测，并在临时实例上启用→停用 knn 验证）。**记住选择**：模块、指标、线型、相对时间窗口、图表里关掉的曲线记在浏览器里（`localStg` 的 `compareView`，即 localStorage，不是 cookie，避免每个请求都带上），下次进入还原；固定起止时间不记，免得页面打开就是旧窗口；已不存在的指标、曲线会被丢弃。临时实例上用 Playwright 选指标、线型、关一条曲线、离开再回来，三项都还原。
+- **Pod·小时与容量 SLO**：见 product-closure-p8.md“执行与容量”一节；口径、参数 `forecast.slo_capacity_target_percent` 和不下“节省”结论的原因都写在那里。单测覆盖（多占、不足、数据缺口不算、没有副本数序列时说明原因、SLO 不达标）；页面在效果报告里，每个字段带“?”，中英文齐全。临时实例用假 Prometheus 跑了一个模块，页面显示了数字。
+- **logo**：整体居中，左右各一份相同内边距，并扣掉图形自带的 1 像素左侧空白；实测标题两侧留白差在 1 像素以内。
+- **没验证**：以上都只在临时实例、SQLite、假 Prometheus 上验证；没有在你自己的浏览器里看 logo；Pod·小时和 SLO 没有真实数据；没有 MySQL/PostgreSQL。
+- **待你定**：“现在没有 CRD 了”——代码里 PredictiveScaler CRD、控制器、清单和 `--predictivescaler-crd`（默认开）还在，我没有动，先确认要怎么处理。
