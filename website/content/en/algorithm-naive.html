@@ -1,0 +1,18 @@
+<p><a href="algorithms.html#parameter-reference">← Models and prediction modes</a></p>
+<h2 id="when-to-use">Purpose and workload fit</h2>
+<p>Repeats the latest observation across the horizon. Use it as a basic comparison and to check the data workflow; it cannot anticipate cycles or sudden changes.</p>
+<h2 id="history">History and runtime requirements</h2>
+<p>At least one valid observation.</p>
+<p>Inputs must be regularly sampled, gap-free, and finite. Outputs retain the metric unit, such as CPU cores, memory bytes, or requests per second. The sample interval determines the duration of a step. Minimum history permits execution; it does not establish forecast quality.</p>
+<p>This method does not use covariates; target metrics are forecast separately.</p>
+<h2 id="parameters">Parameter reference</h2>
+<p>No method-specific parameters; the parameter object is <code>{}</code>.</p>
+<h2 id="example">Configuration example</h2>
+<p>Edit parameters in Algorithm management. This is a parameter object, not a complete config.yaml. Seasonal examples assume five-minute sampling; adjust for your actual interval. Omitted optional values use the defaults above.</p>
+<pre data-language="JSON"><code>{}</code></pre>
+<h2 id="tuning">Tuning and tradeoffs</h2>
+<p>There are no algorithm parameters. Compare EWMA, Theta, or Seasonal Naive when trend or seasonality matters.</p>
+<h2 id="apply">Use in a module</h2>
+<ol><li>Save parameters and check history, sample interval, and horizon.</li><li>Enable module prediction. Fixed mode runs the selected method; dynamic mode uses centrally enabled methods.</li><li>This baseline does not need backtest promotion, but actual performance still needs review.</li><li>Review error, peak underestimation, runtime, and adoption reasons in Observe or Recommend before separately authorizing admission and replica actions.</li></ol>
+<p>For insufficient history, invalid settings, timeouts, or invalid output, inspect run reasons. Without eligible forecasts, the module follows its schedules, fallback, and protection rules.</p>
+<p><a href="evaluation.html">Backtesting and evaluation</a> · <a href="recommendations.html">Recommendations and look-ahead</a></p>

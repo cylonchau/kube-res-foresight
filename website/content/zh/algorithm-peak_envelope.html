@@ -1,0 +1,27 @@
+<p><a href="algorithms.html#parameter-reference">← 算法与模型总览</a></p>
+<h2 id="when-to-use">用途与适用负载</h2>
+<p>先计算滚动最大值包络，再用稳健斜率外推，关注高水位而非平均值。适合内存锯齿、缓存增长等形态。</p>
+<h2 id="history">历史数据与运行条件</h2>
+<p>至少 envelope_window_steps + 10 个点。</p>
+<p>输入应是等间隔、无缺口且数值有限的序列。输出保留输入指标单位，例如 CPU 核、内存字节或每秒请求数；采样步长决定步数对应的真实时间。最低样本数仅表示可运行，不代表预测可靠。</p>
+<p>此方法不使用协变量；分别预测各目标指标。</p>
+<h2 id="parameters">参数说明</h2>
+<p><small>窄屏可左右滑动参数表，查看完整说明。</small></p>
+<div class="parameter-reference"><table><thead><tr><th>参数 / 类型</th><th>默认值 / 范围 / 单位</th><th>含义与使用</th></tr></thead><tbody><tr><td><code>envelope_window_steps</code><br><small>int</small></td><td>30<br><small>≥ 2; ≤ 100000; steps</small></td><td>滚动最大值的窗口（步数）：要大于一个锯齿的周期（一次 GC 或缓存淘汰的间隔），否则包络还是锯齿。</td></tr><tr><td><code>fit_steps</code><br><small>int</small></td><td>0<br><small>≥ 0; steps</small></td><td>只拟合包络最近的这么多步；0 = 全部。负载的增长速度变过时用它只看最近的趋势。</td></tr><tr><td><code>allow_decline</code><br><small>bool</small></td><td>false<br><small>无额外范围限制</small></td><td>是否允许预测下降：false（默认）= 下降的斜率按平处理，预测不低于当前包络，用于防 OOM；true = 照直线走，也可能低于当前峰值。</td></tr><tr><td><code>safety_margin</code><br><small>float</small></td><td>0<br><small>≥ 0; ≤ 5</small></td><td>安全边际：结果再乘 (1+边际)。</td></tr></tbody></table></div>
+<h2 id="example">配置示例</h2>
+<p>在“算法管理”编辑参数。以下仅为参数对象，不是 config.yaml 全文；周期示例按 5 分钟采样，需按实际步长调整。未列出的可选参数使用上表默认值。</p>
+<pre data-language="JSON"><code>{
+  &quot;envelope_window_steps&quot;: 30,
+  &quot;fit_steps&quot;: 180,
+  &quot;allow_decline&quot;: false,
+  &quot;safety_margin&quot;: 0.1
+}</code></pre>
+<h2 id="tuning">调参与取舍</h2>
+<p>包络窗口应大于一次 GC 或缓存淘汰周期。fit_steps 限制拟合的近期范围；allow_decline 默认关闭，防止下降斜率把预测压到当前包络以下。</p>
+<h2 id="shared-parameters">通用参数：变化重置与分位校准</h2>
+<div class="parameter-reference"><table><thead><tr><th>参数 / 类型</th><th>默认值 / 范围 / 单位</th><th>含义与使用</th></tr></thead><tbody><tr><td><code>reset_on_change</code><br><small>bool</small></td><td>false<br><small>无额外范围限制</small></td><td>水平突变后重置：检测历史里最后一次水平突变（发布、扩缩容、流量切换），只用突变之后的历史预测。关闭时用全部历史（现状）。突变之后至少要有 6 步才会被确认；突变后的历史不够算法所需时，取算法所需的最新一段。</td></tr><tr><td><code>change_threshold</code><br><small>float</small></td><td>8<br><small>≥ 3; ≤ 50</small></td><td>突变阈值：突变幅度（扣除前一段趋势后）超过噪声的多少倍才算，越大越不容易误报，噪声由相邻步变化的稳健标准差估计。仅 reset_on_change=true 时使用。</td></tr><tr><td><code>change_min_shift</code><br><small>float</small></td><td>0.2<br><small>≥ 0; ≤ 5</small></td><td>最小突变幅度：突变至少是水平的这个比例（0.2 = 20%），很干净的序列上的微小跳变不算。仅 reset_on_change=true 时使用。</td></tr><tr><td><code>quantile_level</code><br><small>float</small></td><td>0<br><small>≥ 0; ≤ 0.99</small></td><td>推荐分位数：0 = 点预测（现状）；0.9 等 = 预测「实际值有约 90% 的把握不超过」的线（保形预测：用本算法在这个负载最近几个窗口里的真实误差校准，需要更多历史和时间）。必须大于 0.5。</td></tr><tr><td><code>calibration_windows</code><br><small>int</small></td><td>8<br><small>≥ 3; ≤ 50</small></td><td>校准窗口数：用最近多少个历史窗口测本算法的误差；越多越稳，也越慢（每个窗口多跑一次预测）。仅推荐分位数大于 0 时使用。</td></tr></tbody></table></div>
+<p>quantile_level 是 0～1 的分位点，percentile 是 1～100 的百分数，二者不是同一参数。分位校准会额外运行历史预测；增加校准窗口前检查历史与运行预算，覆盖率是评估目标而非保证。</p>
+<h2 id="apply">在模块中使用</h2>
+<ol><li>保存参数，检查历史窗口、采样步长和预测范围。</li><li>打开模块的“启用预测”；固定算法只运行指定方法，动态算法使用平台已启用的方法。</li><li>先运行滚动回测，通过版本晋升后才会采用；修改影响模型版本的参数后重新回测。</li><li>在仅观察或仅推荐下检查误差、峰值低估、耗时与采用原因，再分别授权准入和副本执行。</li></ol>
+<p>历史不足、参数不合法、运行超时或输出无效时，检查算法运行原因；没有合格预测时按模块的固定周期、兜底与保护规则处理。</p>
+<p><a href="evaluation.html">回测与效果评估</a> · <a href="recommendations.html">推荐与前瞻决策</a></p>

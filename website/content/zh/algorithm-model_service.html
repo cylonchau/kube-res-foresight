@@ -1,0 +1,41 @@
+<p><a href="algorithms.html#parameter-reference">← 算法与模型总览</a></p>
+<h2 id="when-to-use">用途与适用负载</h2>
+<p>通过 HTTP 调用外部时序模型。模型管理中配置服务，模块中选择预测方式。服务不可用时本次候选失败，其他算法继续按资格参与。</p>
+<h2 id="history">历史数据与运行条件</h2>
+<p>平台至少 30 点，服务可能另有上下文限制；finetune_min_points 仅决定何时提交微调，不是预测的最低点数。</p>
+<p>输入应是等间隔、无缺口且数值有限的序列。输出保留输入指标单位，例如 CPU 核、内存字节或每秒请求数；采样步长决定步数对应的真实时间。最低样本数仅表示可运行，不代表预测可靠。</p>
+<p>此方法不使用协变量；分别预测各目标指标。</p>
+<h2 id="parameters">参数说明</h2>
+<p><small>窄屏可左右滑动参数表，查看完整说明。</small></p>
+<div class="parameter-reference"><table><thead><tr><th>参数 / 类型</th><th>默认值 / 范围 / 单位</th><th>含义与使用</th></tr></thead><tbody><tr><td><code>endpoint</code><br><small>string</small></td><td>必填，无默认值<br><small>无额外范围限制</small></td><td>模型服务的地址，如 http://chronos:8000，不带结尾斜杠。</td></tr><tr><td><code>protocol</code><br><small>string</small></td><td>&quot;finetune&quot;<br><small>finetune / unitshub_chronos / unitshub_timesfm</small></td><td>服务的接口协议：finetune = scripts/tsfm-eval/finetune 的服务（支持微调）；unitshub_chronos、unitshub_timesfm = kingfs/unitshub 的现成容器（只预测）。</td></tr><tr><td><code>api_key_env</code><br><small>string</small></td><td>&quot;&quot;<br><small>无额外范围限制</small></td><td>保存访问密钥的环境变量名（平台进程的环境变量），预测时作为 Bearer 密钥发给服务；留空表示服务不需要密钥。密钥本身不存进算法参数。</td></tr><tr><td><code>timeout_seconds</code><br><small>int</small></td><td>30<br><small>≥ 1; ≤ 600; s</small></td><td>一次预测请求的超时时间。</td></tr><tr><td><code>service_quantile</code><br><small>float</small></td><td>0<br><small>≥ 0; ≤ 0.99</small></td><td>0 = 用服务给的均值预测；0.5～0.99 = 用服务给的这个分位数（如 0.9 = 实际值不超过这条线）。分位数预测按 pinball 损失和覆盖率回测。</td></tr><tr><td><code>finetune_interval_hours</code><br><small>int</small></td><td>0<br><small>≥ 0; ≤ 720; h</small></td><td>微调间隔：服务上微调后的模型超过这么久，平台就重新提交数据微调一次；0 = 不微调，一直用预训练模型。只有 finetune 协议的服务支持。微调在后台进行，期间预测仍用旧的微调模型（没有就用预训练模型）。</td></tr><tr><td><code>finetune_mode</code><br><small>string</small></td><td>&quot;full&quot;<br><small>full / lora</small></td><td>微调方式：full = 全参数微调；lora = 低秩适配（服务端要装 peft，没装会让微调失败）。</td></tr><tr><td><code>finetune_steps</code><br><small>int</small></td><td>30<br><small>≥ 1; ≤ 2000; steps</small></td><td>每次微调的训练步数；增加会提高训练耗时，也可能过拟合。</td></tr><tr><td><code>finetune_learning_rate</code><br><small>float</small></td><td>1e-05<br><small>≥ 1e-08; ≤ 0.01</small></td><td>微调的学习率。全参数微调用很小的值（1e-5 量级）。</td></tr><tr><td><code>finetune_batch_size</code><br><small>int</small></td><td>16<br><small>≥ 1; ≤ 256</small></td><td>微调每步用的窗口数。</td></tr><tr><td><code>finetune_context_length</code><br><small>int</small></td><td>256<br><small>≥ 16; ≤ 8192; steps</small></td><td>微调时每个训练窗口读取的最近步数。</td></tr><tr><td><code>finetune_min_points</code><br><small>int</small></td><td>200<br><small>≥ 60; ≤ 100000; points</small></td><td>序列至少有这么多点才提交微调；更短的序列微调只会学到噪声，继续用预训练模型。</td></tr></tbody></table></div>
+<h2 id="example">配置示例</h2>
+<p>在“模型管理”编辑参数。以下仅为参数对象，不是 config.yaml 全文；周期示例按 5 分钟采样，需按实际步长调整。未列出的可选参数使用上表默认值。</p>
+<pre data-language="JSON"><code>{
+  &quot;endpoint&quot;: &quot;http://chronos:8000&quot;,
+  &quot;protocol&quot;: &quot;finetune&quot;,
+  &quot;timeout_seconds&quot;: 30,
+  &quot;service_quantile&quot;: 0,
+  &quot;finetune_interval_hours&quot;: 0
+}</code></pre>
+<h2 id="tuning">调参与取舍</h2>
+<p>要启用后台微调，可从以下配置开始。服务端须已部署并支持对应协议；示例地址需要替换为自己的服务。24 小时是此示例的微调间隔，不是平台默认值。</p>
+<pre data-language="JSON"><code>{
+  "endpoint": "http://chronos:8000",
+  "protocol": "finetune",
+  "timeout_seconds": 30,
+  "finetune_interval_hours": 24,
+  "finetune_mode": "full",
+  "finetune_steps": 30,
+  "finetune_learning_rate": 0.00001,
+  "finetune_batch_size": 16,
+  "finetune_context_length": 256,
+  "finetune_min_points": 200
+}</code></pre>
+<p>finetune 协议支持后台微调；unitshub_chronos 与 unitshub_timesfm 仅预测，微调间隔必须为 0。密钥放平台进程环境变量，api_key_env 只填写变量名。回测与回放使用预训练模型，微调效果查看在线预测的实测回填。</p>
+<h2 id="shared-parameters">通用参数：变化重置与分位校准</h2>
+<div class="parameter-reference"><table><thead><tr><th>参数 / 类型</th><th>默认值 / 范围 / 单位</th><th>含义与使用</th></tr></thead><tbody><tr><td><code>reset_on_change</code><br><small>bool</small></td><td>false<br><small>无额外范围限制</small></td><td>水平突变后重置：检测历史里最后一次水平突变（发布、扩缩容、流量切换），只用突变之后的历史预测。关闭时用全部历史（现状）。突变之后至少要有 6 步才会被确认；突变后的历史不够算法所需时，取算法所需的最新一段。</td></tr><tr><td><code>change_threshold</code><br><small>float</small></td><td>8<br><small>≥ 3; ≤ 50</small></td><td>突变阈值：突变幅度（扣除前一段趋势后）超过噪声的多少倍才算，越大越不容易误报，噪声由相邻步变化的稳健标准差估计。仅 reset_on_change=true 时使用。</td></tr><tr><td><code>change_min_shift</code><br><small>float</small></td><td>0.2<br><small>≥ 0; ≤ 5</small></td><td>最小突变幅度：突变至少是水平的这个比例（0.2 = 20%），很干净的序列上的微小跳变不算。仅 reset_on_change=true 时使用。</td></tr><tr><td><code>quantile_level</code><br><small>float</small></td><td>0<br><small>≥ 0; ≤ 0.99</small></td><td>推荐分位数：0 = 点预测（现状）；0.9 等 = 预测「实际值有约 90% 的把握不超过」的线（保形预测：用本算法在这个负载最近几个窗口里的真实误差校准，需要更多历史和时间）。必须大于 0.5。</td></tr><tr><td><code>calibration_windows</code><br><small>int</small></td><td>8<br><small>≥ 3; ≤ 50</small></td><td>校准窗口数：用最近多少个历史窗口测本算法的误差；越多越稳，也越慢（每个窗口多跑一次预测）。仅推荐分位数大于 0 时使用。</td></tr></tbody></table></div>
+<p>quantile_level 是 0～1 的分位点，percentile 是 1～100 的百分数，二者不是同一参数。分位校准会额外运行历史预测；增加校准窗口前检查历史与运行预算，覆盖率是评估目标而非保证。</p>
+<h2 id="apply">在模块中使用</h2>
+<ol><li>保存参数，检查历史窗口、采样步长和预测范围。</li><li>打开模块的“启用预测”；固定算法只运行指定方法，动态算法使用平台已启用的方法。</li><li>先运行滚动回测，通过版本晋升后才会采用；修改影响模型版本的参数后重新回测。</li><li>在仅观察或仅推荐下检查误差、峰值低估、耗时与采用原因，再分别授权准入和副本执行。</li></ol>
+<p>历史不足、参数不合法、运行超时或输出无效时，检查算法运行原因；没有合格预测时按模块的固定周期、兜底与保护规则处理。</p>
+<p><a href="evaluation.html">回测与效果评估</a> · <a href="recommendations.html">推荐与前瞻决策</a></p>

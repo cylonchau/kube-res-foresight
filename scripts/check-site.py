@@ -69,12 +69,20 @@ def main():
     # Catch accidental source-code drift when the public algorithm count changes.
     builders = (ROOT.parent / "pkg/forecast/builders.go").read_text(encoding="utf-8")
     algorithm_ids = re.findall(r'^\s*"([a-z_]+)":', builders.split("var builtinChecks", 1)[0], re.M)
+    builtin_ids = [name for name in algorithm_ids if name != "model_service"]
     docs = (ROOT / "docs/algorithms.html").read_text(encoding="utf-8")
-    if f"{len(algorithm_ids)} 种算法" not in docs:
+    if f"{len(builtin_ids)} 种算法" not in docs:
         errors.append("docs/algorithms.html: update documented algorithm count to match builtinBuilders")
     english_docs = (ROOT / "en/docs/algorithms.html").read_text(encoding="utf-8")
-    if f"{len(algorithm_ids)} built-in algorithms" not in english_docs:
+    if f"{len(builtin_ids)} built-in algorithms" not in english_docs:
         errors.append("en/docs/algorithms.html: update documented algorithm count to match builtinBuilders")
+    for algorithm in algorithm_ids:
+        for prefix in ("docs", "en/docs"):
+            reference = ROOT / prefix / f"algorithm-{algorithm}.html"
+            if not reference.is_file():
+                errors.append(f"missing algorithm parameter guide: {reference.relative_to(ROOT)}")
+            elif f'algorithm-{algorithm}.html' not in (ROOT / prefix / "algorithms.html").read_text(encoding="utf-8"):
+                errors.append(f"algorithm overview does not link to {algorithm}: {prefix}")
     for zh_path in (ROOT / "docs").glob("*.html"):
         en_path = ROOT / "en/docs" / zh_path.name
         if not en_path.is_file():
@@ -105,7 +113,7 @@ def main():
     if errors:
         print("\n".join(errors), file=sys.stderr)
         return 1
-    print(f"Website checks passed: {len(pages)} HTML pages, local resources, anchors, control targets, {len(algorithm_ids)} builtin algorithms.")
+    print(f"Website checks passed: {len(pages)} HTML pages, local resources, anchors, control targets, {len(builtin_ids)} builtin algorithms and model service guides.")
     return 0
 
 

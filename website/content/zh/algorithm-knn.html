@@ -1,0 +1,28 @@
+<p><a href="algorithms.html#parameter-reference">← 算法与模型总览</a></p>
+<h2 id="when-to-use">用途与适用负载</h2>
+<p>寻找与当前窗口相似的历史片段，参考其后续轨迹。适合历史中曾出现过的峰谷形态，不擅长没有历史先例的新变化。</p>
+<h2 id="history">历史数据与运行条件</h2>
+<p>默认互斥窗口时，至少 k×window+1 点；完整预测还至少需要 k×window+horizon 点，并有足够符合时刻限制的候选。</p>
+<p>输入应是等间隔、无缺口且数值有限的序列。输出保留输入指标单位，例如 CPU 核、内存字节或每秒请求数；采样步长决定步数对应的真实时间。最低样本数仅表示可运行，不代表预测可靠。</p>
+<p>此方法不使用协变量；分别预测各目标指标。</p>
+<h2 id="parameters">参数说明</h2>
+<p><small>窄屏可左右滑动参数表，查看完整说明。</small></p>
+<div class="parameter-reference"><table><thead><tr><th>参数 / 类型</th><th>默认值 / 范围 / 单位</th><th>含义与使用</th></tr></thead><tbody><tr><td><code>window</code><br><small>int</small></td><td>48<br><small>≥ 2; ≤ 5000; steps</small></td><td>比较窗口长度。</td></tr><tr><td><code>k</code><br><small>int</small></td><td>5<br><small>≥ 1; ≤ 200</small></td><td>取最相似的几段。</td></tr><tr><td><code>normalize</code><br><small>string</small></td><td>&quot;relative&quot;<br><small>relative / none</small></td><td>relative = 窗口除以自身均值后比较，再缩放回当前水平；none = 直接比较原值。</td></tr><tr><td><code>exclusion</code><br><small>string</small></td><td>&quot;window&quot;<br><small>window / none</small></td><td>互斥区：window = 选中的 K 段两两至少相隔一个窗口长度，K 段是 K 次不同的事件（所需历史约 K×窗口）；none = 不限制，最像的几段可能只是同一次事件错开几步的副本（版本 2 之前的行为）。</td></tr><tr><td><code>same_time_of_day</code><br><small>bool</small></td><td>false<br><small>无额外范围限制</small></td><td>只比较与当前窗口在同一时刻（UTC 时分）结束的历史窗口，适合形态属于一天中某个时刻的负载；候选变少，需要更长的历史。</td></tr><tr><td><code>time_tolerance_minutes</code><br><small>int</small></td><td>60<br><small>≥ 0; ≤ 720; minutes</small></td><td>同一时刻的容差，仅 same_time_of_day=true 时使用；跨零点按环形计算。</td></tr></tbody></table></div>
+<h2 id="example">配置示例</h2>
+<p>在“算法管理”编辑参数。以下仅为参数对象，不是 config.yaml 全文；周期示例按 5 分钟采样，需按实际步长调整。未列出的可选参数使用上表默认值。</p>
+<pre data-language="JSON"><code>{
+  &quot;window&quot;: 48,
+  &quot;k&quot;: 5,
+  &quot;normalize&quot;: &quot;relative&quot;,
+  &quot;exclusion&quot;: &quot;window&quot;,
+  &quot;same_time_of_day&quot;: false
+}</code></pre>
+<h2 id="tuning">调参与取舍</h2>
+<p>window 应覆盖想匹配的形态；k 太大会把不相似片段也混进来。exclusion=window 减少同一次事件重复投票。same_time_of_day 按 UTC 时分比较，启用后应增加历史窗口。</p>
+<h2 id="shared-parameters">通用参数：变化重置与分位校准</h2>
+<div class="parameter-reference"><table><thead><tr><th>参数 / 类型</th><th>默认值 / 范围 / 单位</th><th>含义与使用</th></tr></thead><tbody><tr><td><code>reset_on_change</code><br><small>bool</small></td><td>false<br><small>无额外范围限制</small></td><td>水平突变后重置：检测历史里最后一次水平突变（发布、扩缩容、流量切换），只用突变之后的历史预测。关闭时用全部历史（现状）。突变之后至少要有 6 步才会被确认；突变后的历史不够算法所需时，取算法所需的最新一段。</td></tr><tr><td><code>change_threshold</code><br><small>float</small></td><td>8<br><small>≥ 3; ≤ 50</small></td><td>突变阈值：突变幅度（扣除前一段趋势后）超过噪声的多少倍才算，越大越不容易误报，噪声由相邻步变化的稳健标准差估计。仅 reset_on_change=true 时使用。</td></tr><tr><td><code>change_min_shift</code><br><small>float</small></td><td>0.2<br><small>≥ 0; ≤ 5</small></td><td>最小突变幅度：突变至少是水平的这个比例（0.2 = 20%），很干净的序列上的微小跳变不算。仅 reset_on_change=true 时使用。</td></tr><tr><td><code>quantile_level</code><br><small>float</small></td><td>0<br><small>≥ 0; ≤ 0.99</small></td><td>推荐分位数：0 = 点预测（现状）；0.9 等 = 预测「实际值有约 90% 的把握不超过」的线（保形预测：用本算法在这个负载最近几个窗口里的真实误差校准，需要更多历史和时间）。必须大于 0.5。</td></tr><tr><td><code>calibration_windows</code><br><small>int</small></td><td>8<br><small>≥ 3; ≤ 50</small></td><td>校准窗口数：用最近多少个历史窗口测本算法的误差；越多越稳，也越慢（每个窗口多跑一次预测）。仅推荐分位数大于 0 时使用。</td></tr></tbody></table></div>
+<p>quantile_level 是 0～1 的分位点，percentile 是 1～100 的百分数，二者不是同一参数。分位校准会额外运行历史预测；增加校准窗口前检查历史与运行预算，覆盖率是评估目标而非保证。</p>
+<h2 id="apply">在模块中使用</h2>
+<ol><li>保存参数，检查历史窗口、采样步长和预测范围。</li><li>打开模块的“启用预测”；固定算法只运行指定方法，动态算法使用平台已启用的方法。</li><li>先运行滚动回测，通过版本晋升后才会采用；修改影响模型版本的参数后重新回测。</li><li>在仅观察或仅推荐下检查误差、峰值低估、耗时与采用原因，再分别授权准入和副本执行。</li></ol>
+<p>历史不足、参数不合法、运行超时或输出无效时，检查算法运行原因；没有合格预测时按模块的固定周期、兜底与保护规则处理。</p>
+<p><a href="evaluation.html">回测与效果评估</a> · <a href="recommendations.html">推荐与前瞻决策</a></p>

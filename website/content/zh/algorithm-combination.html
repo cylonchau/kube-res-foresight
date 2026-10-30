@@ -1,0 +1,30 @@
+<p><a href="algorithms.html#parameter-reference">← 算法与模型总览</a></p>
+<h2 id="when-to-use">用途与适用负载</h2>
+<p>对多个成员的预测逐步取中位数，或按近期误差加权。组合本身也需要回测晋升，不默认优于单个成员。</p>
+<h2 id="history">历史数据与运行条件</h2>
+<p>至少满足一个成员；不够历史的成员会被省略。误差加权还需要额外回看窗口，实际要求随成员和预测视野增加。</p>
+<p>输入应是等间隔、无缺口且数值有限的序列。输出保留输入指标单位，例如 CPU 核、内存字节或每秒请求数；采样步长决定步数对应的真实时间。最低样本数仅表示可运行，不代表预测可靠。</p>
+<p>此方法不使用协变量；分别预测各目标指标。</p>
+<h2 id="parameters">参数说明</h2>
+<p><small>窄屏可左右滑动参数表，查看完整说明。</small></p>
+<div class="parameter-reference"><table><thead><tr><th>参数 / 类型</th><th>默认值 / 范围 / 单位</th><th>含义与使用</th></tr></thead><tbody><tr><td><code>members</code><br><small>string</small></td><td>&quot;ewma,holt_winters,theta&quot;<br><small>无额外范围限制</small></td><td>成员算法的 id，用逗号分隔，2 到 6 个，如 ewma,holt_winters,theta。只能选不需要必填参数的算法（ewma、holt_winters、theta、hist_percentile、knn、naive 等），不能选 combination 自己。成员按各自的默认参数运行，不读取算法管理页里给它们设置的参数。</td></tr><tr><td><code>mode</code><br><small>string</small></td><td>&quot;inverse_error&quot;<br><small>inverse_error / median</small></td><td>inverse_error = 按每个成员在这个负载最近几个窗口里的平均绝对误差的倒数加权；median = 每一步取成员预测的中位数。</td></tr><tr><td><code>error_windows</code><br><small>int</small></td><td>4<br><small>≥ 1; ≤ 20</small></td><td>测各成员误差用最近多少个预测视野；越多越稳，也越慢。仅 mode=inverse_error 时使用，历史不够时按等权。</td></tr><tr><td><code>under_weight</code><br><small>float</small></td><td>2<br><small>≥ 1; ≤ 5</small></td><td>量成员误差时，预测低于实际的部分算几倍（与评分里“少给比多给代价更大”的倍数一致）。1 = 普通平均绝对误差；默认 2，使组合偏向少给得少的成员。仅 mode=inverse_error 时使用。</td></tr><tr><td><code>sharpness</code><br><small>float</small></td><td>2<br><small>≥ 1; ≤ 6</small></td><td>权重 = (1/误差) 的这个次方。1 = 与误差成反比（最差的成员仍占相当的权重）；越大越偏向最近最好的成员，6 接近只选最好的。默认 2。仅 mode=inverse_error 时使用。</td></tr><tr><td><code>recent_steps</code><br><small>int</small></td><td>3<br><small>≥ 0; ≤ 20</small></td><td>除了最近几个预测视野，再把最新的这几步也算进成员的误差：刚刚跟上一次变化的成员比一小时前才对的成员更值得信。0 = 不算。默认 3。仅 mode=inverse_error 时使用。</td></tr><tr><td><code>trim_ratio</code><br><small>float</small></td><td>3<br><small>≥ 0; ≤ 20</small></td><td>误差超过最好成员这个倍数的成员不参与（权重为 0）。0 = 不剔除；默认 3。仅 mode=inverse_error 时使用，历史不够时所有成员按等权。</td></tr></tbody></table></div>
+<h2 id="example">配置示例</h2>
+<p>在“算法管理”编辑参数。以下仅为参数对象，不是 config.yaml 全文；周期示例按 5 分钟采样，需按实际步长调整。未列出的可选参数使用上表默认值。</p>
+<pre data-language="JSON"><code>{
+  &quot;members&quot;: &quot;ewma,holt_winters,theta&quot;,
+  &quot;mode&quot;: &quot;inverse_error&quot;,
+  &quot;error_windows&quot;: 4,
+  &quot;under_weight&quot;: 2,
+  &quot;sharpness&quot;: 2,
+  &quot;recent_steps&quot;: 3,
+  &quot;trim_ratio&quot;: 3
+}</code></pre>
+<h2 id="tuning">调参与取舍</h2>
+<p>members 是逗号分隔的 2～6 个 ID，成员必须可用默认参数构建，不能包含 combination。成员不读取算法管理中各自保存的参数。under_weight 增大对低估的惩罚；sharpness 越大越偏向表现好的成员。</p>
+<h2 id="shared-parameters">通用参数：变化重置与分位校准</h2>
+<div class="parameter-reference"><table><thead><tr><th>参数 / 类型</th><th>默认值 / 范围 / 单位</th><th>含义与使用</th></tr></thead><tbody><tr><td><code>reset_on_change</code><br><small>bool</small></td><td>false<br><small>无额外范围限制</small></td><td>水平突变后重置：检测历史里最后一次水平突变（发布、扩缩容、流量切换），只用突变之后的历史预测。关闭时用全部历史（现状）。突变之后至少要有 6 步才会被确认；突变后的历史不够算法所需时，取算法所需的最新一段。</td></tr><tr><td><code>change_threshold</code><br><small>float</small></td><td>8<br><small>≥ 3; ≤ 50</small></td><td>突变阈值：突变幅度（扣除前一段趋势后）超过噪声的多少倍才算，越大越不容易误报，噪声由相邻步变化的稳健标准差估计。仅 reset_on_change=true 时使用。</td></tr><tr><td><code>change_min_shift</code><br><small>float</small></td><td>0.2<br><small>≥ 0; ≤ 5</small></td><td>最小突变幅度：突变至少是水平的这个比例（0.2 = 20%），很干净的序列上的微小跳变不算。仅 reset_on_change=true 时使用。</td></tr><tr><td><code>quantile_level</code><br><small>float</small></td><td>0<br><small>≥ 0; ≤ 0.99</small></td><td>推荐分位数：0 = 点预测（现状）；0.9 等 = 预测「实际值有约 90% 的把握不超过」的线（保形预测：用本算法在这个负载最近几个窗口里的真实误差校准，需要更多历史和时间）。必须大于 0.5。</td></tr><tr><td><code>calibration_windows</code><br><small>int</small></td><td>8<br><small>≥ 3; ≤ 50</small></td><td>校准窗口数：用最近多少个历史窗口测本算法的误差；越多越稳，也越慢（每个窗口多跑一次预测）。仅推荐分位数大于 0 时使用。</td></tr></tbody></table></div>
+<p>quantile_level 是 0～1 的分位点，percentile 是 1～100 的百分数，二者不是同一参数。分位校准会额外运行历史预测；增加校准窗口前检查历史与运行预算，覆盖率是评估目标而非保证。</p>
+<h2 id="apply">在模块中使用</h2>
+<ol><li>保存参数，检查历史窗口、采样步长和预测范围。</li><li>打开模块的“启用预测”；固定算法只运行指定方法，动态算法使用平台已启用的方法。</li><li>先运行滚动回测，通过版本晋升后才会采用；修改影响模型版本的参数后重新回测。</li><li>在仅观察或仅推荐下检查误差、峰值低估、耗时与采用原因，再分别授权准入和副本执行。</li></ol>
+<p>历史不足、参数不合法、运行超时或输出无效时，检查算法运行原因；没有合格预测时按模块的固定周期、兜底与保护规则处理。</p>
+<p><a href="evaluation.html">回测与效果评估</a> · <a href="recommendations.html">推荐与前瞻决策</a></p>

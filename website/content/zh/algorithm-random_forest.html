@@ -1,0 +1,29 @@
+<p><a href="algorithms.html#parameter-reference">← 算法与模型总览</a></p>
+<h2 id="when-to-use">用途与适用负载</h2>
+<p>对抽样后的历史特征训练多棵回归树并平均，支持非线性关系与协变量。训练成本高于简单统计方法。</p>
+<h2 id="history">历史数据与运行条件</h2>
+<p>至少 lags + 4×min_samples_leaf + 1 点；训练窗口仍需保留足够样本。</p>
+<p>输入应是等间隔、无缺口且数值有限的序列。输出保留输入指标单位，例如 CPU 核、内存字节或每秒请求数；采样步长决定步数对应的真实时间。最低样本数仅表示可运行，不代表预测可靠。</p>
+<p>支持协变量：使用同一时间网格上的其他指标，特征仅取预测起点之前的值；未来协变量沿用最后观测值，不是假设已知未来业务量。</p>
+<h2 id="parameters">参数说明</h2>
+<p><small>窄屏可左右滑动参数表，查看完整说明。</small></p>
+<div class="parameter-reference"><table><thead><tr><th>参数 / 类型</th><th>默认值 / 范围 / 单位</th><th>含义与使用</th></tr></thead><tbody><tr><td><code>lags</code><br><small>int</small></td><td>必填，无默认值<br><small>≥ 1; ≤ 2000; steps</small></td><td>滞后步数，仅使用目标步之前的值。</td></tr><tr><td><code>calendar_features</code><br><small>bool</small></td><td>false<br><small>无额外范围限制</small></td><td>是否加入 UTC 日/周周期的正余弦特征。</td></tr><tr><td><code>n_estimators</code><br><small>int</small></td><td>50<br><small>≥ 1; ≤ 500</small></td><td>树的数量。</td></tr><tr><td><code>max_depth</code><br><small>int</small></td><td>6<br><small>≥ 1; ≤ 12</small></td><td>单棵树最大深度。</td></tr><tr><td><code>min_samples_leaf</code><br><small>int</small></td><td>5<br><small>≥ 1</small></td><td>叶子最少样本数。</td></tr><tr><td><code>feature_ratio</code><br><small>float</small></td><td>0.6<br><small>≥ 0.05; ≤ 1</small></td><td>每棵树可用于分裂的特征比例。</td></tr><tr><td><code>sample_ratio</code><br><small>float</small></td><td>0.8<br><small>≥ 0.05; ≤ 1</small></td><td>每棵树自助采样的样本比例。</td></tr><tr><td><code>training_window_steps</code><br><small>int</small></td><td>0<br><small>≥ 0; steps</small></td><td>只用最近多少个样本训练；0 = 全部历史。</td></tr><tr><td><code>covariate_lags</code><br><small>int</small></td><td>3<br><small>≥ 1; ≤ 48; steps</small></td><td>每个参与指标取最近多少步的值作为特征（只用目标步之前的值）；没有其他参与指标时忽略。</td></tr><tr><td><code>seed</code><br><small>int</small></td><td>42<br><small>≥ 0; ≤ 1000000</small></td><td>随机种子，固定后同样的历史给出同样的预测。</td></tr></tbody></table></div>
+<h2 id="example">配置示例</h2>
+<p>在“算法管理”编辑参数。以下仅为参数对象，不是 config.yaml 全文；周期示例按 5 分钟采样，需按实际步长调整。未列出的可选参数使用上表默认值。</p>
+<pre data-language="JSON"><code>{
+  &quot;lags&quot;: 24,
+  &quot;n_estimators&quot;: 50,
+  &quot;max_depth&quot;: 6,
+  &quot;min_samples_leaf&quot;: 5,
+  &quot;training_window_steps&quot;: 2000,
+  &quot;seed&quot;: 42
+}</code></pre>
+<h2 id="tuning">调参与取舍</h2>
+<p>先限制树数、深度与训练窗口。增加树数提高开销，增加深度更容易拟合噪声；seed 用于可重复比较。与岭回归和基线使用相同回测窗口比较。</p>
+<h2 id="shared-parameters">通用参数：变化重置与分位校准</h2>
+<div class="parameter-reference"><table><thead><tr><th>参数 / 类型</th><th>默认值 / 范围 / 单位</th><th>含义与使用</th></tr></thead><tbody><tr><td><code>reset_on_change</code><br><small>bool</small></td><td>false<br><small>无额外范围限制</small></td><td>水平突变后重置：检测历史里最后一次水平突变（发布、扩缩容、流量切换），只用突变之后的历史预测。关闭时用全部历史（现状）。突变之后至少要有 6 步才会被确认；突变后的历史不够算法所需时，取算法所需的最新一段。</td></tr><tr><td><code>change_threshold</code><br><small>float</small></td><td>8<br><small>≥ 3; ≤ 50</small></td><td>突变阈值：突变幅度（扣除前一段趋势后）超过噪声的多少倍才算，越大越不容易误报，噪声由相邻步变化的稳健标准差估计。仅 reset_on_change=true 时使用。</td></tr><tr><td><code>change_min_shift</code><br><small>float</small></td><td>0.2<br><small>≥ 0; ≤ 5</small></td><td>最小突变幅度：突变至少是水平的这个比例（0.2 = 20%），很干净的序列上的微小跳变不算。仅 reset_on_change=true 时使用。</td></tr><tr><td><code>quantile_level</code><br><small>float</small></td><td>0<br><small>≥ 0; ≤ 0.99</small></td><td>推荐分位数：0 = 点预测（现状）；0.9 等 = 预测「实际值有约 90% 的把握不超过」的线（保形预测：用本算法在这个负载最近几个窗口里的真实误差校准，需要更多历史和时间）。必须大于 0.5。</td></tr><tr><td><code>calibration_windows</code><br><small>int</small></td><td>8<br><small>≥ 3; ≤ 50</small></td><td>校准窗口数：用最近多少个历史窗口测本算法的误差；越多越稳，也越慢（每个窗口多跑一次预测）。仅推荐分位数大于 0 时使用。</td></tr></tbody></table></div>
+<p>quantile_level 是 0～1 的分位点，percentile 是 1～100 的百分数，二者不是同一参数。分位校准会额外运行历史预测；增加校准窗口前检查历史与运行预算，覆盖率是评估目标而非保证。</p>
+<h2 id="apply">在模块中使用</h2>
+<ol><li>保存参数，检查历史窗口、采样步长和预测范围。</li><li>打开模块的“启用预测”；固定算法只运行指定方法，动态算法使用平台已启用的方法。</li><li>先运行滚动回测，通过版本晋升后才会采用；修改影响模型版本的参数后重新回测。</li><li>在仅观察或仅推荐下检查误差、峰值低估、耗时与采用原因，再分别授权准入和副本执行。</li></ol>
+<p>历史不足、参数不合法、运行超时或输出无效时，检查算法运行原因；没有合格预测时按模块的固定周期、兜底与保护规则处理。</p>
+<p><a href="evaluation.html">回测与效果评估</a> · <a href="recommendations.html">推荐与前瞻决策</a></p>

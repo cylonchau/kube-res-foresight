@@ -1,0 +1,21 @@
+<p><a href="algorithms.html#parameter-reference">← 算法与模型总览</a></p>
+<h2 id="when-to-use">用途与适用负载</h2>
+<p>重复前一个周期对应位置的值，用于规律重复的负载，也是周期模型的比较基线。前一周期的异常会被重复。</p>
+<h2 id="history">历史数据与运行条件</h2>
+<p>至少 season_length_steps 个点，即一个完整周期。</p>
+<p>输入应是等间隔、无缺口且数值有限的序列。输出保留输入指标单位，例如 CPU 核、内存字节或每秒请求数；采样步长决定步数对应的真实时间。最低样本数仅表示可运行，不代表预测可靠。</p>
+<p>此方法不使用协变量；分别预测各目标指标。</p>
+<h2 id="parameters">参数说明</h2>
+<p><small>窄屏可左右滑动参数表，查看完整说明。</small></p>
+<div class="parameter-reference"><table><thead><tr><th>参数 / 类型</th><th>默认值 / 范围 / 单位</th><th>含义与使用</th></tr></thead><tbody><tr><td><code>season_length_steps</code><br><small>int</small></td><td>必填，无默认值<br><small>≥ 2; steps</small></td><td>周期长度，按采样步数计，不能硬编码 24=一天；一天 = 86400 秒 / 步长秒数。</td></tr></tbody></table></div>
+<h2 id="example">配置示例</h2>
+<p>在“算法管理”编辑参数。以下仅为参数对象，不是 config.yaml 全文；周期示例按 5 分钟采样，需按实际步长调整。未列出的可选参数使用上表默认值。</p>
+<pre data-language="JSON"><code>{
+  &quot;season_length_steps&quot;: 288
+}</code></pre>
+<h2 id="tuning">调参与取舍</h2>
+<p>先把业务周期换算成采样步数。5 分钟采样时，一天是 288 步；一分钟采样时是 1440 步。不要把 24 直接当作一天。</p>
+<h2 id="apply">在模块中使用</h2>
+<ol><li>保存参数，检查历史窗口、采样步长和预测范围。</li><li>打开模块的“启用预测”；固定算法只运行指定方法，动态算法使用平台已启用的方法。</li><li>此方法为基线，无需回测晋升，但仍应比较实测表现。</li><li>在仅观察或仅推荐下检查误差、峰值低估、耗时与采用原因，再分别授权准入和副本执行。</li></ol>
+<p>历史不足、参数不合法、运行超时或输出无效时，检查算法运行原因；没有合格预测时按模块的固定周期、兜底与保护规则处理。</p>
+<p><a href="evaluation.html">回测与效果评估</a> · <a href="recommendations.html">推荐与前瞻决策</a></p>
