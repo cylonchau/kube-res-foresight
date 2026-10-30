@@ -9,7 +9,7 @@ cluster: verify each step in a test cluster first (see "What is verified" below)
 |---|---|---|
 | Platform (`kube-resource-fcst server`, or `all`) | one or more replicas | database, Prometheus-compatible datasources |
 | Job engine (`kube-resource-fcst job`, or inside `all`) | one process per database | same database; runs `forecast.run`, `forecast.backtest`, `forecast.evaluate`, `ldap.sync` |
-| kube-resource-fcst-operator (image target `operator`) | Helm chart `deploy/helm/kube-resource-fcst-operator` (CRD, RBAC, Deployment, metrics) or the plain `deploy/operator/` manifests | cluster access only; reads decisions from the platform over HTTPS |
+| kube-resource-fcst-operator (image target `operator`) | Helm chart `deploy/helm/kube-resource-fcst-operator` (RBAC, Deployment, metrics) or the plain `deploy/operator/` manifests | cluster access only; reads decisions from the platform over HTTPS |
 | Kyverno policy | `deploy/kyverno/kube-resource-fcst-requests.yaml` | Kyverno; **reference draft, not verified** |
 
 Platform metrics: set `metrics.listen` (for example `127.0.0.1:9100`) to serve `/metrics`, `/healthz` and `/readyz`.
@@ -22,8 +22,8 @@ asserts that they agree. Besides the state gauges, `kube_resource_fcst_collect_*
 
 Operator metrics (`kube_resource_fcst_operator_*`, same endpoint as the controller-runtime metrics, port 8080 by default):
 reconciles by result and their duration, scale actions by direction and result, desired / current / ready replicas per
-module, decision validity and time to expiry, conflicts by source (`hpa`, `keda`, `predictivescaler`) and the requests
-to the platform and to Prometheus. `deploy/operator/monitoring/metrics-service.yaml` has a Service and a ServiceMonitor.
+module, decision validity and time to expiry, conflicts by source (`hpa`, `keda`) and the requests
+to the platform. `deploy/operator/monitoring/metrics-service.yaml` has a Service and a ServiceMonitor.
 
 ## Where the data lives
 
@@ -51,11 +51,12 @@ explanation of every number is stored in the recommendation detail. CPU and memo
 mappings (the total of all pods). The estimated capacity has **not** been compared with a load test: treat it as
 unverified until it has been.
 
-## Operator decision sources
+## Operator decision source
 
-`Static`, `PlatformAPI` (the recommendation of a module) and `Prometheus` (one existing series, exactly one result,
-finite and non-negative, rounded up, rejected when stale or refused; see `example-predictivescaler-prometheus.yaml`).
-The Adapter source (external metrics API) is not offered on purpose: this operator replaces HPA/KEDA.
+The only source is the platform: the recommendation of a module, read over HTTP (`GET /api/v1/operator/decisions`). The operator keeps
+no configuration of its own in the cluster: the workloads and their bounds come from the modules (`GET /api/v1/operator/modules`) and
+its time limits from the platform's system parameters (`GET /api/v1/operator/settings`). The Adapter source (external metrics API) is
+not offered on purpose: this operator replaces HPA/KEDA.
 
 ## Order of rollout
 
@@ -86,10 +87,10 @@ The credential is sent as `Authorization: kube-resource-fcst-AK <key>:<secret>`.
 - Per mode: set `forecast.allow_admission_mode` or `forecast.allow_auto_mode` back to `false`. The admission and operator
   endpoints check the setting on every answer (it is cached for about ten seconds per process), so they stop applying
   at once even for modules still in that mode; modules can then be moved back to Recommend at leisure.
-- Operator: delete the PredictiveScaler or set `spec.mode: Observe`; the operator never scales while a decision is
-  missing or expired (it freezes, and a fallback can only raise replicas).
-- One autoscaler per workload: an HPA, a KEDA ScaledObject or an older PredictiveScaler on the same target makes the
-  operator do nothing and report a `Conflict` condition.
+- Operator: move the module out of auto mode (or put it in bypass, or disable it) on the platform, or set `forecast.allow_auto_mode`
+  to `false`; the operator never scales while a decision is missing or expired (it freezes, and a fallback can only raise replicas).
+- One autoscaler per workload: an HPA or a KEDA ScaledObject on the same target makes the operator do nothing for that module and
+  report a conflict.
 
 ## LDAP
 
@@ -114,7 +115,7 @@ Verified by automated tests and scratch-installation browser runs (`scripts/e2e/
 test server, and the operator reconcile logic and metrics against a fake Kubernetes client and fake Prometheus servers.
 The `--upgrade` cleanup was run against a copy of a legacy schema.
 
-Not verified: any real Prometheus (every preset is marked unverified), a real cluster (operator scaling, CRD
-installation, RBAC, the metrics ServiceMonitor), Kyverno, a real LDAP server (StartTLS in particular), MySQL and
+Not verified: any real Prometheus (every preset is marked unverified), a real cluster (operator scaling,
+RBAC, the metrics ServiceMonitor), Kyverno, a real LDAP server (StartTLS in particular), MySQL and
 PostgreSQL, the dynamic replica solver and the estimated pod capacity against real load, and forecast accuracy on real
 workloads.

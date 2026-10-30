@@ -46,14 +46,11 @@ spec:
             {{- with .Values.operator.watchNamespace }}
             - --namespace={{ . }}
             {{- end }}
-            - --predictivescaler-crd={{ .Values.operator.predictiveScalerCRD }}
-            {{- if .Values.platform.url }}
-            - --platform-url={{ .Values.platform.url }}
+            - --platform-url={{ required "platform.url is required: the operator scales the workloads of the platform's modules" .Values.platform.url }}
             - --platform-credential-file=/etc/kube-resource-fcst/platform/{{ .Values.platform.credentialSecret.key }}
             - --platform-sync-interval={{ .Values.platform.syncInterval }}
             {{- if .Values.platform.caSecret.name }}
             - --platform-ca-file=/etc/kube-resource-fcst/platform-ca/{{ .Values.platform.caSecret.key }}
-            {{- end }}
             {{- end }}
             {{- range .Values.operator.extraArgs }}
             - {{ . | quote }}
@@ -75,7 +72,6 @@ spec:
               port: probes
             initialDelaySeconds: 5
             periodSeconds: 10
-          {{- if .Values.platform.url }}
           volumeMounts:
             - name: platform-credential
               mountPath: /etc/kube-resource-fcst/platform
@@ -85,12 +81,10 @@ spec:
               mountPath: /etc/kube-resource-fcst/platform-ca
               readOnly: true
             {{- end }}
-          {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
-      {{- if .Values.platform.url }}
       volumes:
         - name: platform-credential
           secret:
@@ -100,7 +94,6 @@ spec:
           secret:
             secretName: {{ .Values.platform.caSecret.name }}
         {{- end }}
-      {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

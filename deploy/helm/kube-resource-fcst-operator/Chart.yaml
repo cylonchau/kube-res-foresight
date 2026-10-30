@@ -1,6 +1,6 @@
 apiVersion: v2
 name: kube-resource-fcst-operator
-description: The kube-resource-fcst operator, which scales Deployments and StatefulSets from the replicas kube-resource-fcst predicts (PredictiveScaler).
+description: The kube-resource-fcst operator, which scales Deployments and StatefulSets of the platform modules from the replicas kube-resource-fcst predicts.
 type: application
 version: 0.1.0
 appVersion: "dev"

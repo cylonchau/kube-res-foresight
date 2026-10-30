@@ -19,23 +19,9 @@ Capacity per pod is 100m request x 60% target = 60m, so replicas = ceil(peak CPU
 
 `kubectl apply` of `load-web.yaml` resets `replicas` to 2; the operator then scales it again.
 
-`load-web` scaler:
-```yaml
-apiVersion: autoscaling.kube-resource-fcst.io/v1alpha1
-kind: PredictiveScaler
-metadata: {name: load-web, namespace: forecast-test}
-spec:
-  scaleTargetRef: {kind: Deployment, name: load-web}
-  mode: Auto
-  minReplicas: 1
-  maxReplicas: 10
-  fallbackReplicas: 2
-  evaluationInterval: 30s
-  behavior: {scaleUp: {maxStep: 3, cooldown: 1m}, scaleDown: {maxStep: 1, cooldown: 2m}}
-  decision:
-    source: PlatformAPI
-    platformAPI: {url: "http://host.docker.internal:20001", module: load-web, accessKeySecretRef: {name: kube-resource-fcst-platform, key: token}, timeoutSeconds: 5}
-```
+Each load service is a module of the platform in `auto` mode (bounds, fallback, step and cooldown per direction are set on the module;
+there is no resource to apply for the operator).
+
 
 ## Admission (Kyverno): requests and limits of new Pods
 
@@ -54,20 +40,20 @@ kubectl -n forecast-test rollout restart deploy/load-api     # running Pods keep
 
 Replicas are not touched by Kyverno: the operator owns them (a module in `auto` mode gets both).
 
-## Platform-driven operator: no PredictiveScaler object
+## The operator and the platform modules
 
 With `--platform-url` the operator reads the auto modules from the platform and scales their workloads; the module (bounds, fallback,
 step and cooldown per direction, mode, bypass) is the only configuration. Verified here with a scratch platform and a local operator
-against this cluster (`load-mod`, a copy of `load-web`; no PredictiveScaler of it existed): the decision took 2 -> 4 replicas, and
+against this cluster (`load-mod`, a copy of `load-web`): the decision took 2 -> 4 replicas, and
 setting `max_replicas` to 3 on the module took it 4 -> 3 on the next round, with the 1-replica scale-down step.
 
 ```sh
 go build -o operator.exe ./cmd/operator
-./operator.exe --leader-elect=false --predictivescaler-crd=false --platform-url=http://127.0.0.1:20001 \
+./operator.exe --leader-elect=false --platform-url=http://127.0.0.1:20001 \
   --platform-credential-file=operator.cred --platform-sync-interval=10s
 python deploy/testbed/seed_platform.py --modules load-mod --mode auto --scale-up-max-step 3 --scale-down-max-step 1 --scale-down-cooldown 60
 ```
-Keep `--predictivescaler-crd=false` when another operator already runs in the cluster, or both would reconcile the same objects.
+Run only one operator for a cluster (leader election keeps two replicas of it from both scaling).
 
 ## Admission demo: no module, no deployment
 

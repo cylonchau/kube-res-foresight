@@ -20,7 +20,7 @@ package-web: build-web
 kube-resource-fcst: package-web
 	mkdir -p $(BIN_DIR)
 	CGO_ENABLED=$(CGO_ENABLED) GOOS=$(GOOS) GOARCH=$(GOARCH) $(GOCMD) build -trimpath -ldflags="$(LDFLAGS)" -o $(BIN_DIR)/kube-resource-fcst ./cmd
-# the PredictiveScaler controller, a separate small binary with no web assets
+# the operator that scales the workloads of the platform modules, a separate small binary with no web assets
 operator:
 	mkdir -p $(BIN_DIR)
 	CGO_ENABLED=$(CGO_ENABLED) GOOS=$(GOOS) GOARCH=$(GOARCH) $(GOCMD) build -trimpath -ldflags="$(LDFLAGS)" -o $(BIN_DIR)/kube-resource-fcst-operator ./cmd/operator

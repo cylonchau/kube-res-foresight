@@ -2,7 +2,7 @@
 #
 # For a Pod created by a workload that a platform module manages (module mode admission or auto), sets the container
 # requests (CPU, memory, GPU) to what the platform recommends and, when the module manages them (limit_cpu_ratio,
-# limit_memory_ratio), the limits too. It never touches replicas: those belong to the operator (PredictiveScaler).
+# limit_memory_ratio), the limits too. It never touches replicas: those belong to the operator.
 #
 # It does NOT fail when:
 #   - no module manages the workload       the platform answers 200 "apply: false" and nothing is patched;

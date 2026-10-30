@@ -18,16 +18,15 @@ operator:
   leaderElect: true
   # Watch only this namespace; empty watches every namespace.
   watchNamespace: ""
-  # Run the PredictiveScaler controller. Turn it off (and install the chart with --skip-crds) when the platform modules
-  # below are the only configuration: then no PredictiveScaler object exists to keep in step with the module.
-  predictiveScalerCRD: true
   # Extra arguments of the operator command.
   extraArgs: []
 
-# Platform-driven scaling. With a url the operator reads the platform's auto modules (namespace, workload, bounds, fallback,
-# pace) and scales their workloads through the scale subresource: the module is the only configuration.
+# The platform (required). The operator reads its auto modules (namespace, workload, bounds, fallback, pace) and scales their workloads
+# through the scale subresource: the module is the only configuration, and the operator creates nothing else in the cluster.
 platform:
-  url: "" # for example https://kube-resource-fcst.example.com
+  url: "" # required, for example https://kube-resource-fcst.example.com
+  # The value the operator starts with. The platform's system parameter operator.sync_interval_seconds takes over once it answers and is
+  # read again from time to time (so are the request timeout and the cache lifetimes: operator.* on the platform's system parameter page).
   syncInterval: 30s
   # Secret holding the developer credential "<access key>:<access secret>" (only "Operator Decisions (read, report)").
   credentialSecret:

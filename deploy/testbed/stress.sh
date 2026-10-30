@@ -1,6 +1,6 @@
 #!/bin/bash
 # Stress test the scaling of a load service: raise the demand, watch the replicas follow, drop the demand, watch them come back.
-# It only patches the ConfigMap of the service (the same as load.sh) and reads the Deployment and the PredictiveScaler: it
+# It only patches the ConfigMap of the service (the same as load.sh) and reads the Deployment: it
 # never calls the platform, so it does not sign anyone out.
 #
 #   stress.sh [options]
@@ -25,7 +25,7 @@
 #
 # How fast the replicas follow is not set here: they follow the platform decision (refreshed by its scheduled task), then are
 # limited by the maxStep and cooldown of the scaler. Each line of the log:
-#   time  ready/desired-replicas  scaler desired / decision replicas / decision version
+#   time  ready/desired-replicas
 # At the end: the replicas before, the peak, the end, and how many seconds after the demand changed the first scale-up,
 # the peak and the first scale-down appeared. Needed replicas = demand x headroom / 60m (100m request x 60% target).
 
@@ -91,11 +91,10 @@ set_load() {
 
 BASE_R=; PEAK=0; PEAK_AT=; LAST=; UP_AT=; DOWN_AT=; CHANGED_AT=; PHASE_UP=1; LAST_PEAK=0
 sample() {
-  local desired ready scaler
+  local desired ready
   desired=$(kubectl -n "$NS" get deploy "$NAME" -o jsonpath='{.spec.replicas}' 2> /dev/null)
   ready=$(kubectl -n "$NS" get deploy "$NAME" --no-headers 2> /dev/null | awk '{print $2}')
-  scaler=$(kubectl -n "$NS" get predictivescaler "$NAME" -o jsonpath='{.status.desiredReplicas} {.status.lastDecision.replicas} v{.status.lastDecision.version}' 2> /dev/null)
-  echo "$(date +%T) $ready $scaler" | tee -a "$LOG"
+  echo "$(date +%T) $ready/$desired" | tee -a "$LOG"
   [[ "$desired" =~ ^[0-9]+$ ]] || return 0
   [ -z "$BASE_R" ] && BASE_R=$desired
   if [ "$desired" -gt "$PEAK" ]; then PEAK=$desired; PEAK_AT=$(now); fi

@@ -5,19 +5,6 @@ metadata:
   name: kube-resource-fcst-operator
 rules:
 - apiGroups:
-  - ""
-  resources:
-  - events
-  verbs:
-  - create
-  - patch
-- apiGroups:
-  - ""
-  resources:
-  - secrets
-  verbs:
-  - get
-- apiGroups:
   - apps
   resources:
   - deployments
@@ -43,22 +30,6 @@ rules:
   - get
   - list
   - watch
-- apiGroups:
-  - autoscaling.kube-resource-fcst.io
-  resources:
-  - predictivescalers
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - autoscaling.kube-resource-fcst.io
-  resources:
-  - predictivescalers/status
-  verbs:
-  - get
-  - patch
-  - update
 - apiGroups:
   - coordination.k8s.io
   resources:

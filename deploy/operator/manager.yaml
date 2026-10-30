@@ -1,7 +1,8 @@
 # kube-resource-fcst-operator: namespace, identity, permissions and the manager Deployment.
 # Reference manifests: build and push the "operator" image (deploy/docker/Dockerfile, --target operator), then replace IMAGE.
-# The Helm chart in deploy/helm/kube-resource-fcst-operator installs the same objects, with the CRD.
-# Apply deploy/operator/crd/*.yaml and deploy/operator/rbac/role.yaml first.
+# The Helm chart in deploy/helm/kube-resource-fcst-operator installs the same objects.
+# The operator creates no resource of its own in the cluster: it reads the auto modules of the platform and writes the replicas of
+# their workloads. Apply deploy/operator/rbac/role.yaml first, create the Secret with the platform credential, and replace PLATFORM_URL.
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -57,12 +58,13 @@ spec:
             - --leader-elect=true
             - --metrics-bind-address=:8080
             - --health-probe-bind-address=:8081
-            # Platform-driven scaling (no PredictiveScaler objects, no CRD): the operator reads the platform's auto
-            # modules and scales their workloads. Mount the credential Secret ("<access key>:<access secret>") and
-            # turn the CRD controller off if the CRD is not installed.
-            # - --platform-url=https://kube-resource-fcst.example.com
-            # - --platform-credential-file=/etc/kube-resource-fcst/platform/credential
-            # - --predictivescaler-crd=false
+            # The platform whose auto modules are scaled (required) and the Secret key holding its credential
+            # ("<access key>:<access secret>", only the permission "Operator Decisions (read, report)").
+            - --platform-url=PLATFORM_URL
+            - --platform-credential-file=/etc/kube-resource-fcst/platform/credential
+            # These two are the values the operator starts with; the platform's system parameters operator.sync_interval_seconds and
+            # operator.decision_cache_ttl_seconds take over once it answers, and are read again from time to time.
+            # - --platform-sync-interval=30s
           ports:
             - name: metrics
               containerPort: 8080
@@ -87,8 +89,17 @@ spec:
             limits:
               cpu: 500m
               memory: 256Mi
+          volumeMounts:
+            - name: platform-credential
+              mountPath: /etc/kube-resource-fcst/platform
+              readOnly: true
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
+      volumes:
+        - name: platform-credential
+          secret:
+            # kubectl -n kube-resource-fcst-system create secret generic kube-resource-fcst-platform --from-literal=credential='<access key>:<access secret>'
+            secretName: kube-resource-fcst-platform

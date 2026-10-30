@@ -6,13 +6,6 @@ metadata:
   labels:
     {{- include "kube-resource-fcst-operator.labels" . | nindent 4 }}
 rules:
-  - apiGroups: [""]
-    resources: ["events"]
-    verbs: ["create", "patch"]
-  # the platform and Prometheus credentials are read from the Secrets a PredictiveScaler names
-  - apiGroups: [""]
-    resources: ["secrets"]
-    verbs: ["get"]
   - apiGroups: ["apps"]
     resources: ["deployments", "statefulsets"]
     verbs: ["get", "list", "watch"]
@@ -26,12 +19,6 @@ rules:
   - apiGroups: ["keda.sh"]
     resources: ["scaledobjects"]
     verbs: ["get", "list", "watch"]
-  - apiGroups: ["autoscaling.kube-resource-fcst.io"]
-    resources: ["predictivescalers"]
-    verbs: ["get", "list", "watch"]
-  - apiGroups: ["autoscaling.kube-resource-fcst.io"]
-    resources: ["predictivescalers/status"]
-    verbs: ["get", "patch", "update"]
   - apiGroups: ["coordination.k8s.io"]
     resources: ["leases"]
     verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
