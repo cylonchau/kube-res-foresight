@@ -136,13 +136,9 @@ func RegisteredRouter(e *gin.Engine) {
 		Predictions: rdb.NewPredictionDAO(model.DB), Service: forecastService, Config: rdb.NewSysConfigDAO(model.DB)}
 	centerHandler := &v1.AlgorithmCenterRouter{Modules: rdb.NewModuleDAO(model.DB), Algorithms: rdb.NewAlgorithmDAO(model.DB), Predictions: rdb.NewPredictionDAO(model.DB),
 		Tasks: rdb.NewTaskDefinitionDAO(model.DB), Jobs: rdb.NewJobDAO(model.DB), RunStates: rdb.NewRunStateDAO(model.DB), Service: forecastService}
-	presetHandler := &v1.PresetRouter{Datasources: rdb.NewDatasourceDAO(model.DB), Mappings: rdb.NewMetricMappingDAO(model.DB),
-		Modules: rdb.NewModuleDAO(model.DB), Service: forecastService}
+	presetHandler := &v1.PresetRouter{Datasources: rdb.NewDatasourceDAO(model.DB), Mappings: rdb.NewMetricMappingDAO(model.DB)}
 	v1Group.GET("/metric-presets", presetHandler.List)
 	v1Group.POST("/metric-presets/:id/apply", presetHandler.Apply)
-	v1Group.GET("/forecast-demo", presetHandler.DemoStatus)
-	v1Group.POST("/forecast-demo", presetHandler.CreateDemo)
-	v1Group.DELETE("/forecast-demo", presetHandler.DeleteDemo)
 	v1Group.GET("/algorithms", forecastHandler.Algorithms)
 	v1Group.GET("/algorithms/:id", forecastHandler.GetAlgorithm)
 	v1Group.POST("/algorithms", forecastHandler.CreateAlgorithm)

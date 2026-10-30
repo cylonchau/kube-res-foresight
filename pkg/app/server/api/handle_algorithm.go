@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -115,6 +116,29 @@ func newAlgorithmDTO(def forecast.Definition, c *model.AlgorithmConfig) algorith
 		PromotePeakTolerance: c.PromotePeakTolerance, UpdatedAt: c.UpdatedAt.Format("2006-01-02T15:04:05Z07:00")}
 }
 
+// sameParams says whether the parameters of a request are the ones saved: the saved values with their defaults filled in, or, while the
+// saved ones do not validate (a required parameter was never given), exactly what is stored.
+func sameParams(algorithmID, saved string, requested map[string]any) bool {
+	current, _, err := forecastsvc.NormalizedParams(algorithmID, saved)
+	if err != nil {
+		current = map[string]any{}
+		if saved != "" {
+			if json.Unmarshal([]byte(saved), &current) != nil {
+				return false
+			}
+		}
+	}
+	a, errA := json.Marshal(current)
+	b, errB := json.Marshal(requested)
+	return errA == nil && errB == nil && string(a) == string(b)
+}
+
+// The list scopes of the catalog (see apis.AlgorithmListReq).
+const (
+	ScopeAlgorithms = "algorithms"
+	ScopeModels     = "models"
+)
+
 // Algorithms lists the algorithms of the catalog with their platform-wide settings, filtered and paged.
 // @Summary Algorithms
 // @Tags Forecast
@@ -148,6 +172,8 @@ func (r *ForecastRouter) Algorithms(c *gin.Context) {
 			continue
 		}
 		switch {
+		case req.Scope == ScopeModels && def.Category != forecast.CategoryModelService, req.Scope == ScopeAlgorithms && def.Category == forecast.CategoryModelService:
+			continue
 		case req.Category != "" && def.Category != req.Category:
 			continue
 		case req.Enabled == "true" && !cfg.Enabled, req.Enabled == "false" && cfg.Enabled:
@@ -259,7 +285,9 @@ func (r *ForecastRouter) UpdateAlgorithm(c *gin.Context) {
 	if req.Enabled != nil {
 		cfg.Enabled = *req.Enabled
 	}
-	if req.Params != nil {
+	// Parameters that are what is saved already are not checked again: switching an algorithm off, or changing its weight, must not
+	// demand a parameter (the endpoint of a model service) that was never filled in. Changed parameters are always checked.
+	if req.Params != nil && !sameParams(def.ID, cfg.Params, req.Params) {
 		canonical, err := paramsJSON(def.ID, req.Params)
 		if err != nil {
 			query.BadRequest(c, err)

@@ -70,6 +70,13 @@ func Migrate(driver string) error {
 	if err := removeRetiredAlgorithms(model.DB); err != nil {
 		return err
 	}
+	removedDemo, err := retireDemo(model.DB)
+	if err != nil {
+		return err
+	}
+	for _, what := range removedDemo {
+		fmt.Printf("upgrade: removed the retired demo: %s\n", what)
+	}
 	if err := repairBrokenRemarks(model.DB); err != nil {
 		return err
 	}
@@ -139,8 +146,9 @@ func seedPlatformPermissions() error {
 		{permission: model.Permission{Name: "Module List", Code: "forecast-modules_modules", Type: "MENU", FeRoute: "/forecast-modules/modules", FeComponent: "view.forecast-modules_modules", Icon: "carbon:cube", Sort: 1, Visible: true, Status: true}, parentCode: "forecast-modules"},
 		{permission: model.Permission{Name: "Forecast Management", Code: "forecast", Type: "DIRECTORY", FeRoute: "/forecast", FeComponent: "layout.base", Icon: "carbon:forecast-lightning", Sort: 25, Visible: true, Status: true}},
 		{permission: model.Permission{Name: "Algorithm Management", Code: "forecast_algorithms", Type: "MENU", FeRoute: "/forecast/algorithms", FeComponent: "view.forecast_algorithms", Icon: "carbon:model-alt", Sort: 1, Visible: true, Status: true}, parentCode: "forecast"},
-		{permission: model.Permission{Name: "Algorithm Scores", Code: "forecast_score-records", Type: "MENU", FeRoute: "/forecast/score-records", FeComponent: "view.forecast_score-records", Icon: "carbon:report", Sort: 2, Visible: true, Status: true}, parentCode: "forecast"},
-		{permission: model.Permission{Name: "Current Ranking", Code: "forecast_ranking", Type: "MENU", FeRoute: "/forecast/ranking", FeComponent: "view.forecast_ranking", Icon: "carbon:trophy", Sort: 3, Visible: true, Status: true}, parentCode: "forecast"},
+		{permission: model.Permission{Name: "Model Management", Code: "forecast_models", Type: "MENU", FeRoute: "/forecast/models", FeComponent: "view.forecast_models", Icon: "carbon:machine-learning-model", Sort: 2, Visible: true, Status: true}, parentCode: "forecast"},
+		{permission: model.Permission{Name: "Algorithm Scores", Code: "forecast_score-records", Type: "MENU", FeRoute: "/forecast/score-records", FeComponent: "view.forecast_score-records", Icon: "carbon:report", Sort: 3, Visible: true, Status: true}, parentCode: "forecast"},
+		{permission: model.Permission{Name: "Current Ranking", Code: "forecast_ranking", Type: "MENU", FeRoute: "/forecast/ranking", FeComponent: "view.forecast_ranking", Icon: "carbon:trophy", Sort: 4, Visible: true, Status: true}, parentCode: "forecast"},
 		{permission: model.Permission{Name: "Forecast Results", Code: "forecast-results", Type: "DIRECTORY", FeRoute: "/forecast-results", FeComponent: "layout.base", Icon: "carbon:chart-evaluation", Sort: 26, Visible: true, Status: true}},
 		{permission: model.Permission{Name: "History Data", Code: "forecast-results_history", Type: "MENU", FeRoute: "/forecast-results/history", FeComponent: "view.forecast-results_history", Icon: "carbon:chart-line", Sort: 1, Visible: true, Status: true}, parentCode: "forecast-results"},
 		{permission: model.Permission{Name: "Forecast Effect Report", Code: "forecast-results_effect", Type: "MENU", FeRoute: "/forecast-results/effect", FeComponent: "view.forecast-results_effect", Icon: "carbon:report-data", Sort: 2, Visible: true, Status: true}, parentCode: "forecast-results"},

@@ -166,6 +166,9 @@ type AlgorithmListReq struct {
 	ListOptions
 	Category string `form:"category" json:"category"`
 	Enabled  string `form:"enabled" json:"enabled"`
+	// Scope picks the part of the catalog: "algorithms" lists the algorithms, "models" the model services (the algorithms that call a
+	// model served elsewhere), each managed on its own page; empty lists both, for a choice among everything that can forecast.
+	Scope string `form:"scope" json:"scope"`
 }
 
 // AlgorithmUpdateReq changes the platform-wide setting of one algorithm; absent fields are unchanged. Params

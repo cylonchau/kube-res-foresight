@@ -123,7 +123,7 @@ func TestSeedPlatformPermissionsIncludesTheSplitForecastMenus(t *testing.T) {
 	require.NoError(t, seedPlatformPermissions())
 	for code, parent := range map[string]string{
 		"forecast-modules_modules": "forecast-modules", "monitoring_datasets": "monitoring",
-		"forecast_algorithms": "forecast", "forecast_score-records": "forecast", "forecast_ranking": "forecast",
+		"forecast_algorithms": "forecast", "forecast_models": "forecast", "forecast_score-records": "forecast", "forecast_ranking": "forecast",
 		"forecast-results_algorithm-runs": "forecast-results", "forecast-actions_admissions": "forecast-actions",
 		"forecast-results_history": "forecast-results", "forecast-results_evaluations": "forecast-results",
 		"forecast-results_leaderboard":     "forecast-results",

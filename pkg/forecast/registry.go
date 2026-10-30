@@ -24,6 +24,10 @@ type ParamSpec struct {
 	OmitWhenDefault bool `json:"-"`
 }
 
+// CategoryModelService is the category of the algorithms that call a model served elsewhere. They are managed with the models, not
+// with the algorithms.
+const CategoryModelService = "model_service"
+
 // Definition describes one registered algorithm.
 type Definition struct {
 	ID          string `json:"id"`

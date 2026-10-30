@@ -56,6 +56,8 @@ type Service struct {
 	// refreshes and pipelines are per module (see FreshRecommendation and pipelineLock); the zero value is ready to use.
 	refreshes sync.Map
 	pipelines sync.Map
+	// flights are the refreshes under way, one per module (see FreshRecommendation).
+	flights sync.Map
 	// tunings holds the series whose fine-tune is under way, so one series is never submitted twice at once.
 	tunings sync.Map
 	// TuneInline runs a fine-tune inside the forecast that asked for it instead of in the background (tests).

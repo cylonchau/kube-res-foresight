@@ -1124,3 +1124,48 @@ func TestTheChangePreviewRefusesAnEmptyOrInvalidChangeAndUnknownModules(t *testi
 	// a valid change on a module with no history cannot be replayed, and says so instead of inventing a timeline
 	assert.Equal(t, http.StatusBadRequest, post(id, map[string]any{"headroom_ratio": 1.3}))
 }
+
+// A model service is managed with the models, not with the algorithms: each list holds only its own kind.
+func TestModelServicesAreListedSeparatelyFromTheAlgorithms(t *testing.T) {
+	r, _ := forecastTestRouter(t)
+	ids := func(path string) map[string]bool {
+		rec := performJSON(t, r, http.MethodGet, path, "", nil)
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		out := map[string]bool{}
+		for _, raw := range decodeData(t, rec.Body.Bytes())["list"].([]any) {
+			out[raw.(map[string]any)["id"].(string)] = true
+		}
+		return out
+	}
+	everything := ids("/algorithms?page_size=200")
+	assert.True(t, everything["naive"] && everything["model_service"], "without a scope, both (a module chooses its algorithm among them)")
+	algorithms := ids("/algorithms?scope=algorithms&page_size=200")
+	assert.True(t, algorithms["naive"])
+	assert.False(t, algorithms["model_service"], "not in the algorithm list")
+	models := ids("/algorithms?scope=models&page_size=200")
+	assert.True(t, models["model_service"])
+	assert.False(t, models["naive"], "not in the model list")
+}
+
+// Saving a model service that was never given an endpoint is allowed as long as the endpoint is not what is being changed: switching it
+// off or editing the note must not demand it. Enabling it, or changing parameters, is still checked.
+func TestSavingAModelServiceChecksOnlyWhatChanged(t *testing.T) {
+	r, _ := forecastTestRouter(t)
+	put := func(body map[string]any) int {
+		return performJSON(t, r, http.MethodPut, "/algorithms/model_service", "", body).Code
+	}
+	assert.Equal(t, http.StatusOK, put(map[string]any{"enabled": false, "params": map[string]any{}}), "the form sends the parameters it showed: none")
+	assert.Equal(t, http.StatusOK, put(map[string]any{"description": "chronos", "weight": 2}))
+	assert.Equal(t, http.StatusBadRequest, put(map[string]any{"enabled": true}), "enabling needs the endpoint")
+	assert.Equal(t, http.StatusBadRequest, put(map[string]any{"params": map[string]any{"finetune_steps": 5}}), "changed parameters are checked")
+
+	assert.Equal(t, http.StatusOK, put(map[string]any{"enabled": true, "params": map[string]any{"endpoint": "http://chronos:8000"}}))
+	rec := performJSON(t, r, http.MethodGet, "/algorithms/model_service", "", nil)
+	saved := decodeData(t, rec.Body.Bytes())
+	assert.Equal(t, true, saved["enabled"])
+	// the form sends back the values it was given, with the state switched: that is a switch, not a parameter change
+	assert.Equal(t, http.StatusOK, put(map[string]any{"enabled": false, "params": saved["values"]}))
+	saved = decodeData(t, performJSON(t, r, http.MethodGet, "/algorithms/model_service", "", nil).Body.Bytes())
+	assert.Equal(t, false, saved["enabled"], "the switch was saved")
+	assert.Equal(t, "http://chronos:8000", saved["values"].(map[string]any)["endpoint"], "and the endpoint was kept")
+}

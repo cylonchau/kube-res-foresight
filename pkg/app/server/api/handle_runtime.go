@@ -92,8 +92,9 @@ type OperatorDecision struct {
 }
 
 // decisionRefreshBudget is how long a request of the operator waits for the platform to make the recommendation again before it reads
-// the stored one.
-const decisionRefreshBudget = 15 * time.Second
+// the stored one. It is shorter than the timeout of the operator's own request (10 seconds), so the answer comes before the operator
+// hangs up; the refresh itself goes on and the next poll finds its result.
+const decisionRefreshBudget = 8 * time.Second
 
 // latestRecommendation is the recommendation the operator should act on: the stored one when it is recent enough, else one the platform
 // makes first (see forecastsvc.FreshRecommendation). A refresh that fails or runs out of time leaves the stored one.

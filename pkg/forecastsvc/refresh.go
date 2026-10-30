@@ -64,6 +64,58 @@ func (s *Service) FreshRecommendation(ctx context.Context, moduleID uint, maxAge
 	if maxAge <= 0 || fresh(rec) {
 		return rec, false, nil
 	}
+
+	// The refresh runs on its own context, not the request's: the operator hangs up after its own timeout, and a refresh cut off half way
+	// leaves forecasts without their training records. The request waits as long as its context allows; when that runs out the stored
+	// recommendation is read and the refresh goes on, so the next poll finds its result.
+	flight := s.refreshFlightOf(ctx, moduleID, maxAge)
+	select {
+	case <-flight.done:
+		if flight.err != nil {
+			return rec, false, flight.err
+		}
+		if flight.rec == nil {
+			return rec, false, nil
+		}
+		return flight.rec, flight.refreshed, nil
+	case <-ctx.Done():
+		return rec, false, nil
+	}
+}
+
+// refreshFlight is a refresh of one module that is under way, shared by every request that asks for the module meanwhile.
+type refreshFlight struct {
+	done      chan struct{}
+	rec       *model.Recommendation
+	refreshed bool
+	err       error
+}
+
+// refreshBudget bounds one refresh: it is the whole pipeline of a module, and some algorithms are slow.
+const refreshBudget = 5 * time.Minute
+
+func (s *Service) refreshFlightOf(ctx context.Context, moduleID uint, maxAge time.Duration) *refreshFlight {
+	flight := &refreshFlight{done: make(chan struct{})}
+	if v, loaded := s.flights.LoadOrStore(moduleID, flight); loaded {
+		return v.(*refreshFlight)
+	}
+	work, cancel := context.WithTimeout(context.WithoutCancel(ctx), refreshBudget)
+	go func() {
+		defer cancel()
+		defer close(flight.done)
+		defer s.flights.Delete(moduleID)
+		flight.rec, flight.refreshed, flight.err = s.refreshNow(work, moduleID, maxAge)
+	}()
+	return flight
+}
+
+// refreshNow makes the recommendation again, once at a time per module.
+func (s *Service) refreshNow(ctx context.Context, moduleID uint, maxAge time.Duration) (rec *model.Recommendation, refreshed bool, err error) {
+	rec, err = s.Predictions.LatestRecommendation(ctx, moduleID)
+	if err != nil {
+		return nil, false, err
+	}
+	fresh := func(r *model.Recommendation) bool { return r != nil && s.now().Sub(r.CreatedAt) <= maxAge }
 	v, _ := s.refreshes.LoadOrStore(moduleID, &refreshState{})
 	state := v.(*refreshState)
 	state.mu.Lock()

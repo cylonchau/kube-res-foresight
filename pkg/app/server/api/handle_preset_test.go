@@ -1,7 +1,6 @@
 package api
 
 import (
-	"fmt"
 	"net/http"
 	"testing"
 
@@ -10,7 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
-	"github.com/cylonchau/kube-resource-fcst/pkg/forecastsvc"
 	"github.com/cylonchau/kube-resource-fcst/pkg/model"
 )
 
@@ -23,15 +21,10 @@ func presetTestRouter(t *testing.T) (*gin.Engine, *model.Datasource) {
 		&model.PredictionEvaluation{}, &model.ScalingExecution{}, &model.MetricSource{}, &model.AlgorithmScore{}, &model.AdmissionDecision{}, &model.TrainingRun{}, &model.ScaleOutcome{}, &model.ModuleRunState{}))
 	ds := &model.Datasource{Name: "prom", Type: "prometheus", BaseURL: "http://prom:9090", AuthType: "none", TimeoutSeconds: 30, MaxConcurrency: 1, Enabled: true, Status: "unknown"}
 	require.NoError(t, db.Create(ds).Error)
-	modules, mappings := rdb.NewModuleDAO(db), rdb.NewMetricMappingDAO(db)
-	svc := forecastsvc.New(modules, mappings, rdb.NewDatasourceDAO(db), rdb.NewSampleDAO(db), rdb.NewPredictionDAO(db))
-	h := &PresetRouter{Datasources: rdb.NewDatasourceDAO(db), Mappings: mappings, Modules: modules, Service: svc}
+	h := &PresetRouter{Datasources: rdb.NewDatasourceDAO(db), Mappings: rdb.NewMetricMappingDAO(db)}
 	r := gin.New()
 	r.GET("/metric-presets", h.List)
 	r.POST("/metric-presets/:id/apply", h.Apply)
-	r.GET("/forecast-demo", h.DemoStatus)
-	r.POST("/forecast-demo", h.CreateDemo)
-	r.DELETE("/forecast-demo", h.DeleteDemo)
 	return r, ds
 }
 
@@ -74,25 +67,4 @@ func TestApplyPresetCreatesAnEditableMappingThatRemembersItsPreset(t *testing.T)
 	assert.Equal(t, http.StatusBadRequest, performJSON(t, r, http.MethodPost, "/metric-presets/cadvisor.cpu.workload/apply", "", map[string]any{"datasource_id": ds.ID, "name": "cpu-bad", "query": "up{x=\"{{nope}}\"}"}).Code)
 	assert.Equal(t, http.StatusNotFound, performJSON(t, r, http.MethodPost, "/metric-presets/nope/apply", "", map[string]any{"datasource_id": ds.ID}).Code)
 	assert.Equal(t, http.StatusBadRequest, performJSON(t, r, http.MethodPost, "/metric-presets/cadvisor.cpu.workload/apply", "", map[string]any{"datasource_id": 9999}).Code)
-}
-
-func TestDemoEndpointsCreateRefreshAndRemoveTheDemo(t *testing.T) {
-	r, _ := presetTestRouter(t)
-	status := decodeData(t, performJSON(t, r, http.MethodGet, "/forecast-demo", "", nil).Body.Bytes())
-	assert.Equal(t, false, status["exists"])
-
-	rec := performJSON(t, r, http.MethodPost, "/forecast-demo", "", nil)
-	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	res := decodeData(t, rec.Body.Bytes())
-	assert.Equal(t, true, res["created"])
-	moduleID := int(res["module_id"].(float64))
-	assert.Greater(t, moduleID, 0)
-
-	status = decodeData(t, performJSON(t, r, http.MethodGet, "/forecast-demo", "", nil).Body.Bytes())
-	assert.Equal(t, true, status["exists"])
-	assert.EqualValues(t, moduleID, status["module_id"])
-
-	assert.Equal(t, http.StatusOK, performJSON(t, r, http.MethodDelete, "/forecast-demo", "", nil).Code)
-	status = decodeData(t, performJSON(t, r, http.MethodGet, "/forecast-demo", "", nil).Body.Bytes())
-	assert.Equal(t, false, status["exists"], fmt.Sprint(status))
 }

@@ -322,7 +322,8 @@ func (s *Service) recordTraining(ctx context.Context, b *model.AlgorithmRun, bm 
 			t.Dropped = string(raw)
 		}
 	}
-	if err := s.Predictions.SaveTraining(ctx, t); err != nil {
+	if err := s.Predictions.SaveTraining(ctx, t); err != nil && !errors.Is(err, context.Canceled) {
+		// a run that was cut off because the caller stopped waiting (or the program is stopping) has no record: it is not a failure
 		log.Printf("forecast: training record of %s/%s: %v", out.AlgorithmID, out.Metric, err)
 	}
 }

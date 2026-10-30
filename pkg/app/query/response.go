@@ -1,6 +1,7 @@
 package query
 
 import (
+	"context"
 	"errors"
 	"github.com/cylonchau/kube-resource-fcst/pkg/logger"
 	"github.com/gin-gonic/gin"
@@ -39,10 +40,18 @@ func ErrorResponse(ctx *gin.Context, statusCode int, err error) {
 	})
 }
 
+// StatusClientClosedRequest is the status logged for a request the client abandoned before it was answered.
+const StatusClientClosedRequest = 499
+
 // InternalError handles 500 Internal Server Error
 func InternalError(ctx *gin.Context, err error) {
 	if err == nil {
 		err = errors.New("internal server error")
+	}
+	if errors.Is(err, context.Canceled) {
+		// the client hung up (an operator whose request timed out, a closed page): nothing failed on the server
+		ctx.AbortWithStatus(StatusClientClosedRequest)
+		return
 	}
 	logger.Error("HTTP request failed with an internal error",
 		logger.String("method", ctx.Request.Method),

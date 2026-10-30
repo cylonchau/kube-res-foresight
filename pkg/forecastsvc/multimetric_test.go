@@ -458,3 +458,47 @@ func TestTheDecisionAgeIsASystemParameterWithADefault(t *testing.T) {
 	f.svc.Config = nil
 	assert.Equal(t, DefaultDecisionMaxAge, f.svc.DecisionMaxAge(ctx), "no config at all: the default")
 }
+
+// The operator hangs up after its own timeout. The refresh it asked for is not cut off with it: the request reads the stored
+// recommendation, the refresh finishes on its own and stores the new one with the training records of every run (none is lost to a
+// cancelled context), and the next poll reads it.
+func TestARefreshTheOperatorStoppedWaitingForFinishesAndIsStored(t *testing.T) {
+	f := scoredFixture(t, "naive")
+	ctx := context.Background()
+	_, err := f.svc.RunPipeline(ctx, f.module.ID)
+	require.NoError(t, err)
+	first, err := f.svc.Predictions.LatestRecommendation(ctx, f.module.ID)
+	require.NoError(t, err)
+	var trainingsBefore int64
+	require.NoError(t, f.db.Model(&model.TrainingRun{}).Count(&trainingsBefore).Error)
+
+	release := make(chan struct{})
+	inner := f.querier.value
+	var once sync.Once
+	f.querier.value = func(query string, ts time.Time) float64 {
+		once.Do(func() { <-release }) // the first query of the refresh is slow
+		return inner(query, ts)
+	}
+
+	*f.clock = f.clock.Add(10 * time.Minute)
+	short, cancel := context.WithTimeout(ctx, 150*time.Millisecond)
+	defer cancel()
+	rec, refreshed, err := f.svc.FreshRecommendation(short, f.module.ID, time.Minute)
+	require.NoError(t, err, "the request that stopped waiting is not an error")
+	assert.False(t, refreshed)
+	assert.Equal(t, first.Version, rec.Version, "it reads the stored recommendation")
+
+	close(release)
+	require.Eventually(t, func() bool { _, busy := f.svc.flights.Load(f.module.ID); return !busy }, 30*time.Second, 20*time.Millisecond)
+
+	latest, err := f.svc.Predictions.LatestRecommendation(ctx, f.module.ID)
+	require.NoError(t, err)
+	assert.Greater(t, latest.Version, first.Version, "the refresh finished and stored its recommendation")
+	var trainingsAfter int64
+	require.NoError(t, f.db.Model(&model.TrainingRun{}).Count(&trainingsAfter).Error)
+	assert.Greater(t, trainingsAfter, trainingsBefore, "the runs of the refresh were recorded")
+
+	_, refreshed, err = f.svc.FreshRecommendation(ctx, f.module.ID, time.Minute)
+	require.NoError(t, err)
+	assert.False(t, refreshed, "the next poll finds it recent")
+}

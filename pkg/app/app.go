@@ -69,6 +69,8 @@ func NewHTTPServer(ctx context.Context) error {
 			contentType = "image/svg+xml"
 		} else if strings.HasSuffix(filePath, ".png") {
 			contentType = "image/png"
+		} else if strings.HasSuffix(filePath, ".ico") {
+			contentType = "image/x-icon"
 		}
 
 		c.Data(http.StatusOK, contentType, data)
