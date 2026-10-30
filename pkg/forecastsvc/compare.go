@@ -285,8 +285,18 @@ func (s *Service) Compare(ctx context.Context, moduleID uint, o CompareOptions) 
 			a.last = p.PredictionTime
 		}
 	}
+	// The curves are the algorithms that run for the module now. One that was disabled or removed has forecasts in the stored history, but
+	// it is no longer an algorithm of the module and does not belong on the chart. When the algorithms cannot be read the stored ones show.
+	runs, runsErr := s.runsOf(ctx, mod)
+	current := map[string]bool{}
+	for _, inst := range runs {
+		current[inst.Key()] = true
+	}
 	ids := make([]string, 0, len(by))
 	for id := range by {
+		if runsErr == nil && !current[id] {
+			continue
+		}
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
@@ -309,7 +319,7 @@ func (s *Service) Compare(ctx context.Context, moduleID uint, o CompareOptions) 
 		}
 		out.Algorithms = append(out.Algorithms, alg)
 	}
-	if runs, err := s.runsOf(ctx, mod); err == nil {
+	if runsErr == nil {
 		for _, inst := range runs {
 			_, has := by[inst.Key()]
 			out.Statuses = append(out.Statuses, s.AlgorithmStatus(ctx, moduleID, o.Metric, inst.Key(), has, noForecastsInRange(o.From, o.To)))
