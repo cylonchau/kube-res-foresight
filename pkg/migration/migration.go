@@ -85,6 +85,11 @@ func Migrate(driver string) error {
 	} else if n > 0 {
 		fmt.Printf("upgrade: removed %d admission records of scaling or replaced Pods (they are not admissions)\n", n)
 	}
+	if said, err := retireAssistantParameters(model.DB); err != nil {
+		return err
+	} else if said != "" {
+		fmt.Printf("upgrade: %s\n", said)
+	}
 	if err := repairBrokenRemarks(model.DB); err != nil {
 		return err
 	}
@@ -145,7 +150,9 @@ func seedPlatformPermissions() error {
 		{permission: model.Permission{Name: "User Center", Code: "user-center", Type: "MENU", FeRoute: "/user-center", FeComponent: "view.user-center", Sort: 1, Visible: false, Status: true}},
 		{permission: model.Permission{Name: "Dashboard", Code: "dashboard", Type: "MENU", FeRoute: "/dashboard", FeComponent: "view.dashboard", Icon: "carbon:home", Sort: 2, Visible: true, Status: true, BeApis: `["GET /api/v1/dashboard"]`}},
 		{permission: model.Permission{Name: "AI Assistant", Code: "assistant", Type: "MENU", FeRoute: "/assistant", FeComponent: "view.assistant", Icon: "carbon:bot", Sort: 3, Visible: true, Status: true,
-			BeApis: `["GET /api/v1/assistant/status","POST /api/v1/assistant/chat","GET /api/v1/assistant/export"]`}},
+			BeApis: `["GET /api/v1/assistant/connections*","POST /api/v1/assistant/connections*","PUT /api/v1/assistant/connections*","DELETE /api/v1/assistant/connections*"]`}},
+		{permission: model.Permission{Name: "AI Assistant Chat", Code: "assistant:chat", Type: "BUTTON", Status: true,
+			BeApis: `["GET /api/v1/assistant/status","POST /api/v1/assistant/chat","POST /api/v1/assistant/skill","GET /api/v1/assistant/export"]`}},
 		{permission: model.Permission{Name: "Authorization", Code: "authorization", Type: "DIRECTORY", FeRoute: "/authorization", FeComponent: "layout.base", Icon: "carbon:user-role", Sort: 60, Visible: true, Status: true}},
 		{permission: model.Permission{Name: "Users", Code: "authorization_user", Type: "MENU", FeRoute: "/authorization/user", FeComponent: "view.authorization_user", Icon: "carbon:user", Sort: 1, Visible: true, Status: true}, parentCode: "authorization"},
 		{permission: model.Permission{Name: "Roles", Code: "authorization_role", Type: "MENU", FeRoute: "/authorization/role", FeComponent: "view.authorization_role", Icon: "carbon:group", Sort: 2, Visible: true, Status: true}, parentCode: "authorization"},
@@ -289,7 +296,7 @@ func EnsureDefaultConfigs() error {
 		configs = append(configs, model.SysConfig{ConfigKey: p.Key, ConfigValue: strconv.Itoa(p.Default), ConfigName: p.Name, Remark: p.Remark})
 	}
 	configs = append(configs, ldapauth.DefaultConfigs()...)  // LDAP login is an ordinary system parameter group, off by default
-	configs = append(configs, assistant.DefaultConfigs()...) // so is the AI assistant: off until an administrator gives it a language model
+	configs = append(configs, assistant.DefaultConfigs()...) // the switch of the AI assistant: off until an administrator turns it on
 	for i := range configs {
 		if err := model.DB.Where("config_key = ?", configs[i].ConfigKey).FirstOrCreate(&configs[i]).Error; err != nil {
 			return err

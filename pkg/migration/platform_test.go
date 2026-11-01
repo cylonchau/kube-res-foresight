@@ -40,8 +40,14 @@ func TestPlatformCleanupPreservesGenericTasksAndAuthorization(t *testing.T) {
 	require.Len(t, roots, 11, "the nine directories of the platform, the dashboard (the page after login) and the assistant")
 	var chat model.Permission
 	require.NoError(t, db.Where("code = ?", "assistant").First(&chat).Error)
-	require.Contains(t, chat.BeApis, "POST /api/v1/assistant/chat")
-	require.Contains(t, chat.BeApis, "GET /api/v1/assistant/export")
+	require.Contains(t, chat.BeApis, "POST /api/v1/assistant/connections*", "the menu is the configuration of the language model")
+	require.NotContains(t, chat.BeApis, "assistant/chat", "asking is a permission of its own")
+	var ask model.Permission
+	require.NoError(t, db.Where("code = ?", "assistant:chat").First(&ask).Error)
+	require.Equal(t, "BUTTON", ask.Type)
+	require.Contains(t, ask.BeApis, "POST /api/v1/assistant/chat")
+	require.Contains(t, ask.BeApis, "POST /api/v1/assistant/skill")
+	require.Contains(t, ask.BeApis, "GET /api/v1/assistant/export")
 	for _, root := range roots {
 		require.True(t, model.IsPlatformRoute(root.Code))
 	}

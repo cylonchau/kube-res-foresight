@@ -87,26 +87,11 @@ var (
 		Remark: "How often the operator asks the platform for these settings again. It keeps the last answer when the platform cannot be reached (10-3600)."}
 )
 
-// The assistant (the chat that reads the platform's state for the user): how long one answer of the language model may take, how many
-// times it may ask for data before it must answer, and how long a reply may be.
-var (
-	AssistantRequestTimeout = Param{Key: "assistant.request_timeout_seconds", Default: 60, Min: 5, Max: 300,
-		Name:   "Assistant Request Timeout (seconds)",
-		Remark: "How long one question to the assistant may take in all: every call to the language model and every read of the platform's state inside it (5-300)."}
-	AssistantMaxToolRounds = Param{Key: "assistant.max_tool_rounds", Default: 6, Min: 1, Max: 12,
-		Name:   "Assistant Reads Per Question",
-		Remark: "How many times the language model may ask the platform for data while it answers one question; past it, it must answer with what it has (1-12)."}
-	AssistantMaxReplyTokens = Param{Key: "assistant.max_reply_tokens", Default: 1500, Min: 128, Max: 8192,
-		Name:   "Assistant Reply Length (tokens)",
-		Remark: "The most tokens one reply of the language model may have; it bounds what a question costs (128-8192)."}
-)
-
 // All lists every limit, for the system parameter seed.
 func All() []Param {
 	return []Param{DecisionRefreshWait, DecisionForecastMaxAge, CapacitySLOTarget, RefreshBudget, PipelineTimeout, PreviewBudget, FineTuneBudget, TrainBudget,
 		OperatorRequestTimeout, OperatorSyncInterval, OperatorDecisionCacheTTL, OperatorModuleCacheTTL, OperatorRecoverAnswers, OperatorSettingsRefresh,
-		OperatorDegradeHold, OperatorDegradeCooldown, OperatorRecoverStable,
-		AssistantRequestTimeout, AssistantMaxToolRounds, AssistantMaxReplyTokens}
+		OperatorDegradeHold, OperatorDegradeCooldown, OperatorRecoverStable}
 }
 
 // Clamp brings a number into the range of the limit.

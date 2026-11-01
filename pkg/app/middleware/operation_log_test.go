@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"github.com/gin-gonic/gin"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -53,15 +54,23 @@ func TestRedactJSONSecretFields(t *testing.T) {
 // A system parameter that holds a credential arrives as {"config_value": "..."}: the field name says nothing, so the key in the path decides.
 // The assistant's conversation is not kept either.
 func TestTheBodyOfACredentialParameterAndOfTheAssistantChatIsNotKept(t *testing.T) {
-	for _, path := range []string{"/api/v1/configs/assistant.api_key", "/api/v1/configs/ldap.bind_password", "/api/v1/configs/ldap.ca_cert", "/api/v1/assistant/chat"} {
+	for _, path := range []string{"/api/v1/configs/ldap.bind_password", "/api/v1/configs/ldap.ca_cert", "/api/v1/assistant/chat"} {
 		if !bodyNotKept(path) {
 			t.Errorf("the body of %s is kept", path)
 		}
 	}
-	for _, path := range []string{"/api/v1/configs/assistant.model", "/api/v1/configs/forecast.snapshot_max_per_module", "/api/v1/assistant/export", "/api/v1/modules"} {
+	for _, path := range []string{"/api/v1/configs/assistant.enabled", "/api/v1/configs/forecast.snapshot_max_per_module", "/api/v1/assistant/export", "/api/v1/modules"} {
 		if bodyNotKept(path) {
 			t.Errorf("the body of %s is not kept", path)
 		}
+	}
+}
+
+// The key of a language model connection is a field of the body: it is not kept.
+func TestTheKeyOfAConnectionIsRedactedInTheBody(t *testing.T) {
+	got := redactJSON([]byte(`{"name":"main","api_key":"sk-secret","endpoint":"https://x/v1"}`))
+	if strings.Contains(got, "sk-secret") || !strings.Contains(got, `"api_key":"***"`) || !strings.Contains(got, `"name":"main"`) {
+		t.Errorf("the body is %s", got)
 	}
 }
 

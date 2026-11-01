@@ -68,7 +68,7 @@ func isExcludedFromOperationLog(path string) bool {
 // UI already uses client-side (web/src/views/system/config/index.vue's
 // isSecretKey) so a login/credential payload doesn't end up readable in the
 // operation log.
-var secretFieldPattern = regexp.MustCompile(`(?i)(password|secret|token|credential|access_key|private_key|api_hash|session|phone_code|verification_code|^code$)`)
+var secretFieldPattern = regexp.MustCompile(`(?i)(password|secret|token|credential|access_key|private_key|api_key|api_hash|session|phone_code|verification_code|^code$)`)
 
 // OperationLogMiddleware records every mutating (POST/PUT/DELETE/PATCH)
 // request into operation_log for the "系统管理/操作日志" page. It must be

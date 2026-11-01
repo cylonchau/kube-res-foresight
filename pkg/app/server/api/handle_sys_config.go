@@ -66,7 +66,7 @@ func IsInternalSysConfigKey(key string) bool {
 }
 
 func emptyAllowed(key string) bool {
-	return strings.HasPrefix(key, ldapauth.KeyPrefix) || key == assistant.KeyAPIKey || key == assistant.KeyModel
+	return strings.HasPrefix(key, ldapauth.KeyPrefix)
 }
 
 func (h *ConfigRouter) List(c *gin.Context) {
@@ -107,8 +107,7 @@ func (h *ConfigRouter) Update(c *gin.Context) {
 		return
 	}
 	req := UpdateConfigReq{ConfigValue: *body.ConfigValue}
-	// a value may be left empty where empty is a setting: the LDAP parameters (most of them are optional), and the model and the key of the
-	// assistant (clearing the key is how it is switched off for good). Everything else must say something.
+	// a value may be left empty where empty is a setting: the LDAP parameters (most of them are optional). Everything else must say something.
 	if strings.TrimSpace(req.ConfigValue) == "" && !emptyAllowed(key) {
 		query.BadRequest(c, errors.New("config_value is required"))
 		return
@@ -126,17 +125,14 @@ func (h *ConfigRouter) Update(c *gin.Context) {
 		return
 	}
 
-	if strings.HasPrefix(key, assistant.KeyPrefix) {
-		// the connection to the language model is checked, and the key stored encrypted; the limits are ordinary numbers and fall through
-		switch key {
-		case assistant.KeyEnabled, assistant.KeyEndpoint, assistant.KeyModel, assistant.KeyAPIKey:
-			if err := assistant.UpdateKey(c.Request.Context(), h.DAO, key, req.ConfigValue); err != nil {
-				query.BadRequest(c, err)
-				return
-			}
-			query.SuccessResponse(c, nil, "Config updated successfully")
+	if key == assistant.KeyEnabled {
+		// the switch of the AI assistant; the language model it talks to is a connection in the menu AI assistant, not a parameter
+		if err := assistant.UpdateEnabled(c.Request.Context(), h.DAO, req.ConfigValue); err != nil {
+			query.BadRequest(c, err)
 			return
 		}
+		query.SuccessResponse(c, nil, "Config updated successfully")
+		return
 	}
 
 	if err := h.DAO.UpdateValue(context.Background(), key, req.ConfigValue); err != nil {

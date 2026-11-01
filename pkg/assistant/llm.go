@@ -122,9 +122,9 @@ func friendly(err error) error {
 	if errors.As(err, &apiErr) {
 		switch apiErr.StatusCode {
 		case http.StatusUnauthorized, http.StatusForbidden:
-			return fmt.Errorf("the language model refused the key (%d): check assistant.api_key", apiErr.StatusCode)
+			return fmt.Errorf("the language model refused the key (%d): check the key of the connection", apiErr.StatusCode)
 		case http.StatusNotFound:
-			return fmt.Errorf("the language model service does not know the endpoint or the model (404): check assistant.endpoint and assistant.model")
+			return fmt.Errorf("the language model service does not know the endpoint or the model (404): check the endpoint and the model of the connection")
 		case http.StatusTooManyRequests:
 			return errors.New("the language model service is limiting requests (429): try again in a moment")
 		}

@@ -5,14 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
 
 	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
 	"github.com/cylonchau/kube-resource-fcst/pkg/forecastsvc"
-	"github.com/cylonchau/kube-resource-fcst/pkg/timing"
 	"gorm.io/gorm"
 )
 
@@ -29,6 +27,13 @@ const (
 // ErrBusy is returned when too many questions are being answered at once.
 var ErrBusy = errors.New("the assistant is answering other questions: try again in a moment")
 
+// Why the assistant cannot be used (Availability.Reason).
+const (
+	ReasonDisabled      = "disabled"
+	ReasonNoConnection  = "no_connection"
+	ReasonBadConnection = "bad_connection"
+)
+
 // RequestError is a question the assistant cannot take as it is sent (empty, too long, a role a client may not write): the caller's to fix.
 type RequestError struct{ Msg string }
 
@@ -40,8 +45,8 @@ func IsRequestError(err error) bool {
 	return errors.As(err, &r)
 }
 
-// ErrNotReady wraps what is missing for the assistant to work.
-type ErrNotReady struct{ Problem string }
+// ErrNotReady says what is missing for the assistant to work. Reason is one of the Reason constants.
+type ErrNotReady struct{ Reason, Problem string }
 
 func (e ErrNotReady) Error() string { return e.Problem }
 
@@ -51,14 +56,16 @@ type Service struct {
 	Forecast    *forecastsvc.Service
 	Modules     *rdb.ModuleDAO
 	Predictions *rdb.PredictionDAO
+	// Config holds the switch; Connections the language model the assistant talks to.
 	Config      *rdb.SysConfigDAO
+	Connections *rdb.AssistantConnectionDAO
 	// Started is when this platform process started; Database names its driver.
 	Started  time.Time
 	Database string
 	// Now is the clock; nil uses the wall clock.
 	Now func() time.Time
-	// NewLLM builds the client of the language model from the settings in force; nil uses the OpenAI-compatible client.
-	NewLLM func(Settings, time.Duration) LLM
+	// NewLLM builds the client of the language model from the connection in use; nil uses the OpenAI-compatible client.
+	NewLLM func(Connection) LLM
 
 	slots chan struct{}
 }
@@ -91,28 +98,65 @@ type Reply struct {
 	Attachments []Attachment `json:"attachments"`
 }
 
-// Availability is what the user interface needs to know before it offers the chat: whether it can be used, and if not, why.
+// Availability is what the user interface needs to know before it offers the chat. Enabled is the switch: off, the chat is not offered
+// at all. Ready is whether a language model can be asked; the skills that need none work without it.
 type Availability struct {
-	Ready   bool   `json:"ready"`
-	Problem string `json:"problem,omitempty"`
-	Model   string `json:"model,omitempty"`
+	Enabled bool        `json:"enabled"`
+	Ready   bool        `json:"ready"`
+	Reason  string      `json:"reason,omitempty"`
+	Problem string      `json:"problem,omitempty"`
+	Model   string      `json:"model,omitempty"`
+	Skills  []SkillInfo `json:"skills"`
 }
 
-// Available reads the settings and says whether the assistant can be used. It never returns the key.
+// state reads the switch and the connection in use.
+func (s *Service) state(ctx context.Context) (enabled bool, conn *Connection, err error) {
+	if enabled, err = Enabled(ctx, s.Config); err != nil || !enabled {
+		return enabled, nil, err
+	}
+	row, err := s.Connections.Active(ctx)
+	if err != nil || row == nil {
+		return true, nil, err
+	}
+	c := FromRow(row)
+	return true, &c, nil
+}
+
+// Available says whether the assistant is on and whether a language model can be asked. It never returns the key.
 func (s *Service) Available(ctx context.Context) (Availability, error) {
-	set, err := Load(ctx, s.Config)
+	enabled, conn, err := s.state(ctx)
 	if err != nil {
 		return Availability{}, err
 	}
-	if p := set.Problem(); p != "" {
-		return Availability{Problem: p}, nil
+	out := Availability{Enabled: enabled, Skills: skillInfos()}
+	switch {
+	case !enabled:
+		out.Reason, out.Problem = ReasonDisabled, "the assistant is switched off (system parameter assistant.enabled)"
+	case conn == nil:
+		out.Reason, out.Problem = ReasonNoConnection, "no language model is set up: add and enable one in the menu AI assistant"
+	case conn.Problem() != "":
+		out.Reason, out.Problem = ReasonBadConnection, conn.Problem()
+	default:
+		out.Ready, out.Model = true, conn.Model
 	}
-	return Availability{Ready: true, Model: set.Model}, nil
+	return out, nil
 }
 
-func (s *Service) limit(p timing.Param) int {
-	raw, _ := s.Config.GetValueOrDefault(context.Background(), p.Key, strconv.Itoa(p.Default))
-	return p.Parse(raw)
+// ready returns the connection when a language model can be asked, and says what is missing when it cannot.
+func (s *Service) ready(ctx context.Context) (*Connection, error) {
+	enabled, conn, err := s.state(ctx)
+	if err != nil {
+		return nil, err
+	}
+	switch {
+	case !enabled:
+		return nil, ErrNotReady{Reason: ReasonDisabled, Problem: "the assistant is switched off (system parameter assistant.enabled)"}
+	case conn == nil:
+		return nil, ErrNotReady{Reason: ReasonNoConnection, Problem: "no language model is set up: add and enable one in the menu AI assistant"}
+	case conn.Problem() != "":
+		return nil, ErrNotReady{Reason: ReasonBadConnection, Problem: conn.Problem()}
+	}
+	return conn, nil
 }
 
 func systemPrompt(now time.Time, lang string) string {
@@ -176,13 +220,15 @@ func (s *Service) Chat(ctx context.Context, history []Turn, lang string) (*Reply
 	if err := s.validate(history); err != nil {
 		return nil, err
 	}
-	set, err := Load(ctx, s.Config)
+	conn, err := s.ready(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if p := set.Problem(); p != "" {
-		return nil, ErrNotReady{Problem: p}
-	}
+	return s.answer(ctx, *conn, history, lang)
+}
+
+// answer asks the language model, which reads what it needs through the tools, and returns its reply.
+func (s *Service) answer(ctx context.Context, conn Connection, history []Turn, lang string) (*Reply, error) {
 	if s.slots == nil {
 		return nil, errors.New("the assistant is not initialised")
 	}
@@ -193,18 +239,13 @@ func (s *Service) Chat(ctx context.Context, history []Turn, lang string) (*Reply
 		return nil, ErrBusy
 	}
 
-	timeout := time.Duration(s.limit(timing.AssistantRequestTimeout)) * time.Second
-	maxRounds := s.limit(timing.AssistantMaxToolRounds)
-	maxTokens := s.limit(timing.AssistantMaxReplyTokens)
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	ctx, cancel := context.WithTimeout(ctx, conn.Timeout)
 	defer cancel()
 	newLLM := s.NewLLM
 	if newLLM == nil {
-		newLLM = func(set Settings, timeout time.Duration) LLM {
-			return NewOpenAI(set.Endpoint, set.APIKey, set.Model, timeout)
-		}
+		newLLM = func(c Connection) LLM { return NewOpenAI(c.Endpoint, c.APIKey, c.Model, c.Timeout) }
 	}
-	llm := newLLM(set, timeout)
+	llm := newLLM(conn)
 
 	tools := s.tools()
 	byName := make(map[string]tool, len(tools))
@@ -221,12 +262,12 @@ func (s *Service) Chat(ctx context.Context, history []Turn, lang string) (*Reply
 	reply := &Reply{Tools: []ToolTrace{}, Attachments: []Attachment{}}
 	for round := 0; ; round++ {
 		offered := specs
-		if round >= maxRounds {
+		if round >= conn.MaxToolRounds {
 			// out of reads: the model has to answer with what it has
 			offered = nil
 			messages = append(messages, Message{Role: "user", Content: "Answer now with the data you already have. Say what you could not find out."})
 		}
-		done, err := llm.Complete(ctx, messages, offered, maxTokens)
+		done, err := llm.Complete(ctx, messages, offered, conn.MaxReplyTokens)
 		if err != nil {
 			return nil, err
 		}
@@ -237,7 +278,7 @@ func (s *Service) Chat(ctx context.Context, history []Turn, lang string) (*Reply
 			}
 			return reply, nil
 		}
-		if round >= maxRounds {
+		if round >= conn.MaxToolRounds {
 			return nil, errors.New("the language model went on asking for data after it was told to answer")
 		}
 		messages = append(messages, Message{Role: "assistant", Content: done.Content, ToolCalls: done.ToolCalls})

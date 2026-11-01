@@ -5,7 +5,6 @@ package model
 var secretConfigKeys = map[string]bool{
 	"ldap.bind_password": true,
 	"ldap.ca_cert":       true,
-	"assistant.api_key":  true,
 }
 
 // IsSecretConfig reports whether the system parameter holds a credential.
