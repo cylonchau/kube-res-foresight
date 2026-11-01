@@ -149,8 +149,11 @@ func seedPlatformPermissions() error {
 	seeds := []permissionSeed{
 		{permission: model.Permission{Name: "User Center", Code: "user-center", Type: "MENU", FeRoute: "/user-center", FeComponent: "view.user-center", Sort: 1, Visible: false, Status: true}},
 		{permission: model.Permission{Name: "Dashboard", Code: "dashboard", Type: "MENU", FeRoute: "/dashboard", FeComponent: "view.dashboard", Icon: "carbon:home", Sort: 2, Visible: true, Status: true, BeApis: `["GET /api/v1/dashboard"]`}},
-		{permission: model.Permission{Name: "AI Assistant", Code: "assistant", Type: "MENU", FeRoute: "/assistant", FeComponent: "view.assistant", Icon: "carbon:bot", Sort: 3, Visible: true, Status: true,
-			BeApis: `["GET /api/v1/assistant/connections*","POST /api/v1/assistant/connections*","PUT /api/v1/assistant/connections*","DELETE /api/v1/assistant/connections*"]`}},
+		{permission: model.Permission{Name: "AI Configuration", Code: "ai-config", Type: "DIRECTORY", FeRoute: "/ai-config", FeComponent: "layout.base", Icon: "carbon:bot", Sort: 56, Visible: true, Status: true}},
+		{permission: model.Permission{Name: "LLM Management", Code: "ai-config_llm", Type: "MENU", FeRoute: "/ai-config/llm", FeComponent: "view.ai-config_llm", Icon: "carbon:machine-learning-model", Sort: 1, Visible: true, Status: true,
+			BeApis: `["GET /api/v1/assistant/connections*","POST /api/v1/assistant/connections*","PUT /api/v1/assistant/connections*","DELETE /api/v1/assistant/connections*"]`}, parentCode: "ai-config"},
+		{permission: model.Permission{Name: "Skill Management", Code: "ai-config_skill", Type: "MENU", FeRoute: "/ai-config/skill", FeComponent: "view.ai-config_skill", Icon: "carbon:flow", Sort: 2, Visible: true, Status: true,
+			BeApis: `["GET /api/v1/assistant/skills*","POST /api/v1/assistant/skills*","PUT /api/v1/assistant/skills*","DELETE /api/v1/assistant/skills*","GET /api/v1/assistant/connection-options"]`}, parentCode: "ai-config"},
 		{permission: model.Permission{Name: "AI Assistant Chat", Code: "assistant:chat", Type: "BUTTON", Status: true,
 			BeApis: `["GET /api/v1/assistant/status","POST /api/v1/assistant/chat","POST /api/v1/assistant/skill","GET /api/v1/assistant/export"]`}},
 		{permission: model.Permission{Name: "Authorization", Code: "authorization", Type: "DIRECTORY", FeRoute: "/authorization", FeComponent: "layout.base", Icon: "carbon:user-role", Sort: 60, Visible: true, Status: true}},

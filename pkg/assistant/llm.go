@@ -2,11 +2,12 @@ package assistant
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	"github.com/openai/openai-go/v3"
@@ -50,18 +51,35 @@ type LLM interface {
 
 // openAI talks the OpenAI chat completions protocol with the official SDK; the endpoint decides which service answers.
 type openAI struct {
-	client openai.Client
-	model  string
+	client      openai.Client
+	model       string
+	temperature *float64
 }
 
-// NewOpenAI builds the client of a service that speaks the OpenAI chat completions protocol. The SDK retries a failed request once on
-// its own (it respects Retry-After); the deadline of the whole question is the context's.
-func NewOpenAI(endpoint, apiKey, modelName string, timeout time.Duration) LLM {
-	return &openAI{
-		client: openai.NewClient(option.WithBaseURL(endpoint), option.WithAPIKey(apiKey), option.WithMaxRetries(1),
-			option.WithRequestTimeout(timeout), option.WithHeader("User-Agent", "kube-resource-fcst-assistant")),
-		model: modelName,
+// NewOpenAI builds the client of a service that speaks the OpenAI chat completions protocol, as the connection describes it: the address,
+// the key, how it is reached (a proxy, no certificate check), the custom headers and the custom fields of the body. The SDK retries a
+// failed request once on its own (it respects Retry-After); the timeout of the connection bounds one request, and the deadline of the whole
+// question is the context's.
+func NewOpenAI(c Connection) LLM {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	if c.SkipTLSVerify {
+		transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: true} //nolint:gosec // the administrator asked for it, per connection
 	}
+	if c.ProxyURL != "" {
+		if u, err := url.Parse(c.ProxyURL); err == nil {
+			transport.Proxy = http.ProxyURL(u)
+		}
+	}
+	opts := []option.RequestOption{option.WithBaseURL(c.Endpoint), option.WithAPIKey(c.APIKey), option.WithMaxRetries(1),
+		option.WithHTTPClient(&http.Client{Transport: transport}), option.WithRequestTimeout(c.Timeout),
+		option.WithHeader("User-Agent", "kube-resource-fcst-assistant")}
+	for _, h := range c.Headers {
+		opts = append(opts, option.WithHeader(h.Key, h.Value))
+	}
+	for key, value := range c.CustomParams {
+		opts = append(opts, option.WithJSONSet(key, value))
+	}
+	return &openAI{client: openai.NewClient(opts...), model: c.Model, temperature: c.Temperature}
 }
 
 func toParams(messages []Message) []openai.ChatCompletionMessageParamUnion {
@@ -94,6 +112,9 @@ func (o *openAI) Complete(ctx context.Context, messages []Message, tools []ToolS
 	params := openai.ChatCompletionNewParams{Model: o.model, Messages: toParams(messages)}
 	if maxTokens > 0 {
 		params.MaxCompletionTokens = openai.Int(int64(maxTokens))
+	}
+	if o.temperature != nil {
+		params.Temperature = openai.Float(*o.temperature)
 	}
 	for _, t := range tools {
 		params.Tools = append(params.Tools, openai.ChatCompletionFunctionTool(shared.FunctionDefinitionParam{

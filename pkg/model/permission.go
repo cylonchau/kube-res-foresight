@@ -19,6 +19,8 @@ var retiredMenuCodes = map[string]bool{
 	"forecast-results_runs": true, "forecast-actions_snapshots": true,
 	// the preset library is read where a template is made (its picker), and the demo where modules are listed
 	"datasource_presets": true,
+	// the menu of the AI assistant became the directory AI configuration (LLM management and skill management)
+	"assistant": true,
 }
 
 // retiredButtonCodes are API permissions of removed features; the upgrade deletes them with their grants.
@@ -29,13 +31,13 @@ func IsRetiredPermission(code string) bool { return retiredMenuCodes[code] || re
 
 // IsPlatformRoute limits navigation to the supported modules and the hidden profile page.
 func IsPlatformRoute(code string) bool {
-	if code == "user-center" || code == "dashboard" || code == "assistant" {
+	if code == "user-center" || code == "dashboard" {
 		return true
 	}
 	if code == "system_coins" || retiredMenuCodes[code] {
 		return false
 	}
-	for _, module := range []string{"system", "authorization", "task-center", "datasource", "forecast", "forecast-modules", "forecast-results", "forecast-actions", "monitoring"} {
+	for _, module := range []string{"system", "authorization", "task-center", "datasource", "forecast", "forecast-modules", "forecast-results", "forecast-actions", "monitoring", "ai-config"} {
 		if code == module || strings.HasPrefix(code, module+"_") {
 			return true
 		}

@@ -33,6 +33,8 @@ var menuSuccessors = map[string][]string{
 	"forecast-results_runs":        {"forecast-results_algorithm-runs"},
 	"forecast-actions_snapshots":   {"forecast-actions_recommendations"},
 	"datasource_presets":           {"datasource_metric-mappings", "forecast-modules_modules"},
+	// the AI assistant had one menu for its model connection; it is the directory AI configuration now, with LLM and skill management
+	"assistant": {"ai-config_llm", "ai-config_skill"},
 }
 
 // migrateMenuGrants copies the grants of retired menus to their successors (and to the successors' parent

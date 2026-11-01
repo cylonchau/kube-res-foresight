@@ -50,7 +50,9 @@ func TestTheConnectionSettingsThatLivedInTheSystemParametersBecomeAConnection(t 
 	require.True(t, c.Enabled)
 	require.Equal(t, 90, c.TimeoutSeconds)
 	require.Equal(t, 6, c.MaxToolRounds)
-	require.Equal(t, 2000, c.MaxReplyTokens)
+	require.Equal(t, 2000, c.MaxTokens)
+	require.True(t, c.IsDefault, "it is the default model")
+	require.Equal(t, "openai", c.Provider)
 
 	var keys []string
 	require.NoError(t, db.Unscoped().Model(&model.SysConfig{}).Where("config_key LIKE ?", "assistant.%").Pluck("config_key", &keys).Error)

@@ -45,11 +45,12 @@ func retireAssistantParameters(db *gorm.DB) (string, error) {
 			}
 			return n
 		}
-		conn := &model.AssistantConnection{Name: "default", Endpoint: values["assistant.endpoint"], Model: values["assistant.model"], APIKey: values["assistant.api_key"], Enabled: true,
+		conn := &model.AssistantConnection{Name: "default", Provider: model.ProviderOpenAI, Endpoint: values["assistant.endpoint"], Model: values["assistant.model"],
+			APIKey: values["assistant.api_key"], Enabled: true, IsDefault: true,
 			TimeoutSeconds: number("assistant.request_timeout_seconds", assistant.MinTimeoutSeconds, assistant.MaxTimeoutSeconds, assistant.DefaultTimeoutSeconds),
 			MaxToolRounds:  number("assistant.max_tool_rounds", assistant.MinMaxToolRounds, assistant.MaxMaxToolRounds, assistant.DefaultMaxToolRounds),
-			MaxReplyTokens: number("assistant.max_reply_tokens", assistant.MinMaxReplyTokens, assistant.MaxMaxReplyTokens, assistant.DefaultMaxReplyTokens),
-			Remark:         "moved from the system parameters"}
+			MaxTokens:      number("assistant.max_reply_tokens", assistant.MinMaxTokens, assistant.MaxMaxTokens, 0),
+			Description:    "moved from the system parameters"}
 		if err := db.Create(conn).Error; err != nil {
 			return "", err
 		}

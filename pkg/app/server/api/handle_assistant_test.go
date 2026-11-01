@@ -58,14 +58,16 @@ type assistantRig struct {
 	svc    *assistant.Service
 	config *rdb.SysConfigDAO
 	conns  *rdb.AssistantConnectionDAO
+	skills *rdb.AssistantSkillDAO
 	module *model.ForecastModule
 }
 
 const rigKey = "sk-live-key-must-never-leak"
 
 func connBody(name string) map[string]any {
-	return map[string]any{"name": name, "endpoint": "http://llm.test/v1/", "model": "test-model", "api_key": rigKey, "enabled": true,
-		"timeout_seconds": 60, "max_tool_rounds": 6, "max_reply_tokens": 1500, "remark": ""}
+	return map[string]any{"name": name, "description": "", "provider": "openai", "endpoint": "http://llm.test/v1/", "model": "test-model", "api_key": rigKey,
+		"enabled": true, "is_default": true, "timeout_seconds": 90, "skip_tls_verify": false, "proxy_url": "", "headers": []any{}, "custom_params": "",
+		"max_tokens": 0, "context_length": 0, "max_tool_rounds": 6}
 }
 
 // newAssistantRig builds the assistant over a test database. ready puts it in the state of a working assistant: the switch on and a
@@ -74,15 +76,15 @@ func newAssistantRig(t *testing.T, ready bool) *assistantRig {
 	t.Helper()
 	_, cpu := forecastTestRouter(t) // opens the database and creates the tables
 	db := model.DB
-	require.NoError(t, db.AutoMigrate(&model.AssistantConnection{}))
+	require.NoError(t, db.AutoMigrate(&model.AssistantConnection{}, &model.AssistantSkill{}))
 	modules, preds, cfg := rdb.NewModuleDAO(db), rdb.NewPredictionDAO(db), rdb.NewSysConfigDAO(db)
 	fc := forecastsvc.New(modules, rdb.NewMetricMappingDAO(db), rdb.NewDatasourceDAO(db), rdb.NewSampleDAO(db), preds)
 	for _, c := range assistant.DefaultConfigs() {
 		row := c
 		require.NoError(t, db.Create(&row).Error)
 	}
-	rig := &assistantRig{llm: &scriptedLLM{}, config: cfg, conns: rdb.NewAssistantConnectionDAO(db)}
-	rig.svc = assistant.NewService(&assistant.Service{DB: db, Forecast: fc, Modules: modules, Predictions: preds, Config: cfg, Connections: rig.conns, Database: "sqlite",
+	rig := &assistantRig{llm: &scriptedLLM{}, config: cfg, conns: rdb.NewAssistantConnectionDAO(db), skills: rdb.NewAssistantSkillDAO(db)}
+	rig.svc = assistant.NewService(&assistant.Service{DB: db, Forecast: fc, Modules: modules, Predictions: preds, Config: cfg, Connections: rig.conns, SkillStore: rig.skills, Database: "sqlite",
 		Started: runtimeNow.Add(-2 * time.Hour), Now: func() time.Time { return runtimeNow },
 		NewLLM: func(c assistant.Connection) assistant.LLM { rig.llm.conns = append(rig.llm.conns, c); return rig.llm }})
 	h := &AssistantRouter{Service: rig.svc}
@@ -95,6 +97,12 @@ func newAssistantRig(t *testing.T, ready bool) *assistantRig {
 	rig.r.GET("/assistant/connections", h.ListConnections)
 	rig.r.POST("/assistant/connections", h.CreateConnection)
 	rig.r.POST("/assistant/connections/test", h.TestConnection)
+	rig.r.GET("/assistant/connection-options", h.ConnectionOptions)
+	rig.r.GET("/assistant/skills", h.ListSkills)
+	rig.r.POST("/assistant/skills", h.CreateSkill)
+	rig.r.POST("/assistant/skills/batch-delete", h.BatchDeleteSkills)
+	rig.r.PUT("/assistant/skills/:id", h.UpdateSkill)
+	rig.r.DELETE("/assistant/skills/:id", h.DeleteSkill)
 	rig.r.POST("/assistant/connections/batch-delete", h.BatchDeleteConnections)
 	rig.r.PUT("/assistant/connections/:id", h.UpdateConnection)
 	rig.r.DELETE("/assistant/connections/:id", h.DeleteConnection)
@@ -188,7 +196,23 @@ func TestAConnectionIsCheckedItsKeyIsStoredEncryptedAndNeverReturnedAndOneIsEnab
 		"no key":             {"api_key": ""},
 		"timeout too short":  {"timeout_seconds": 1},
 		"too many rounds":    {"max_tool_rounds": 13},
-		"reply too long":     {"max_reply_tokens": 100000},
+		"reply too long":     {"max_tokens": 100000},
+		"reply too short":    {"max_tokens": 10},
+		"context too small":  {"context_length": 100},
+		"hot":                {"temperature": 2.5},
+		"cold":               {"temperature": -0.1},
+		"unknown provider":   {"provider": "anthropic"},
+		"bad proxy":          {"proxy_url": "proxy:8080"},
+		"default but off":    {"enabled": false, "is_default": true},
+		"params not object":  {"custom_params": "[1,2]"},
+		"params not json":    {"custom_params": "{top_p"},
+		"params set model":   {"custom_params": `{"model":"x"}`},
+		"params set tools":   {"custom_params": `{"Tools":[]}`},
+		"bad header name":    {"headers": []map[string]any{{"key": "Bad Header", "value": "x"}}},
+		"reserved header":    {"headers": []map[string]any{{"key": "Host", "value": "x"}}},
+		"header line break":  {"headers": []map[string]any{{"key": "X-A", "value": "a\r\nX-B: b"}}},
+		"header twice":       {"headers": []map[string]any{{"key": "X-A", "value": "1"}, {"key": "x-a", "value": "2"}}},
+		"mask without value": {"headers": []map[string]any{{"key": "X-New", "value": assistant.SecretMask}}},
 	} {
 		body := connBody("x")
 		for k, v := range patch {
@@ -211,23 +235,25 @@ func TestAConnectionIsCheckedItsKeyIsStoredEncryptedAndNeverReturnedAndOneIsEnab
 
 	assert.Equal(t, http.StatusBadRequest, a.post(t, "/assistant/connections", connBody("first")).Code, "the name is unique")
 
-	// a second enabled connection takes over: one is in use at a time
+	// a second default takes over: there is one default, and both stay enabled
 	second := decodeData(t, a.post(t, "/assistant/connections", connBody("second")).Body.Bytes())
-	var enabled []string
-	require.NoError(t, model.DB.Model(&model.AssistantConnection{}).Where("enabled = ?", true).Pluck("name", &enabled).Error)
-	assert.Equal(t, []string{"second"}, enabled)
+	var defaults, enabled []string
+	require.NoError(t, model.DB.Model(&model.AssistantConnection{}).Where("is_default = ?", true).Pluck("name", &defaults).Error)
+	require.NoError(t, model.DB.Model(&model.AssistantConnection{}).Where("enabled = ?", true).Order("id").Pluck("name", &enabled).Error)
+	assert.Equal(t, []string{"second"}, defaults)
+	assert.Equal(t, []string{"first", "second"}, enabled)
 
 	// editing without a key keeps the stored one; the mask means the same
 	update := connBody("second")
 	update["api_key"], update["model"] = "", "other-model"
 	path := "/assistant/connections/" + itoa(int(second["id"].(float64)))
 	require.Equal(t, http.StatusOK, performJSON(t, a.r, http.MethodPut, path, "", update).Code)
-	update["api_key"], update["remark"] = assistant.SecretMask, "kept"
+	update["api_key"], update["description"] = assistant.SecretMask, "kept"
 	require.Equal(t, http.StatusOK, performJSON(t, a.r, http.MethodPut, path, "", update).Code)
 	var after model.AssistantConnection
 	require.NoError(t, model.DB.First(&after, uint(second["id"].(float64))).Error)
 	assert.Equal(t, "other-model", after.Model)
-	assert.Equal(t, "kept", after.Remark)
+	assert.Equal(t, "kept", after.Description)
 	require.NoError(t, assistant.UpdateEnabled(context.Background(), a.config, "true"))
 	_, err := a.svc.Chat(context.Background(), []assistant.Turn{user("hi")}, "en")
 	require.Error(t, err, "the script has no answer, but the connection was built from the stored key")
@@ -254,7 +280,7 @@ func TestAConnectionIsCheckedItsKeyIsStoredEncryptedAndNeverReturnedAndOneIsEnab
 
 func TestAConnectionIsTestedAsTheFormHoldsItAndTheStoredKeyStandsInForAnEmptyOne(t *testing.T) {
 	a := newAssistantRig(t, true)
-	stored, err := a.conns.Active(context.Background())
+	stored, err := a.conns.Default(context.Background())
 	require.NoError(t, err)
 
 	a.llm.steps = []step{say("ok")}
@@ -353,7 +379,7 @@ func TestAToolThatFailsGoesBackToTheModelAsItsAnswerSoItCanCorrectItself(t *test
 
 func TestTheModelCannotAskForDataForeverAndAnswersWithWhatItHasAfterTheLastRead(t *testing.T) {
 	a := newAssistantRig(t, true)
-	row, err := a.conns.Active(context.Background())
+	row, err := a.conns.Default(context.Background())
 	require.NoError(t, err)
 	row.MaxToolRounds = 2 // a limit of the connection
 	require.NoError(t, a.conns.Save(context.Background(), row))

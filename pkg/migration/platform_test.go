@@ -38,10 +38,19 @@ func TestPlatformCleanupPreservesGenericTasksAndAuthorization(t *testing.T) {
 	var roots []model.Permission
 	require.NoError(t, db.Where("parent_id = 0 AND visible = ? AND type <> ?", true, "BUTTON").Find(&roots).Error)
 	require.Len(t, roots, 11, "the nine directories of the platform, the dashboard (the page after login) and the assistant")
-	var chat model.Permission
-	require.NoError(t, db.Where("code = ?", "assistant").First(&chat).Error)
-	require.Contains(t, chat.BeApis, "POST /api/v1/assistant/connections*", "the menu is the configuration of the language model")
-	require.NotContains(t, chat.BeApis, "assistant/chat", "asking is a permission of its own")
+	var dir, llm, skill model.Permission
+	require.NoError(t, db.Where("code = ?", "ai-config").First(&dir).Error)
+	require.Equal(t, "DIRECTORY", dir.Type)
+	require.NoError(t, db.Where("code = ?", "ai-config_llm").First(&llm).Error)
+	require.Equal(t, dir.ID, llm.ParentID)
+	require.Contains(t, llm.BeApis, "POST /api/v1/assistant/connections*", "LLM management configures the language models")
+	require.NotContains(t, llm.BeApis, "assistant/chat", "asking is a permission of its own")
+	require.NoError(t, db.Where("code = ?", "ai-config_skill").First(&skill).Error)
+	require.Equal(t, dir.ID, skill.ParentID)
+	require.Contains(t, skill.BeApis, "PUT /api/v1/assistant/skills*")
+	var oldMenu int64
+	require.NoError(t, db.Model(&model.Permission{}).Where("code = ?", "assistant").Count(&oldMenu).Error)
+	require.Zero(t, oldMenu, "the old single menu of the assistant is gone")
 	var ask model.Permission
 	require.NoError(t, db.Where("code = ?", "assistant:chat").First(&ask).Error)
 	require.Equal(t, "BUTTON", ask.Type)

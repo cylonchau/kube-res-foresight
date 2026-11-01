@@ -212,7 +212,7 @@ func RegisteredRouter(e *gin.Engine) {
 	v1Group.GET("/operator/settings", runtimeHandler.OperatorSettings)
 	v1Group.GET("/dashboard", forecastHandler.Dashboard)
 	assistantHandler := &v1.AssistantRouter{Service: assistant.NewService(&assistant.Service{DB: model.DB, Forecast: forecastService, Modules: rdb.NewModuleDAO(model.DB),
-		Predictions: rdb.NewPredictionDAO(model.DB), Config: configHandler.DAO, Connections: rdb.NewAssistantConnectionDAO(model.DB), Database: databaseDriver()})}
+		Predictions: rdb.NewPredictionDAO(model.DB), Config: configHandler.DAO, Connections: rdb.NewAssistantConnectionDAO(model.DB), SkillStore: rdb.NewAssistantSkillDAO(model.DB), Database: databaseDriver()})}
 	// the assistant reads its settings through the DAO the settings page writes with: a change is seen at once, not after the cache of another DAO expires
 	v1Group.GET("/assistant/status", assistantHandler.Status)
 	v1Group.POST("/assistant/chat", assistantHandler.Chat)
@@ -220,6 +220,12 @@ func RegisteredRouter(e *gin.Engine) {
 	v1Group.GET("/assistant/connections", assistantHandler.ListConnections)
 	v1Group.POST("/assistant/connections", assistantHandler.CreateConnection)
 	v1Group.POST("/assistant/connections/test", assistantHandler.TestConnection)
+	v1Group.GET("/assistant/connection-options", assistantHandler.ConnectionOptions)
+	v1Group.GET("/assistant/skills", assistantHandler.ListSkills)
+	v1Group.POST("/assistant/skills", assistantHandler.CreateSkill)
+	v1Group.POST("/assistant/skills/batch-delete", assistantHandler.BatchDeleteSkills)
+	v1Group.PUT("/assistant/skills/:id", assistantHandler.UpdateSkill)
+	v1Group.DELETE("/assistant/skills/:id", assistantHandler.DeleteSkill)
 	v1Group.POST("/assistant/connections/batch-delete", assistantHandler.BatchDeleteConnections)
 	v1Group.PUT("/assistant/connections/:id", assistantHandler.UpdateConnection)
 	v1Group.DELETE("/assistant/connections/:id", assistantHandler.DeleteConnection)

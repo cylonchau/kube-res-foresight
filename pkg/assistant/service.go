@@ -59,6 +59,8 @@ type Service struct {
 	// Config holds the switch; Connections the language model the assistant talks to.
 	Config      *rdb.SysConfigDAO
 	Connections *rdb.AssistantConnectionDAO
+	// SkillStore holds what an administrator set about the skills.
+	SkillStore *rdb.AssistantSkillDAO
 	// Started is when this platform process started; Database names its driver.
 	Started  time.Time
 	Database string
@@ -114,7 +116,7 @@ func (s *Service) state(ctx context.Context) (enabled bool, conn *Connection, er
 	if enabled, err = Enabled(ctx, s.Config); err != nil || !enabled {
 		return enabled, nil, err
 	}
-	row, err := s.Connections.Active(ctx)
+	row, err := s.Connections.Default(ctx)
 	if err != nil || row == nil {
 		return true, nil, err
 	}
@@ -128,7 +130,18 @@ func (s *Service) Available(ctx context.Context) (Availability, error) {
 	if err != nil {
 		return Availability{}, err
 	}
-	out := Availability{Enabled: enabled, Skills: skillInfos()}
+	out := Availability{Enabled: enabled, Skills: []SkillInfo{}}
+	if enabled {
+		views, err := s.Skills(ctx)
+		if err != nil {
+			return Availability{}, err
+		}
+		for _, v := range views {
+			if v.Enabled {
+				out.Skills = append(out.Skills, v.SkillInfo)
+			}
+		}
+	}
 	switch {
 	case !enabled:
 		out.Reason, out.Problem = ReasonDisabled, "the assistant is switched off (system parameter assistant.enabled)"
@@ -175,6 +188,44 @@ func systemPrompt(now time.Time, lang string) string {
 		"The time now is " + now.UTC().Format(time.RFC3339) + " (UTC).",
 	}, "\n")
 }
+
+// llmFor builds the client of a connection.
+func (s *Service) llmFor(conn Connection) LLM {
+	if s.NewLLM != nil {
+		return s.NewLLM(conn)
+	}
+	return NewOpenAI(conn)
+}
+
+// Rough sizes, in tokens, of what every question carries besides the conversation: the rules and the descriptions of the tools.
+const fixedPromptTokens = 2500
+
+// estimateTokens is a cautious count of the tokens of a text: a token is rarely shorter than three bytes of UTF-8.
+func estimateTokens(text string) int { return len(text)/3 + 1 }
+
+// trimHistory drops the oldest messages of a conversation until what is left fits the context of the model (contextLength tokens, 0 when
+// it is not known), leaving room for the rules, the tools and the reply. The last message, the question, is always kept.
+func trimHistory(history []Turn, contextLength, replyTokens int) []Turn {
+	if contextLength <= 0 || len(history) <= 1 {
+		return history
+	}
+	room := contextLength - fixedPromptTokens - replyTokens
+	if replyTokens <= 0 {
+		room = contextLength - fixedPromptTokens - DefaultReplyReserve
+	}
+	used, keep := 0, len(history)
+	for i := len(history) - 1; i >= 0; i-- {
+		used += estimateTokens(history[i].Content)
+		if used > room && i < len(history)-1 {
+			break
+		}
+		keep = i
+	}
+	return history[keep:]
+}
+
+// DefaultReplyReserve is the room kept for the reply when the connection does not limit it.
+const DefaultReplyReserve = 2000
 
 func (s *Service) validate(history []Turn) error {
 	if err := checkHistory(history); err != nil {
@@ -239,13 +290,16 @@ func (s *Service) answer(ctx context.Context, conn Connection, history []Turn, l
 		return nil, ErrBusy
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, conn.Timeout)
-	defer cancel()
-	newLLM := s.NewLLM
-	if newLLM == nil {
-		newLLM = func(c Connection) LLM { return NewOpenAI(c.Endpoint, c.APIKey, c.Model, c.Timeout) }
+	// one request to the model is bounded by the timeout of the connection; a question, which may take several (and reads in between), by
+	// that times the reads it may make plus one, and never more than ten minutes
+	total := conn.Timeout * time.Duration(conn.MaxToolRounds+1)
+	if total > maxQuestionTime {
+		total = maxQuestionTime
 	}
-	llm := newLLM(conn)
+	ctx, cancel := context.WithTimeout(ctx, total)
+	defer cancel()
+	llm := s.llmFor(conn)
+	history = trimHistory(history, conn.ContextLength, conn.MaxTokens)
 
 	tools := s.tools()
 	byName := make(map[string]tool, len(tools))
@@ -267,7 +321,7 @@ func (s *Service) answer(ctx context.Context, conn Connection, history []Turn, l
 			offered = nil
 			messages = append(messages, Message{Role: "user", Content: "Answer now with the data you already have. Say what you could not find out."})
 		}
-		done, err := llm.Complete(ctx, messages, offered, conn.MaxReplyTokens)
+		done, err := llm.Complete(ctx, messages, offered, conn.MaxTokens)
 		if err != nil {
 			return nil, err
 		}
