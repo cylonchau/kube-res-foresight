@@ -2,6 +2,7 @@ package router
 
 import (
 	"github.com/cylonchau/kube-resource-fcst/pkg/app/middleware"
+	"github.com/cylonchau/kube-resource-fcst/pkg/assistant"
 	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
 	"github.com/cylonchau/kube-resource-fcst/pkg/forecastsvc"
 	"github.com/cylonchau/kube-resource-fcst/pkg/ldapauth"
@@ -210,6 +211,12 @@ func RegisteredRouter(e *gin.Engine) {
 	v1Group.GET("/operator/modules", runtimeHandler.OperatorModules)
 	v1Group.GET("/operator/settings", runtimeHandler.OperatorSettings)
 	v1Group.GET("/dashboard", forecastHandler.Dashboard)
+	assistantHandler := &v1.AssistantRouter{Service: assistant.NewService(&assistant.Service{DB: model.DB, Forecast: forecastService, Modules: rdb.NewModuleDAO(model.DB),
+		Predictions: rdb.NewPredictionDAO(model.DB), Config: configHandler.DAO, Database: databaseDriver()})}
+	// the assistant reads its settings through the DAO the settings page writes with: a change is seen at once, not after the cache of another DAO expires
+	v1Group.GET("/assistant/status", assistantHandler.Status)
+	v1Group.POST("/assistant/chat", assistantHandler.Chat)
+	v1Group.GET("/assistant/export", assistantHandler.Export)
 	v1Group.GET("/operator/decisions", runtimeHandler.Decision)
 	v1Group.POST("/operator/reports", runtimeHandler.Report)
 	v1Group.GET("/admission/recommendations", runtimeHandler.Admission)
@@ -238,4 +245,12 @@ func RegisteredRouter(e *gin.Engine) {
 
 	statsHandler := &v1.StatsRouter{DB: model.DB}
 	v1Group.GET("/stats/stream", statsHandler.StreamStats)
+}
+
+// databaseDriver names the database in use (sqlite, mysql, postgres), "" before one is open.
+func databaseDriver() string {
+	if model.DB == nil || model.DB.Dialector == nil {
+		return ""
+	}
+	return model.DB.Dialector.Name()
 }

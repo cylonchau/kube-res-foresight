@@ -620,3 +620,11 @@ all ten management pages and the shared product title. Screenshots were inspecte
 - **OTP 闪烁**：根因是路由 key 用路径，`/login/pwd-login` 到 `/login/otp-login` 被当成两个页面，整页带淡入淡出重新挂载。现在登录页的 key 固定，切换只换卡片内的标题和表单（0.14s 淡入），品牌区固定在顶部、不随卡片高度上下顶动。实测：切换后外壳还是同一个元素、整个过程不透明度最低 1、品牌区位移 0 次。
 - **没验证**：用户自己的浏览器与字体（用上面的运行时测量兜底）；真实触发 OTP 的登录（用路由跳转模拟了同一个切换）。
 
+2026-11-02：AI 助手（聊天，只读，可导出服务运行状态）
+- **是什么**：新菜单「AI 助手」（权限码 `assistant`）和顶部栏右上角的机器人按钮：点开是浮在页面上的对话窗口（窄屏占满宽度），也可「整页打开」到菜单页。两处是同一个对话（`store/modules/assistant`，存在浏览器标签页里，平台不存，换人登录即清空）。用户用自然语言问，语言模型通过只读工具读平台已记录的数据后回答；让它「导出服务运行状态」，答复下面出现下载按钮，下载 Markdown 或 JSON；菜单页上方也有这两个导出按钮，不经过语言模型。
+- **后端**：`pkg/assistant`（连接参数与校验、官方 `openai-go/v3` 客户端、6 个只读工具、状态快照与 Markdown 导出、工具循环）；`POST /api/v1/assistant/chat`、`GET /assistant/status`、`GET /assistant/export`。语言模型可换：任何兼容 OpenAI chat completions 协议的服务（改 `assistant.endpoint`），没做 Anthropic 原生协议。
+- **配置**：四个普通系统参数（`assistant.enabled/endpoint/model/api_key`，默认关闭，系统参数页多了「AI 助手」分类），不另建页面。密钥 AES-256-GCM 加密入库、列表遮盖、回传掩码保持不变、清空即关闭助手；启用前三项必须填好。三个限额在 `timing`：请求超时 60 秒、一次提问最多读 6 次、回复 1500 token。顺带：系统参数页把 `sys.auth.access_token_minutes`、`assistant.max_reply_tokens` 这类名字里带 token/key 的非密钥也遮盖成圆点的老毛病改了（按名字结尾 password/secret/api_key 判断）；`/configs/:key` 现在允许 LDAP 参数、`assistant.model`、`assistant.api_key` 的值为空。
+- **安全**：只有读；客户端只能发 user/assistant 消息（system/tool 被拒，防止从外面改规则）；工具返回当数据不当指令；工具结果超 16 KB 截断；回答在页面里先转义再渲染（不支持原始 HTML 与链接）；同时最多 4 个提问；密钥参数和对话的请求体不进操作日志（这也补上了 `ldap.bind_password` 以前经 `/configs/:key` 以明文进操作日志的洞）；导出文件不含密钥和语言模型地址。
+- **验证**：`go vet`、`go test ./pkg/...` 通过（新增：真实 SDK 对假的 OpenAI 服务的协议测试、对话循环、工具失败回灌、读取次数上限、导出、历史校验、429/502、状态快照、密钥掩码与加密、操作日志）；`vue-tsc`、语言包与 Markdown 渲染测试通过；临时库真浏览器 27 项检查（假的兼容服务，要求密钥并做工具调用）：未启用时窗口说明原因，启用后提问→工具→回答，表格渲染成表格、`<script>` 显示成文字不执行，下载文件名与内容、无密钥，整页与窗口同一对话，慢回答显示「正在查询」，错误密钥在对话里说明且不含密钥，刷新保留、清空，系统参数页显示分类且密钥遮盖，窄屏 390px 窗口不溢出，无控制台错误。
+- **没验证**：真实的语言模型（只用了假的兼容服务，真实模型的工具调用质量、费用没测）；Anthropic、Azure 等非 OpenAI 协议的服务；多副本部署下「最近读取」只代表本副本；MySQL/PostgreSQL。助手能看到全平台数据，没有按用户做数据范围（平台本来也没有）：谁有菜单谁就能问。
+

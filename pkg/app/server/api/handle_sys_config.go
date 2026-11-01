@@ -5,6 +5,7 @@ import (
 	"errors"
 	"github.com/cylonchau/kube-resource-fcst/pkg/apis"
 	"github.com/cylonchau/kube-resource-fcst/pkg/app/query"
+	"github.com/cylonchau/kube-resource-fcst/pkg/assistant"
 	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
 	"github.com/cylonchau/kube-resource-fcst/pkg/ldapauth"
 	"github.com/cylonchau/kube-resource-fcst/pkg/migration"
@@ -36,7 +37,7 @@ func sysConfigDTO(cfg *model.SysConfig) *sysConfigResponse {
 		return nil
 	}
 	value := cfg.ConfigValue
-	if ldapauth.Secret(cfg.ConfigKey) && value != "" {
+	if model.IsSecretConfig(cfg.ConfigKey) && value != "" {
 		value = SecretMask
 	}
 
@@ -62,6 +63,10 @@ var internalSysConfigKeys = map[string]bool{"sys.auth.jwt_secret": true}
 // The LDAP parameters are ordinary system parameters; their secrets are masked and a change is validated as a whole.
 func IsInternalSysConfigKey(key string) bool {
 	return internalSysConfigKeys[strings.TrimSpace(key)]
+}
+
+func emptyAllowed(key string) bool {
+	return strings.HasPrefix(key, ldapauth.KeyPrefix) || key == assistant.KeyAPIKey || key == assistant.KeyModel
 }
 
 func (h *ConfigRouter) List(c *gin.Context) {
@@ -94,9 +99,18 @@ func (h *ConfigRouter) Update(c *gin.Context) {
 		query.NotFound(c, errors.New("config not found"))
 		return
 	}
-	var req UpdateConfigReq
-	if err := c.ShouldBindJSON(&req); err != nil {
-		query.BadRequest(c, err)
+	var body struct {
+		ConfigValue *string `json:"config_value"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil || body.ConfigValue == nil {
+		query.BadRequest(c, errors.New("config_value is required"))
+		return
+	}
+	req := UpdateConfigReq{ConfigValue: *body.ConfigValue}
+	// a value may be left empty where empty is a setting: the LDAP parameters (most of them are optional), and the model and the key of the
+	// assistant (clearing the key is how it is switched off for good). Everything else must say something.
+	if strings.TrimSpace(req.ConfigValue) == "" && !emptyAllowed(key) {
+		query.BadRequest(c, errors.New("config_value is required"))
 		return
 	}
 	if strings.HasPrefix(key, ldapauth.KeyPrefix) {
@@ -110,6 +124,19 @@ func (h *ConfigRouter) Update(c *gin.Context) {
 		}
 		query.SuccessResponse(c, nil, "Config updated successfully")
 		return
+	}
+
+	if strings.HasPrefix(key, assistant.KeyPrefix) {
+		// the connection to the language model is checked, and the key stored encrypted; the limits are ordinary numbers and fall through
+		switch key {
+		case assistant.KeyEnabled, assistant.KeyEndpoint, assistant.KeyModel, assistant.KeyAPIKey:
+			if err := assistant.UpdateKey(c.Request.Context(), h.DAO, key, req.ConfigValue); err != nil {
+				query.BadRequest(c, err)
+				return
+			}
+			query.SuccessResponse(c, nil, "Config updated successfully")
+			return
+		}
 	}
 
 	if err := h.DAO.UpdateValue(context.Background(), key, req.ConfigValue); err != nil {

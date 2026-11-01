@@ -50,6 +50,21 @@ func TestRedactJSONSecretFields(t *testing.T) {
 	}
 }
 
+// A system parameter that holds a credential arrives as {"config_value": "..."}: the field name says nothing, so the key in the path decides.
+// The assistant's conversation is not kept either.
+func TestTheBodyOfACredentialParameterAndOfTheAssistantChatIsNotKept(t *testing.T) {
+	for _, path := range []string{"/api/v1/configs/assistant.api_key", "/api/v1/configs/ldap.bind_password", "/api/v1/configs/ldap.ca_cert", "/api/v1/assistant/chat"} {
+		if !bodyNotKept(path) {
+			t.Errorf("the body of %s is kept", path)
+		}
+	}
+	for _, path := range []string{"/api/v1/configs/assistant.model", "/api/v1/configs/forecast.snapshot_max_per_module", "/api/v1/assistant/export", "/api/v1/modules"} {
+		if bodyNotKept(path) {
+			t.Errorf("the body of %s is not kept", path)
+		}
+	}
+}
+
 func TestResolveClientType(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

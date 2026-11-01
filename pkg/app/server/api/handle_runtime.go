@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/cylonchau/kube-resource-fcst/pkg/app/query"
+	"github.com/cylonchau/kube-resource-fcst/pkg/assistant"
 	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
 	"github.com/cylonchau/kube-resource-fcst/pkg/forecastsvc"
 	"github.com/cylonchau/kube-resource-fcst/pkg/logger"
@@ -73,6 +74,7 @@ func storedDetail(rec *model.Recommendation) forecastsvc.RecommendDetail {
 // @Tags Forecast
 // @Router /api/v1/operator/settings [get]
 func (r *RuntimeRouter) OperatorSettings(c *gin.Context) {
+	assistant.MarkOperatorSeen(r.now())
 	settings := timing.DefaultOperatorSettings()
 	if r.Config != nil {
 		ctx := c.Request.Context()
@@ -242,6 +244,7 @@ type OperatorModule struct {
 // OperatorModules answers GET /operator/modules with the workloads the operator may scale now: enabled modules in auto
 // mode that are not in bypass, while an administrator allows auto mode. An empty list is a valid answer.
 func (r *RuntimeRouter) OperatorModules(c *gin.Context) {
+	assistant.MarkOperatorSeen(r.now())
 	out := struct {
 		AutoAllowed bool             `json:"auto_allowed"`
 		Modules     []OperatorModule `json:"modules"`

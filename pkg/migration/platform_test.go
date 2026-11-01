@@ -37,7 +37,11 @@ func TestPlatformCleanupPreservesGenericTasksAndAuthorization(t *testing.T) {
 	require.False(t, db.Migrator().HasTable("market_kline"))
 	var roots []model.Permission
 	require.NoError(t, db.Where("parent_id = 0 AND visible = ? AND type <> ?", true, "BUTTON").Find(&roots).Error)
-	require.Len(t, roots, 10, "the nine directories of the platform and the dashboard, the page after login")
+	require.Len(t, roots, 11, "the nine directories of the platform, the dashboard (the page after login) and the assistant")
+	var chat model.Permission
+	require.NoError(t, db.Where("code = ?", "assistant").First(&chat).Error)
+	require.Contains(t, chat.BeApis, "POST /api/v1/assistant/chat")
+	require.Contains(t, chat.BeApis, "GET /api/v1/assistant/export")
 	for _, root := range roots {
 		require.True(t, model.IsPlatformRoute(root.Code))
 	}

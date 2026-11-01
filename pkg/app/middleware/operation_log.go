@@ -171,6 +171,9 @@ func captureBody(c *gin.Context) string {
 	if c.Request.Body == nil {
 		return ""
 	}
+	if bodyNotKept(c.Request.URL.Path) {
+		return ""
+	}
 	contentType := c.Request.Header.Get("Content-Type")
 	if strings.HasPrefix(contentType, "multipart/") {
 		return ""
@@ -186,6 +189,16 @@ func captureBody(c *gin.Context) string {
 
 	redacted := redactJSON(raw)
 	return truncate(redacted, maxOperationLogBody)
+}
+
+// bodyNotKept says the body of a request is not written to the operation log at all. A system parameter that holds a credential arrives as
+// {"config_value": "..."}: the field name says nothing, the key in the path does. The assistant's conversation is the user's questions
+// and the platform's own state: the log says who asked and when, not what.
+func bodyNotKept(path string) bool {
+	if key, ok := strings.CutPrefix(path, "/api/v1/configs/"); ok {
+		return model.IsSecretConfig(key)
+	}
+	return path == "/api/v1/assistant/chat"
 }
 
 // redactJSON walks a JSON object/array replacing any value whose key looks
