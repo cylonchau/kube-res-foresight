@@ -140,7 +140,7 @@ func TestSkillManagementBuiltInOnesCanBeSwitchedOffCustomOnesAreWrittenByAdminis
 		return decodeData(t, rec.Body.Bytes())["list"].([]any)
 	}
 	all := list("")
-	assert.Len(t, all, 7, "the seven built-in skills, each with a row now")
+	assert.Len(t, all, 8, "the eight built-in skills, each with a row now")
 	byName := map[string]map[string]any{}
 	for _, v := range all {
 		m := v.(map[string]any)

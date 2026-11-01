@@ -48,6 +48,12 @@ func TestPlatformCleanupPreservesGenericTasksAndAuthorization(t *testing.T) {
 	require.NoError(t, db.Where("code = ?", "ai-config_skill").First(&skill).Error)
 	require.Equal(t, dir.ID, skill.ParentID)
 	require.Contains(t, skill.BeApis, "PUT /api/v1/assistant/skills*")
+	var aiTask model.Permission
+	require.NoError(t, db.Where("code = ?", "ai-config_task").First(&aiTask).Error)
+	require.Equal(t, dir.ID, aiTask.ParentID)
+	require.Contains(t, aiTask.BeApis, "POST /api/v1/assistant/tasks*")
+	require.Contains(t, aiTask.BeApis, "DELETE /api/v1/assistant/tasks*")
+	require.NotContains(t, aiTask.BeApis, "assistant/chat")
 	var oldMenu int64
 	require.NoError(t, db.Model(&model.Permission{}).Where("code = ?", "assistant").Count(&oldMenu).Error)
 	require.Zero(t, oldMenu, "the old single menu of the assistant is gone")
@@ -124,6 +130,10 @@ func TestEnsureForecastTasksIsIdempotentAndKeepsAdminChanges(t *testing.T) {
 	var tasks []model.TaskDefinition
 	require.NoError(t, db.Where("task_type LIKE ?", "forecast.%").Find(&tasks).Error)
 	require.Len(t, tasks, 4) // forecast.*; ldap.sync is separate
+	var ai model.TaskDefinition
+	require.NoError(t, db.Where("task_type = ?", "ai.schedule").First(&ai).Error)
+	require.Equal(t, "@every 1m", ai.CronExpr, "the minute is how often the due AI tasks are looked for")
+	require.True(t, ai.Enabled)
 	for _, task := range tasks {
 		if task.TaskType == "forecast.run" {
 			require.Equal(t, "@every 10m", task.CronExpr, "an administrator's schedule is not overwritten")

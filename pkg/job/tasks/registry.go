@@ -17,8 +17,9 @@ import (
 
 // RegisterAll registers every job type with the job.Registry. Notification channels (webhook, voice) are
 // registered by the notify runtime, not here; the notify task only looks a channel up by name.
-func RegisterAll(_ *rdb.SysConfigDAO) {
+func RegisterAll(config *rdb.SysConfigDAO) {
 	job.Register(notifytask.New())
 	registerForecast()
 	registerLDAP()
+	registerAI(config)
 }

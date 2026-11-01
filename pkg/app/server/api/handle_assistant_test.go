@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -59,6 +60,7 @@ type assistantRig struct {
 	config *rdb.SysConfigDAO
 	conns  *rdb.AssistantConnectionDAO
 	skills *rdb.AssistantSkillDAO
+	tasks  *rdb.AssistantTaskDAO
 	module *model.ForecastModule
 }
 
@@ -76,20 +78,34 @@ func newAssistantRig(t *testing.T, ready bool) *assistantRig {
 	t.Helper()
 	_, cpu := forecastTestRouter(t) // opens the database and creates the tables
 	db := model.DB
-	require.NoError(t, db.AutoMigrate(&model.AssistantConnection{}, &model.AssistantSkill{}))
+	require.NoError(t, db.AutoMigrate(&model.AssistantConnection{}, &model.AssistantSkill{}, &model.AssistantTask{}, &model.AssistantTaskRun{}))
 	modules, preds, cfg := rdb.NewModuleDAO(db), rdb.NewPredictionDAO(db), rdb.NewSysConfigDAO(db)
 	fc := forecastsvc.New(modules, rdb.NewMetricMappingDAO(db), rdb.NewDatasourceDAO(db), rdb.NewSampleDAO(db), preds)
 	for _, c := range assistant.DefaultConfigs() {
 		row := c
 		require.NoError(t, db.Create(&row).Error)
 	}
-	rig := &assistantRig{llm: &scriptedLLM{}, config: cfg, conns: rdb.NewAssistantConnectionDAO(db), skills: rdb.NewAssistantSkillDAO(db)}
-	rig.svc = assistant.NewService(&assistant.Service{DB: db, Forecast: fc, Modules: modules, Predictions: preds, Config: cfg, Connections: rig.conns, SkillStore: rig.skills, Database: "sqlite",
+	rig := &assistantRig{llm: &scriptedLLM{}, config: cfg, conns: rdb.NewAssistantConnectionDAO(db), skills: rdb.NewAssistantSkillDAO(db), tasks: rdb.NewAssistantTaskDAO(db)}
+	rig.svc = assistant.NewService(&assistant.Service{DB: db, Forecast: fc, Modules: modules, Predictions: preds, Config: cfg, Connections: rig.conns, SkillStore: rig.skills, Tasks: rig.tasks, Database: "sqlite",
 		Started: runtimeNow.Add(-2 * time.Hour), Now: func() time.Time { return runtimeNow },
 		NewLLM: func(c assistant.Connection) assistant.LLM { rig.llm.conns = append(rig.llm.conns, c); return rig.llm }})
 	h := &AssistantRouter{Service: rig.svc}
 	gin.SetMode(gin.TestMode)
 	rig.r = gin.New()
+	rig.r.Use(func(c *gin.Context) {
+		if id := c.GetHeader("X-Test-User"); id != "" {
+			n, _ := strconv.Atoi(id)
+			c.Set("userId", uint(n))
+			c.Set("username", "user"+id)
+		}
+	})
+	rig.r.GET("/assistant/tasks", h.ListTasks)
+	rig.r.GET("/assistant/tasks/preview", h.PreviewSchedule)
+	rig.r.POST("/assistant/tasks", h.CreateTask)
+	rig.r.POST("/assistant/tasks/batch-delete", h.BatchDeleteTasks)
+	rig.r.PUT("/assistant/tasks/:id", h.UpdateTask)
+	rig.r.DELETE("/assistant/tasks/:id", h.DeleteTask)
+	rig.r.GET("/assistant/tasks/:id/runs", h.TaskRuns)
 	rig.r.GET("/assistant/status", h.Status)
 	rig.r.POST("/assistant/chat", h.Chat)
 	rig.r.POST("/assistant/skill", h.RunSkill)

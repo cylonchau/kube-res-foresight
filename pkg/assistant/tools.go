@@ -72,8 +72,17 @@ func parse(args json.RawMessage, into any) error {
 	return nil
 }
 
-// tools is the set the model may call.
-func (s *Service) tools() []tool {
+// tools is the set the model may call: the read-only ones, and, for a question asked by a signed-in user, those that make and manage that
+// user's scheduled tasks. A scheduled run has no user, so a task cannot make more tasks.
+func (s *Service) tools(ctx context.Context) []tool {
+	set := s.readTools()
+	if _, ok := ownerOf(ctx); ok && s.Tasks != nil {
+		set = append(set, s.taskTools()...)
+	}
+	return set
+}
+
+func (s *Service) readTools() []tool {
 	return []tool{
 		{
 			spec: ToolSpec{Name: "get_service_status", Description: "The state of the whole platform now: its version and uptime, the switches that open the auto and admission modes, how many modules there are by mode, which modules need a look and why, what the operator applied (scale-ups, scale-downs), failed forecast runs, what the operator last reported, and the background tasks. Start here for any question about how the service is doing.",

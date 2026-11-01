@@ -10,6 +10,8 @@ import (
 	"github.com/cylonchau/kube-resource-fcst/pkg/ldapauth"
 	"github.com/cylonchau/kube-resource-fcst/pkg/migration"
 	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-resource-fcst/pkg/notify/email"
+	cryptoutils "github.com/cylonchau/kube-resource-fcst/pkg/utils"
 	"github.com/gin-gonic/gin"
 	"strings"
 	"time"
@@ -66,7 +68,7 @@ func IsInternalSysConfigKey(key string) bool {
 }
 
 func emptyAllowed(key string) bool {
-	return strings.HasPrefix(key, ldapauth.KeyPrefix)
+	return strings.HasPrefix(key, ldapauth.KeyPrefix) || key == email.KeyHost || key == email.KeyUsername || key == email.KeyPassword || key == email.KeyFrom
 }
 
 func (h *ConfigRouter) List(c *gin.Context) {
@@ -125,6 +127,28 @@ func (h *ConfigRouter) Update(c *gin.Context) {
 		return
 	}
 
+	if key == email.KeyPassword {
+		// the SMTP password: stored encrypted, shown as a mask, and the mask sent back keeps the stored one
+		if req.ConfigValue == SecretMask {
+			query.SuccessResponse(c, nil, "Config updated successfully")
+			return
+		}
+		value := strings.TrimSpace(req.ConfigValue)
+		if value != "" {
+			enc, err := cryptoutils.EncryptValue(value)
+			if err != nil {
+				query.InternalError(c, err)
+				return
+			}
+			value = enc
+		}
+		if err := h.DAO.UpdateValue(c.Request.Context(), key, value); err != nil {
+			query.InternalError(c, err)
+			return
+		}
+		query.SuccessResponse(c, nil, "Config updated successfully")
+		return
+	}
 	if key == assistant.KeyEnabled {
 		// the switch of the AI assistant; the language model it talks to is a connection in the menu AI assistant, not a parameter
 		if err := assistant.UpdateEnabled(c.Request.Context(), h.DAO, req.ConfigValue); err != nil {

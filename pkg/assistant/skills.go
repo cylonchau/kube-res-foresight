@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-resource-fcst/pkg/timezone"
 )
 
 // A skill is a command the user types in the chat ("/report"): a job done in one step. The built-in ones are in the code: some need no
@@ -99,6 +100,44 @@ var builtins = []builtin{
 			}
 			return &Reply{Content: text, Tools: []ToolTrace{{Name: "export_status_report", OK: true}},
 				Attachments: []Attachment{ExportAttachment("markdown", r.Hours, lang, s.now()), ExportAttachment("json", r.Hours, "", s.now())}}, nil
+		},
+	},
+	{
+		info:  SkillInfo{Name: "tasks", Builtin: true},
+		title: "My scheduled tasks", description: "The AI scheduled tasks of the user: schedule, next run, how the last run went, where the report is mailed.",
+		direct: func(ctx context.Context, s *Service, lang string) (*Reply, error) {
+			list, err := s.OwnTasks(ctx)
+			if err != nil {
+				return nil, err
+			}
+			head, none := "| 名称 | 计划 | 状态 | 下次运行 | 上次结果 | 收件人 |\n|---|---|---|---|---|---|\n", "你还没有 AI 定时任务。对我说「每周一早上 9 点把所有模块的使用情况发到我的邮箱」就能创建一个。"
+			if lang == "en" {
+				head, none = "| Name | Schedule | State | Next run | Last result | Recipients |\n|---|---|---|---|---|---|\n", "You have no AI scheduled tasks. Tell me \"every Monday at 9 mail me the usage of all modules\" to make one."
+			}
+			if len(list) == 0 {
+				return &Reply{Content: none, Tools: []ToolTrace{}, Attachments: []Attachment{}}, nil
+			}
+			zone := timezone.Location()
+			var b strings.Builder
+			b.WriteString(head)
+			for _, t := range list {
+				next, last := "-", t.LastStatus
+				if t.NextRunAt != nil {
+					next = t.NextRunAt.In(zone).Format("2006-01-02 15:04")
+				}
+				if last == "" {
+					last = "-"
+				}
+				if t.LastError != "" {
+					last += ": " + clip(strings.ReplaceAll(t.LastError, "|", "/"), 80)
+				}
+				state := "on"
+				if !t.Enabled {
+					state = "off"
+				}
+				fmt.Fprintf(&b, "| %s (#%d) | `%s` | %s | %s | %s | %s |\n", strings.ReplaceAll(t.Name, "|", "/"), t.ID, t.Schedule, state, next, last, strings.Join(t.Recipients, ", "))
+			}
+			return &Reply{Content: b.String(), Tools: []ToolTrace{}, Attachments: []Attachment{}}, nil
 		},
 	},
 	{

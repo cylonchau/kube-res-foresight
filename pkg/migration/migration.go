@@ -8,6 +8,7 @@ import (
 	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
 	"github.com/cylonchau/kube-resource-fcst/pkg/ldapauth"
 	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-resource-fcst/pkg/notify/email"
 	"github.com/cylonchau/kube-resource-fcst/pkg/store"
 	"github.com/cylonchau/kube-resource-fcst/pkg/timing"
 	"gorm.io/gorm"
@@ -152,6 +153,8 @@ func seedPlatformPermissions() error {
 		{permission: model.Permission{Name: "AI Configuration", Code: "ai-config", Type: "DIRECTORY", FeRoute: "/ai-config", FeComponent: "layout.base", Icon: "carbon:bot", Sort: 56, Visible: true, Status: true}},
 		{permission: model.Permission{Name: "LLM Management", Code: "ai-config_llm", Type: "MENU", FeRoute: "/ai-config/llm", FeComponent: "view.ai-config_llm", Icon: "carbon:machine-learning-model", Sort: 1, Visible: true, Status: true,
 			BeApis: `["GET /api/v1/assistant/connections*","POST /api/v1/assistant/connections*","PUT /api/v1/assistant/connections*","DELETE /api/v1/assistant/connections*"]`}, parentCode: "ai-config"},
+		{permission: model.Permission{Name: "AI Scheduled Tasks", Code: "ai-config_task", Type: "MENU", FeRoute: "/ai-config/task", FeComponent: "view.ai-config_task", Icon: "carbon:calendar", Sort: 3, Visible: true, Status: true,
+			BeApis: `["GET /api/v1/assistant/tasks*","POST /api/v1/assistant/tasks*","PUT /api/v1/assistant/tasks*","DELETE /api/v1/assistant/tasks*"]`}, parentCode: "ai-config"},
 		{permission: model.Permission{Name: "Skill Management", Code: "ai-config_skill", Type: "MENU", FeRoute: "/ai-config/skill", FeComponent: "view.ai-config_skill", Icon: "carbon:flow", Sort: 2, Visible: true, Status: true,
 			BeApis: `["GET /api/v1/assistant/skills*","POST /api/v1/assistant/skills*","PUT /api/v1/assistant/skills*","DELETE /api/v1/assistant/skills*","GET /api/v1/assistant/connection-options"]`}, parentCode: "ai-config"},
 		{permission: model.Permission{Name: "AI Assistant Chat", Code: "assistant:chat", Type: "BUTTON", Status: true,
@@ -299,6 +302,7 @@ func EnsureDefaultConfigs() error {
 		configs = append(configs, model.SysConfig{ConfigKey: p.Key, ConfigValue: strconv.Itoa(p.Default), ConfigName: p.Name, Remark: p.Remark})
 	}
 	configs = append(configs, ldapauth.DefaultConfigs()...)  // LDAP login is an ordinary system parameter group, off by default
+	configs = append(configs, email.DefaultConfigs()...)     // the e-mail channel of the notifications: empty until an administrator sets the SMTP server
 	configs = append(configs, assistant.DefaultConfigs()...) // the switch of the AI assistant: off until an administrator turns it on
 	for i := range configs {
 		if err := model.DB.Where("config_key = ?", configs[i].ConfigKey).FirstOrCreate(&configs[i]).Error; err != nil {
@@ -416,6 +420,7 @@ func ensureForecastTasks() error {
 		return nil
 	}
 	defaults := []model.TaskDefinition{
+		{TaskType: "ai.schedule", Description: "Queue the AI scheduled tasks that are due (the tasks are made in the chat or in AI configuration)", CronExpr: "@every 1m", Enabled: true},
 		{TaskType: "forecast.run", Description: "Collect history, predict and recommend for every enabled module", CronExpr: "@every 5m", Enabled: true},
 		{TaskType: "ldap.sync", Description: "Disable accounts the LDAP directory disabled or removed", CronExpr: "@every 1h", Enabled: true},
 		{TaskType: "forecast.score", Description: "Score and rank the algorithm instances of every module", CronExpr: "@every 6h", Enabled: true},

@@ -87,11 +87,16 @@ var (
 		Remark: "How often the operator asks the platform for these settings again. It keeps the last answer when the platform cannot be reached (10-3600)."}
 )
 
+// NotifyEmailTimeout bounds one delivery of the e-mail channel: connecting, signing in and sending.
+var NotifyEmailTimeout = Param{Key: "notify.email.timeout_seconds", Default: 30, Min: 5, Max: 300,
+	Name:   "E-mail Delivery Timeout (seconds)",
+	Remark: "How long one e-mail may take to be handed to the SMTP server: connecting, signing in and sending (5-300)."}
+
 // All lists every limit, for the system parameter seed.
 func All() []Param {
 	return []Param{DecisionRefreshWait, DecisionForecastMaxAge, CapacitySLOTarget, RefreshBudget, PipelineTimeout, PreviewBudget, FineTuneBudget, TrainBudget,
 		OperatorRequestTimeout, OperatorSyncInterval, OperatorDecisionCacheTTL, OperatorModuleCacheTTL, OperatorRecoverAnswers, OperatorSettingsRefresh,
-		OperatorDegradeHold, OperatorDegradeCooldown, OperatorRecoverStable}
+		OperatorDegradeHold, OperatorDegradeCooldown, OperatorRecoverStable, NotifyEmailTimeout}
 }
 
 // Clamp brings a number into the range of the limit.

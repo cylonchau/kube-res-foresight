@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"github.com/cylonchau/kube-resource-fcst/pkg/assistant"
 	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
 	"github.com/cylonchau/kube-resource-fcst/pkg/forecastsvc"
+	"github.com/cylonchau/kube-resource-fcst/pkg/job/tasks/aitask"
 	"github.com/cylonchau/kube-resource-fcst/pkg/model"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -22,6 +24,17 @@ import (
 // the language models and the skills an administrator manages. The conversation is kept by the page: the platform stores none of it.
 type AssistantRouter struct {
 	Service *assistant.Service
+	// Queue asks the task center to run an AI scheduled task now; nil in a process that has no job table to write.
+	Queue *aitask.Queue
+}
+
+// withOwner puts the signed-in user in the context of a question: with one, the assistant may make and manage that user's scheduled tasks.
+func withOwner(c *gin.Context) context.Context {
+	ctx := c.Request.Context()
+	if owner, ok := ownerOfRequest(c); ok {
+		ctx = assistant.WithOwner(ctx, owner)
+	}
+	return ctx
 }
 
 // AssistantChatReq is the conversation so far; the last message is the question.
@@ -86,7 +99,7 @@ func (r *AssistantRouter) Chat(c *gin.Context) {
 		query.BadRequest(c, err)
 		return
 	}
-	reply, err := r.Service.Chat(c.Request.Context(), req.Messages, assistantLang(req.Lang))
+	reply, err := r.Service.Chat(withOwner(c), req.Messages, assistantLang(req.Lang))
 	r.reply(c, reply, err)
 }
 
@@ -100,7 +113,7 @@ func (r *AssistantRouter) RunSkill(c *gin.Context) {
 		query.BadRequest(c, err)
 		return
 	}
-	reply, err := r.Service.RunSkill(c.Request.Context(), strings.TrimPrefix(strings.TrimSpace(req.Name), "/"), req.Args, assistantLang(req.Lang))
+	reply, err := r.Service.RunSkill(withOwner(c), strings.TrimPrefix(strings.TrimSpace(req.Name), "/"), req.Args, assistantLang(req.Lang))
 	r.reply(c, reply, err)
 }
 

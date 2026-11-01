@@ -5,6 +5,7 @@ import (
 	"github.com/cylonchau/kube-resource-fcst/pkg/assistant"
 	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
 	"github.com/cylonchau/kube-resource-fcst/pkg/forecastsvc"
+	"github.com/cylonchau/kube-resource-fcst/pkg/job/tasks/aitask"
 	"github.com/cylonchau/kube-resource-fcst/pkg/ldapauth"
 	"github.com/cylonchau/kube-resource-fcst/pkg/model"
 	"github.com/gin-gonic/gin"
@@ -212,7 +213,8 @@ func RegisteredRouter(e *gin.Engine) {
 	v1Group.GET("/operator/settings", runtimeHandler.OperatorSettings)
 	v1Group.GET("/dashboard", forecastHandler.Dashboard)
 	assistantHandler := &v1.AssistantRouter{Service: assistant.NewService(&assistant.Service{DB: model.DB, Forecast: forecastService, Modules: rdb.NewModuleDAO(model.DB),
-		Predictions: rdb.NewPredictionDAO(model.DB), Config: configHandler.DAO, Connections: rdb.NewAssistantConnectionDAO(model.DB), SkillStore: rdb.NewAssistantSkillDAO(model.DB), Database: databaseDriver()})}
+		Predictions: rdb.NewPredictionDAO(model.DB), Config: configHandler.DAO, Connections: rdb.NewAssistantConnectionDAO(model.DB), SkillStore: rdb.NewAssistantSkillDAO(model.DB), Tasks: rdb.NewAssistantTaskDAO(model.DB), Database: databaseDriver()}),
+		Queue: &aitask.Queue{Jobs: rdb.NewJobDAO(model.DB)}}
 	// the assistant reads its settings through the DAO the settings page writes with: a change is seen at once, not after the cache of another DAO expires
 	v1Group.GET("/assistant/status", assistantHandler.Status)
 	v1Group.POST("/assistant/chat", assistantHandler.Chat)
@@ -221,6 +223,14 @@ func RegisteredRouter(e *gin.Engine) {
 	v1Group.POST("/assistant/connections", assistantHandler.CreateConnection)
 	v1Group.POST("/assistant/connections/test", assistantHandler.TestConnection)
 	v1Group.GET("/assistant/connection-options", assistantHandler.ConnectionOptions)
+	v1Group.GET("/assistant/tasks", assistantHandler.ListTasks)
+	v1Group.GET("/assistant/tasks/preview", assistantHandler.PreviewSchedule)
+	v1Group.POST("/assistant/tasks", assistantHandler.CreateTask)
+	v1Group.POST("/assistant/tasks/batch-delete", assistantHandler.BatchDeleteTasks)
+	v1Group.PUT("/assistant/tasks/:id", assistantHandler.UpdateTask)
+	v1Group.DELETE("/assistant/tasks/:id", assistantHandler.DeleteTask)
+	v1Group.POST("/assistant/tasks/:id/run", assistantHandler.RunTaskNow)
+	v1Group.GET("/assistant/tasks/:id/runs", assistantHandler.TaskRuns)
 	v1Group.GET("/assistant/skills", assistantHandler.ListSkills)
 	v1Group.POST("/assistant/skills", assistantHandler.CreateSkill)
 	v1Group.POST("/assistant/skills/batch-delete", assistantHandler.BatchDeleteSkills)
