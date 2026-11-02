@@ -32,7 +32,7 @@ type streamMessage struct {
 // reverse proxies (which rewrite Host) with an opaque 403.
 func statsTransportAcceptOptions() *websocket.AcceptOptions {
 	return &websocket.AcceptOptions{
-		Subprotocols:       []string{middleware.WebSocketAuthSubprotocol},
+		Subprotocols:       middleware.WebSocketAuthSubprotocols,
 		InsecureSkipVerify: true,
 	}
 }

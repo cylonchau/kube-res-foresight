@@ -74,7 +74,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- define "kube-res-foresight.config" -}}
 {{- $driver := include "kube-res-foresight.driver" . -}}
 {{- $db := .Values.database -}}
-{{- $cfg := dict "app_name" "kube-res-foresight" "database_driver" $driver "server" (dict "port" .Values.server.port "cors_allowed_origins" .Values.server.corsAllowedOrigins) "metrics" (dict "listen" (printf ":%d" (int .Values.metrics.port))) "loggers" (dict "business" (dict "enabled" true "level" "info" "format" "json" "outputs" (list (dict "type" "stdout"))) "sql" (dict "enabled" true "level" "warn" "format" "json" "outputs" (list (dict "type" "stdout")))) -}}
+{{- $cfg := dict "app_name" "kube-res-foresight" "database_driver" $driver "server" (dict "port" .Values.server.port "cors_allowed_origins" .Values.server.corsAllowedOrigins) "metrics" (dict "listen" (printf ":%d" (int .Values.metrics.port)) "legacy_names" (.Values.metrics.legacyNames | default false)) "loggers" (dict "business" (dict "enabled" true "level" "info" "format" "json" "outputs" (list (dict "type" "stdout"))) "sql" (dict "enabled" true "level" "warn" "format" "json" "outputs" (list (dict "type" "stdout")))) -}}
 {{- if eq $driver "sqlite" -}}
 {{- $_ := set $cfg "sqlite" (dict "file" $db.sqlite.file "max_open_connection" "20" "max_idle_connection" "10") -}}
 {{- else if eq $driver "mysql" -}}

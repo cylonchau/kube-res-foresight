@@ -38,3 +38,11 @@ func TestCommandDefaultsAreSafeForAReplicatedDeployment(t *testing.T) {
 	assert.True(t, leader, "leader election is on by default so two replicas never scale the same target")
 	assert.Error(t, cmd.Args(cmd, []string{"extra"}))
 }
+
+// An operator of the release before the rename and this one lead on the same lease, so they never scale the same module together.
+func TestTheLeaseIsTheOneEarlierReleasesUsed(t *testing.T) {
+	id, err := NewCommand().Flags().GetString("leader-election-id")
+	require.NoError(t, err)
+	assert.Equal(t, "kube-resource-fcst-operator.autoscaling.kube-resource-fcst.io", id)
+	assert.Equal(t, DefaultLeaderElectionID, id)
+}

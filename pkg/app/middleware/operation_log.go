@@ -93,7 +93,7 @@ func OperationLogMiddleware(dao *rdb.OperationLogDAO) gin.HandlerFunc {
 			CreatedAt:  start,
 			RequestID:  requestIDOf(c),
 			ClientType: resolveClientType(c),
-			ClientName: truncate(strings.TrimSpace(c.GetHeader(ClientNameHeader)), 128),
+			ClientName: truncate(firstHeader(c.Request, clientNameHeaders), 128),
 			Method:     c.Request.Method,
 			Path:       c.Request.URL.Path,
 			Module:     resolveModule(c.Request.URL.Path),
@@ -137,7 +137,7 @@ func resolveClientType(c *gin.Context) string {
 	if dev, _ := c.Get("developerCredential"); dev == true {
 		// Command-line integrations use the same developer credential as
 		// other API clients and identify their source with this header.
-		switch strings.ToLower(strings.TrimSpace(c.GetHeader("X-kube-res-foresight-Client"))) {
+		switch strings.ToLower(firstHeader(c.Request, clientHeaders)) {
 		case "cli":
 			return "cli"
 		case "operator":

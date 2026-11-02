@@ -94,6 +94,7 @@ helm upgrade kube-res-foresight deploy/helm/kube-res-foresight -n kube-res-fores
 | `service.type` / `port` | `ClusterIP` / `80` | The console Service (the metrics port is on it too). |
 | `ingress.*` | disabled | `className`, `annotations`, `hosts`, `tls`. |
 | `metrics.port` | `9100` | `/metrics`, `/healthz`, `/readyz`; the probes use them. |
+| `metrics.legacyNames` | `false` | Also export every series as `kube_resource_fcst_*` (the name before the rename), so alerts and dashboards of an earlier release keep working while they are moved. |
 | `metrics.serviceMonitor.*` | disabled | `interval`, `labels`. |
 | `metrics.prometheusRule.*` | disabled | Ten alerts; `labels`. |
 | `metrics.grafanaDashboard.*` | disabled | ConfigMap for the Grafana sidecar: `labelKey`, `labelValue`, `namespace`, `labels`, `annotations`. |

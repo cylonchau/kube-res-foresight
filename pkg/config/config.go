@@ -28,6 +28,9 @@ type Config struct {
 // Listen disables the endpoint.
 type MetricsConfig struct {
 	Listen string `mapstructure:"listen"`
+	// LegacyNames also exports every series under its name before the rename (kube_resource_fcst_*), for the time the alerts and
+	// dashboards of a production system are moved to the new one.
+	LegacyNames bool `mapstructure:"legacy_names"`
 }
 
 // RedisConfig configures optional shared infrastructure.
@@ -93,7 +96,7 @@ func Load(cfgPath string) (*Config, error) {
 	}
 
 	// Bind both names so saved deployments keep their database connection and JWT key.
-	keys := append(v.AllKeys(), "app_name", "database_driver", "server.jwt_secret", "server.port", "server.dev_mode", "metrics.listen", "sqlite.file")
+	keys := append(v.AllKeys(), "app_name", "database_driver", "server.jwt_secret", "server.port", "server.dev_mode", "metrics.listen", "metrics.legacy_names", "sqlite.file")
 	for _, key := range keys {
 		env := "KUBE_RES_FORESIGHT_" + strings.ToUpper(strings.ReplaceAll(key, ".", "_"))
 		if err := v.BindEnv(append([]string{key}, utils.ProjectEnvNames(env)...)...); err != nil {

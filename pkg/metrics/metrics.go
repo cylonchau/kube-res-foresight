@@ -48,7 +48,11 @@ func (promAuto) GaugeFunc(name, help string, fn func() float64) {
 // Handler serves /metrics, /healthz and /readyz.
 func Handler(ready func() error) http.Handler {
 	mux := http.NewServeMux()
-	mux.Handle("/metrics", promhttp.HandlerFor(Registry, promhttp.HandlerOpts{}))
+	var gatherer prometheus.Gatherer = Registry
+	if LegacyNames {
+		gatherer = withLegacyNames(Registry)
+	}
+	mux.Handle("/metrics", promhttp.HandlerFor(gatherer, promhttp.HandlerOpts{}))
 	probe := func(w http.ResponseWriter, _ *http.Request) {
 		if ready != nil {
 			if err := ready(); err != nil {

@@ -10,24 +10,23 @@ import (
 )
 
 func extractDeveloperCredential(r *http.Request) (accessKey, accessSecret string, present bool) {
-	accessKey = strings.TrimSpace(r.Header.Get("X-kube-res-foresight-AccessKey"))
-	accessSecret = strings.TrimSpace(r.Header.Get("X-kube-res-foresight-AccessSecret"))
+	accessKey = firstHeader(r, accessKeyHeaders)
+	accessSecret = firstHeader(r, accessSecretHeaders)
 	if accessKey != "" || accessSecret != "" {
 		return accessKey, accessSecret, true
 	}
 
 	authorization := strings.TrimSpace(r.Header.Get("Authorization"))
-	if strings.HasPrefix(authorization, "kube-res-foresight-AK ") {
-		parts := strings.SplitN(strings.TrimSpace(strings.TrimPrefix(authorization, "kube-res-foresight-AK ")), ":", 2)
+	if rest, ok := cutScheme(authorization); ok {
+		parts := strings.SplitN(strings.TrimSpace(rest), ":", 2)
 		if len(parts) == 2 {
 			return strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]), true
 		}
 		return "", "", true
 	}
 
-	queryValues := r.URL.Query()
-	accessKey = strings.TrimSpace(queryValues.Get("__kube_res_foresight_ak"))
-	accessSecret = strings.TrimSpace(queryValues.Get("__kube_res_foresight_sk"))
+	accessKey = firstParam(r, accessKeyParams)
+	accessSecret = firstParam(r, accessSecretParams)
 	if accessKey != "" || accessSecret != "" {
 		return accessKey, accessSecret, true
 	}
@@ -37,7 +36,7 @@ func extractDeveloperCredential(r *http.Request) (accessKey, accessSecret string
 // WebSocketAuthSubprotocol marks the Sec-WebSocket-Protocol entry that precedes
 // the access token. Browsers cannot set an Authorization header on a WebSocket
 // handshake, and a token in the URL would leak into access logs, so the client
-// offers ["kube-res-foresight.jwt", "<token>"] and the server accepts only "kube-res-foresight.jwt".
+// offers ["kube-res-foresight.jwt", "<token>"]; the names of the earlier releases are accepted as well (WebSocketAuthSubprotocols).
 const WebSocketAuthSubprotocol = "kube-res-foresight.jwt"
 
 func websocketBearer(r *http.Request) string {
@@ -51,7 +50,7 @@ func websocketBearer(r *http.Request) string {
 		}
 	}
 	for i, item := range offered {
-		if item == WebSocketAuthSubprotocol && i+1 < len(offered) && offered[i+1] != "" {
+		if isWebSocketAuthSubprotocol(item) && i+1 < len(offered) && offered[i+1] != "" {
 			return "Bearer " + offered[i+1]
 		}
 	}

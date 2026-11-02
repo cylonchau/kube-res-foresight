@@ -100,6 +100,9 @@ ingress:
 # /metrics, /healthz and /readyz (metrics.listen). The probes use them.
 metrics:
   port: 9100
+  # Also export every series under its name before the rename (kube_resource_fcst_*), while the alerts and dashboards of a system that was
+  # running an earlier release are moved to kube_res_foresight_*. Turn it off when nothing queries the old names.
+  legacyNames: false
   serviceMonitor:
     # Needs the Prometheus Operator CRDs.
     enabled: false

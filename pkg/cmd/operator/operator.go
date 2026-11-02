@@ -28,6 +28,11 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
 
+// DefaultLeaderElectionID is the name of the leader election lease. It is the name of the release before the project was renamed and it is kept
+// on purpose: while an operator of that release is still running, the new one waits for its lease instead of leading next to it, so two
+// operators never change the replicas of the same module at once. Change it only when no operator of an earlier release is left.
+const DefaultLeaderElectionID = "kube-resource-fcst-operator.autoscaling.kube-resource-fcst.io"
+
 // Options are the flags of the command.
 type Options struct {
 	MetricsAddr string
@@ -76,7 +81,7 @@ func NewCommand() *cobra.Command {
 	f.StringVar(&opts.MetricsAddr, "metrics-bind-address", ":8080", "Address of the controller-runtime metrics endpoint; 0 disables it.")
 	f.StringVar(&opts.ProbeAddr, "health-probe-bind-address", ":8081", "Address of the /healthz and /readyz probes.")
 	f.BoolVar(&opts.LeaderElect, "leader-elect", true, "Elect a leader so only one replica scales; keep it on for any replicated deployment.")
-	f.StringVar(&opts.LeaderID, "leader-election-id", "kube-res-foresight-operator.autoscaling.kube-res-foresight.io", "Name of the leader election lease.")
+	f.StringVar(&opts.LeaderID, "leader-election-id", DefaultLeaderElectionID, "Name of the leader election lease. Keep the default: it is the name earlier releases used, so an operator of the previous release and this one never lead at the same time during an upgrade.")
 	f.StringVar(&opts.Namespace, "namespace", "", "Watch only this namespace; empty watches all namespaces.")
 	f.StringVar(&opts.PlatformURL, "platform-url", "", "Base URL of the kube-res-foresight platform whose auto modules are scaled directly from the module configuration (required).")
 	f.StringVar(&opts.PlatformCredentialFile, "platform-credential-file", "", "File holding the developer credential \"<access key>:<access secret>\" (mount a Secret); the KUBE_RES_FORESIGHT_PLATFORM_CREDENTIAL variable is used when empty.")

@@ -25,5 +25,6 @@ func startForecastMetrics(ctx context.Context) {
 		metrics.Registry.MustRegister(collector)
 		metrics.Registry.MustRegister(forecastsvc.SharedTelemetry().Collectors()...)
 	})
+	metrics.LegacyNames = config.Get().Metrics.LegacyNames
 	metrics.Serve(ctx, config.Get().Metrics.Listen, func() error { return svc.Ready(ctx) })
 }

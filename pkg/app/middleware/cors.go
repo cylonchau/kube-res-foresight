@@ -3,6 +3,7 @@ package middleware
 import (
 	"github.com/gin-gonic/gin"
 	"net/http"
+	"strings"
 )
 
 // CORS returns a middleware that allows cross-origin requests (with
@@ -29,7 +30,7 @@ func CORS(allowedOrigins []string) gin.HandlerFunc {
 			c.Header("Access-Control-Allow-Credentials", "true")
 			c.Header("Vary", "Origin")
 			c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-			c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-kube-res-foresight-AccessKey, X-kube-res-foresight-AccessSecret")
+			c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization, "+strings.Join(append(append([]string{}, accessKeyHeaders...), accessSecretHeaders...), ", "))
 		}
 		if c.Request.Method == http.MethodOptions {
 			c.AbortWithStatus(http.StatusNoContent)
