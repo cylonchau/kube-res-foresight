@@ -6,6 +6,7 @@ on:
       - 'site/**'
       - 'website/**'
       - 'scripts/build-site.py'
+      - 'scripts/site_diagrams.py'
       - 'scripts/check-site.py'
       - '.github/workflows/pages.yml'
   pull_request:
@@ -13,6 +14,7 @@ on:
       - 'site/**'
       - 'website/**'
       - 'scripts/build-site.py'
+      - 'scripts/site_diagrams.py'
       - 'scripts/check-site.py'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
@@ -46,6 +48,7 @@ jobs:
           node --check site/assets/theme.js
           node --check site/assets/main.js
           node --check site/assets/legacy-docs.js
+          node --check site/assets/diagrams.js
 
   deploy:
     if: github.event_name != 'pull_request' && github.ref_name == github.event.repository.default_branch

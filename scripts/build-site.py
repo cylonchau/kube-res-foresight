@@ -5,6 +5,7 @@ from html.parser import HTMLParser
 import json
 import posixpath
 import re
+from site_diagrams import DIAGRAMS, figure as diagram_figure, svg as diagram_svg
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "website/content"
@@ -50,9 +51,19 @@ class Text(HTMLParser):
     def __init__(self):
         super().__init__()
         self.parts = []
+        self.ignored = 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag in ("style", "script"):
+            self.ignored += 1
+
+    def handle_endtag(self, tag):
+        if tag in ("style", "script") and self.ignored:
+            self.ignored -= 1
 
     def handle_data(self, data):
-        self.parts.append(data)
+        if not self.ignored:
+            self.parts.append(data)
 
 
 def plain(value):
@@ -88,9 +99,10 @@ def base(current, lang, page, title, description, content, docs=False):
     prefix = relative(current, "index.html").removesuffix("index.html") or "./"
     asset = lambda name: relative(current, f"assets/{name}")
     html_lang = "zh-CN" if lang == "zh" else "en"
+    diagram_assets = f'<link rel="stylesheet" href="{asset("diagrams.css")}"><script src="{asset("diagrams.js")}" defer></script>' if 'data-diagram' in content else ''
     return f'''<!doctype html>
 <html lang="{html_lang}" data-site-root="{prefix}" data-page-path="{page}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#245fd4"><meta name="description" content="{escape(description, quote=True)}"><meta property="og:title" content="{escape(title, quote=True)}"><meta property="og:description" content="{escape(description, quote=True)}"><meta property="og:type" content="website"><title>{escape(title)}</title>
-<script src="{asset('locale.js')}"></script><link rel="alternate" hreflang="zh-CN" href="{relative(current, route('zh', page))}"><link rel="alternate" hreflang="en" href="{relative(current, route('en', page))}"><link rel="icon" type="image/svg+xml" href="{asset('favicon.svg')}"><link rel="stylesheet" href="{asset('style.css')}"><link rel="stylesheet" href="{asset('adaptive.css')}"><link id="light-theme" rel="stylesheet" href="{asset('light.css')}" media="(prefers-color-scheme: light)"><script src="{asset('theme.js')}"></script><script src="{asset('config.js')}" defer></script><script src="{asset('main.js')}" defer></script></head>
+<script src="{asset('locale.js')}"></script><link rel="alternate" hreflang="zh-CN" href="{relative(current, route('zh', page))}"><link rel="alternate" hreflang="en" href="{relative(current, route('en', page))}"><link rel="icon" type="image/svg+xml" href="{asset('favicon.svg')}"><link rel="stylesheet" href="{asset('style.css')}"><link rel="stylesheet" href="{asset('adaptive.css')}"><link id="light-theme" rel="stylesheet" href="{asset('light.css')}" media="(prefers-color-scheme: light)"><script src="{asset('theme.js')}"></script><script src="{asset('config.js')}" defer></script><script src="{asset('main.js')}" defer></script>{diagram_assets}</head>
 <body class="{'documentation-page' if docs else 'home-page'}"><a class="skip-link" href="#main">{label(lang, '跳到主要内容', 'Skip to content')}</a>{header(current, lang, page, docs)}{content}{footer(current, lang)}{search_dialog(lang)}</body></html>\n'''
 
 
@@ -124,7 +136,7 @@ def home(lang):
 <section id="about" class="intro-band"><div class="container"><h2>{label(lang, 'kube-res-foresight 是什么？', 'What is kube-res-foresight?')}</h2><p>{description}</p></div></section>
 <section class="container section pillars">{pillars_html}</section>
 <section id="capabilities" class="section surface-section"><div class="container"><div class="section-heading"><p class="eyebrow">CAPABILITIES</p><h2>{label(lang, '围绕工作负载，连接每一项能力', 'A connected workflow for every workload')}</h2><p>{label(lang, '管理输入，理解预测，控制动作，再用实际表现持续评估。', 'Manage inputs, understand forecasts, bound actions, and keep evaluating actual outcomes.')}</p></div><div class="features-grid">{features_html}</div></div></section>
-<section id="architecture" class="container section"><div class="section-heading"><p class="eyebrow">HOW IT WORKS</p><h2>{label(lang, '从指标到执行，形成反馈闭环', 'From metrics to action, with a feedback loop')}</h2><p>{label(lang, '以模块为中心组织指标和策略，每个阶段都能查看来源与结果。', 'Organize metrics and policies around a module, with clear inputs and outcomes at every stage.')}</p></div><div class="home-flow">{flow_html}</div><div class="flow-foundation"><span>{label(lang, '权限管理', 'Access control')}</span><span>{label(lang, '周期任务', 'Scheduled tasks')}</span><span>{label(lang, '安全保护', 'Safeguards')}</span><span>{label(lang, '操作审计', 'Audit')}</span></div><a class="text-link centered" href="{link('docs/concepts.html')}">{label(lang, '了解功能架构', 'Explore the concepts')} {icon('arrow')}</a></section>
+<section id="architecture" class="container section"><div class="section-heading"><p class="eyebrow">HOW IT WORKS</p><h2>{label(lang, '从指标到执行，形成反馈闭环', 'From metrics to action, with a feedback loop')}</h2><p>{label(lang, '以模块为中心组织指标和策略，每个阶段都能查看来源与结果。', 'Organize metrics and policies around a module, with clear inputs and outcomes at every stage.')}</p></div><div class="home-flow">{flow_html}</div><div class="flow-foundation"><span>{label(lang, '权限管理', 'Access control')}</span><span>{label(lang, '周期任务', 'Scheduled tasks')}</span><span>{label(lang, '安全保护', 'Safeguards')}</span><span>{label(lang, '操作审计', 'Audit')}</span></div><a class="text-link centered" href="{link('docs/architecture.html')}">{label(lang, '了解功能架构', 'Explore the concepts')} {icon('arrow')}</a></section>
 <section class="surface-section section"><div class="container rollout"><div><p class="eyebrow">GRADUAL AUTOMATION</p><h2>{label(lang, '从观察开始，按需走向自动化', 'Start with observation. Automate at your pace.')}</h2><p>{label(lang, '先比较预测与实际表现，再审查资源建议。资源准入与副本执行分别授权，各自受边界约束。', 'Compare forecasts with actuals, then review resource advice. Authorize admission and scaling separately, within their respective bounds.')}</p><a class="text-link" href="{link('docs/safety.html')}">{label(lang, '安全与回退机制', 'Safety and fallback')} {icon('arrow')}</a></div><ol class="mode-list"><li><b>01</b><span>Observe<small>{label(lang, '观察历史与预测', 'Observe history and forecasts')}</small></span></li><li><b>02</b><span>Recommend<small>{label(lang, '审查可解释的建议', 'Review explainable recommendations')}</small></span></li><li><b>03</b><span>Admission / Auto<small>{label(lang, '分别开放资源与副本执行', 'Authorize resource and replica actions')}</small></span></li></ol></div></section>
 <section class="container section docs-entry"><div class="section-heading"><p class="eyebrow">DOCUMENTATION</p><h2>{label(lang, '找到你的下一步', 'Find your next step')}</h2><p>{label(lang, '从第一次接入到日常运维，按场景阅读。', 'Guides for your first workload and everyday operations.')}</p></div><div class="entry-grid">{''.join(f'<a href="{link("docs/"+page+".html")}"><span>0{n}</span><h3>{label(lang, zh, en)}</h3><p>{label(lang, zhd, end)}</p>{icon("arrow")}</a>' for n, page, zh, en, zhd, end in [(1,'getting-started','快速开始','Quick start','接入指标，管理第一个工作负载。','Connect metrics and manage your first workload.'),(2,'installation','安装与部署','Installation','了解组件、配置与启动方式。','Prepare components, settings, and startup.'),(3,'monitoring','监控与排查','Monitoring','沿着流程定位问题、复盘变化。','Trace issues and review resource changes.')])}</div></section>
 <section class="closing"><div class="container"><h2>{label(lang, '从一个工作负载开始。', 'Start with one workload.')}</h2><p>{label(lang, '用可信指标理解需求，用明确边界管理变化。', 'Understand demand with reliable metrics. Manage changes with clear bounds.')}</p><a class="button primary" href="{link('docs/index.html')}">{label(lang, '阅读项目文档', 'Read the documentation')} {icon('arrow')}</a></div></section></main>'''
@@ -139,7 +151,8 @@ def sidebar(current, lang, page_id):
     return f'<aside id="docs-sidebar" class="docs-sidebar" aria-label="{label(lang, "文档导航", "Documentation navigation")}"><a class="sidebar-title" href="{page_link(current, lang, "docs/index.html")}">{icon("book")}{label(lang, "项目文档", "Documentation")}</a>{"".join(groups)}</aside>'
 
 
-def format_content(body, lang):
+def format_content(body, lang, current):
+    body = re.sub(r'<div data-architecture-diagram="([a-z]+)"></div>', lambda match: diagram_figure(match[1], lang, relative(current, f"assets/diagrams/{match[1]}-{lang}.svg")), body)
     def code_block(match):
         number = code_block.number
         code_block.number += 1
@@ -155,7 +168,7 @@ def docs(lang, page_id=None):
     current = route(lang, page)
     if page_id:
         title, summary = MANIFEST["pages"][page_id][lang]
-        body = format_content((SOURCE / lang / f"{page_id}.html").read_text(encoding="utf-8"), lang)
+        body = format_content((SOURCE / lang / f"{page_id}.html").read_text(encoding="utf-8"), lang, current)
         group_title = next(group[lang] for group in MANIFEST["groups"] if page_id in group["pages"])
     else:
         title = label(lang, "文档中心", "Documentation")
@@ -204,6 +217,9 @@ def write(path, content):
 
 
 def main():
+    for kind in DIAGRAMS:
+        for lang in ("zh", "en"):
+            write(f"assets/diagrams/{kind}-{lang}.svg", diagram_svg(kind, lang))
     for asset in (ROOT / "website/assets").iterdir():
         if asset.is_file():
             write("assets/" + asset.name, asset.read_text(encoding="utf-8"))

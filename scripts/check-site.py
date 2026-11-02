@@ -103,6 +103,23 @@ def main():
     for item in index:
         if not (ROOT / item["path"]).is_file() or item["lang"] not in ("zh", "en") or not item["text"]:
             errors.append(f"invalid search entry: {item['path']}")
+        if "--dg-" in item["text"]:
+            errors.append(f"SVG styles leaked into search index: {item['path']}")
+    import xml.etree.ElementTree as ET
+    for kind in ("overview", "modules", "cycles", "execution"):
+        for lang in ("zh", "en"):
+            path = ROOT / "assets/diagrams" / f"{kind}-{lang}.svg"
+            try:
+                tree = ET.parse(path).getroot()
+                ids = {element.attrib["id"] for element in tree.iter() if "id" in element.attrib}
+                for element in tree.iter():
+                    for identifier in re.findall(r"url\(#([^)]*)\)", element.attrib.get("marker-end", "")):
+                        if identifier not in ids:
+                            errors.append(f"missing SVG marker in {path.name}: {identifier}")
+                if not tree.find("{http://www.w3.org/2000/svg}title").text or not tree.find("{http://www.w3.org/2000/svg}desc").text:
+                    errors.append(f"missing accessible SVG description: {path.name}")
+            except (OSError, ET.ParseError, AttributeError):
+                errors.append(f"missing or invalid architecture SVG: {path.relative_to(ROOT)}")
     for stylesheet in (ROOT / "assets").glob("*.css"):
         for target in re.findall(r'url\([\"\']?([^\"\')]+)', stylesheet.read_text(encoding="utf-8")):
             if not urlsplit(target).scheme and not (stylesheet.parent / target).is_file():

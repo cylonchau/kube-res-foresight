@@ -5,7 +5,8 @@
 ## 内容组织
 
 - 中英文首页：项目介绍、三项核心能力、功能流程、使用模式与文档入口。
-- 中英文文档中心：开始使用、核心概念、算法参数手册、使用指南、AI 助手、运维与管理六组，每种语言包含 31 篇独立指南（含 15 篇算法与模型参数手册）。
+- 中英文文档中心：开始使用、核心概念、算法参数手册、使用指南、AI 助手、运维与管理六组，每种语言包含 33 篇独立指南（含 15 篇算法与模型参数手册）。
+- 系统架构与运行逻辑包含双语 SVG 总览、模块、执行路径与运行循环图，支持放大、全屏、原图查看和下载；图源在 `scripts/site_diagrams.py`。
 - 每篇文章具备分组侧栏、页内目录、上一篇/下一篇、代码复制与源文件编辑入口。
 - 顶部支持全文搜索、`Ctrl/Cmd + K`、语言切换和“跟随系统 / 浅色 / 深色”。
 - 手机使用可展开的文档目录；禁用脚本时仍可阅读文章和浏览链接。
@@ -28,6 +29,8 @@ python -m http.server 4173 --bind 127.0.0.1 --directory site
 |---|---|
 | 文章正文 | `website/content/zh/*.html`、`website/content/en/*.html` |
 | 文章标题、摘要与分组 | `website/content/manifest.json` |
+| 架构图布局、标签与生成 | `scripts/site_diagrams.py` |
+| 架构图样式与缩放 | `website/assets/diagrams.css`、`website/assets/diagrams.js` |
 | 首页内容与公共模板 | `scripts/build-site.py` |
 | 样式、交互与图形 | `website/assets/` |
 | 源码仓库地址与分支 | `site/assets/config.js` |

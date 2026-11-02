@@ -1,0 +1,33 @@
+<h2 id="overview">System overview</h2>
+<p>kube-res-foresight connects collection, forecasting, recommendations, and controlled actions for one Kubernetes cluster. Follow blue data relationships to see how advice is produced, then green control relationships to see where it is applied.</p>
+<div data-architecture-diagram="overview"></div>
+<p>Prometheus scrapes workload and cluster metrics. The platform actively queries its HTTP API for history and recent samples. Metric arrows represent data relationships, not direct pushes from applications. Observed usage and Ready replicas return to collection and evaluation.</p>
+<p>Dashed relationships are optional: time-series services produce numerical forecasts, while the AI assistant provides querying and analysis. Boxes represent responsibilities, not necessarily separate deployments.</p>
+<h2 id="modules">Modules and responsibilities</h2>
+<div data-architecture-diagram="modules"></div>
+<table><thead><tr><th>Module</th><th>Inputs and responsibilities</th><th>Outputs</th></tr></thead><tbody>
+<tr><td>Module and metric configuration</td><td>One workload per module, with metric sources, units, history, prediction mode, bounds, and authorization.</td><td>Collection and runtime policy for that workload.</td></tr>
+<tr><td>Collection and quality</td><td>Render queries, read in segments, and check sampling, gaps, units, and freshness.</td><td>History on a consistent grid with quality information.</td></tr>
+<tr><td>Forecasting and evaluation</td><td>Run selected methods, compare baselines in rolling backtests, and evaluate predictions when actuals arrive.</td><td>Forecasts, versions, eligibility, and performance records.</td></tr>
+<tr><td>Decisions and safeguards</td><td>Combine lead time, consensus, capacity inputs, schedules, OOM/heap pressure, and bounds.</td><td>Resource specifications, target replicas, and reasons.</td></tr>
+<tr><td>Advice and execution interfaces</td><td>Store versioned, expiring snapshots and expose resource advice and replica decisions separately.</td><td>Traceable advice and inputs for execution.</td></tr>
+<tr><td>Task center</td><td>Schedule forecasting, backtests, evaluations, retention, and AI tasks, with failure and retry records.</td><td>Scheduled jobs and run history.</td></tr>
+<tr><td>Administration and audit</td><td>Manage users, LDAP, permissions, connections, and settings; inspect actions, admissions, and degradation.</td><td>Managed configuration and operation history.</td></tr>
+</tbody></table>
+<p>The console manages these capabilities through Platform APIs. Platform and task entry points share business rules and a database and can be combined according to deployment needs. Logical modules do not require separate services.</p>
+<h2 id="execution">Two independent execution paths</h2>
+<div data-architecture-diagram="execution"></div>
+<p><strong>New Pod resources:</strong> API Server admission invokes Kyverno, whose policy queries validated, unexpired resource advice and applies authorized requests and managed limits. Admission does not wait for collection, inference, or long queries. Unavailable advice preserves original resources.</p>
+<p><strong>Workload replicas:</strong> the Operator reads modules and decisions from the platform, checks bounds, readiness, cooldown, and step limits, then writes replicas through the Kubernetes Scale API. It neither reads the platform database nor changes Pod requests/limits.</p>
+<p>Authorize the paths separately. Only one controller may write a workload's replicas; the Operator and HPA/KEDA cannot control the same target simultaneously. Updated recommendations do not immediately resize running Pods.</p>
+<h2 id="storage">Storage and external dependencies</h2>
+<table><thead><tr><th>Component</th><th>Purpose and boundary</th></tr></thead><tbody>
+<tr><td>Prometheus</td><td>Supplies workload and cluster metrics. The platform queries it without replacing the metric store.</td></tr>
+<tr><td>Relational database</td><td>Choose SQLite, MySQL, or PostgreSQL to retain settings, collected data, jobs, predictions, recommendations, and audits.</td></tr>
+<tr><td>Time-series service, optional</td><td>Provides external forecasts and, where supported, background tuning. Failures follow candidate and fallback rules.</td></tr>
+<tr><td>LLM and email, optional</td><td>The assistant queries records; scheduled tasks generate and email answers without directly writing resource or replica changes.</td></tr>
+<tr><td>Kubernetes API</td><td>Handles admission and replica changes. Permissions, workload state, and readiness affect actual outcomes.</td></tr>
+</tbody></table>
+<h2 id="observability">Feedback and observability</h2>
+<p>Platform and Operator expose Prometheus metrics for monitoring, including with Grafana. Management views relate forecasts, advice, reported actions, admissions, and measured effectiveness. Execution does not wait for Prometheus to scrape decisions and read them back.</p>
+<p>The presentation follows the <a href="https://prometheus.io/docs/introduction/overview/#architecture" target="_blank" rel="noopener">Prometheus architecture overview</a>; these diagrams describe this project's responsibilities. Continue with <a href="runtime.html">runtime behavior</a>, <a href="scaling.html">admission and scaling</a>, or <a href="installation.html">deployment</a>.</p>
