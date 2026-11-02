@@ -43,8 +43,10 @@ type Indicator struct {
 	Target  float64 `json:"target"`
 	Value   float64 `json:"value"`
 	Samples int     `json:"samples"`
-	Verdict string  `json:"verdict"`
-	Note    string  `json:"note"`
+	// Percentile is the level the value is taken at, for the indicators that are a percentile (0 for the others).
+	Percentile float64 `json:"percentile,omitempty"`
+	Verdict    string  `json:"verdict"`
+	Note       string  `json:"note"`
 }
 
 func (i *Indicator) judge(value float64, samples, need int, note string) {
@@ -75,12 +77,19 @@ type DelayInputs struct {
 	PeakUnder []float64
 	// DecisionWaitSeconds is the configured wait: the age a stored decision may have plus the operator's poll.
 	DecisionWaitSeconds float64
+	// Percentile is the level (0..1) the lateness and the peak under-estimation are judged at; 0 means the default, 0.9.
+	Percentile float64
 }
 
 // DelayIndicators judges the prediction delay. The first four say whether capacity is asked for in time; the last two whether the
 // configuration lets it be.
 func DelayIndicators(in DelayInputs) []Indicator {
 	var out []Indicator
+	q := in.Percentile
+	if q <= 0 || q >= 1 {
+		q = DefaultPercentile
+	}
+	name := PercentName(q)
 
 	needed := in.Timely + in.Late
 	rate := Indicator{Key: "timely_rate", Unit: "ratio", Op: ">=", Target: TargetTimelyRate}
@@ -91,14 +100,14 @@ func DelayIndicators(in DelayInputs) []Indicator {
 	rate.judge(value, needed, MinJudgedForVerdict, fmt.Sprintf("%d of %d scale-ups the load needed were Ready before it did (%d were not needed)", in.Timely, needed, in.Unneeded))
 	out = append(out, rate)
 
-	late := Indicator{Key: "late_p90_seconds", Unit: "seconds", Op: "<=", Target: TargetLateP90Seconds}
+	late := Indicator{Key: "late_p90_seconds", Unit: "seconds", Op: "<=", Target: TargetLateP90Seconds, Percentile: q}
 	switch {
 	case in.Late == 0 && needed >= MinJudgedForVerdict:
 		late.judge(0, needed, MinJudgedForVerdict, "no scale-up was late")
 	case in.Late == 0:
 		late.judge(math.NaN(), needed, MinJudgedForVerdict, "too few scale-ups were judged")
 	default:
-		late.judge(Percentile(in.LateSeconds, 0.9), in.Late, 1, fmt.Sprintf("%d scale-ups were late; the 90th percentile of how late", in.Late))
+		late.judge(Percentile(in.LateSeconds, q), in.Late, 1, fmt.Sprintf("%d scale-ups were late; the %s of how late", in.Late, name))
 	}
 	out = append(out, late)
 
@@ -110,12 +119,12 @@ func DelayIndicators(in DelayInputs) []Indicator {
 	emergency.judge(value, in.Scaled, MinJudgedForVerdict, fmt.Sprintf("%d of %d scale-ups were asked for by the load measured now because the forecast was behind it", in.Emergency, in.Scaled))
 	out = append(out, emergency)
 
-	peak := Indicator{Key: "peak_under_p90", Unit: "ratio", Op: "<=", Target: TargetPeakUnder}
+	peak := Indicator{Key: "peak_under_p90", Unit: "ratio", Op: "<=", Target: TargetPeakUnder, Percentile: q}
 	value = math.NaN()
 	if len(in.PeakUnder) > 0 {
-		value = Percentile(in.PeakUnder, 0.9)
+		value = Percentile(in.PeakUnder, q)
 	}
-	peak.judge(value, len(in.PeakUnder), MinJudgedForVerdict, "how far the forecast of the algorithm in use fell short of the peak of the load, 90th percentile of its evaluated runs")
+	peak.judge(value, len(in.PeakUnder), MinJudgedForVerdict, "how far the forecast of the algorithm in use fell short of the peak of the load, "+name+" of its evaluated runs")
 	out = append(out, peak)
 
 	reach := Indicator{Key: "reach_over_lead", Unit: "ratio", Op: ">=", Target: 1}

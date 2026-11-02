@@ -54,7 +54,7 @@ type MetricSource struct {
 
 	Priority int     `gorm:"not null;default:0" json:"priority" column_setting:"true"`
 	Weight   float64 `gorm:"not null;default:1" json:"weight" column_setting:"true"`
-	// Stat reduces the values to one demand: avg, p50, p90, p95, p99, max, sum or last.
+	// Stat reduces the values to one demand: avg, max, sum, last or a percentile p<number> (p40, p95, p99.9...).
 	Stat string `gorm:"type:varchar(8);not null;default:'p95'" json:"stat" column_setting:"true"`
 	// Basis is forecast (reduce the predicted horizon) or history (reduce the measured window of WindowHours).
 	Basis       string `gorm:"type:varchar(10);not null;default:'forecast'" json:"basis" column_setting:"false"`
@@ -88,7 +88,7 @@ const (
 	AggSum  = "sum"
 )
 
-// SourceAggregations lists the aggregations a source can use.
+// SourceAggregations lists the aggregations a source can use; a percentile p<number> (any level) is allowed as well.
 var SourceAggregations = []string{AggAvg, AggMax, AggMin, AggLast, AggSum}
 
 // Ways to fill a step without a sample.
@@ -188,7 +188,7 @@ func (s *MetricSource) Validate() error {
 		s.Stat = multimetric.StatP95
 	}
 	if !multimetric.ValidStat(s.Stat) {
-		return fmt.Errorf("stat must be one of avg, p50, p90, p95, p99, max, sum, last")
+		return fmt.Errorf("stat must be avg, max, sum, last or p<number> for a percentile (p40, p95, p99.9: a number above 0 and below 100)")
 	}
 	if s.Basis == "" {
 		s.Basis = DefaultBasis(s.Kind)
@@ -223,8 +223,8 @@ func (s *MetricSource) Validate() error {
 	if s.Aggregation == "" {
 		s.Aggregation = AggAvg
 	}
-	if !oneOf(s.Aggregation, SourceAggregations) {
-		return fmt.Errorf("aggregation must be one of %v", SourceAggregations)
+	if _, percentile := multimetric.Level(s.Aggregation); !oneOf(s.Aggregation, SourceAggregations) && !(percentile && len(s.Aggregation) <= multimetric.MaxStatLength) {
+		return fmt.Errorf("aggregation must be one of %v or p<number> for a percentile (p40, p95, p99.9)", SourceAggregations)
 	}
 	if s.Missing == "" {
 		s.Missing = DefaultMissing(s.Kind)

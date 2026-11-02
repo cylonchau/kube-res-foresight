@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strconv"
 	"time"
 )
 
@@ -287,6 +288,14 @@ func solveFor(cfg SolverConfig, in ReplicaInputs, algo string) (ReplicaPlan, boo
 		plan.Replicas, plan.Binding = cur, ConstraintHold
 	}
 	return plan, true
+}
+
+// DefaultPercentile is the level the decisions start from; every use of it can be set by an administrator.
+const DefaultPercentile = 0.9
+
+// PercentName writes a level as the name people use: 0.9 is "P90", 0.995 is "P99.5".
+func PercentName(q float64) string {
+	return "P" + strconv.FormatFloat(math.Round(q*1000)/10, 'f', -1, 64)
 }
 
 // Percentile returns the q-quantile (0..1) of values by linear interpolation; it does not modify values.

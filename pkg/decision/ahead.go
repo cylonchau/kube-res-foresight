@@ -35,6 +35,8 @@ type LeadInputs struct {
 	// LateSeconds are how late the recent scale-ups were (only the late ones); their P90 is added as a margin, so a module whose
 	// scale-ups came late asks for capacity earlier next time.
 	LateSeconds []float64
+	// Percentile is the level (0..1) taken of the measured ready times and of the lateness; 0 means the default, 0.9.
+	Percentile  float64
 	StepSeconds float64
 	// HorizonSeconds is how far the algorithms forecast; the lead is never longer.
 	HorizonSeconds float64
@@ -42,7 +44,9 @@ type LeadInputs struct {
 
 // Lead is how far ahead of the load the capacity has to be asked for, and what it is made of.
 type Lead struct {
-	Seconds        float64 `json:"seconds"`
+	Seconds float64 `json:"seconds"`
+	// Percentile is the level of the measured ready times and of the lateness margin (0.9 is P90).
+	Percentile     float64 `json:"percentile"`
 	ReadySeconds   float64 `json:"ready_seconds"`
 	ReadySource    string  `json:"ready_source"`
 	ReadySamples   int     `json:"ready_samples"`
@@ -58,7 +62,11 @@ type Lead struct {
 // node), the wait before a decision is acted on, and a margin for the lateness seen lately; rounded up to whole steps, at least two
 // steps, at most the horizon.
 func ComputeLead(in LeadInputs) Lead {
-	l := Lead{DecisionSecond: math.Max(in.DecisionSeconds, 0)}
+	q := in.Percentile
+	if q <= 0 || q >= 1 {
+		q = DefaultPercentile
+	}
+	l := Lead{DecisionSecond: math.Max(in.DecisionSeconds, 0), Percentile: q}
 	var ready []float64
 	for _, v := range in.ReadySeconds {
 		if v > 0 && !math.IsNaN(v) && !math.IsInf(v, 0) {
@@ -67,7 +75,7 @@ func ComputeLead(in LeadInputs) Lead {
 	}
 	l.ReadySamples = len(ready)
 	if len(ready) >= MinLeadSamples {
-		l.ReadySeconds, l.ReadySource = Percentile(ready, 0.9), LeadMeasured
+		l.ReadySeconds, l.ReadySource = Percentile(ready, q), LeadMeasured
 	} else {
 		l.ReadySeconds, l.ReadySource, l.NodeSeconds = math.Max(in.ConfiguredReadySeconds, 0), LeadConfigured, math.Max(in.NodeSeconds, 0)
 	}
@@ -78,7 +86,7 @@ func ComputeLead(in LeadInputs) Lead {
 		}
 	}
 	if len(late) > 0 {
-		l.MarginSeconds = Percentile(late, 0.9)
+		l.MarginSeconds = Percentile(late, q)
 	}
 	total := l.ReadySeconds + l.NodeSeconds + l.DecisionSecond + l.MarginSeconds
 	step := in.StepSeconds
@@ -94,7 +102,7 @@ func ComputeLead(in LeadInputs) Lead {
 	l.Seconds = total
 	source := "configured Pod ready time"
 	if l.ReadySource == LeadMeasured {
-		source = fmt.Sprintf("P90 of %d measured ready times", l.ReadySamples)
+		source = fmt.Sprintf("%s of %d measured ready times", PercentName(q), l.ReadySamples)
 	}
 	l.Reason = fmt.Sprintf("%.0fs = %s %.0fs + node %.0fs + decision wait %.0fs + margin for lateness %.0fs", l.Seconds, source, l.ReadySeconds, l.NodeSeconds, l.DecisionSecond, l.MarginSeconds)
 	if l.Capped {

@@ -12,6 +12,7 @@ import (
 	"github.com/cylonchau/kube-res-foresight/pkg/decision"
 	"github.com/cylonchau/kube-res-foresight/pkg/model"
 	"github.com/cylonchau/kube-res-foresight/pkg/multimetric"
+	"github.com/cylonchau/kube-res-foresight/pkg/timing"
 )
 
 // System parameters of the scale-ahead decision.
@@ -51,12 +52,15 @@ type aheadSettings struct {
 	Emergency      bool
 	DecisionWait   float64
 	LeadCover      float64
+	// LeadPct is the level (0..1) of the lead's ready times and lateness margin: the system parameter forecast.lead_percentile.
+	LeadPct float64
 }
 
 // aheadSettings reads the parameters; a missing or invalid value is replaced by its default.
 func (s *Service) aheadSettings(ctx context.Context) aheadSettings {
 	out := aheadSettings{PodReady: DefaultLeadPodReady, Node: DefaultLeadNode, Up: DefaultConsensusUp, Down: DefaultConsensusDown, Emergency: true, LeadCover: DefaultLeadCover}
 	out.DecisionWait = s.DecisionMaxAge(ctx).Seconds() + operatorPollSeconds
+	out.LeadPct = s.Percentile(ctx, timing.LeadPercentile)
 	if s.Config == nil {
 		return out
 	}
@@ -177,7 +181,7 @@ func (s *Service) leadCoverMinutes(ctx context.Context, m *model.ForecastModule)
 		step = 60
 	}
 	lead := decision.ComputeLead(decision.LeadInputs{ReadySeconds: ready, ConfiguredReadySeconds: set.PodReady, NodeSeconds: set.Node, DecisionSeconds: set.DecisionWait,
-		LateSeconds: late, StepSeconds: step})
+		LateSeconds: late, Percentile: set.LeadPct, StepSeconds: step})
 	cover := int(math.Ceil(lead.Seconds * set.LeadCover / 60))
 	if cover > 24*60 {
 		cover = 24 * 60 // the longest forecast period a module may have
@@ -276,7 +280,7 @@ func (s *Service) scaleAhead(ctx context.Context, m *model.ForecastModule, bs bo
 	}
 	horizon := time.Duration(horizonSteps) * step
 	d.Lead = decision.ComputeLead(decision.LeadInputs{ReadySeconds: ready, ConfiguredReadySeconds: set.PodReady, NodeSeconds: set.Node, DecisionSeconds: set.DecisionWait,
-		LateSeconds: late, StepSeconds: step.Seconds(), HorizonSeconds: horizon.Seconds()})
+		LateSeconds: late, Percentile: set.LeadPct, StepSeconds: step.Seconds(), HorizonSeconds: horizon.Seconds()})
 	leadSteps := decision.StepsIn(time.Duration(d.Lead.Seconds)*time.Second, step, horizonSteps)
 	d.Reach = ReachDetail{ConfiguredMinutes: m.HorizonMinutes, EffectiveMinutes: int(horizon / time.Minute)}
 	d.Reach.Extended = d.Reach.EffectiveMinutes > m.HorizonMinutes

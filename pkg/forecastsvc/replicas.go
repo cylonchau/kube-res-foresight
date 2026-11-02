@@ -11,6 +11,7 @@ import (
 	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
 	"github.com/cylonchau/kube-res-foresight/pkg/decision"
 	"github.com/cylonchau/kube-res-foresight/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/timing"
 )
 
 const (
@@ -82,7 +83,7 @@ func (s *Service) uncertainty(ctx context.Context, instanceID uint, metric, algo
 		for i, e := range evals {
 			shortfalls[i] = e.PeakUnder
 		}
-		raw := decision.Percentile(shortfalls, 0.9)
+		raw := decision.Percentile(shortfalls, s.Percentile(ctx, timing.UncertaintyPercentile))
 		u := shortfallToUncertainty(raw)
 		return &u, decision.UncertaintyMeasured, raw, nil
 	}

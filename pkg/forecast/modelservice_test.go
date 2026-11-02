@@ -169,8 +169,10 @@ func TestTheFineTuningParametersAreTheOnesTheAdministratorSaved(t *testing.T) {
 func TestModelServiceParametersThatContradictEachOtherAreRefused(t *testing.T) {
 	_, err := Normalize("model_service", map[string]any{"endpoint": "chronos:8000"})
 	assert.ErrorContains(t, err, "http")
-	_, err = Normalize("model_service", map[string]any{"endpoint": "http://x", "service_quantile": 0.3})
+	_, err = Normalize("model_service", map[string]any{"endpoint": "http://x", "service_quantile": 0.005})
 	assert.ErrorContains(t, err, "service_quantile")
+	_, err = Normalize("model_service", map[string]any{"endpoint": "http://x", "service_quantile": 0.4})
+	assert.NoError(t, err, "any level between 0.01 and 0.99 is allowed")
 	_, err = Normalize("model_service", map[string]any{"endpoint": "http://x", "protocol": "unitshub_chronos", "finetune_interval_hours": 6})
 	assert.ErrorContains(t, err, "cannot be fine-tuned")
 	_, err = Normalize("model_service", map[string]any{})

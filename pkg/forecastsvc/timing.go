@@ -22,6 +22,19 @@ func (s *Service) Timing(ctx context.Context, p timing.Param) time.Duration {
 	return p.Seconds(raw)
 }
 
+// Percentile is a percentile parameter (see timing.LeadPercentile) as a level in (0, 1): 90 is 0.9. A missing or unreadable value is the
+// default; one outside 1-99 is brought to the nearest end.
+func (s *Service) Percentile(ctx context.Context, p timing.Param) float64 {
+	if s.Config == nil {
+		return float64(p.Default) / 100
+	}
+	raw, err := s.Config.GetValueOrDefault(ctx, p.Key, "")
+	if err != nil {
+		return float64(p.Default) / 100
+	}
+	return float64(p.Parse(raw)) / 100
+}
+
 // RefreshWait is how long a request of the operator waits for a refresh of the recommendation. It is the parameter, but always shorter
 // than the time the operator waits for its own request (the platform asks the same parameters the operator is given): an answer that
 // would come after the operator hung up is worth nothing.

@@ -60,3 +60,27 @@ func TestTheRefreshWaitIsAlwaysShorterThanTheOperatorsRequestTimeout(t *testing.
 	f.setParameter(t, timing.OperatorRequestTimeout.Key, "1")
 	assert.Equal(t, time.Second, f.svc.RefreshWait(ctx), "never less than a second")
 }
+
+// A percentile is what the system parameter says, as a level: 41 is P41 (0.41), none is fixed; nothing usable is the default P90.
+func TestAPercentileIsReadFromTheSystemParameter(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	assert.InDelta(t, 0.9, f.svc.Percentile(ctx, timing.LeadPercentile), 1e-12, "nothing stored: P90")
+	for _, p := range []timing.Param{timing.LeadPercentile, timing.JudgePercentile, timing.UncertaintyPercentile} {
+		for stored, want := range map[string]float64{"40": 0.40, "41": 0.41, "42": 0.42, "99": 0.99, "1": 0.01, "0": 0.01, "250": 0.99, "p95": 0.9, "": 0.9} {
+			f.setParameter(t, p.Key, stored)
+			assert.InDelta(t, want, f.svc.Percentile(ctx, p), 1e-12, "%s=%q", p.Key, stored)
+		}
+	}
+	f.svc.Config = nil
+	assert.InDelta(t, 0.9, f.svc.Percentile(ctx, timing.JudgePercentile), 1e-12)
+}
+
+// The lead of a module follows the percentile that was set.
+func TestTheLeadFollowsThePercentileOfTheParameter(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	assert.InDelta(t, 0.9, f.svc.aheadSettings(ctx).LeadPct, 1e-12)
+	f.setParameter(t, timing.LeadPercentile.Key, "41")
+	assert.InDelta(t, 0.41, f.svc.aheadSettings(ctx).LeadPct, 1e-12)
+}

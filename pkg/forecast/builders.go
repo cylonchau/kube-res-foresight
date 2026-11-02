@@ -81,8 +81,8 @@ var builtinChecks = map[string]func(raw map[string]any) error{
 		if e, _ := raw["endpoint"].(string); e != "" && !strings.HasPrefix(e, "http://") && !strings.HasPrefix(e, "https://") {
 			return fmt.Errorf("endpoint must start with http:// or https://")
 		}
-		if q, ok := rawNum(raw, "service_quantile"); ok && q != 0 && q < 0.5 {
-			return fmt.Errorf("service_quantile must be 0 (the mean) or at least 0.5, got %v", q)
+		if q, ok := rawNum(raw, "service_quantile"); ok && q != 0 && (q < 0.01 || q > 0.99) {
+			return fmt.Errorf("service_quantile must be 0 (the mean) or between 0.01 and 0.99, got %v", q)
 		}
 		protocol, _ := raw["protocol"].(string)
 		if protocol == "" {

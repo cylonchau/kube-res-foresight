@@ -1,6 +1,7 @@
 package multimetric
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -26,7 +27,7 @@ func TestReduceStatistics(t *testing.T) {
 	_, ok = Reduce("median-ish", values)
 	assert.False(t, ok)
 	assert.True(t, ValidStat(StatP95))
-	assert.False(t, ValidStat("p97"))
+	assert.True(t, ValidStat("p97"), "any level is a statistic")
 	assert.True(t, ValidCombine(CombinePrimary))
 	assert.False(t, ValidCombine("mean"))
 }
@@ -128,4 +129,32 @@ func TestZeroWeightsCountEqually(t *testing.T) {
 	})
 	assert.InDelta(t, 3.0, res.Resources[ResourceCPU].Value, 1e-9)
 	assert.InDelta(t, 0.3, res.Pressure, 1e-9)
+}
+
+func TestAnyPercentileIsAStatisticAndNoneIsFixed(t *testing.T) {
+	values := []float64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+	for stat, want := range map[string]float64{"p1": 1.09, "p40": 4.6, "p41": 4.69, "p42": 4.78, "p50": 5.5, "p99.9": 9.991, "p99": 9.91} {
+		assert.True(t, ValidStat(stat), stat)
+		got, ok := Reduce(stat, values)
+		assert.True(t, ok, stat)
+		assert.InDelta(t, want, got, 1e-9, stat)
+	}
+	// the levels are ordered: a higher percentile is never lower
+	prev := -1.0
+	for n := 1; n <= 99; n++ {
+		got, _ := Reduce("p"+strconv.Itoa(n), values)
+		assert.GreaterOrEqual(t, got, prev, "p%d", n)
+		prev = got
+	}
+	for _, bad := range []string{"", "p", "p0", "p100", "p-5", "p+5", "p1e1", "p 5", "pabc", "P95", "95", "p99.99999", "p0x10", "p__"} {
+		assert.False(t, ValidStat(bad), "%q", bad)
+		if bad == "" || bad == "p99.99999" {
+			continue // "" is the average in Reduce, and p99.99999 is a level that is only too long to be stored (8 characters)
+		}
+		_, ok := Reduce(bad, values)
+		assert.False(t, ok, "%q", bad)
+	}
+	level, ok := Level("p99.9")
+	assert.True(t, ok)
+	assert.InDelta(t, 0.999, level, 1e-12)
 }

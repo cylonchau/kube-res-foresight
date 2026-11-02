@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -41,14 +42,32 @@ const (
 	CombinePrimary  = "primary" // the usable source with the lowest priority number only
 )
 
-// ValidStat reports whether the statistic is known.
+// Level is the quantile a statistic of the form "p<number>" asks for, as a level in (0, 1): "p40" is 0.4, "p99.9" is 0.999. Any number
+// above 0 and below 100 is a statistic (p41 and p42 as well as p95): none is fixed in the program.
+func Level(stat string) (float64, bool) {
+	rest, ok := strings.CutPrefix(stat, "p")
+	if !ok || rest == "" || strings.ContainsAny(rest, "+-eE xX_") {
+		return 0, false
+	}
+	n, err := strconv.ParseFloat(rest, 64)
+	if err != nil || math.IsNaN(n) || n <= 0 || n >= 100 {
+		return 0, false
+	}
+	return n / 100, true
+}
+
+// ValidStat reports whether the statistic is known: avg, max, sum, last, or p<number> for a percentile.
 func ValidStat(s string) bool {
 	switch s {
-	case StatAvg, StatP50, StatP90, StatP95, StatP99, StatMax, StatSum, StatLast:
+	case StatAvg, StatMax, StatSum, StatLast:
 		return true
 	}
-	return false
+	_, ok := Level(s)
+	return ok && len(s) <= MaxStatLength
 }
+
+// MaxStatLength is the longest statistic that is stored (the column is 8 characters): "p99.999" fits, "p99.99999" does not.
+const MaxStatLength = 8
 
 // ValidCombine reports whether the combine mode is known.
 func ValidCombine(s string) bool {
@@ -154,8 +173,8 @@ func Reduce(stat string, values []float64) (float64, bool) {
 		}
 		return s / float64(len(values)), true
 	}
-	q := map[string]float64{StatP50: 0.5, StatP90: 0.9, StatP95: 0.95, StatP99: 0.99}[stat]
-	if q == 0 {
+	q, ok := Level(stat)
+	if !ok {
 		return 0, false
 	}
 	sorted := append([]float64(nil), values...)

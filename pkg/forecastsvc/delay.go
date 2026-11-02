@@ -7,6 +7,7 @@ import (
 
 	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
 	"github.com/cylonchau/kube-res-foresight/pkg/decision"
+	"github.com/cylonchau/kube-res-foresight/pkg/timing"
 )
 
 // DefaultDelayHours is the window the delay report looks at when none is asked for.
@@ -38,7 +39,7 @@ func (s *Service) DelayReport(ctx context.Context, moduleID uint, hours int) (*D
 	now := s.now()
 	since := now.Add(-time.Duration(hours) * time.Hour)
 	rep := &DelayReport{ModuleID: moduleID, Since: since, Hours: hours}
-	in := decision.DelayInputs{DecisionWaitSeconds: s.aheadSettings(ctx).DecisionWait}
+	in := decision.DelayInputs{DecisionWaitSeconds: s.aheadSettings(ctx).DecisionWait, Percentile: s.Percentile(ctx, timing.JudgePercentile)}
 
 	outcomes, err := s.Predictions.OutcomesSince(ctx, moduleID, since)
 	if err != nil {

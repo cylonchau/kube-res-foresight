@@ -5,6 +5,8 @@ import (
 	"math"
 	"sort"
 	"time"
+
+	"github.com/cylonchau/kube-res-foresight/pkg/multimetric"
 )
 
 // Shaping describes how the points a query returned become the values of a dataset: the grid step of the dataset,
@@ -129,6 +131,12 @@ func aggregate(values []float64, how string) float64 {
 			t += v
 		}
 		return t
+	}
+	// p<number>: a percentile of the points of the step, at any level (p40, p95, p99.9)
+	if _, ok := multimetric.Level(how); ok {
+		if v, ok := multimetric.Reduce(how, values); ok {
+			return v
+		}
 	}
 	var t float64
 	for _, v := range values {

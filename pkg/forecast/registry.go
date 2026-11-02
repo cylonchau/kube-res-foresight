@@ -154,7 +154,7 @@ var builtinDefinitions = []Definition{
 		{Name: "protocol", Type: "string", Default: "finetune", Enum: []string{"finetune", "unitshub_chronos", "unitshub_timesfm"}, Description: "服务的接口协议：finetune = scripts/tsfm-eval/finetune 的服务（支持微调）；unitshub_chronos、unitshub_timesfm = kingfs/unitshub 的现成容器（只预测）。"},
 		{Name: "api_key_env", Type: "string", Default: "", Description: "保存访问密钥的环境变量名（平台进程的环境变量），预测时作为 Bearer 密钥发给服务；留空表示服务不需要密钥。密钥本身不存进算法参数。"},
 		{Name: "timeout_seconds", Type: "int", Default: 30, Min: num(1), Max: num(600), Unit: "s", Description: "一次预测请求的超时时间。"},
-		{Name: "service_quantile", Type: "float", Default: 0.0, Min: num(0), Max: num(0.99), Description: "0 = 用服务给的均值预测；0.5～0.99 = 用服务给的这个分位数（如 0.9 = 实际值不超过这条线）。分位数预测按 pinball 损失和覆盖率回测。"},
+		{Name: "service_quantile", Type: "float", Default: 0.0, Min: num(0), Max: num(0.99), Description: "0 = 用服务给的均值预测；0.01～0.99 = 用服务给的这个分位数（0.9 = 实际值不超过这条线，0.4 = 只有 40% 的把握不超过；任意数值，不限于 0.5/0.9/0.95/0.99，服务要能按这个数值回答）。分位数预测按 pinball 损失和覆盖率回测。"},
 		{Name: "finetune_interval_hours", Type: "int", Default: 0, Min: num(0), Max: num(720), Unit: "h", Description: "微调间隔：服务上微调后的模型超过这么久，平台就重新提交数据微调一次；0 = 不微调，一直用预训练模型。只有 finetune 协议的服务支持。微调在后台进行，期间预测仍用旧的微调模型（没有就用预训练模型）。"},
 		{Name: "finetune_mode", Type: "string", Default: "full", Enum: []string{"full", "lora"}, Description: "微调方式：full = 全参数微调；lora = 低秩适配（服务端要装 peft，没装会让微调失败）。"},
 		{Name: "finetune_steps", Type: "int", Default: 30, Min: num(1), Max: num(2000), Unit: "steps", Description: "微调的训练步数。步数越多越贴近这条序列，也越慢（CPU 上约 1 秒一步）、越容易过拟合。"},

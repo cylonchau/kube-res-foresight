@@ -56,6 +56,20 @@ var CapacitySLOTarget = Param{Key: "forecast.slo_capacity_target_percent", Defau
 	Name:   "Capacity SLO Target (percent)",
 	Remark: "The capacity SLO of a module is the share of the measured time in which at least as many replicas were Ready as the measured load needed (at the target utilization, with no safety margin). The effect report says it is met when the share reaches this percent. It is a capacity target, not a latency or error-rate target (50-100)."}
 
+// The percentiles the decisions are judged by, as whole percents (40 is P40, 99 is P99): none is fixed in the program, the default is
+// only where it starts. Read through Service.Percentile.
+var (
+	LeadPercentile = Param{Key: "forecast.lead_percentile", Default: 90, Min: 1, Max: 99,
+		Name:   "Lead Time Percentile (percent)",
+		Remark: "The lead (how far ahead of the load capacity is asked for) is made of the measured Pod ready times and of how late the recent scale-ups were. This is the percentile taken of both: 90 means P90, 99 asks for capacity earlier and safer, 50 is the median (1-99)."}
+	JudgePercentile = Param{Key: "forecast.judge_percentile", Default: 90, Min: 1, Max: 99,
+		Name:   "Delay Judgement Percentile (percent)",
+		Remark: "The percentile of the lateness of the late scale-ups and of the peak under-estimation of the forecast, that the delay indicators of the effect report show and judge against their targets (1-99)."}
+	UncertaintyPercentile = Param{Key: "forecast.uncertainty_percentile", Default: 90, Min: 1, Max: 99,
+		Name:   "Forecast Uncertainty Percentile (percent)",
+		Remark: "With dynamic replica calculation, the forecast peak is raised by how far the algorithm fell short of the real peak lately; this is the percentile of those shortfalls that is used. A higher one keeps more capacity in reserve (1-99)."}
+)
+
 // Operator limits (read by the operator from the platform).
 var (
 	OperatorRequestTimeout = Param{Key: "operator.request_timeout_seconds", Default: 10, Min: 1, Max: 120,
@@ -96,7 +110,7 @@ var NotifyEmailTimeout = Param{Key: "notify.email.timeout_seconds", Default: 30,
 func All() []Param {
 	return []Param{DecisionRefreshWait, DecisionForecastMaxAge, CapacitySLOTarget, RefreshBudget, PipelineTimeout, PreviewBudget, FineTuneBudget, TrainBudget,
 		OperatorRequestTimeout, OperatorSyncInterval, OperatorDecisionCacheTTL, OperatorModuleCacheTTL, OperatorRecoverAnswers, OperatorSettingsRefresh,
-		OperatorDegradeHold, OperatorDegradeCooldown, OperatorRecoverStable, NotifyEmailTimeout}
+		OperatorDegradeHold, OperatorDegradeCooldown, OperatorRecoverStable, NotifyEmailTimeout, LeadPercentile, JudgePercentile, UncertaintyPercentile}
 }
 
 // Clamp brings a number into the range of the limit.
