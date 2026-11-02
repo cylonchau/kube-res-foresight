@@ -36,7 +36,7 @@
 
 已经签发的开发者凭据（`ak_kube_resource_fcst_…`）不用重发：平台按库里的记录校验，不看前缀。
 
-**Operator 的选主租约故意保持旧名。** 租约名随改名而变会让新旧两个 Operator 同时当选，同时改同一批模块的副本数。保持不变后，新 Operator 会等旧的让出租约（滚动替换时正好互斥）。只有在集群里确认没有旧版本 Operator 之后才可以改这个名字。
+**Operator 的选主租约名故意保持旧名，但租约是按命名空间的。** 新旧 Operator 只有在**同一个命名空间**里才会因为同名租约而互斥（新的等旧的让出）。装进不同命名空间（例如旧的在 `kube-resource-fcst-system`、新的在 `kube-res-foresight-system`）时，两个都会当选，会同时改同一批副本：**必须先停旧的再启新的**（或者把新的装进旧的所在命名空间）。更老的、基于 CRD 的 Operator（`PredictiveScaler`）同样要先停。只有在集群里确认没有旧版本 Operator 之后才可以改租约名。
 
 **指标前缀**：新前缀是 `kube_res_foresight_*`。生产里的告警和看板是用旧前缀写的，改名后它们会不报错地失效。过渡期把 `metrics.legacy_names: true`（环境变量 `KUBE_RES_FORESIGHT_METRICS_LEGACY_NAMES=true`，Helm `metrics.legacyNames=true`）打开，平台的 `/metrics` 会同时导出两套名称，值相同；告警和看板迁完后关掉。Operator 的指标（`kube_res_foresight_operator_*`）没有这个开关，Prometheus 规则里用 `{__name__=~"kube_(res_foresight|resource_fcst)_operator_.*"}` 同时匹配两代，直到旧 Operator 下线。历史窗口里仍是旧前缀。
 
@@ -46,7 +46,8 @@
 2. 先升级平台，再升级 Operator。新平台认旧 Operator；旧平台不认新 Operator 的请求头，反过来不行。
 3. 打开 `metrics.legacy_names`，迁移告警和看板，再关掉。
 4. 把 Kyverno 策略、脚本换成新的头名称（旧的也还能用，但不要再新增）。
-5. 所有旧 Operator 下线后，才考虑更改租约名。
+5. 新 Operator 装在别的命名空间时，先缩掉旧 Operator 再放开新的，不要同时运行。
+6. 所有旧 Operator 下线后，才考虑更改租约名。
 
 ### 已验证的升级
 
