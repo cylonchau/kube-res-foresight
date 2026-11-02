@@ -6,7 +6,7 @@
 |---|---|---|
 | 官网文案与 Helm 部署指南 | 已完成 | 架构标题统一，移除创作来源和重复导读；补齐平台/Operator Helm 安装、数据库、密钥、监控、升级与卸载 |
 | 官网功能架构与运行逻辑 | 已完成 | 新增两篇双语指南、四类原创架构图；支持缩放、全屏、原始 SVG、亮暗主题与移动端 |
-| 项目改名为 kube-res-foresight | 本地完成，云端待操作 | Go、前端、官网、部署与技能统一命名；保留旧环境变量与数据库兼容；GitHub 远端因缺少管理凭据尚未改名 |
+| 项目改名为 kube-res-foresight | 已完成 | Go、前端、官网、部署与技能统一命名；保留旧环境变量与数据库兼容；远端与官网链接均使用 cylonchau/kube-res-foresight |
 | 官网近期功能同步 | 已完成 | AI 助手、LLM/Skill 配置、定时任务与邮件、首页概览四篇双语指南；更新效果报告与 Operator 恢复、补报、准入关联和 Limit 比例；清理退役演示入口 |
 | 官网算法参数手册 | 已完成 | 14 种内置算法与模型服务的 15 篇双语手册，覆盖 150 个参数条目、历史要求、JSON 示例、调参与使用流程；本地提交，不推送或发布 |
 | 官网 Logo 更新 | 已完成 | 七边形、七辐舵轮与趋势预测图形；导航、页脚和 favicon 共用 SVG；本地提交，不推送或发布 |
@@ -666,7 +666,7 @@ all ten management pages and the shared product title. Screenshots were inspecte
 - 升级兼容：新环境变量优先，保留 `KUBE_RESOURCE_FCST_*` 和更早的 `KUBEFORECAST_*`；默认 SQLite 新文件不存在时优先读旧项目文件，不搬动数据；保留 JWT、加密密钥和时区的值。新增参数优先级、凭据解密、旧数据库和时区兼容测试。API/WS 客户端和监控查询需按 docs/renaming.md 同步切换新标识。
 - 验证：`go test -p 2 ./pkg/... ./cmd/... ./scripts/check-algorithm-docs`、`go build ./cmd/...`、`go vet ./pkg/... ./cmd/...` 通过，CLI help 显示新名称；前端类型检查、21 项单测与生产构建通过；69 页官网与算法参数检查、技能同步检查通过。Windows 文件保留原换行方式，diff 检查允许 CRLF。
 - 提交按改名拆分：原有和并行产生的业务修改保留在工作区，前后端只暂存名称变更；未提交的平台 Helm/Grafana 工作没有纳入本次提交。未操作集群，未推送。
-- GitHub 远端仍为 cylonchau/hermes：当前连接器无仓库重命名工具，本机无可用非交互凭据，未能执行云端改名，保留可用 remote 与官网实际仓库链接；管理员改名与后续 remote 更新步骤写入 docs/renaming.md。
+- GitHub 仓库已改名，本地 origin 与官网仓库链接统一为 cylonchau/kube-res-foresight；仓库与 Pages 配置见 docs/renaming.md。
 
 2026-11-02：聊天窗口可调大小与放大、邮件参数补全与测试邮件、Grafana 看板与指标补充、平台 Helm Chart
 - **聊天窗口**：右上角窗口可以拖左边、下边或左下角改大小（最小 360×360，记在浏览器里），标题栏「放大／还原」在占满右侧（从顶栏下到页底）和原来的小窗口之间切换，放大状态也记住；窄屏不变（占满宽度）。
@@ -694,3 +694,7 @@ all ten management pages and the shared product title. Screenshots were inspecte
 - 中英文架构标题统一为“系统架构 / System architecture”，移除设计来源、绘制说明和重复导读，保留产品能力与必要的使用限制。
 - 安装文档补齐平台与 Operator 的 Helm 命令、SQLite 与外部数据库配置、已有 Secret、监控开关、升级和卸载行为；参数与路径核对仓库 Chart。
 - 验证：站点生成和 73 页检查、Pages 工作流、算法参数文档检查通过；Chromium 检查双语/亮暗/1440、390、320 宽度共 12 种布局，标题、Helm 目录锚点与页面资源正常；20 个 shell 代码块通过 bash -n，双语 YAML 示例解析通过。本次未执行集群安装，未推送或发布。
+
+2026-11-02：统一仓库链接与旧名称清理
+- 官网配置、双语部署源文档和生成页面的仓库地址统一为 cylonchau/kube-res-foresight；更新改名说明与当前状态，品牌校验脚本直接断言当前名称。
+- 验证：版本管理文件中旧名称匹配为零；站点生成与 73 页检查、Pages 工作流检查、相关 JavaScript 语法与技能同步检查通过。未运行平台端到端测试，未推送或发布。

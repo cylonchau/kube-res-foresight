@@ -59,6 +59,6 @@ Operator Helm 路径为 `deploy/helm/kube-res-foresight-operator`。平台 Chart
 
 ## GitHub 仓库与 Pages
 
-本地名称调整不会自动改变 GitHub 的仓库名。当前远端仍为 `cylonchau/hermes`，官网仓库链接仍指向这个实际存在的地址。本次环境未提供可用于重命名 GitHub 仓库的管理凭据。
+GitHub 仓库与本地 origin 已使用 `cylonchau/kube-res-foresight`。官网仓库地址统一配置在 `site/assets/config.js`，生成页面与页面脚本共用该地址。
 
-仓库管理员可在 GitHub 的 Settings → General → Repository name 修改为 `kube-res-foresight`，随后把本地 origin 更新为 `https://github.com/cylonchau/kube-res-foresight.git`，并同步 `site/assets/config.js` 的仓库地址。Pages 使用相对链接，支持新仓库子路径；检查 Settings → Pages 与工作流运行状态。这里不执行推送、远端改名或集群操作。
+Pages 使用相对链接，支持仓库子路径与自定义域名。在 Settings → Pages 中选择 GitHub Actions，由 `.github/workflows/pages.yml` 构建并发布 `site/`。

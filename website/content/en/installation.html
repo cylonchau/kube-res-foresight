@@ -47,7 +47,7 @@ kubectl -n kube-res-foresight port-forward svc/kube-res-foresight 8080:80</code>
 <tr><td><code>resources</code></td><td>Platform container requests / limits; size for module count and history windows.</td></tr>
 <tr><td><code>secrets.existingSecret</code></td><td>Reuse stable keys. Default keys: jwt-secret, secret-key, database-password.</td></tr>
 </tbody></table>
-<p>Manage mail, model connections, and prediction rules in the console. All deployment settings are listed in <a data-source="deploy/helm/kube-res-foresight/values.yaml" href="https://github.com/cylonchau/hermes">platform values.yaml ↗</a>.</p>
+<p>Manage mail, model connections, and prediction rules in the console. All deployment settings are listed in <a data-source="deploy/helm/kube-res-foresight/values.yaml" href="https://github.com/cylonchau/kube-res-foresight">platform values.yaml ↗</a>.</p>
 <h2 id="helm-operator">Deploy the Operator with Helm</h2>
 <p>Create a platform developer credential restricted to Operator decision reading and reporting. Save <code>access-key:access-secret</code> in <code>operator-credential.txt</code> without a trailing newline, then create its Secret. The platform chart does not create this credential.</p>
 <pre data-language="Bash"><code>docker build -f deploy/docker/Dockerfile --target operator \
@@ -105,4 +105,4 @@ target/bin/kube-res-foresight all --config config.yaml</code></pre>
 <h2 id="upgrade">Existing installations and execution</h2>
 <p>Keep the existing database connection, path, and key values. Back up before upgrading and review the cleanup performed by <code>--upgrade</code>. Normal startup does not remove retired tables.</p>
 <p>Prepare cluster permissions, credentials, certificates, and policies for execution. Begin in Observe and review resource references and replica ownership before authorizing changes.</p>
-<p><a data-source="deploy/README.md" href="https://github.com/cylonchau/hermes">Deployment guide ↗</a> · <a data-source="deploy/helm/kube-res-foresight-operator/README.md" href="https://github.com/cylonchau/hermes">Operator installation ↗</a></p>
+<p><a data-source="deploy/README.md" href="https://github.com/cylonchau/kube-res-foresight">Deployment guide ↗</a> · <a data-source="deploy/helm/kube-res-foresight-operator/README.md" href="https://github.com/cylonchau/kube-res-foresight">Operator installation ↗</a></p>

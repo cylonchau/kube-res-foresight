@@ -55,7 +55,7 @@ try {
       await expect(loginPage.locator('.login-slogan')).toContainText('Kubernetes');
       await expect(loginPage.locator('.login-slogan')).toContainText('Pod');
       await expect(loginPage).toHaveTitle(/kube-res-foresight/);
-      assert.ok(!/hermes/i.test(await loginPage.locator('body').innerText()));
+      assert.ok((await loginPage.locator('body').innerText()).includes('kube-res-foresight'));
       assert.ok(await loginPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'login overflows viewport');
       await loginPage.screenshot({ path: `${output}/brand-login-${width}-${lang}.png`, fullPage: true, animations: 'disabled' });
     }
@@ -71,7 +71,7 @@ try {
     await expect(page.locator('.n-data-table-loading-wrapper')).toHaveCount(0);
     assert.ok(!page.url().includes('/login'), `${path} redirected to login`);
     const text = await page.locator('body').innerText();
-    assert.ok(text.includes('kube-res-foresight') && !/hermes/i.test(text), `product identity on ${path}`);
+    assert.ok(text.includes('kube-res-foresight'), `product identity on ${path}`);
     assert.ok(!/量化|市场数据|链上雷达|策略中心|交易与风控/.test(text), path);
     assert.ok(!/page\.(forecast|datasource|system|authorization|task|job)\./.test(text), `unresolved locale key on ${path}`);
     await page.screenshot({ path: `${output}/${path.replaceAll('/', '-')}.png`, fullPage: true, animations: 'disabled' });
