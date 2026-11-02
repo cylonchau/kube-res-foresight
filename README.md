@@ -23,6 +23,26 @@ python -m http.server 4173 --bind 127.0.0.1 --directory site
 
 访问 `http://127.0.0.1:4173`。GitHub Pages 工作流位于 `.github/workflows/pages.yml`，发布步骤见 [官网维护说明](site/README.md)。
 
+## 自动构建与 Release
+
+工作流位于 [release.yml](.github/workflows/release.yml)。推送 `v*` 标签后，自动编译管理前端并创建 GitHub Release；在 Actions 中手动运行 **kube-res-foresight release** 也能构建，选择分支运行时仅上传 Actions Artifacts，选择版本标签运行时发布对应 Release。
+
+发布产物包括：
+
+- `kube-res-foresight-web_<版本>.tar.gz`：独立管理前端静态文件。
+- `kube-res-foresight_<版本>_<系统>_<架构>`：已嵌入管理控制台的平台，启动后直接访问，无需另外部署前端。
+- `kube-res-foresight-operator_<版本>_<系统>_<架构>`：独立 Operator。
+- `SHA256SUMS`：Release 资产校验和。系统为 Linux、macOS、Windows，架构为 amd64、arm64；Windows 使用 zip，其余使用 tar.gz。
+
+前端源码从独立仓库 `cylonchau/kube-res-foresight-web` 拉取。默认使用 `main`，正式版本可在本仓库 **Settings → Secrets and variables → Actions → Variables** 中设置 `FRONTEND_REF` 为前端提交 SHA；手动运行的 `frontend_ref` 可以覆盖它。前端产物中的 `build-info.json` 记录前后端实际提交及版本。若前端仓库为私有，需要设置具有该仓库 Contents 读取权限的 Secret `FRONTEND_READ_TOKEN`。
+
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+单独部署前端时，将压缩包解压到静态服务器根目录，配置 SPA history 回退到 `index.html`，并把 `/api/`（含 WebSocket）反向代理到平台。GitHub Pages 用于 `site/` 官网；管理控制台需要连接运行中的后端服务。
+
 ## 开发与启动
 
 后端沿用 Go、Gin、GORM、Cobra、Casbin；管理界面沿用 Vue 3、Naive UI、Pinia、Elegant Router。

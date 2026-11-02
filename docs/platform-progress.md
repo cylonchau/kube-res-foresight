@@ -4,6 +4,7 @@
 
 | 本次工作包 | 状态 | 范围 |
 |---|---|---|
+| 前端与平台自动 Release | 已完成 | 标签触发前端构建、独立前端包、嵌入控制台的六平台组合二进制与校验和；手动分支运行仅产出 Artifacts |
 | 官网文案与 Helm 部署指南 | 已完成 | 架构标题统一，移除创作来源和重复导读；补齐平台/Operator Helm 安装、数据库、密钥、监控、升级与卸载 |
 | 官网功能架构与运行逻辑 | 已完成 | 新增两篇双语指南、四类原创架构图；支持缩放、全屏、原始 SVG、亮暗主题与移动端 |
 | 项目改名为 kube-res-foresight | 已完成 | Go、前端、官网、部署与技能统一命名；保留旧环境变量与数据库兼容；远端与官网链接均使用 cylonchau/kube-res-foresight |
@@ -698,3 +699,8 @@ all ten management pages and the shared product title. Screenshots were inspecte
 2026-11-02：统一仓库链接与旧名称清理
 - 官网配置、双语部署源文档和生成页面的仓库地址统一为 cylonchau/kube-res-foresight；更新改名说明与当前状态，品牌校验脚本直接断言当前名称。
 - 验证：版本管理文件中旧名称匹配为零；站点生成与 73 页检查、Pages 工作流检查、相关 JavaScript 语法与技能同步检查通过。未运行平台端到端测试，未推送或发布。
+
+2026-11-02：前端与平台自动 Release 工作流
+- 新增 .github/workflows/release.yml，v* 标签自动拉取独立前端仓库并执行类型检查、单元测试和生产编译；前端产物一次构建，供平台各目标统一嵌入。输出独立前端 tar.gz，以及 Linux/macOS/Windows × amd64/arm64 的平台与 Operator 包，汇总 SHA256SUMS 发布到 GitHub Release。
+- 手动分支运行仅上传 Actions Artifacts，标签运行发布对应 Release；前端提交可由输入或 FRONTEND_REF 指定，私有仓库使用只读 FRONTEND_READ_TOKEN，build-info.json 保留实际前后端提交。仅发布任务具有 contents:write。README 增加使用与独立前端部署说明。
+- 验证：actionlint、工作流 YAML/依赖/权限/六目标与 shell 语法检查通过；前端类型检查、21 项单元测试与生产构建通过；真实前端归档及版本信息验证通过；Linux amd64 平台与 Operator 编译通过，并确认平台二进制嵌入首页和版本信息。云端矩阵与实际 GitHub Release 上传尚未运行；未推送或创建标签。

@@ -1,0 +1,160 @@
+name: kube-res-foresight release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      frontend_ref:
+        description: Frontend branch, tag, or commit (empty uses FRONTEND_REF or main)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Check out the management frontend
+        uses: actions/checkout@v6
+        with:
+          repository: cylonchau/kube-res-foresight-web
+          ref: ${{ inputs.frontend_ref || vars.FRONTEND_REF || 'main' }}
+          path: web
+          token: ${{ secrets.FRONTEND_READ_TOKEN || github.token }}
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Install pnpm
+        run: npm install --global pnpm@10.5.2
+      - name: Install and verify the frontend
+        working-directory: web
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm typecheck
+          pnpm test:unit
+          pnpm build
+          test -s dist/index.html
+      - name: Record build versions
+        id: metadata
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            version="$GITHUB_REF_NAME"
+          else
+            version="dev-${GITHUB_SHA:0:12}"
+          fi
+          [[ "$version" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]*$ ]]
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          export BUILD_VERSION="$version"
+          export FRONTEND_SHA="$(git -C web rev-parse HEAD)"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          Path('web/dist/build-info.json').write_text(json.dumps({
+              'version': os.environ['BUILD_VERSION'],
+              'backend_commit': os.environ['GITHUB_SHA'],
+              'frontend_commit': os.environ['FRONTEND_SHA'],
+          }, indent=2) + '\n', encoding='utf-8')
+          PY
+          mkdir -p target/release
+          tar -czf "target/release/kube-res-foresight-web_${version}.tar.gz" -C web/dist .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist/
+          if-no-files-found: error
+          include-hidden-files: true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-web
+          path: target/release/*
+          if-no-files-found: error
+
+  binaries:
+    needs: frontend
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        goos: [linux, darwin, windows]
+        goarch: [amd64, arm64]
+    env:
+      CGO_ENABLED: '0'
+      GOOS: ${{ matrix.goos }}
+      GOARCH: ${{ matrix.goarch }}
+      BUILD_VERSION: ${{ needs.frontend.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Download compiled console for embedding
+        uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: pkg/app/router/dist
+      - name: Compile and archive
+        run: |
+          test -s pkg/app/router/dist/index.html
+          mkdir -p target/release
+          extension=""
+          if [[ "$GOOS" == windows ]]; then extension=".exe"; fi
+          for component in kube-res-foresight kube-res-foresight-operator; do
+            entry=./cmd
+            if [[ "$component" == kube-res-foresight-operator ]]; then entry=./cmd/operator; fi
+            package="${component}_${BUILD_VERSION}_${GOOS}_${GOARCH}"
+            mkdir -p "target/package/$package"
+            go build -trimpath -ldflags "-s -w -X github.com/cylonchau/kube-res-foresight/pkg/version.Version=$BUILD_VERSION" \
+              -o "target/package/$package/$component$extension" "$entry"
+            if [[ "$GOOS" == windows ]]; then
+              (cd "target/package/$package" && zip -q "../../release/$package.zip" "$component$extension")
+            else
+              tar -czf "target/release/$package.tar.gz" -C "target/package/$package" "$component"
+            fi
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: target/release/*
+          if-no-files-found: error
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [frontend, binaries]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: target/release
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd target/release
+          sha256sum ./*.tar.gz ./*.zip > SHA256SUMS
+          prerelease=()
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then prerelease=(--prerelease); fi
+          if ! gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+              --verify-tag --generate-notes "${prerelease[@]}"
+          fi
+          gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --clobber \
+            ./*.tar.gz ./*.zip SHA256SUMS
