@@ -4,8 +4,8 @@ import (
 	"context"
 	"strconv"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/forecast"
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/forecast"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
 )
 
 // System parameters of the short-term correction of the algorithms that remember long (see forecast.ShortTerm).

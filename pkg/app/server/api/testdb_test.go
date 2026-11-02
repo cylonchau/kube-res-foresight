@@ -10,7 +10,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
 )
 
 // apiTestDB opens an isolated in-memory SQLite database with the identity tables the API tests share.

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/forecast"
+	"github.com/cylonchau/kube-res-foresight/pkg/forecast"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

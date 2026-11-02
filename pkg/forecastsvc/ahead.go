@@ -9,9 +9,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/decision"
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
-	"github.com/cylonchau/kube-resource-fcst/pkg/multimetric"
+	"github.com/cylonchau/kube-res-foresight/pkg/decision"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/multimetric"
 )
 
 // System parameters of the scale-ahead decision.

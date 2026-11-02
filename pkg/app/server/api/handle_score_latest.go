@@ -8,9 +8,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/app/query"
-	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
-	"github.com/cylonchau/kube-resource-fcst/pkg/scoring"
+	"github.com/cylonchau/kube-res-foresight/pkg/app/query"
+	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
+	"github.com/cylonchau/kube-res-foresight/pkg/scoring"
 )
 
 // ScoreRow is the newest grade of one algorithm of one module on one resource: the list of the algorithm scores has one such row per

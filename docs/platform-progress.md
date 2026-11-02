@@ -1,9 +1,10 @@
-# kube-resource-fcst 实施计划与执行进度
+# kube-res-foresight 实施计划与执行进度
 
 更新日期：2026-11-02。当前里程碑：P1～P6 的非真实环境部分与「预测系统优化」8 项需求（M1～M7）与「预测系统功能与页面优化」6 部分（R1～R10）均已实现并通过自动化测试与浏览器验收；真实环境验证仍缺。P7 算法质量：A0 基线测量、A1 回测公平、A2 低估敏感评分、A3 保形分位数、A4 Holt-Winters 补强与 Theta、A5 直接多步、A6 KNN 互斥区与时刻约束、A7 MSTL、A9 基础模型离线评估已完成，A8 未开始。官网已调整为项目首页与分层文档中心，中英文各有 31 篇独立指南（含 15 篇算法与模型参数手册），保留明暗主题、语言切换及 GitHub Pages 流程。
 
 | 本次工作包 | 状态 | 范围 |
 |---|---|---|
+| 项目改名为 kube-res-foresight | 本地完成，云端待操作 | Go、前端、官网、部署与技能统一命名；保留旧环境变量与数据库兼容；GitHub 远端因缺少管理凭据尚未改名 |
 | 官网近期功能同步 | 已完成 | AI 助手、LLM/Skill 配置、定时任务与邮件、首页概览四篇双语指南；更新效果报告与 Operator 恢复、补报、准入关联和 Limit 比例；清理退役演示入口 |
 | 官网算法参数手册 | 已完成 | 14 种内置算法与模型服务的 15 篇双语手册，覆盖 150 个参数条目、历史要求、JSON 示例、调参与使用流程；本地提交，不推送或发布 |
 | 官网 Logo 更新 | 已完成 | 七边形、七辐舵轮与趋势预测图形；导航、页脚和 favicon 共用 SVG；本地提交，不推送或发布 |
@@ -403,7 +404,7 @@ all ten management pages and the shared product title. Screenshots were inspecte
 - **算法评分**：`GET /algorithm-scores/latest` 每个模块×算法×资源只有最新一行（带资源排名、是否使用中），资源筛选（CPU/内存/GPU/综合）；评分把每个窗口的预测需要、实际需要、误差、使用的指标存进 `scoring.Result.details/sources`，详情分「评分结果 / 计算依据 / 历史评分」，依据里写公式与代入的数字。
 - **WAPE**：说明改成含义、公式、四步过程与例子、用途与局限；实测评估、实测排行榜、回测指标卡、评估详情、算法管理里的回测/实测 WAPE 都有问号（`MetricLabel`/`helpTitle`）；历史图例的 WAPE 文字后写出公式（图例里放不了图标）。
 - **算法清单**：内置 15 个算法已注册并由测试固定清单（含 theta；formula 是自写公式算法的基础）；A0–A5 已完成，A6 KNN 互斥区、A7 MSTL、A8 全局模型设计、A9 小型时序基础模型评估**未实现**。线上看不到 theta 是因为平台还是旧二进制，重启升级后出现。基线与统计类算法新增 `Definition.Method`（计算过程、公式、意义），naive 的说明写明它是最低对照。
-- **操作日志**：来源增加 Operator（operator 请求带 `X-kube-resource-fcst-Client: operator` 与 Pod 名），新增操作识别码 `request_id`（也在响应头）和 `client_name` 两列；列定义键 `createdAt`≠`created_at` 导致的原始字段名已改，其余未定义的列由 `fieldTitle()` 给中文名。
+- **操作日志**：来源增加 Operator（operator 请求带 `X-kube-res-foresight-Client: operator` 与 Pod 名），新增操作识别码 `request_id`（也在响应头）和 `client_name` 两列；列定义键 `createdAt`≠`created_at` 导致的原始字段名已改，其余未定义的列由 `fieldTitle()` 给中文名。
 - **乱码根因**：线上 `secret_key` 的 `operator` 备注与对应日志是非 UTF-8（GBK）请求体被解码成 U+FFFD 后入库，原文无法恢复。新增 `UTF8BodyMiddleware` 拒绝这类请求，截断改为字符边界，升级把已损坏的备注换成「请重新填写」的说明。
 - **用户管理**：用户接口补 email/phone/language，列表增加头像、更新时间、邮箱、手机、语言，昵称为空显示用户名。
 - **验证**：`go vet`、`go test ./pkg/... ./cmd/...` 通过（新增窗口明细、latest 端点、UTF-8 中间件、操作识别码、乱码修复、算法清单测试）；前端 `vue-tsc`、eslint（0 错误）、build、`node --test` 通过。**未验证**：浏览器 e2e（已改写、未运行）；operator 新头在集群里的实际效果（operator 镜像需重建部署）。
@@ -587,7 +588,7 @@ all ten management pages and the shared product title. Screenshots were inspecte
 
 2026-10-31：删除 CRD（PredictiveScaler）
 - **背景**：用户说“现在没有 CRD 了”，并选择“彻底删除 CRD 支持”。PredictiveScaler 只是把模块里已有的内容再写一遍，两处会不同步；operator 早就能只读平台模块（R21），CRD 路径成了第二套要同步维护的配置。
-- **删掉了什么**：`pkg/operator/api/v1alpha1`（类型、deepcopy、API group）；`reconciler.go` 的 CRD 控制器（状态条件、事件、`SetupWithManager`）；Static 与 Prometheus 两个决策来源（`prometheus.go`、`kube_resource_fcst_operator_prometheus_*` 指标）；Observe 模式；命令行 `--predictivescaler-crd`；每个 CRD 自带的平台地址、Secret 引用与超时；`deploy/operator/crd`、三个示例、Helm 的 `crds/`、`deploy/testbed/load-scalers.yaml`；RBAC 里对 `predictivescalers`、`secrets`、`events` 的权限；operator 冲突检测里“更早的 PredictiveScaler”。
+- **删掉了什么**：`pkg/operator/api/v1alpha1`（类型、deepcopy、API group）；`reconciler.go` 的 CRD 控制器（状态条件、事件、`SetupWithManager`）；Static 与 Prometheus 两个决策来源（`prometheus.go`、`kube_res_foresight_operator_prometheus_*` 指标）；Observe 模式；命令行 `--predictivescaler-crd`；每个 CRD 自带的平台地址、Secret 引用与超时；`deploy/operator/crd`、三个示例、Helm 的 `crds/`、`deploy/testbed/load-scalers.yaml`；RBAC 里对 `predictivescalers`、`secrets`、`events` 的权限；operator 冲突检测里“更早的 PredictiveScaler”。
 - **现在是什么**：`controller.Scaler`（内存里的普通结构，`PlatformModule.Scaler` 每轮从平台模块构造）→ `Applier.Evaluate`（读目标、`CachingDecider`/`PlatformDecider` 问平台、`MakePlan`、经 scale 子资源写副本、上报）；`ModuleSync` 按平台设置的间隔逐轮评估；`--platform-url` 必填，没有它 operator 拒绝启动。`MakePlan` 和缓存、恢复、紧急扩容、设置刷新的行为不变（原单测按新类型移植，规则的用例全部保留）。HPA、KEDA 冲突检测保留。
 - **清单与文档**：Helm 的 `platform.url` 变为必填（`required`），去掉 `predictiveScalerCRD`；纯清单 `manager.yaml` 带上平台参数和凭据 Secret 的挂载；README、NOTES、deploy/README、testbed 脚本与说明、AGENTS.md、control-plane 技能、代码地图都改成没有 CRD；较早的规格和需求文档（docs/0x、requirements 的几份）没有改写，只在开头加了一条 2026-10-31 的说明。官网 scaling 页同步并重新生成了 `site/`。
 - **数据与迁移**：operator 不在集群里存任何东西，所以没有数据要迁移。集群里已有的 CRD 和 PredictiveScaler 对象没有任何东西再读它们，由部署者自己删除（Helm README 里写了命令，没有替你执行）。
@@ -657,3 +658,10 @@ all ten management pages and the shared product title. Screenshots were inspecte
 - 新增 AI 助手与 Skill、LLM 连接配置、AI 定时任务与邮件、首页与运行概览四篇双语指南；说明聊天入口与权限、无需模型的技能、默认/指定模型、高级设置、自定义提示词、任务计划与时区、收件人范围、SMTP、运行记录和重试。明确资源查询与个人任务管理的操作范围，语言模型与时序模型分别管理。
 - 更新效果报告、Pod·小时与容量 SLO、变更预览范围；将 Operator 说明更新为缓存→保持→降级→恢复状态机，补充离线记录和 emptyDir 持久范围、请求 UID 与执行去重、Limit 与 OOM 系数。同步首页功能入口和 README，移除退役演示流程。每种语言 31 篇文章，产物 69 页。
 - 验证：站点生成与 69 页资源/锚点/双语目录检查、15 类算法及模型服务的参数示例校验、Pages 工作流检查、技能同步检查通过。Chromium 检查 62 个文章响应、56 次双语亮暗桌面/手机布局、SMTP 搜索、Skill 提示词复制、语言与锚点切换、首页新入口和无脚本阅读，无页面或资源错误。没有连接真实 LLM/SMTP，没有运行平台业务测试；本地提交，不推送或发布。
+
+2026-11-02：本地项目统一改名为 kube-res-foresight
+- 品牌、Go 模块与导入、命令、环境变量、HTTP/WS 协议标识、指标、前端与 SVG 文件名、官网、部署路径及两侧技能同步改为新名称。命名约定为 `kube-res-foresight`、`KUBE_RES_FORESIGHT_*`、`kube_res_foresight_*`。
+- 升级兼容：新环境变量优先，保留 `KUBE_RESOURCE_FCST_*` 和更早的 `KUBEFORECAST_*`；默认 SQLite 新文件不存在时优先读旧项目文件，不搬动数据；保留 JWT、加密密钥和时区的值。新增参数优先级、凭据解密、旧数据库和时区兼容测试。API/WS 客户端和监控查询需按 docs/renaming.md 同步切换新标识。
+- 验证：`go test -p 2 ./pkg/... ./cmd/... ./scripts/check-algorithm-docs`、`go build ./cmd/...`、`go vet ./pkg/... ./cmd/...` 通过，CLI help 显示新名称；前端类型检查、21 项单测与生产构建通过；69 页官网与算法参数检查、技能同步检查通过。Windows 文件保留原换行方式，diff 检查允许 CRLF。
+- 提交按改名拆分：原有和并行产生的业务修改保留在工作区，前后端只暂存名称变更；未提交的平台 Helm/Grafana 工作没有纳入本次提交。未操作集群，未推送。
+- GitHub 远端仍为 cylonchau/hermes：当前连接器无仓库重命名工具，本机无可用非交互凭据，未能执行云端改名，保留可用 remote 与官网实际仓库链接；管理员改名与后续 remote 更新步骤写入 docs/renaming.md。

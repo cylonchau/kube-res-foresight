@@ -72,7 +72,7 @@ func NewOpenAI(c Connection) LLM {
 	}
 	opts := []option.RequestOption{option.WithBaseURL(c.Endpoint), option.WithAPIKey(c.APIKey), option.WithMaxRetries(1),
 		option.WithHTTPClient(&http.Client{Transport: transport}), option.WithRequestTimeout(c.Timeout),
-		option.WithHeader("User-Agent", "kube-resource-fcst-assistant")}
+		option.WithHeader("User-Agent", "kube-res-foresight-assistant")}
 	for _, h := range c.Headers {
 		opts = append(opts, option.WithHeader(h.Key, h.Value))
 	}

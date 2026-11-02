@@ -12,7 +12,7 @@
 // detection task down with it.
 package notifytask
 
-import "github.com/cylonchau/kube-resource-fcst/pkg/job/tasks/notifyjob"
+import "github.com/cylonchau/kube-res-foresight/pkg/job/tasks/notifyjob"
 
 // JobType is this task's identifier.
 const JobType = notifyjob.JobType

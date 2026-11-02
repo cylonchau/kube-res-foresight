@@ -9,8 +9,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/app/query"
-	"github.com/cylonchau/kube-resource-fcst/pkg/forecastsvc"
+	"github.com/cylonchau/kube-res-foresight/pkg/app/query"
+	"github.com/cylonchau/kube-res-foresight/pkg/forecastsvc"
 )
 
 // MetricCatalog lists every queryable forecasting metric with its unit, labels, source table and retention.

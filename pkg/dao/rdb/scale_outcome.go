@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
 )
 
 // SaveOutcome records a scale-up decided ahead of the load.

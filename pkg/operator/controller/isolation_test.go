@@ -18,10 +18,10 @@ func TestTheOperatorHasNoPathToTheDatabase(t *testing.T) {
 		t.Skip("the go tool is not available")
 	}
 	out, err := exec.Command("go", "list", "-deps", "-f", "{{.ImportPath}} {{join .Imports \" \"}}",
-		"github.com/cylonchau/kube-resource-fcst/pkg/cmd/operator").Output()
+		"github.com/cylonchau/kube-res-foresight/pkg/cmd/operator").Output()
 	require.NoError(t, err)
 
-	const own = "github.com/cylonchau/kube-resource-fcst/pkg/"
+	const own = "github.com/cylonchau/kube-res-foresight/pkg/"
 	allowed := map[string]bool{"cmd/operator": true, "operator/controller": true, "timezone": true, "timing": true, "utils": true}
 	forbidden := []string{"gorm.io/", "modernc.org/sqlite", "github.com/glebarez/", "github.com/go-sql-driver/", "github.com/jackc/", "github.com/lib/pq", "github.com/mattn/go-sqlite3"}
 

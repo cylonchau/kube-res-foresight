@@ -7,10 +7,10 @@ import (
 	"sort"
 	"time"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/backtest"
-	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
-	"github.com/cylonchau/kube-resource-fcst/pkg/forecast"
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/backtest"
+	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
+	"github.com/cylonchau/kube-res-foresight/pkg/forecast"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
 )
 
 // maxRunsPerAlgorithm bounds the evaluations done for one algorithm in one pass.

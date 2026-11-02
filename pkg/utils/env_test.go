@@ -6,7 +6,7 @@ import (
 )
 
 func TestProjectEnvPrefersNewNameAndPreservesLegacyValue(t *testing.T) {
-	const current = "KUBE_RESOURCE_FCST_COMPAT_TEST"
+	const current = "KUBE_RES_FORESIGHT_COMPAT_TEST"
 	const legacy = "KUBEFORECAST_COMPAT_TEST"
 	t.Setenv(current, "")
 	if err := os.Unsetenv(current); err != nil {
@@ -28,8 +28,8 @@ func TestProjectEnvPrefersNewNameAndPreservesLegacyValue(t *testing.T) {
 
 func TestEncryptionKeySurvivesEnvironmentRename(t *testing.T) {
 	const key = "12345678901234567890123456789012"
-	t.Setenv("KUBE_RESOURCE_FCST_SECRET_KEY", "")
-	if err := os.Unsetenv("KUBE_RESOURCE_FCST_SECRET_KEY"); err != nil {
+	t.Setenv("KUBE_RES_FORESIGHT_SECRET_KEY", "")
+	if err := os.Unsetenv("KUBE_RES_FORESIGHT_SECRET_KEY"); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("KUBEFORECAST_SECRET_KEY", key)
@@ -37,12 +37,12 @@ func TestEncryptionKeySurvivesEnvironmentRename(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("KUBE_RESOURCE_FCST_SECRET_KEY", key)
+	t.Setenv("KUBE_RES_FORESIGHT_SECRET_KEY", key)
 	plaintext, err := DecryptValue(ciphertext)
 	if err != nil || plaintext != "stored-datasource-credential" {
 		t.Fatalf("credential unreadable after rename: %v", err)
 	}
-	t.Setenv("KUBE_RESOURCE_FCST_SECRET_KEY", "different-value-12345678901234567890")
+	t.Setenv("KUBE_RES_FORESIGHT_SECRET_KEY", "different-value-12345678901234567890")
 	if _, err := DecryptValue(ciphertext); err == nil {
 		t.Fatal("new variable must take precedence over the legacy key")
 	}

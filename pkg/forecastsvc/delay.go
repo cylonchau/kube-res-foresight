@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
-	"github.com/cylonchau/kube-resource-fcst/pkg/decision"
+	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
+	"github.com/cylonchau/kube-res-foresight/pkg/decision"
 )
 
 // DefaultDelayHours is the window the delay report looks at when none is asked for.

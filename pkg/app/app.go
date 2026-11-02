@@ -5,11 +5,11 @@ import (
 	"embed"
 	"errors"
 	"fmt"
-	"github.com/cylonchau/kube-resource-fcst/pkg/app/middleware"
-	"github.com/cylonchau/kube-resource-fcst/pkg/app/query"
-	"github.com/cylonchau/kube-resource-fcst/pkg/app/router"
-	"github.com/cylonchau/kube-resource-fcst/pkg/config"
-	"github.com/cylonchau/kube-resource-fcst/pkg/logger"
+	"github.com/cylonchau/kube-res-foresight/pkg/app/middleware"
+	"github.com/cylonchau/kube-res-foresight/pkg/app/query"
+	"github.com/cylonchau/kube-res-foresight/pkg/app/router"
+	"github.com/cylonchau/kube-res-foresight/pkg/config"
+	"github.com/cylonchau/kube-res-foresight/pkg/logger"
 	"github.com/gin-gonic/gin"
 	"io/fs"
 	"net/http"
@@ -24,7 +24,7 @@ var staticFS embed.FS
 func NewHTTPServer(ctx context.Context) error {
 	cfg := config.Get()
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)
-	logger.Info("kube-resource-fcst HTTP server listening", logger.String("addr", addr))
+	logger.Info("kube-res-foresight HTTP server listening", logger.String("addr", addr))
 
 	// Initialize Gin
 	gin.SetMode(gin.ReleaseMode)
@@ -92,7 +92,7 @@ func NewHTTPServer(ctx context.Context) error {
 		}
 		return err
 	case <-ctx.Done():
-		logger.Info("kube-resource-fcst HTTP server shutting down")
+		logger.Info("kube-res-foresight HTTP server shutting down")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := server.Shutdown(shutdownCtx); err != nil {
@@ -109,7 +109,7 @@ func NewHTTPServer(ctx context.Context) error {
 				return err
 			}
 		case <-time.After(time.Second):
-			logger.Warn("kube-resource-fcst HTTP listener did not report shutdown in time")
+			logger.Warn("kube-res-foresight HTTP listener did not report shutdown in time")
 		}
 		return nil
 	}

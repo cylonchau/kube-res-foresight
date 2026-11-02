@@ -2,13 +2,13 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "kube-resource-fcst-operator.fullname" . }}-metrics
+  name: {{ include "kube-res-foresight-operator.fullname" . }}-metrics
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "kube-resource-fcst-operator.labels" . | nindent 4 }}
+    {{- include "kube-res-foresight-operator.labels" . | nindent 4 }}
 spec:
   selector:
-    {{- include "kube-resource-fcst-operator.selectorLabels" . | nindent 4 }}
+    {{- include "kube-res-foresight-operator.selectorLabels" . | nindent 4 }}
   ports:
     - name: metrics
       port: {{ .Values.metrics.port }}

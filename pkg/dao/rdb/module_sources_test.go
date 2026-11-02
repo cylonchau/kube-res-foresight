@@ -10,7 +10,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
 )
 
 func moduleTestDB(t *testing.T) *gorm.DB {

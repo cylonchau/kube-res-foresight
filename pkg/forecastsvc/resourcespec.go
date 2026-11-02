@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/decision"
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/decision"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
 )
 
 // The resource spec of a workload (the CPU and memory requests every Pod gets at admission) and its replica count are two

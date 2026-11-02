@@ -1,4 +1,4 @@
-// Package controller holds the scaling engine of kube-resource-fcst-operator. The scaling rules live in MakePlan, a pure
+// Package controller holds the scaling engine of kube-res-foresight-operator. The scaling rules live in MakePlan, a pure
 // function, so every safety rule can be tested without a cluster; the Applier only gathers its inputs and applies its result.
 package controller
 

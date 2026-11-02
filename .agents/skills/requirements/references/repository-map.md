@@ -1,10 +1,10 @@
-# kube-resource-fcst 代码接入地图
+# kube-res-foresight 代码接入地图
 
 路径以仓库根目录为基准，来自融合时源码检查，实施仍需核对最新代码。研究组件名不代表已存在的目录或服务。
 
 | 领域 | 当前实现 / 最近示例 | 接入规则 |
 |---|---|---|
-| 入口 | cmd/main.go（平台）、cmd/operator/main.go（kube-resource-fcst-operator）；pkg/cmd | Cobra + bootstrap 生命周期，复用配置 |
+| 入口 | cmd/main.go（平台）、cmd/operator/main.go（kube-res-foresight-operator）；pkg/cmd | Cobra + bootstrap 生命周期，复用配置 |
 | HTTP | pkg/app/app.go、pkg/app/router/router.go | Gin /api/v1，显式构造 handler 注入 DAO；受保护路由在 JWT/Casbin/操作日志中间件后注册 |
 | 分层 | pkg/apis → pkg/app/server/api → pkg/dao/rdb → pkg/model | 找最近 CRUD 扩展；算法/控制逻辑不能塞进 handler |
 | 数据库 | pkg/store/rdb_store.go、pkg/migration/migration.go | 已支持 SQLite/MySQL/PostgreSQL；模型注册并接显式 --migration/--upgrade，普通启动不做破坏迁移 |
@@ -13,8 +13,8 @@
 | 任务 | pkg/job/scheduler.go、pkg/job/tasks/registry.go | 复用持久化、claim/heartbeat/retry；目前仅注册 notifytask，新预测/回填独立注册 |
 | 数据源 | pkg/model/datasource.go、metric_mapping.go；pkg/promclient；handle_datasource.go、handle_metric_mapping.go；web/src/views/datasource | P1-01 已实现连接管理与指标映射，复用其扩展 P1-02 采集；Prometheus 访问统一经 pkg/promclient |
 | 预测流水线 | pkg/collector（模板渲染、分段、质量）、pkg/forecast（算法与参数 schema）、pkg/backtest（滚动回测与晋升）、pkg/decision（推荐决策，纯函数）、pkg/forecastsvc（编排、实测回填、排行榜、Prometheus 指标）；pkg/model/forecast.go；pkg/dao/rdb/forecast_module.go、forecast_data.go；handle_forecast.go、handle_runtime.go、handle_audit.go；pkg/job/tasks/forecasttask | 新增算法在 forecast 包实现并注册，保持无状态、可取消，配单测与回测断言；定时任务 forecast.run/backtest/evaluate 由迁移种子创建 |
-| Operator | pkg/operator/controller（`MakePlan` 纯函数、`Applier` 读目标/问决策/写副本、`ModuleSync` 按平台模块逐轮评估、`PlatformDecider`/`CachingDecider`、`SettingsStore`/`SettingsRefresher`、`Metrics`）、pkg/cmd/operator；deploy/operator（RBAC、manager、monitoring）、deploy/helm/kube-resource-fcst-operator | 没有 CRD（2026-10-31 删除）；规则改动同步 plan_test.go；只用 fake client 与假平台测过 |
-| 准入 | deploy/kyverno/kube-resource-fcst-requests.yaml、handle_runtime.go 的 Admission | Kyverno 策略为未验证草稿；接口只回 requests |
+| Operator | pkg/operator/controller（`MakePlan` 纯函数、`Applier` 读目标/问决策/写副本、`ModuleSync` 按平台模块逐轮评估、`PlatformDecider`/`CachingDecider`、`SettingsStore`/`SettingsRefresher`、`Metrics`）、pkg/cmd/operator；deploy/operator（RBAC、manager、monitoring）、deploy/helm/kube-res-foresight-operator | 没有 CRD（2026-10-31 删除）；规则改动同步 plan_test.go；只用 fake client 与假平台测过 |
+| 准入 | deploy/kyverno/kube-res-foresight-requests.yaml、handle_runtime.go 的 Admission | Kyverno 策略为未验证草稿；接口只回 requests |
 | LDAP | pkg/ldapauth（Directory 接口、go-ldap 客户端、store.go 读写 ldap.* 系统参数、Service：登录/映射/同步）、pkg/model/ldap.go、handle_ldap.go、pkg/job/tasks/ldaptask；web/src/components/business/ldap-settings-panel.vue，在系统管理→系统参数的 LDAP 分类里显示 | 本地账号永远本地认证；明文 ldap:// 被拒绝；测试服务器见 pkg/ldapauth/testserver_test.go |
 | 预设与演示 | pkg/preset（只读 PromQL 预设库，含来源/限制，均标未验证）、pkg/demo（合成数据生成器，识别预设的序列名）、handle_preset.go；预设在指标模板表单里挑选（R21 删除了「内置指标预设库」页面）。**一键演示已于 2026-10-30 删除**（接口 /forecast-demo、模块列表上的按钮、forecastsvc/demo.go 都没有了）：一个由合成数据生成的 demo-shop 模块混在正式模块里容易被当成真实工作负载；pkg/demo 只剩给预设单测用，`--migration`/`--upgrade` 由 pkg/migration/retire_demo.go 删除遗留的 demo-shop 模块、demo-synthetic 数据源及其映射 | 保留 type=demo 数据源的查询分支只为迁移前的库不报错；映射保存 preset_id |
 | 算法框架与数据集 | pkg/forecast/{registry,builders,formula,custom}.go（注册表、内置实现、公式引擎、自定义算法注册）、pkg/collector/shape.go（栅格聚合/换算/精度）、forecastsvc/{custom,requirements,metricscore}.go、handle_{algorithm_custom,dataset,training,scoring}.go、model/training.go；web/src/components/{advanced/{duration-input,param-schema-editor},business/{custom-algorithm-form,formula-preview,score-breakdown,record-detail-modal}}.vue、views/monitoring/datasets | 算法只经 forecast.Register 进入平台；公式在保存前真实试算；数据集栅格与来源形态变化会重建序列；见 requirements/references/algorithm-framework-spec.md |
@@ -28,7 +28,7 @@
 | AI 定时任务（框架：提示词＋计划，系统到点去问 LLM，回答发邮件）、邮件渠道 | pkg/assistant/tasks.go（计划校验、SaveTask、ScheduleDue、RunTask、聊天里的三个任务工具）、model.AssistantTask／AssistantTaskRun＋dao/rdb/assistant_task.go、pkg/job/tasks/aitask（作业 ai.schedule、ai.run 与 Queue）、pkg/job/tasks/ai_register.go、pkg/notify/email（SMTP 渠道，参数 notify.email.*）、handle_assistant_task.go、路由 /assistant/tasks*；web views/ai-config/task（列表＋抽屉＋运行记录）；菜单码 ai-config_task，migration 播种任务定义 ai.schedule（@every 1m） | 不为任何具体报告写代码；聊天创建的任务只发到创建人自己的邮箱；定时运行里没有任务工具；最短间隔 1 小时、每人 20 个；作业重试接着同一次运行；规则见 docs/02-系统架构.md 三（附二）5.1 |
 | 首页 dashboard | pkg/forecastsvc/dashboard.go（模块计数、需要关注的模块与旗标、operator 已执行的扩缩容按时间段累计）、pkg/dao/rdb/dashboard.go（固定条数的读取）、handle_module_data.go 的 Dashboard、路由 GET /dashboard；web views/dashboard；菜单码 dashboard（pkg/migration 种子），GetUserRoutes 在有它时把落地页设为 dashboard | 只读，不写任何表；旗标：连续失败 ≥3 次、结果降级、推荐已过期、应有推荐却从未产生、已旁路；观察模式与不预测的模块不因“没有推荐”被标记 |
 | 指标 | pkg/metrics/metrics.go、pkg/forecastsvc/metrics.go | Registry/Factory；metrics.listen 提供 /metrics、/healthz、/readyz；预测状态由 forecastsvc.Collector 在抓取时读库（缓存 10 秒，标签仅 module/metric/algorithm/resource/source） |
-| 配置 | pkg/config、handle_sys_config.go、handle_secret_key.go | 复用 Viper/KUBE_RESOURCE_FCST_ 环境变量和密钥保护；未来集群凭据另定义 Secret 接入 |
+| 配置 | pkg/config、handle_sys_config.go、handle_secret_key.go | 复用 Viper/KUBE_RES_FORESIGHT_ 环境变量和密钥保护；未来集群凭据另定义 Secret 接入 |
 | UI | web/src/views；web/package.json | Vue3/TypeScript/Naive UI/Pinia/i18n/ElegantRouter，沿用页面模式 |
 | 页面示例 | web/src/views/authorization/user/index.vue、web/src/views/system/config/index.vue、web/src/views/task-center/definition/index.vue、web/src/views/datasource/metric-mappings/index.vue | 找最近列表/表单，不独立重设计 |
 | 表格 | web/src/components/advanced/expandable-data-table.vue、table-header-operation.vue、table-column-setting.vue；web/src/hooks/business/use-table-column-config.ts | 复用用户列配置；大数据分页、检索、排序在服务端 |

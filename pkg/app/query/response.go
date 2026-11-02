@@ -3,7 +3,7 @@ package query
 import (
 	"context"
 	"errors"
-	"github.com/cylonchau/kube-resource-fcst/pkg/logger"
+	"github.com/cylonchau/kube-res-foresight/pkg/logger"
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
 	"gorm.io/gorm"

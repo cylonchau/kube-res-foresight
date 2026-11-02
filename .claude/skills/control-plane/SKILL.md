@@ -1,6 +1,6 @@
 ---
 name: control-plane
-description: 用于 kube-resource-fcst Operator、副本执行和 Platform Prometheus Metrics 的设计实现及审查，检查副本唯一控制者和故障恢复。
+description: 用于 kube-res-foresight Operator、副本执行和 Platform Prometheus Metrics 的设计实现及审查，检查副本唯一控制者和故障恢复。
 ---
 
 # 控制面与副本执行
@@ -11,7 +11,7 @@ description: 用于 kube-resource-fcst Operator、副本执行和 Platform Prome
 
 1. 按目标集群版本和能力发现选择 Kubernetes SDK/controller-runtime。operator 不在集群里创建任何自定义资源，不发布 API group。
 2. 交付 RBAC、manifests 和兼容测试；不能把研究字段当 Kubernetes 原生字段。
-3. Auto 前确认副本控制权（由 kube-resource-fcst-operator 取代 HPA/KEDA）；存在 HPA/KEDA 或其他写入控制器时拒绝双写并告警。切换执行后端先释放原所有者。
+3. Auto 前确认副本控制权（由 kube-res-foresight-operator 取代 HPA/KEDA）；存在 HPA/KEDA 或其他写入控制器时拒绝双写并告警。切换执行后端先释放原所有者。
 4. 每一轮读平台的模块和决策，检查硬边界、冷却、限幅、最低 Ready 容量，再通过 scale 子资源修改目标副本。分别记录 API 结果与 current/desired/ready，写成功不等于 Pod Ready。PDB 不替代显式缩容保护。
 5. 重复事件和重启保持幂等并恢复冷却/决策；过期或模型故障停止危险缩容并显示 fallback。固定周期和 bypass 遵循 [admission-safety](../admission-safety/SKILL.md)。
 6. 提前量包含抓取、推理、控制循环、Pod P95 Ready 与必要 Node 启动时间；不能预测任意瞬时 burst，使用最低 Ready 容量保障。
@@ -20,19 +20,19 @@ description: 用于 kube-resource-fcst Operator、副本执行和 Platform Prome
 
 管理 API 接既有 Gin/DAO/Vue，运行入口沿用 pkg/cmd 生命周期。研究中的服务名不要求拆成八个微服务，新业务包路径实施时确定。
 
-复用 pkg/metrics Registry 和 HTTP 生命周期，已有 /metrics、/healthz、/readyz。Factory 自带 kube_resource_fcst_ 前缀；研究 predictive_* 命名须先确定映射，避免重复前缀/注册。指标包含预测、年龄、fallback/override、误差、实际/目标副本及动作结果，明确 HELP/TYPE/单位和基数预算；run/request/Pod UID/时间戳放库内。Exporter 只供观测，控制/准入不等待 Prometheus 抓取回读。
+复用 pkg/metrics Registry 和 HTTP 生命周期，已有 /metrics、/healthz、/readyz。Factory 自带 kube_res_foresight_ 前缀；研究 predictive_* 命名须先确定映射，避免重复前缀/注册。指标包含预测、年龄、fallback/override、误差、实际/目标副本及动作结果，明确 HELP/TYPE/单位和基数预算；run/request/Pod UID/时间戳放库内。Exporter 只供观测，控制/准入不等待 Prometheus 抓取回读。
 
 验证 HPA 冲突、重启恢复、过期推荐、重复 reconcile、限幅、API 失败、Ready 延迟及指标审计对账。Observe→Recommend→Admission→Auto 逐阶段推进，使用隔离集群及实际验证证据。
 
-## kube-resource-fcst-operator：模块就是配置，没有 CRD
+## kube-res-foresight-operator：模块就是配置，没有 CRD
 
-**2026-10-31 删除了 CRD**：`PredictiveScaler` 只是把模块里已有的内容（工作负载、上下界、fallback、节奏）再写一遍，两处会不同步，现在 operator 只读平台的模块，不在集群里创建任何资源，只写目标的副本。删掉的有：`pkg/operator/api/v1alpha1`、`deploy/operator/crd` 与示例、Helm 的 `crds/`、控制器与状态条件、Static 和 Prometheus 决策来源、Observe 模式、命令行 `--predictivescaler-crd`，RBAC 里对 `predictivescalers`、`secrets`、`events` 的权限，以及 `kube_resource_fcst_operator_prometheus_*` 指标。集群里残留的 CRD 与对象由部署者自己删除（`kubectl delete crd predictivescalers.autoscaling.kube-resource-fcst.io`），没有任何东西再读它们。
+**2026-10-31 删除了 CRD**：`PredictiveScaler` 只是把模块里已有的内容（工作负载、上下界、fallback、节奏）再写一遍，两处会不同步，现在 operator 只读平台的模块，不在集群里创建任何资源，只写目标的副本。删掉的有：`pkg/operator/api/v1alpha1`、`deploy/operator/crd` 与示例、Helm 的 `crds/`、控制器与状态条件、Static 和 Prometheus 决策来源、Observe 模式、命令行 `--predictivescaler-crd`，RBAC 里对 `predictivescalers`、`secrets`、`events` 的权限，以及 `kube_res_foresight_operator_prometheus_*` 指标。集群里残留的 CRD 与对象由部署者自己删除（`kubectl delete crd predictivescalers.autoscaling.kube-res-foresight.io`），没有任何东西再读它们。
 
 - 入口：`--platform-url`（必填）、`--platform-credential-file`、`--platform-ca-file`、`--platform-sync-interval`（与缓存、恢复相关的几个只是启动值，见下面“时间限制是系统参数”）。每个周期读 `GET /api/v1/operator/modules`（enabled、auto、非 bypass、有副本、Deployment/StatefulSet，且 `forecast.allow_auto_mode` 打开），为每个模块在内存里构造一个 `controller.Scaler`（`PlatformModule.Scaler`），交给 `Applier.Evaluate`：读目标、问平台要决策、套 `MakePlan`、经 scale 子资源写副本。模块上的 min/max（动态最大值取当前生效的）、fallback、`scale_up/down_max_step`、`scale_up/down_cooldown_seconds`、模式、bypass、启用状态下个周期生效。平台读不到时副本不动（见缓存）；`max_replicas<1` 或 min>max 的模块被跳过（否则会被夹到 0）；同一目标有 HPA 或 KEDA ScaledObject 时以它们为准并回报冲突。冷却时钟在 operator 内存里（重启后重新计时）。
 - 规则全部在纯函数 `controller.MakePlan`：冲突则不动作；新鲜决策为目标，缺失/过期决策用 fallback 否则冻结且永不缩容；目标裁剪到 [min,max]，当前值越界时无视冷却和 Ready 强制纠正；未全部 Ready 时暂缓缩容；按方向冷却与 maxStep 限幅。改规则必须同步 plan_test.go。
 - 决策来源只有平台：`GET /api/v1/operator/decisions`（开发者凭据，`POST /api/v1/operator/reports` 回传，响应含 `created_at` 供上报决策年龄）。Adapter（external metrics）来源**有意不做**：本 operator 取代 HPA/KEDA，不依赖它们。平台侧还检查 `forecast.allow_auto_mode`，关闭即回 `available=false`。向平台上报只在有动作/暂缓/冲突/错误且与上次不同时发生。
-- 业务指标（pkg/operator/controller/metrics.go，kube_resource_fcst_operator_ 前缀，注册在 controller-runtime metrics.Registry，随其 /metrics 端点导出）：reconciles_total{result}、reconcile_duration_seconds、scale_actions_total{direction,result}、conflicts_total{source}、desired/current/ready_replicas{module}、decision_valid / decision_expires_in_seconds / decision_age_seconds{module}、platform_requests_total{result}。标签只用 module/direction/result/source，module 为平台模块名（无则 scaler 名）；Metrics 为 nil 时全部空操作。metrics_test.go 用 fake client 校对一次对账后的数值与标签基数。清单 deploy/operator/monitoring（Service+ServiceMonitor）。
-- 入口 `kube-resource-fcst operator`（pkg/cmd/operator，默认开启 leader election）；清单 deploy/operator 与 Helm chart。验证只用 controller-runtime fake client 和假平台：未做 envtest 与真实集群，扩缩容、RBAC、leader election 切换、Helm 渲染都未验证。
+- 业务指标（pkg/operator/controller/metrics.go，kube_res_foresight_operator_ 前缀，注册在 controller-runtime metrics.Registry，随其 /metrics 端点导出）：reconciles_total{result}、reconcile_duration_seconds、scale_actions_total{direction,result}、conflicts_total{source}、desired/current/ready_replicas{module}、decision_valid / decision_expires_in_seconds / decision_age_seconds{module}、platform_requests_total{result}。标签只用 module/direction/result/source，module 为平台模块名（无则 scaler 名）；Metrics 为 nil 时全部空操作。metrics_test.go 用 fake client 校对一次对账后的数值与标签基数。清单 deploy/operator/monitoring（Service+ServiceMonitor）。
+- 入口 `kube-res-foresight operator`（pkg/cmd/operator，默认开启 leader election）；清单 deploy/operator 与 Helm chart。验证只用 controller-runtime fake client 和假平台：未做 envtest 与真实集群，扩缩容、RBAC、leader election 切换、Helm 渲染都未验证。
 
 **operator 只管副本（R10）**：operator 决策接口只回副本数与边界，不回 CPU/内存；Pod 资源由准入设置并保持不变，二者读同一个推荐快照里互不重叠的字段，不会冲突。操作记录里「执行失败」「冲突未执行」属于回退记录，「没有可用决策」属于降级记录（见规格第 16.7 节）。
 - **前瞻决策与紧急扩容（R19）**：动态副本由 `pkg/forecastsvc/ahead.go` 在 `recommend` 里把各算法的副本需求并起来：提前量（实测就绪时间 P90＋节点＋决策等待＋偏晚余量）窗口上的可信度加权分位共识决定扩容，整个预测范围的更严分位共识加当前实测负载决定缩容；实测负载需要的副本数超过预测和现有就直接要求并标 `urgent`，`OperatorDecision.urgent` → `controller.Decision.Urgent` → `MakePlan` 对 `urgent` 的扩容跳过冷却和 maxStep（缩容不受影响）。改任何一环要同步 `ahead_test.go`、`plan_test.go`。未在真实集群验证。

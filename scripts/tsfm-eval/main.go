@@ -25,10 +25,10 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/backtest"
-	"github.com/cylonchau/kube-resource-fcst/pkg/collector"
-	"github.com/cylonchau/kube-resource-fcst/pkg/forecast"
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/backtest"
+	"github.com/cylonchau/kube-res-foresight/pkg/collector"
+	"github.com/cylonchau/kube-res-foresight/pkg/forecast"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
 )
 
 // remote is a foundation model behind a ready-made UniTS-Hub container (kingfs/unitshub, one model per container). The

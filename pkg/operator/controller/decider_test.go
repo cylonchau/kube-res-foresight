@@ -22,7 +22,7 @@ func TestPlatformDeciderSendsTheCredentialAndParsesTheDecision(t *testing.T) {
 	valid := time.Now().Add(10 * time.Minute).UTC().Truncate(time.Second)
 	var gotAuth, gotModule, gotPath, gotClient string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotAuth, gotModule, gotPath, gotClient = r.Header.Get("Authorization"), r.URL.Query().Get("module"), r.URL.Path, r.Header.Get("X-kube-resource-fcst-Client")
+		gotAuth, gotModule, gotPath, gotClient = r.Header.Get("Authorization"), r.URL.Query().Get("module"), r.URL.Path, r.Header.Get("X-kube-res-foresight-Client")
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"code": 10000, "msg": "success", "data": map[string]any{
 			"available": true, "module": "api", "version": 12, "replicas": 7, "valid_until": valid, "source": "algorithm", "reason": "peak 650 rps"}})
@@ -31,7 +31,7 @@ func TestPlatformDeciderSendsTheCredentialAndParsesTheDecision(t *testing.T) {
 
 	d, err := platformDecider(server.URL+"/", "AK123:SK456").Decide(context.Background(), scaler())
 	require.NoError(t, err)
-	assert.Equal(t, "kube-resource-fcst-AK AK123:SK456", gotAuth)
+	assert.Equal(t, "kube-res-foresight-AK AK123:SK456", gotAuth)
 	assert.Equal(t, "operator", gotClient, "the platform records who is calling")
 	assert.Equal(t, "api", gotModule)
 	assert.Equal(t, "/api/v1/operator/decisions", gotPath)

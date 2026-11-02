@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
 )
 
 // AllModules returns every module, enabled or not, without its sources: the home page counts them and looks at their state.

@@ -6,8 +6,8 @@ import (
 )
 
 func TestCrypto(t *testing.T) {
-	os.Setenv("KUBE_RESOURCE_FCST_SECRET_KEY", "12345678901234567890123456789012") // 32 bytes
-	defer os.Unsetenv("KUBE_RESOURCE_FCST_SECRET_KEY")
+	os.Setenv("KUBE_RES_FORESIGHT_SECRET_KEY", "12345678901234567890123456789012") // 32 bytes
+	defer os.Unsetenv("KUBE_RES_FORESIGHT_SECRET_KEY")
 
 	plaintext := "hello-world-secret-123"
 
@@ -35,8 +35,8 @@ func TestCrypto(t *testing.T) {
 }
 
 func TestCryptoInvalidKey(t *testing.T) {
-	os.Setenv("KUBE_RESOURCE_FCST_SECRET_KEY", "too-short")
-	defer os.Unsetenv("KUBE_RESOURCE_FCST_SECRET_KEY")
+	os.Setenv("KUBE_RES_FORESIGHT_SECRET_KEY", "too-short")
+	defer os.Unsetenv("KUBE_RES_FORESIGHT_SECRET_KEY")
 
 	_, err := EncryptValue("test")
 	if err == nil {
@@ -45,7 +45,7 @@ func TestCryptoInvalidKey(t *testing.T) {
 }
 
 func TestCryptoUsesDefaultKeyWhenEnvMissing(t *testing.T) {
-	os.Unsetenv("KUBE_RESOURCE_FCST_SECRET_KEY")
+	os.Unsetenv("KUBE_RES_FORESIGHT_SECRET_KEY")
 
 	plaintext := "default-key-secret"
 	encrypted, err := EncryptValue(plaintext)

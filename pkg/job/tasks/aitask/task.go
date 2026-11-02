@@ -10,10 +10,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/assistant"
-	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
-	"github.com/cylonchau/kube-resource-fcst/pkg/logger"
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/assistant"
+	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
+	"github.com/cylonchau/kube-res-foresight/pkg/logger"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
 )
 
 const (

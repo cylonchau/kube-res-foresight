@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/forecast"
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
-	"github.com/cylonchau/kube-resource-fcst/pkg/timing"
+	"github.com/cylonchau/kube-res-foresight/pkg/forecast"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/timing"
 )
 
 // seriesKey names a series at a model service: the module, the source and the algorithm instance, so two instances of

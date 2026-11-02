@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/timing"
+	"github.com/cylonchau/kube-res-foresight/pkg/timing"
 )
 
 // Decider reads the desired replicas of a scaler.
@@ -59,7 +59,7 @@ type PlatformEndpoint struct {
 	Client *http.Client
 }
 
-// PlatformDecider asks the kube-resource-fcst platform for the replicas of a module. It also implements Reporter.
+// PlatformDecider asks the kube-res-foresight platform for the replicas of a module. It also implements Reporter.
 type PlatformDecider struct {
 	Metrics *Metrics
 	// Endpoint is the platform every module is read from.
@@ -120,11 +120,11 @@ func (d *PlatformDecider) request(ctx context.Context, method, path string, quer
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "kube-resource-fcst-AK "+d.Endpoint.Credential)
+	req.Header.Set("Authorization", "kube-res-foresight-AK "+d.Endpoint.Credential)
 	// who is calling: the platform records it in the operation log (source "operator", the Pod as the client name)
-	req.Header.Set("X-kube-resource-fcst-Client", "operator")
+	req.Header.Set("X-kube-res-foresight-Client", "operator")
 	if host, err := os.Hostname(); err == nil && host != "" {
-		req.Header.Set("X-kube-resource-fcst-Client-Name", host)
+		req.Header.Set("X-kube-res-foresight-Client-Name", host)
 	}
 	req.Header.Set("Accept", "application/json")
 	if body != nil {

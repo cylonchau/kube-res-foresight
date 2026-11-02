@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/collector"
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/collector"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
 )
 
 // Candle is the actual value of a metric over one bucket of the chart: the first, highest, lowest and last value and the

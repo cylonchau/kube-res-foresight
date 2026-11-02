@@ -6,8 +6,8 @@ import (
 	"math"
 	"time"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/collector"
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/collector"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
 )
 
 // CollectResult is the outcome of collecting one metric.

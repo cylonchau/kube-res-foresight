@@ -20,8 +20,8 @@ if [ -z "$RAW_NAME" ]; then
     exit 1
 fi
 
-# 剥离可能存在的 kube-resource-fcst- 前缀用于查找 cmd 目录中的源码
-CLEAN_NAME="${RAW_NAME#kube-resource-fcst-}"
+# 剥离可能存在的 kube-res-foresight- 前缀用于查找 cmd 目录中的源码
+CLEAN_NAME="${RAW_NAME#kube-res-foresight-}"
 
 # 确定编译路径和模块标识
 if [ -d "${PROJECT_ROOT}/cmd/${RAW_NAME}" ]; then
@@ -36,8 +36,8 @@ elif [ -f "${PROJECT_ROOT}/cmd/${RAW_NAME}.go" ]; then
 elif [ -f "${PROJECT_ROOT}/cmd/${CLEAN_NAME}.go" ]; then
     SRC_PATH="${PROJECT_ROOT}/cmd/${CLEAN_NAME}.go"
     MODULE_KEY="${CLEAN_NAME}"
-elif [ "$RAW_NAME" == "kube-resource-fcst" ] || [ "$RAW_NAME" == "main.go" ] || [ "$RAW_NAME" == "main" ]; then
-    MODULE_KEY="kube-resource-fcst"
+elif [ "$RAW_NAME" == "kube-res-foresight" ] || [ "$RAW_NAME" == "main.go" ] || [ "$RAW_NAME" == "main" ]; then
+    MODULE_KEY="kube-res-foresight"
     if [ -d "${PROJECT_ROOT}/cmd" ]; then
         SRC_PATH="${PROJECT_ROOT}/cmd"
     elif [ -f "${PROJECT_ROOT}/cmd/main.go" ]; then
@@ -55,13 +55,13 @@ fi
 
 [ -d "${PROJECT_ROOT}/${OUT_DIR}" ] || mkdir -p "${PROJECT_ROOT}/${OUT_DIR}"
 
-# 确定最终编译输出的二进制名称（kube-resource-fcst 或 kube-resource-fcst-operator）
-if [ "$MODULE_KEY" == "kube-resource-fcst" ]; then
-    TARGET_BINARY_NAME="kube-resource-fcst"
-elif [[ "$MODULE_KEY" == kube-resource-fcst-* ]]; then
+# 确定最终编译输出的二进制名称（kube-res-foresight 或 kube-res-foresight-operator）
+if [ "$MODULE_KEY" == "kube-res-foresight" ]; then
+    TARGET_BINARY_NAME="kube-res-foresight"
+elif [[ "$MODULE_KEY" == kube-res-foresight-* ]]; then
     TARGET_BINARY_NAME="${MODULE_KEY}"
 else
-    TARGET_BINARY_NAME="kube-resource-fcst-${MODULE_KEY}"
+    TARGET_BINARY_NAME="kube-res-foresight-${MODULE_KEY}"
 fi
 
 # 获取版本号
@@ -88,8 +88,8 @@ else
 fi
 
 # 复制前端编译产物 (Embed)
-if [ "${MODULE_KEY}" == "kube-resource-fcst" ]; then
-    echo "Packaging frontend assets for kube-resource-fcst..."
+if [ "${MODULE_KEY}" == "kube-res-foresight" ]; then
+    echo "Packaging frontend assets for kube-res-foresight..."
     if [ ! -d "${PROJECT_ROOT}/web/dist" ] && [ -f "${PROJECT_ROOT}/web/package.json" ]; then
         if ! command -v pnpm >/dev/null 2>&1; then
             echo "Error: 'pnpm' is required to build the embedded frontend."
@@ -109,7 +109,7 @@ fi
 # 编译
 cd "${PROJECT_ROOT}" && \
     CGO_ENABLED=0 GOOS=${TARGET_OS} GOARCH=${TARGET_ARCH} "${GO_CMD}" build \
-    -ldflags "-s -w -X 'github.com/cylonchau/kube-resource-fcst/pkg/version.Version=${VERSION}'" \
+    -ldflags "-s -w -X 'github.com/cylonchau/kube-res-foresight/pkg/version.Version=${VERSION}'" \
     -o "${BINARY_PATH}" "${SRC_PATH}"
 
 if command -v upx >/dev/null 2>&1; then

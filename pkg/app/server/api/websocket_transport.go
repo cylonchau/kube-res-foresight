@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/coder/websocket"
-	"github.com/cylonchau/kube-resource-fcst/pkg/app/middleware"
+	"github.com/cylonchau/kube-res-foresight/pkg/app/middleware"
 	"github.com/gin-gonic/gin"
 	"net"
 	"net/http"

@@ -9,7 +9,7 @@ const localUrl = path => {
   url.searchParams.set('lang', lang);
   return url;
 };
-const config = window.KUBE_RESOURCE_FCST_SITE;
+const config = window.KUBE_RES_FORESIGHT_SITE;
 if (config) {
   document.querySelectorAll('[data-repo]').forEach(link => { link.href = config.repository; });
   document.querySelectorAll('[data-issues]').forEach(link => { link.href = `${config.repository}/issues`; });
@@ -25,7 +25,7 @@ document.querySelectorAll('[data-language]').forEach(link => {
     const destination = new URL(link.href);
     destination.hash = location.hash;
     link.href = destination.href;
-    try { localStorage.setItem('kube-resource-fcst-language', code); } catch { /* Retained in the URL. */ }
+    try { localStorage.setItem('kube-res-foresight-language', code); } catch { /* Retained in the URL. */ }
   });
 });
 document.querySelectorAll('a[href]').forEach(link => {
@@ -63,7 +63,7 @@ const themeButton = document.getElementById('theme-toggle');
 const themeMenu = document.getElementById('theme-menu');
 const closeTheme = () => { if (themeMenu) themeMenu.hidden = true; themeButton?.setAttribute('aria-expanded', 'false'); };
 const refreshTheme = () => {
-  const mode = window.KUBE_RESOURCE_FCST_THEME?.getMode() || 'auto';
+  const mode = window.KUBE_RES_FORESIGHT_THEME?.getMode() || 'auto';
   const names = { auto: text('跟随系统', 'System'), light: text('浅色', 'Light'), dark: text('深色', 'Dark') };
   if (themeButton) {
     themeButton.querySelector('span').textContent = { auto: '◐', light: '☀', dark: '☾' }[mode];
@@ -77,10 +77,10 @@ themeButton?.addEventListener('click', () => {
   closeNav(); themeMenu.hidden = !open; themeButton.setAttribute('aria-expanded', String(open));
 });
 document.querySelectorAll('.theme-menu [data-theme-mode]').forEach(button => button.addEventListener('click', () => {
-  window.KUBE_RESOURCE_FCST_THEME.setMode(button.dataset.themeMode); closeTheme(); themeButton.focus();
+  window.KUBE_RES_FORESIGHT_THEME.setMode(button.dataset.themeMode); closeTheme(); themeButton.focus();
 }));
 document.addEventListener('click', event => { if (!event.target.closest('.theme-control')) closeTheme(); });
-window.addEventListener('kube-resource-fcst-themechange', refreshTheme);
+window.addEventListener('kube-res-foresight-themechange', refreshTheme);
 refreshTheme();
 
 document.querySelectorAll('[data-copy]').forEach(button => button.addEventListener('click', async () => {

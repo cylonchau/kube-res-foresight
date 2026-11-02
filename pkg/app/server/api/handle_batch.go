@@ -8,10 +8,10 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/app/query"
-	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
-	"github.com/cylonchau/kube-resource-fcst/pkg/forecast"
-	"github.com/cylonchau/kube-resource-fcst/pkg/forecastsvc"
+	"github.com/cylonchau/kube-res-foresight/pkg/app/query"
+	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
+	"github.com/cylonchau/kube-res-foresight/pkg/forecast"
+	"github.com/cylonchau/kube-res-foresight/pkg/forecastsvc"
 )
 
 // batchFailure is the reason one item of a batch was left alone; the others are done.

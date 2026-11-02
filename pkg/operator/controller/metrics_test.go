@@ -42,7 +42,7 @@ func TestOperatorMetricsAfterOneAppliedEvaluation(t *testing.T) {
 	names := map[string]bool{}
 	for _, mf := range families {
 		names[mf.GetName()] = true
-		assert.True(t, strings.HasPrefix(mf.GetName(), "kube_resource_fcst_operator_"), mf.GetName())
+		assert.True(t, strings.HasPrefix(mf.GetName(), "kube_res_foresight_operator_"), mf.GetName())
 		assert.NotContains(t, mf.GetName(), "prometheus_read", "the Prometheus decision source is gone")
 		for _, metric := range mf.GetMetric() {
 			for _, l := range metric.GetLabel() {
@@ -50,9 +50,9 @@ func TestOperatorMetricsAfterOneAppliedEvaluation(t *testing.T) {
 			}
 		}
 	}
-	for _, want := range []string{"kube_resource_fcst_operator_reconciles_total", "kube_resource_fcst_operator_reconcile_duration_seconds",
-		"kube_resource_fcst_operator_scale_actions_total", "kube_resource_fcst_operator_desired_replicas", "kube_resource_fcst_operator_current_replicas",
-		"kube_resource_fcst_operator_ready_replicas", "kube_resource_fcst_operator_decision_valid", "kube_resource_fcst_operator_decision_expires_in_seconds"} {
+	for _, want := range []string{"kube_res_foresight_operator_reconciles_total", "kube_res_foresight_operator_reconcile_duration_seconds",
+		"kube_res_foresight_operator_scale_actions_total", "kube_res_foresight_operator_desired_replicas", "kube_res_foresight_operator_current_replicas",
+		"kube_res_foresight_operator_ready_replicas", "kube_res_foresight_operator_decision_valid", "kube_res_foresight_operator_decision_expires_in_seconds"} {
 		assert.True(t, names[want], "%s is not exposed", want)
 	}
 }
@@ -93,7 +93,7 @@ func TestOperatorMetricsCountAnErrorWithoutInventingReplicas(t *testing.T) {
 	families, err := reg.Gather()
 	require.NoError(t, err)
 	for _, mf := range families {
-		assert.NotEqual(t, "kube_resource_fcst_operator_current_replicas", mf.GetName(), "no replica gauge for a target that could not be read")
+		assert.NotEqual(t, "kube_res_foresight_operator_current_replicas", mf.GetName(), "no replica gauge for a target that could not be read")
 	}
 }
 

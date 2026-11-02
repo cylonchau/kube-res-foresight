@@ -98,7 +98,7 @@ func TestModuleSyncScalesAWorkloadFromTheModuleConfigAndCreatesNothingInTheClust
 
 	s.Once(context.Background())
 	assert.EqualValues(t, 7, replicasOf(t, c), "the module's scale-up step of 3 limits the move from 4 to 9")
-	assert.Equal(t, "kube-resource-fcst-AK ak:sk", p.seenAuth)
+	assert.Equal(t, "kube-res-foresight-AK ak:sk", p.seenAuth)
 	var deployments appsv1.DeploymentList
 	require.NoError(t, c.List(context.Background(), &deployments))
 	assert.Len(t, deployments.Items, 1, "the only object in the cluster is the workload, whose replicas were written")

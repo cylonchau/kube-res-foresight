@@ -18,16 +18,21 @@ import (
 const Name = "Asia/Shanghai"
 
 // Env names the variable that replaces the default zone, for a deployment elsewhere.
-const Env = "KUBE_RESOURCE_FCST_TIMEZONE"
+const Env = "KUBE_RES_FORESIGHT_TIMEZONE"
 
 // Offset is the offset of the default zone.
 const Offset = 8 * time.Hour
 
-// Location is the zone times are shown in: the one named by KUBE_RESOURCE_FCST_TIMEZONE when it is a zone, else UTC+8.
+// Location is the zone times are shown in: the one named by KUBE_RES_FORESIGHT_TIMEZONE when it is a zone, else UTC+8.
 func Location() *time.Location {
-	if name := strings.TrimSpace(os.Getenv(Env)); name != "" {
-		if loc, err := time.LoadLocation(name); err == nil {
-			return loc
+	for _, key := range []string{Env, "KUBE_RESOURCE_FCST_TIMEZONE", "KUBEFORECAST_TIMEZONE"} {
+		if value, exists := os.LookupEnv(key); exists {
+			if name := strings.TrimSpace(value); name != "" {
+				if loc, err := time.LoadLocation(name); err == nil {
+					return loc
+				}
+			}
+			break
 		}
 	}
 	if loc, err := time.LoadLocation(Name); err == nil {

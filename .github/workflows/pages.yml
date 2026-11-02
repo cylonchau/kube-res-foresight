@@ -1,4 +1,4 @@
-name: kube-resource-fcst website
+name: kube-res-foresight website
 
 on:
   push:

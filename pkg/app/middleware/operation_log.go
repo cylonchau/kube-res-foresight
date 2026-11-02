@@ -6,9 +6,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
-	"github.com/cylonchau/kube-resource-fcst/pkg/logger"
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
+	"github.com/cylonchau/kube-res-foresight/pkg/logger"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
 	"github.com/gin-gonic/gin"
 	"io"
 	"net/http"
@@ -132,12 +132,12 @@ func OperationLogMiddleware(dao *rdb.OperationLogDAO) gin.HandlerFunc {
 
 // resolveClientType maps the filterable sources onto the mechanisms that already distinguish them:
 // developer-credential calls (access-key/secret, see extractDeveloperCredential) are "api" (or "cli" when the
-// X-kube-resource-fcst-Client header says so); everything else is an interactive JWT session, "page".
+// X-kube-res-foresight-Client header says so); everything else is an interactive JWT session, "page".
 func resolveClientType(c *gin.Context) string {
 	if dev, _ := c.Get("developerCredential"); dev == true {
 		// Command-line integrations use the same developer credential as
 		// other API clients and identify their source with this header.
-		switch strings.ToLower(strings.TrimSpace(c.GetHeader("X-kube-resource-fcst-Client"))) {
+		switch strings.ToLower(strings.TrimSpace(c.GetHeader("X-kube-res-foresight-Client"))) {
 		case "cli":
 			return "cli"
 		case "operator":
@@ -249,7 +249,7 @@ func truncate(s string, max int) string {
 // RequestIDHeader carries the identifier of an operation; ClientNameHeader names the caller (the operator's Pod name, say).
 const (
 	RequestIDHeader  = "X-Request-Id"
-	ClientNameHeader = "X-kube-resource-fcst-Client-Name"
+	ClientNameHeader = "X-kube-res-foresight-Client-Name"
 )
 
 // requestIDOf is the caller's X-Request-Id when it is a sane value, else a generated one kept for the rest of the request.

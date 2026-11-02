@@ -5,7 +5,7 @@
 <h2 id="tasks">Tasks and global settings</h2>
 <p>The task center manages schedules and execution records. Review inputs and errors before retrying. Global settings hold safety gates, look-ahead controls, and defaults; modules hold workload-specific policies and bounds.</p>
 <h2 id="timezone">Storage and display time</h2>
-<p>Store timestamps in UTC. The platform defaults to UTC+8, configurable through <code>KUBE_RESOURCE_FCST_TIMEZONE</code> for logs, database sessions, and new module schedules. Pages display UTC+8 regardless of browser timezone. Schedule intervals use explicit IANA timezones.</p>
+<p>Store timestamps in UTC. The platform defaults to UTC+8, configurable through <code>KUBE_RES_FORESIGHT_TIMEZONE</code> for logs, database sessions, and new module schedules. Pages display UTC+8 regardless of browser timezone. Schedule intervals use explicit IANA timezones.</p>
 <h2 id="audit">Logs, retention, and export</h2>
 <p>Login logs record authentication; operation logs track configuration and exports. Recommendation, execution, admission, and degradation records explain resource changes. Set retention for review needs and back up both the database and stable encryption key.</p>
 <h2 id="history-controls">Control history and admission record volume</h2>

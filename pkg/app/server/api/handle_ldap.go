@@ -7,11 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/apis"
-	"github.com/cylonchau/kube-resource-fcst/pkg/app/query"
-	"github.com/cylonchau/kube-resource-fcst/pkg/ldapauth"
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
-	cryptoutils "github.com/cylonchau/kube-resource-fcst/pkg/utils"
+	"github.com/cylonchau/kube-res-foresight/pkg/apis"
+	"github.com/cylonchau/kube-res-foresight/pkg/app/query"
+	"github.com/cylonchau/kube-res-foresight/pkg/ldapauth"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
+	cryptoutils "github.com/cylonchau/kube-res-foresight/pkg/utils"
 	"github.com/gin-gonic/gin"
 )
 

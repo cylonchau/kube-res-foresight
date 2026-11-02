@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/multimetric"
+	"github.com/cylonchau/kube-res-foresight/pkg/multimetric"
 )
 
 func init() {

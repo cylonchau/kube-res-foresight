@@ -6,7 +6,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
 )
 
 // The home page answers two questions at a glance: is the platform doing its work, and which modules need someone to look. It reads

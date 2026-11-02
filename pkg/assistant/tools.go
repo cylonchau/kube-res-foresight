@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
-	"github.com/cylonchau/kube-resource-fcst/pkg/forecastsvc"
+	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
+	"github.com/cylonchau/kube-res-foresight/pkg/forecastsvc"
 )
 
 // Every tool reads. None writes, none runs a forecast, none reaches the cluster: the assistant can only look at what the platform has

@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
 )
 
 func TestCatalogDefinitionsAreComplete(t *testing.T) {
@@ -40,7 +40,7 @@ func TestCatalogDefinitionsAreComplete(t *testing.T) {
 			assert.Positive(t, d.RetentionDays, "%s must state how long its rows are kept", d.Name)
 		}
 		if d.Export != nil {
-			assert.True(t, strings.HasPrefix(d.Export.Name, "kube_resource_fcst_"), d.Name)
+			assert.True(t, strings.HasPrefix(d.Export.Name, "kube_res_foresight_"), d.Name)
 			assert.Positive(t, d.Export.Window, d.Name)
 		}
 	}
@@ -163,12 +163,12 @@ func TestCatalogMetricsAndQueryAgree(t *testing.T) {
 
 	// every metric the collector exposes is either a catalog export or one of the operational gauges
 	operational := map[string]bool{
-		"kube_resource_fcst_module_enabled": true, "kube_resource_fcst_module_bypass": true, "kube_resource_fcst_recommendation_source": true,
-		"kube_resource_fcst_recommendation_age_seconds": true, "kube_resource_fcst_recommendation_valid": true,
-		"kube_resource_fcst_series_latest_sample_age_seconds": true, "kube_resource_fcst_prediction_age_seconds": true, "kube_resource_fcst_forecast_metrics_error": true,
-		"kube_resource_fcst_datasource_up": true, "kube_resource_fcst_datasource_latency_seconds": true,
-		"kube_resource_fcst_algorithm_score": true, "kube_resource_fcst_algorithm_selected": true, "kube_resource_fcst_effective_max_replicas": true,
-		"kube_resource_fcst_hard_max_replicas": true, "kube_resource_fcst_consecutive_failures": true,
+		"kube_res_foresight_module_enabled": true, "kube_res_foresight_module_bypass": true, "kube_res_foresight_recommendation_source": true,
+		"kube_res_foresight_recommendation_age_seconds": true, "kube_res_foresight_recommendation_valid": true,
+		"kube_res_foresight_series_latest_sample_age_seconds": true, "kube_res_foresight_prediction_age_seconds": true, "kube_res_foresight_forecast_metrics_error": true,
+		"kube_res_foresight_datasource_up": true, "kube_res_foresight_datasource_latency_seconds": true,
+		"kube_res_foresight_algorithm_score": true, "kube_res_foresight_algorithm_selected": true, "kube_res_foresight_effective_max_replicas": true,
+		"kube_res_foresight_hard_max_replicas": true, "kube_res_foresight_consecutive_failures": true,
 	}
 	declared := map[string]bool{}
 	for _, def := range Catalog() {
@@ -328,8 +328,8 @@ func TestTelemetryCountsThePipelineWorkWithBoundedLabels(t *testing.T) {
 			}
 		}
 	}
-	for _, want := range []string{"kube_resource_fcst_collect_runs_total", "kube_resource_fcst_collect_duration_seconds", "kube_resource_fcst_predict_runs_total",
-		"kube_resource_fcst_predict_duration_seconds", "kube_resource_fcst_backtest_runs_total", "kube_resource_fcst_backtest_duration_seconds"} {
+	for _, want := range []string{"kube_res_foresight_collect_runs_total", "kube_res_foresight_collect_duration_seconds", "kube_res_foresight_predict_runs_total",
+		"kube_res_foresight_predict_duration_seconds", "kube_res_foresight_backtest_runs_total", "kube_res_foresight_backtest_duration_seconds"} {
 		assert.True(t, seen[want], "%s was not recorded", want)
 	}
 	// both algorithms of cpu and the rps one were predicted and one backtest pass ran for cpu
@@ -337,9 +337,9 @@ func TestTelemetryCountsThePipelineWorkWithBoundedLabels(t *testing.T) {
 	for _, mf := range families {
 		for _, m := range mf.GetMetric() {
 			switch mf.GetName() {
-			case "kube_resource_fcst_predict_runs_total":
+			case "kube_res_foresight_predict_runs_total":
 				predicted += m.GetCounter().GetValue()
-			case "kube_resource_fcst_backtest_runs_total":
+			case "kube_res_foresight_backtest_runs_total":
 				backtests += m.GetCounter().GetValue()
 			}
 		}

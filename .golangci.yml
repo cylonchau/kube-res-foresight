@@ -14,7 +14,7 @@ linters-settings:
       - performance
       - style
   goimports:
-    local-prefixes: github.com/cylonchau/kube-resource-fcst
+    local-prefixes: github.com/cylonchau/kube-res-foresight
   nolintlint:
     allow-unused: false
     require-explanation: false

@@ -3,10 +3,10 @@
 <h2 id="metrics">Inspect metrics and curves</h2>
 <p>Use the metric catalog and query tools to compare history, forecasts, actual performance, freshness, and runtime status. Distinguish missing samples from observations; connections across gaps are not measurements.</p>
 <h2 id="external">External monitoring</h2>
-<p>Set <code>metrics.listen</code> to expose <code>/metrics</code>, <code>/healthz</code>, and <code>/readyz</code>. Platform metrics use <code>kube_resource_fcst_*</code>; Operator metrics use <code>kube_resource_fcst_operator_*</code>.</p>
+<p>Set <code>metrics.listen</code> to expose <code>/metrics</code>, <code>/healthz</code>, and <code>/readyz</code>. Platform metrics use <code>kube_res_foresight_*</code>; Operator metrics use <code>kube_res_foresight_operator_*</code>.</p>
 <p>Metrics observe the workflow rather than replacing snapshots, action reports, or readiness. Synchronous admission does not wait for long Prometheus queries or inference.</p>
 <h2 id="records">Review connected records</h2>
 <p>Follow a module through model runs, forecasts, evaluations, recommendations, admission, and scaling. For offline review, use audit exports with the appropriate scope and permissions.</p>
 <h2 id="decision-health">Watch decision sources and scaling delays</h2>
-<p>Distinguish platform responses, cached decisions, recovery, and expired caches. Inspect <code>kube_resource_fcst_operator_decision_source_total</code> and <code>kube_resource_fcst_operator_decision_cache_age_seconds</code>, then correlate expansion timeliness with Ready-replica curves to separate forecast lag from slow capacity readiness.</p>
+<p>Distinguish platform responses, cached decisions, recovery, and expired caches. Inspect <code>kube_res_foresight_operator_decision_source_total</code> and <code>kube_res_foresight_operator_decision_cache_age_seconds</code>, then correlate expansion timeliness with Ready-replica curves to separate forecast lag from slow capacity readiness.</p>
 <p>No model output is expected when prediction is disabled. Check the module's prediction mode before investigating data, models, and execution.</p>

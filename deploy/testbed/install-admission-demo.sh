@@ -7,8 +7,8 @@
 # What it does, in order (each step prints what it did; it stops at the first failure):
 #   1. platform: a developer credential "kyverno" whose only permission is "Admission Recommendations (read)"
 #      (an existing one is kept and rotated), and the system setting forecast.allow_admission_mode = true
-#   2. cluster: the Secret kyverno/kube-resource-fcst-admission ("<access key>:<access secret>"), the RBAC that lets Kyverno read it,
-#      and the two ClusterPolicies kube-resource-fcst-requests and kube-resource-fcst-require-module
+#   2. cluster: the Secret kyverno/kube-res-foresight-admission ("<access key>:<access secret>"), the RBAC that lets Kyverno read it,
+#      and the two ClusterPolicies kube-res-foresight-requests and kube-res-foresight-require-module
 #   3. removes the old ClusterPolicy kubeforecast-resources (the previous name of the requests policy) so two policies do not
 #      change the same Pods
 #   4. checks: the demo Deployment is REFUSED, then a module with its name is created on the platform, and it is ADMITTED
@@ -56,11 +56,11 @@ echo "   forecast.allow_admission_mode = true"
 
 # (kubectl.exe, found from WSL, cannot open /mnt/... paths: the credential and every manifest are passed through stdin / as a value)
 CRED=$(tr -d '\r\n' < "$ROOT/target/admission.cred")
-"$K" -n kyverno create secret generic kube-resource-fcst-admission --from-literal=credential="$CRED" --dry-run=client -o yaml | "$K" apply -f - > /dev/null
-echo "2. cluster: Secret kyverno/kube-resource-fcst-admission written"
+"$K" -n kyverno create secret generic kube-res-foresight-admission --from-literal=credential="$CRED" --dry-run=client -o yaml | "$K" apply -f - > /dev/null
+echo "2. cluster: Secret kyverno/kube-res-foresight-admission written"
 "$K" apply -f - < "$HERE/kyverno-credential.yaml" > /dev/null
-for f in kube-resource-fcst-requests kube-resource-fcst-require-module; do
-  sed -e "s#PLATFORM_URL#$IN_CLUSTER#" -e 's#CREDENTIAL_SECRET#kube-resource-fcst-admission#' "$ROOT/deploy/kyverno/$f.yaml" | "$K" apply -f - 2>&1 | grep -v "^Warning"
+for f in kube-res-foresight-requests kube-res-foresight-require-module; do
+  sed -e "s#PLATFORM_URL#$IN_CLUSTER#" -e 's#CREDENTIAL_SECRET#kube-res-foresight-admission#' "$ROOT/deploy/kyverno/$f.yaml" | "$K" apply -f - 2>&1 | grep -v "^Warning"
 done
 "$K" delete clusterpolicy kubeforecast-resources --ignore-not-found 2>&1 | grep -v "^Warning" || true
 echo "3. old policy kubeforecast-resources removed (if it was there)"

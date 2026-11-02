@@ -4,8 +4,8 @@ package store
 import (
 	"context"
 	"fmt"
-	"github.com/cylonchau/kube-resource-fcst/pkg/logger"
-	"github.com/cylonchau/kube-resource-fcst/pkg/timezone"
+	"github.com/cylonchau/kube-res-foresight/pkg/logger"
+	"github.com/cylonchau/kube-res-foresight/pkg/timezone"
 	"github.com/glebarez/sqlite"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"

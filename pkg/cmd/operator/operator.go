@@ -1,4 +1,4 @@
-// Package operator implements the kube-resource-fcst-operator command: a controller-runtime manager that reads the modules of the
+// Package operator implements the kube-res-foresight-operator command: a controller-runtime manager that reads the modules of the
 // platform over HTTP and writes the replicas of their workloads. It needs a cluster, never the platform database, and creates no
 // resource of its own in the cluster: the platform modules are the only configuration.
 package operator
@@ -14,10 +14,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/operator/controller"
-	"github.com/cylonchau/kube-resource-fcst/pkg/timezone"
-	"github.com/cylonchau/kube-resource-fcst/pkg/timing"
-	"github.com/cylonchau/kube-resource-fcst/pkg/utils"
+	"github.com/cylonchau/kube-res-foresight/pkg/operator/controller"
+	"github.com/cylonchau/kube-res-foresight/pkg/timezone"
+	"github.com/cylonchau/kube-res-foresight/pkg/timing"
+	"github.com/cylonchau/kube-res-foresight/pkg/utils"
 	"github.com/spf13/cobra"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -66,7 +66,7 @@ func NewCommand() *cobra.Command {
 	opts := &Options{}
 	cmd := &cobra.Command{
 		Use:   "operator",
-		Short: "Start kube-resource-fcst-operator, which scales the workloads of the platform modules",
+		Short: "Start kube-res-foresight-operator, which scales the workloads of the platform modules",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return Run(cmd.Context(), opts)
@@ -76,10 +76,10 @@ func NewCommand() *cobra.Command {
 	f.StringVar(&opts.MetricsAddr, "metrics-bind-address", ":8080", "Address of the controller-runtime metrics endpoint; 0 disables it.")
 	f.StringVar(&opts.ProbeAddr, "health-probe-bind-address", ":8081", "Address of the /healthz and /readyz probes.")
 	f.BoolVar(&opts.LeaderElect, "leader-elect", true, "Elect a leader so only one replica scales; keep it on for any replicated deployment.")
-	f.StringVar(&opts.LeaderID, "leader-election-id", "kube-resource-fcst-operator.autoscaling.kube-resource-fcst.io", "Name of the leader election lease.")
+	f.StringVar(&opts.LeaderID, "leader-election-id", "kube-res-foresight-operator.autoscaling.kube-res-foresight.io", "Name of the leader election lease.")
 	f.StringVar(&opts.Namespace, "namespace", "", "Watch only this namespace; empty watches all namespaces.")
-	f.StringVar(&opts.PlatformURL, "platform-url", "", "Base URL of the kube-resource-fcst platform whose auto modules are scaled directly from the module configuration (required).")
-	f.StringVar(&opts.PlatformCredentialFile, "platform-credential-file", "", "File holding the developer credential \"<access key>:<access secret>\" (mount a Secret); the KUBE_RESOURCE_FCST_PLATFORM_CREDENTIAL variable is used when empty.")
+	f.StringVar(&opts.PlatformURL, "platform-url", "", "Base URL of the kube-res-foresight platform whose auto modules are scaled directly from the module configuration (required).")
+	f.StringVar(&opts.PlatformCredentialFile, "platform-credential-file", "", "File holding the developer credential \"<access key>:<access secret>\" (mount a Secret); the KUBE_RES_FORESIGHT_PLATFORM_CREDENTIAL variable is used when empty.")
 	f.StringVar(&opts.PlatformCAFile, "platform-ca-file", "", "PEM CA bundle used to verify the platform certificate.")
 	f.DurationVar(&opts.PlatformInterval, "platform-sync-interval", 30*time.Second, "Starting value of how often the platform's modules are read and applied; once the platform answers, its setting operator.sync_interval_seconds is used.")
 	f.DurationVar(&opts.CacheTTL, "decision-cache-ttl", controller.DefaultCacheTTL, "Starting value (the platform's setting operator.decision_cache_ttl_seconds takes over once it answers). How long after its last answer the platform's decision and module list are remembered and used when the platform cannot be reached (replicas may still rise to the remembered decision, never fall). Past it the replicas are held for the platform's operator.degrade_hold_seconds, then the fallback replicas may apply in steps (operator.degrade_cooldown_seconds). 0 turns the cache off.")
@@ -91,7 +91,7 @@ func NewCommand() *cobra.Command {
 
 // platformEndpoint reads the credential (and the CA bundle) the module sync uses to talk to the platform.
 func platformEndpoint(opts *Options) (*controller.PlatformEndpoint, error) {
-	credential := strings.TrimSpace(utils.ProjectEnv("KUBE_RESOURCE_FCST_PLATFORM_CREDENTIAL"))
+	credential := strings.TrimSpace(utils.ProjectEnv("KUBE_RES_FORESIGHT_PLATFORM_CREDENTIAL"))
 	if opts.PlatformCredentialFile != "" {
 		raw, err := os.ReadFile(opts.PlatformCredentialFile)
 		if err != nil {
@@ -100,7 +100,7 @@ func platformEndpoint(opts *Options) (*controller.PlatformEndpoint, error) {
 		credential = strings.TrimSpace(string(raw))
 	}
 	if !strings.Contains(credential, ":") {
-		return nil, errors.New("the platform credential must be \"<access key>:<access secret>\": set --platform-credential-file or KUBE_RESOURCE_FCST_PLATFORM_CREDENTIAL")
+		return nil, errors.New("the platform credential must be \"<access key>:<access secret>\": set --platform-credential-file or KUBE_RES_FORESIGHT_PLATFORM_CREDENTIAL")
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	if opts.PlatformCAFile != "" {

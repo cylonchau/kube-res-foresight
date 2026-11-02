@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/collector"
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/collector"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
 )
 
 // QueryTest asks for a PromQL to be checked and run before it is saved as the metric of a dataset.

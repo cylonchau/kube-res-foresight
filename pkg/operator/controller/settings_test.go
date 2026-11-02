@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/timing"
+	"github.com/cylonchau/kube-res-foresight/pkg/timing"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

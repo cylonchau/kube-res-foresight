@@ -8,10 +8,10 @@ import (
 	"sort"
 	"time"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/forecast"
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
-	"github.com/cylonchau/kube-resource-fcst/pkg/multimetric"
-	"github.com/cylonchau/kube-resource-fcst/pkg/timing"
+	"github.com/cylonchau/kube-res-foresight/pkg/forecast"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/multimetric"
+	"github.com/cylonchau/kube-res-foresight/pkg/timing"
 )
 
 // The change preview answers "what would the replicas have been if this setting had been in force": it replays the recent past twice, with

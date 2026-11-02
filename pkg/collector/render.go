@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
 )
 
 // labelValue accepts Kubernetes object names and service names. The pattern excludes quotes, backslashes and

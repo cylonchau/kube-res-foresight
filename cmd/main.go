@@ -7,15 +7,15 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/cmd"
-	"github.com/cylonchau/kube-resource-fcst/pkg/timezone"
+	"github.com/cylonchau/kube-res-foresight/pkg/cmd"
+	"github.com/cylonchau/kube-res-foresight/pkg/timezone"
 	"github.com/spf13/pflag"
 )
 
 func main() {
-	// UTC+8 unless KUBE_RESOURCE_FCST_TIMEZONE names another zone: log lines and times typed without an offset follow it
+	// UTC+8 unless KUBE_RES_FORESIGHT_TIMEZONE names another zone: log lines and times typed without an offset follow it
 	timezone.Apply()
-	command := cmd.NewKubeResourceFcstCommand(cmd.KubeResourceFcstOptions{})
+	command := cmd.NewKubeResForesightCommand(cmd.KubeResForesightOptions{})
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	// Restore the default signal behavior after the first cancellation so a

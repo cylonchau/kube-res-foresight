@@ -3,14 +3,14 @@ package migration
 import (
 	"context"
 	"fmt"
-	"github.com/cylonchau/kube-resource-fcst/pkg/app/utils"
-	"github.com/cylonchau/kube-resource-fcst/pkg/assistant"
-	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
-	"github.com/cylonchau/kube-resource-fcst/pkg/ldapauth"
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
-	"github.com/cylonchau/kube-resource-fcst/pkg/notify/email"
-	"github.com/cylonchau/kube-resource-fcst/pkg/store"
-	"github.com/cylonchau/kube-resource-fcst/pkg/timing"
+	"github.com/cylonchau/kube-res-foresight/pkg/app/utils"
+	"github.com/cylonchau/kube-res-foresight/pkg/assistant"
+	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
+	"github.com/cylonchau/kube-res-foresight/pkg/ldapauth"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/notify/email"
+	"github.com/cylonchau/kube-res-foresight/pkg/store"
+	"github.com/cylonchau/kube-res-foresight/pkg/timing"
 	"gorm.io/gorm"
 	"sort"
 	"strconv"
@@ -273,7 +273,7 @@ func EnsureDefaultConfigs() error {
 		{ConfigKey: "sys.auth.access_token_minutes", ConfigValue: "30", ConfigName: "Access Token Lifetime Minutes"},
 		{ConfigKey: "sys.auth.refresh_token_days", ConfigValue: "30", ConfigName: "Refresh Token Lifetime Days"},
 		{ConfigKey: "forecast.allow_admission_mode", ConfigValue: "false", ConfigName: "Allow Admission Mode", Remark: "Set to true only after the Kyverno policy has been verified in the target cluster. Until then modules cannot be put in admission mode."},
-		{ConfigKey: "forecast.allow_auto_mode", ConfigValue: "false", ConfigName: "Allow Auto Mode", Remark: "Set to true only after kube-resource-fcst-operator has been verified to scale and recover in the target cluster. Until then modules cannot be put in auto mode."},
+		{ConfigKey: "forecast.allow_auto_mode", ConfigValue: "false", ConfigName: "Allow Auto Mode", Remark: "Set to true only after kube-res-foresight-operator has been verified to scale and recover in the target cluster. Until then modules cannot be put in auto mode."},
 		{ConfigKey: "forecast.resource_change_ratio", ConfigValue: "20", ConfigName: "Pod Resource Change Percent", Remark: "The Pod CPU and memory spec (requests) stays as it is until the forecast differs from it by more than this percent; a smaller difference does not rewrite it. Replicas are not affected: they follow the forecast every cycle."},
 		{ConfigKey: "forecast.snapshot_max_per_module", ConfigValue: "200", ConfigName: "Snapshots Kept Per Module", Remark: "How many recommendation snapshots (the first, every change and one an hour at least) a module keeps; the oldest beyond it are deleted. The current recommendation is never deleted."},
 		{ConfigKey: "forecast.decision_max_age_seconds", ConfigValue: "60", ConfigName: "Operator Decision Maximum Age (seconds)", Remark: "How old the recommendation the operator reads may be. When the stored one is older, the platform collects the new samples, forecasts and decides again before it answers, so the replicas follow the load of now and not the load of the last scheduled run. 0 turns this off and the operator reads what the scheduled task stored."},

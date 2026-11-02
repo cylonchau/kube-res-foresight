@@ -51,7 +51,7 @@ Prometheus ──HTTP API──> Collector/Feature Store ──> Algorithm Runne
 - `feature-engine`：窗口特征（趋势、周期、分位数、波动性）。
 - `algorithm-runtime`：多算法执行、版本管理、模型训练/推理。
 - `decision-engine`：融合、成本/SLO 安全边界、固定周期与 fallback。
-- `kube-resource-fcst-operator`（逻辑职责名，非现有目录）：自定义 CRD Operator，唯一负责目标工作负载副本执行与对账；不同时启用原生 HPA 写同一目标。
+- `kube-res-foresight-operator`（逻辑职责名，非现有目录）：自定义 CRD Operator，唯一负责目标工作负载副本执行与对账；不同时启用原生 HPA 写同一目标。
 - Metrics：内置于 `platform`（复用 pkg/metrics），暴露给 Prometheus，不设独立 exporter 服务。
 - `evaluation-worker`：时间穿越隔离回测、执行效果与预测准确率。
 

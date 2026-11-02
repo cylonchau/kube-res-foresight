@@ -1,14 +1,14 @@
 package tasks
 
 import (
-	"github.com/cylonchau/kube-resource-fcst/pkg/assistant"
-	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
-	"github.com/cylonchau/kube-resource-fcst/pkg/forecastsvc"
-	"github.com/cylonchau/kube-resource-fcst/pkg/job"
-	"github.com/cylonchau/kube-resource-fcst/pkg/job/tasks/aitask"
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
-	"github.com/cylonchau/kube-resource-fcst/pkg/notify"
-	"github.com/cylonchau/kube-resource-fcst/pkg/notify/email"
+	"github.com/cylonchau/kube-res-foresight/pkg/assistant"
+	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
+	"github.com/cylonchau/kube-res-foresight/pkg/forecastsvc"
+	"github.com/cylonchau/kube-res-foresight/pkg/job"
+	"github.com/cylonchau/kube-res-foresight/pkg/job/tasks/aitask"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/notify"
+	"github.com/cylonchau/kube-res-foresight/pkg/notify/email"
 )
 
 // registerAI registers the two jobs of the AI scheduled tasks and the e-mail channel their reports are sent by (the process that runs jobs

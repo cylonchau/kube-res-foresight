@@ -10,7 +10,7 @@ import (
 // GenerateOTPSecret generates a new TOTP secret and QR Code Data URI
 func GenerateOTPSecret(accountName string) (secret string, qrCodeDataURI string, err error) {
 	key, err := totp.Generate(totp.GenerateOpts{
-		Issuer:      "kube-resource-fcst",
+		Issuer:      "kube-res-foresight",
 		AccountName: accountName,
 	})
 	if err != nil {

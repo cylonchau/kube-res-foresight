@@ -1,6 +1,6 @@
-# kube-resource-fcst-operator Helm chart
+# kube-res-foresight-operator Helm chart
 
-Installs the kube-resource-fcst operator: it reads the auto modules of the platform and scales their Deployments and StatefulSets
+Installs the kube-res-foresight operator: it reads the auto modules of the platform and scales their Deployments and StatefulSets
 through the scale subresource. The platform module (workload, minimum and maximum, fallback, pace) is the only configuration: the
 operator creates no resource of its own in the cluster, and there is no custom resource to keep in step with the module. It replaces
 an HPA or KEDA for the workloads it manages; it must not share a workload with one (it then does nothing for that module and says
@@ -15,7 +15,7 @@ chart has not been rendered with `helm template` since the custom resource was r
 |---|---|
 | Deployment | 2 replicas, leader election on, non-root, read-only root filesystem |
 | ServiceAccount, ClusterRole, ClusterRoleBinding | scale Deployments/StatefulSets, read HPA and KEDA objects (to refuse a conflict), leases |
-| Service `<release>-metrics` | port 8080, the `kube_resource_fcst_operator_*` metrics |
+| Service `<release>-metrics` | port 8080, the `kube_res_foresight_operator_*` metrics |
 | ServiceMonitor | optional, needs the Prometheus Operator |
 | PodDisruptionBudget | when there is more than one replica |
 
@@ -24,29 +24,29 @@ chart has not been rendered with `helm template` since the custom resource was r
 1. Build and push the image (there is no public one):
 
    ```sh
-   docker build -f deploy/docker/Dockerfile --target operator -t registry.example.com/kube-resource-fcst-operator:0.1.0 .
-   docker push registry.example.com/kube-resource-fcst-operator:0.1.0
+   docker build -f deploy/docker/Dockerfile --target operator -t registry.example.com/kube-res-foresight-operator:0.1.0 .
+   docker push registry.example.com/kube-res-foresight-operator:0.1.0
    ```
 
 2. Create a platform credential holding only `Operator Decisions (read, report)` and put `<access key>:<access secret>` in a Secret:
 
    ```sh
-   kubectl create namespace kube-resource-fcst-system
-   kubectl -n kube-resource-fcst-system create secret generic kube-resource-fcst-platform --from-literal=credential='<access key>:<access secret>'
+   kubectl create namespace kube-res-foresight-system
+   kubectl -n kube-res-foresight-system create secret generic kube-res-foresight-platform --from-literal=credential='<access key>:<access secret>'
    ```
 
 3. Install the chart. `platform.url` is required:
 
    ```sh
-   helm install kube-resource-fcst-operator deploy/helm/kube-resource-fcst-operator -n kube-resource-fcst-system \
-     --set image.repository=registry.example.com/kube-resource-fcst-operator --set image.tag=0.1.0 \
-     --set platform.url=https://kube-resource-fcst.example.com --set platform.credentialSecret.name=kube-resource-fcst-platform
+   helm install kube-res-foresight-operator deploy/helm/kube-res-foresight-operator -n kube-res-foresight-system \
+     --set image.repository=registry.example.com/kube-res-foresight-operator --set image.tag=0.1.0 \
+     --set platform.url=https://kube-res-foresight.example.com --set platform.credentialSecret.name=kube-res-foresight-platform
    ```
 
    Useful values: `operator.watchNamespace` (watch one namespace), `metrics.serviceMonitor.enabled`, `replicaCount`,
    `resources`, `imagePullSecrets`, `rbac.create=false` (bind a role of your own). See `values.yaml`.
 
-4. Check it: `kubectl -n kube-resource-fcst-system rollout status deploy/kube-resource-fcst-operator`.
+4. Check it: `kubectl -n kube-res-foresight-system rollout status deploy/kube-res-foresight-operator`.
 
 ## What is scaled
 
@@ -64,14 +64,14 @@ for them and again from time to time; the flags and `platform.syncInterval` are 
 ## Upgrade and uninstall
 
 ```sh
-helm upgrade kube-resource-fcst-operator deploy/helm/kube-resource-fcst-operator -n kube-resource-fcst-system --reuse-values
-helm uninstall kube-resource-fcst-operator -n kube-resource-fcst-system
+helm upgrade kube-res-foresight-operator deploy/helm/kube-res-foresight-operator -n kube-res-foresight-system --reuse-values
+helm uninstall kube-res-foresight-operator -n kube-res-foresight-system
 ```
 
 Nothing of the operator stays in the cluster after the uninstall except the replicas it last wrote.
 
 If an earlier version installed the `PredictiveScaler` custom resource, remove what is left of it yourself, after the new operator runs:
-`kubectl delete crd predictivescalers.autoscaling.kube-resource-fcst.io` (this deletes every PredictiveScaler object, which nothing reads any more).
+`kubectl delete crd predictivescalers.autoscaling.kube-res-foresight.io` (this deletes every PredictiveScaler object, which nothing reads any more).
 
 ## Without Helm
 

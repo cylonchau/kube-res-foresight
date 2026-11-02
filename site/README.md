@@ -1,4 +1,4 @@
-# kube-resource-fcst 官网与文档
+# kube-res-foresight 官网与文档
 
 `website/` 保存网站编辑源，`site/` 保存可直接由 GitHub Pages 托管的页面。
 

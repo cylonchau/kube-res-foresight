@@ -6,14 +6,14 @@ import (
 	"encoding/hex"
 	"flag"
 	"fmt"
-	"github.com/cylonchau/kube-resource-fcst/pkg/app"
-	"github.com/cylonchau/kube-resource-fcst/pkg/app/utils"
-	cmdbootstrap "github.com/cylonchau/kube-resource-fcst/pkg/cmd/bootstrap"
-	"github.com/cylonchau/kube-resource-fcst/pkg/config"
-	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
-	"github.com/cylonchau/kube-resource-fcst/pkg/logger"
-	"github.com/cylonchau/kube-resource-fcst/pkg/migration"
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/app"
+	"github.com/cylonchau/kube-res-foresight/pkg/app/utils"
+	cmdbootstrap "github.com/cylonchau/kube-res-foresight/pkg/cmd/bootstrap"
+	"github.com/cylonchau/kube-res-foresight/pkg/config"
+	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
+	"github.com/cylonchau/kube-res-foresight/pkg/logger"
+	"github.com/cylonchau/kube-res-foresight/pkg/migration"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -37,7 +37,7 @@ func NewCommand() *cobra.Command {
 }
 
 // NewPlatformCommand exposes the same control plane under the architecture
-// name used by the modular kube-resource-fcst launcher.
+// name used by the modular kube-res-foresight launcher.
 func NewPlatformCommand() *cobra.Command {
 	return newCommand("platform")
 }
@@ -47,8 +47,8 @@ func newCommand(use string) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   use,
-		Short: "Start the kube-resource-fcst management platform",
-		Long:  `kube-resource-fcst server provides kube-resource-fcst platform services.`,
+		Short: "Start the kube-res-foresight management platform",
+		Long:  `kube-res-foresight server provides kube-res-foresight platform services.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			PrintFlags(cmd.Flags())
 			if err := opts.Complete(); err != nil {
@@ -113,7 +113,7 @@ const jwtSecretConfigKey = "sys.auth.jwt_secret"
 
 // initJWTSecret installs the JWT signing key, in priority order:
 //
-//  1. server.jwt_secret / KUBE_RESOURCE_FCST_SERVER_JWT_SECRET — explicit and required
+//  1. server.jwt_secret / KUBE_RES_FORESIGHT_SERVER_JWT_SECRET — explicit and required
 //     for multi-instance deployments, where every replica must agree on the
 //     key or a token minted by one is rejected by the next.
 //  2. a key previously persisted in sys_config — generated once on first
@@ -146,7 +146,7 @@ func initJWTSecret(ctx context.Context) error {
 		utils.SetSecretKey([]byte(secret))
 		logger.Warn("No database available to persist a JWT secret; using a random ephemeral key. " +
 			"Every restart will invalidate all existing sessions. " +
-			"Set server.jwt_secret (or KUBE_RESOURCE_FCST_SERVER_JWT_SECRET) to avoid this.")
+			"Set server.jwt_secret (or KUBE_RES_FORESIGHT_SERVER_JWT_SECRET) to avoid this.")
 		return nil
 	}
 

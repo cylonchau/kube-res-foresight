@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/assistant"
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/assistant"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

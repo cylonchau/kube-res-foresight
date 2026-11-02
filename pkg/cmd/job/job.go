@@ -4,12 +4,12 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	cmdbootstrap "github.com/cylonchau/kube-resource-fcst/pkg/cmd/bootstrap"
-	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
-	jobengine "github.com/cylonchau/kube-resource-fcst/pkg/job"
-	"github.com/cylonchau/kube-resource-fcst/pkg/job/tasks"
-	"github.com/cylonchau/kube-resource-fcst/pkg/logger"
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	cmdbootstrap "github.com/cylonchau/kube-res-foresight/pkg/cmd/bootstrap"
+	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
+	jobengine "github.com/cylonchau/kube-res-foresight/pkg/job"
+	"github.com/cylonchau/kube-res-foresight/pkg/job/tasks"
+	"github.com/cylonchau/kube-res-foresight/pkg/logger"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"gorm.io/gorm"
@@ -30,7 +30,7 @@ func NewCommand() *cobra.Command {
 	opts := NewOptions()
 	cmd := &cobra.Command{
 		Use:   "job",
-		Short: "Start the kube-resource-fcst background job engine",
+		Short: "Start the kube-res-foresight background job engine",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := opts.Complete(); err != nil {
 				return err
@@ -89,7 +89,7 @@ func NewRuntime(db *gorm.DB, maxWorkers int, pollInterval time.Duration) *Runtim
 }
 
 func (r *Runtime) Run(ctx context.Context) error {
-	logger.Info("Starting kube-resource-fcst background engine")
+	logger.Info("Starting kube-res-foresight background engine")
 	// Scheduled runs that piled up while the engine was behind are closed: only the newest of a task is worth running.
 	if closed, err := r.jobDAO.SupersedeStaleScheduled(ctx); err != nil {
 		logger.Warn("Closing the scheduled runs that piled up failed", logger.Err(err))

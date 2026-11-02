@@ -11,7 +11,7 @@ Not production manifests: they exist to try the loop module -> forecast -> decis
 | `cycle.sh` | runs collect/predict/recommend (and every 5th round backtest + score) for the test modules every minute |
 
 Needs: the platform on `127.0.0.1:20001`, Prometheus on `127.0.0.1:30090`, the operator installed (`deploy/operator`), a
-developer credential with only "Operator Decisions" in the Secret `forecast-test/kube-resource-fcst-platform`, and the system
+developer credential with only "Operator Decisions" in the Secret `forecast-test/kube-res-foresight-platform`, and the system
 setting `forecast.allow_auto_mode` = true with the modules in `auto` mode (the decision API refuses otherwise).
 
 The cAdvisor series of this cluster have no `container` label, so the metric mappings drop the container filter of the presets.
@@ -25,16 +25,16 @@ there is no resource to apply for the operator).
 
 ## Admission (Kyverno): requests and limits of new Pods
 
-`deploy/kyverno/kube-resource-fcst-requests.yaml` (ClusterPolicy `kube-resource-fcst-resources`, verified on Kyverno 1.19.1) sets the requests
+`deploy/kyverno/kube-res-foresight-requests.yaml` (ClusterPolicy `kube-res-foresight-resources`, verified on Kyverno 1.19.1) sets the requests
 of new Pods and, for a module with `limit_cpu_ratio` / `limit_memory_ratio`, the limits. Modules in `admission` **or** `auto` mode
 are served. A workload without a module, a platform that is down, a wrong credential and an expired recommendation all leave the
 Pod as declared; none of them fails the Pod.
 
 ```sh
 python deploy/testbed/seed_platform.py --platform http://127.0.0.1:20001 --mode admission --limit-cpu-ratio 2 --limit-memory-ratio 2 --credentials-dir .
-kubectl -n kyverno create secret generic kube-resource-fcst-admission --from-file=credential=admission.cred
+kubectl -n kyverno create secret generic kube-res-foresight-admission --from-file=credential=admission.cred
 kubectl apply -f deploy/testbed/kyverno-credential.yaml
-sed 's#PLATFORM_URL#http://host.docker.internal:20001#' deploy/kyverno/kube-resource-fcst-requests.yaml | kubectl apply -f -
+sed 's#PLATFORM_URL#http://host.docker.internal:20001#' deploy/kyverno/kube-res-foresight-requests.yaml | kubectl apply -f -
 kubectl -n forecast-test rollout restart deploy/load-api     # running Pods keep their values until the workload rolls
 ```
 
@@ -57,16 +57,16 @@ Run only one operator for a cluster (leader election keeps two replicas of it fr
 
 ## Admission demo: no module, no deployment
 
-`deploy/kyverno/kube-resource-fcst-require-module.yaml` refuses to create a Deployment, StatefulSet or DaemonSet in `forecast-test`
-that no platform module manages; `kube-resource-fcst-requests.yaml` (above) then sets the requests/limits of the Pods of a managed
+`deploy/kyverno/kube-res-foresight-require-module.yaml` refuses to create a Deployment, StatefulSet or DaemonSet in `forecast-test`
+that no platform module manages; `kube-res-foresight-requests.yaml` (above) then sets the requests/limits of the Pods of a managed
 workload from its module, and the platform writes an admission decision record for every question.
 
 ```sh
 # once: the Kyverno credential Secret (a developer credential with only "Admission Recommendations (read)"), the RBAC, the two policies
-kubectl -n kyverno create secret generic kube-resource-fcst-admission --from-literal=credential='<access key>:<access secret>'
+kubectl -n kyverno create secret generic kube-res-foresight-admission --from-literal=credential='<access key>:<access secret>'
 kubectl apply -f deploy/testbed/kyverno-credential.yaml
-for f in kube-resource-fcst-requests kube-resource-fcst-require-module; do
-  sed -e 's#PLATFORM_URL#http://host.docker.internal:20001#' -e 's#CREDENTIAL_SECRET#kube-resource-fcst-admission#' deploy/kyverno/$f.yaml | kubectl apply -f -
+for f in kube-res-foresight-requests kube-res-foresight-require-module; do
+  sed -e 's#PLATFORM_URL#http://host.docker.internal:20001#' -e 's#CREDENTIAL_SECRET#kube-res-foresight-admission#' deploy/kyverno/$f.yaml | kubectl apply -f -
 done
 # the platform setting forecast.allow_admission_mode must be true
 
@@ -74,4 +74,4 @@ kubectl apply -f deploy/testbed/admission-demo.yaml          # refused: demo-unm
 # create a module demo-unmanaged (forecast-test, Deployment) in the platform, apply again: admitted
 kubectl -n forecast-test rollout restart deploy/load-cache    # a managed workload: its new Pods get the module's requests
 ```
-(`kube-resource-fcst-requests.yaml` reads the Secret name from its own `urlPath`; replace it there if your Secret has another name.)
+(`kube-res-foresight-requests.yaml` reads the Secret name from its own `urlPath`; replace it there if your Secret has another name.)

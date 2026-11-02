@@ -3,7 +3,7 @@ package migration
 import (
 	"gorm.io/gorm"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
 )
 
 // splitRecommendationMenus is the upgrade of the page that listed the recommendations as "snapshots": it is now the resource

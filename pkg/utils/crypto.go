@@ -14,14 +14,14 @@ import (
 // Development fallback; product naming does not change the existing key bytes.
 const defaultEncryptionKey = "4PT95Xag+qb+DKjpQiZv/j91tNSf0n10adt2QmjldPA="
 
-// getEncryptionKey returns a 32-byte key from KUBE_RESOURCE_FCST_SECRET_KEY for AES-256
+// getEncryptionKey returns a 32-byte key from KUBE_RES_FORESIGHT_SECRET_KEY for AES-256
 func getEncryptionKey() ([]byte, error) {
-	key := strings.TrimSpace(ProjectEnv("KUBE_RESOURCE_FCST_SECRET_KEY"))
+	key := strings.TrimSpace(ProjectEnv("KUBE_RES_FORESIGHT_SECRET_KEY"))
 	if key == "" {
 		key = defaultEncryptionKey
 	}
 	if len(key) < 32 {
-		return nil, errors.New("KUBE_RESOURCE_FCST_SECRET_KEY must be at least 32 characters")
+		return nil, errors.New("KUBE_RES_FORESIGHT_SECRET_KEY must be at least 32 characters")
 	}
 	return []byte(key[:32]), nil
 }

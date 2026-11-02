@@ -13,11 +13,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/assistant"
-	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
-	"github.com/cylonchau/kube-resource-fcst/pkg/notify"
-	"github.com/cylonchau/kube-resource-fcst/pkg/notify/email"
+	"github.com/cylonchau/kube-res-foresight/pkg/assistant"
+	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/notify"
+	"github.com/cylonchau/kube-res-foresight/pkg/notify/email"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

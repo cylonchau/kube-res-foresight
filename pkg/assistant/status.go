@@ -8,9 +8,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/forecastsvc"
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
-	"github.com/cylonchau/kube-resource-fcst/pkg/version"
+	"github.com/cylonchau/kube-res-foresight/pkg/forecastsvc"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/version"
 )
 
 // StatusReport is what the platform is doing now, from the facts it has stored: the one snapshot the assistant's tools, the export and the

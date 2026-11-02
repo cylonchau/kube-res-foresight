@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
 )
 
 // Text is a bilingual string.

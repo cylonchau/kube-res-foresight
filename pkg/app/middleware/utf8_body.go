@@ -9,7 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/app/query"
+	"github.com/cylonchau/kube-res-foresight/pkg/app/query"
 )
 
 // maxUTF8CheckBody is how much of a request body is read to check its encoding; a larger body is not inspected.

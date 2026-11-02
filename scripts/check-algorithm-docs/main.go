@@ -9,7 +9,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/forecast"
+	"github.com/cylonchau/kube-res-foresight/pkg/forecast"
 )
 
 func main() {

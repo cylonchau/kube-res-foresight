@@ -1,6 +1,6 @@
 ---
 name: requirements
-description: 用于 kube-resource-fcst 需求拆解、菜单权限、管理页面、数据源接入和阶段验收；将预测调度需求映射到现有 Go/Vue 代码。
+description: 用于 kube-res-foresight 需求拆解、菜单权限、管理页面、数据源接入和阶段验收；将预测调度需求映射到现有 Go/Vue 代码。
 ---
 
 # 需求与平台接入

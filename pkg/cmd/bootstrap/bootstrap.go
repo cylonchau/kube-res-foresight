@@ -2,10 +2,10 @@ package bootstrap
 
 import (
 	"fmt"
-	"github.com/cylonchau/kube-resource-fcst/pkg/config"
-	"github.com/cylonchau/kube-resource-fcst/pkg/logger"
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
-	"github.com/cylonchau/kube-resource-fcst/pkg/store"
+	"github.com/cylonchau/kube-res-foresight/pkg/config"
+	"github.com/cylonchau/kube-res-foresight/pkg/logger"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/store"
 	"gorm.io/gorm"
 )
 

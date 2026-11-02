@@ -10,9 +10,9 @@
 package tasks
 
 import (
-	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
-	"github.com/cylonchau/kube-resource-fcst/pkg/job"
-	"github.com/cylonchau/kube-resource-fcst/pkg/job/tasks/notifytask"
+	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
+	"github.com/cylonchau/kube-res-foresight/pkg/job"
+	"github.com/cylonchau/kube-res-foresight/pkg/job/tasks/notifytask"
 )
 
 // RegisterAll registers every job type with the job.Registry. Notification channels (webhook, voice) are

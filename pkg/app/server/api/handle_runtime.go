@@ -10,17 +10,17 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/app/query"
-	"github.com/cylonchau/kube-resource-fcst/pkg/assistant"
-	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
-	"github.com/cylonchau/kube-resource-fcst/pkg/forecastsvc"
-	"github.com/cylonchau/kube-resource-fcst/pkg/logger"
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
-	"github.com/cylonchau/kube-resource-fcst/pkg/timing"
+	"github.com/cylonchau/kube-res-foresight/pkg/app/query"
+	"github.com/cylonchau/kube-res-foresight/pkg/assistant"
+	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
+	"github.com/cylonchau/kube-res-foresight/pkg/forecastsvc"
+	"github.com/cylonchau/kube-res-foresight/pkg/logger"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/timing"
 	"github.com/gin-gonic/gin"
 )
 
-// RuntimeRouter serves the two machine consumers of recommendations: kube-resource-fcst-operator (replicas) and the
+// RuntimeRouter serves the two machine consumers of recommendations: kube-res-foresight-operator (replicas) and the
 // Kyverno admission policy (requests). Both are read-mostly, fail closed (they answer "do not apply" whenever
 // anything is doubtful) and are reached with developer credentials limited to these routes.
 type RuntimeRouter struct {

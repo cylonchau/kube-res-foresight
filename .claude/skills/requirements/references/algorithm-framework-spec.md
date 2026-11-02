@@ -454,7 +454,7 @@ P0：指标模板管理与模块关联（模块里不写死任何指标）。P1�
 - 每个基线与统计类算法有 `Definition.Method`（`pkg/forecast/methods.go`），算法详情里的「计算过程与依据」显示：计算过程、公式、意义。naive：ŷ(T+h) = y(T)，只用最后一个观测值，是所有算法的最低对照（基线），候选算法必须在同样的起点上胜过它。
 
 ### 18.4 操作日志
-- 来源增加 `operator`（开发者凭证 + 请求头 `X-kube-resource-fcst-Client: operator`；页面会话不能冒充）。operator 的上报请求带 `X-kube-resource-fcst-Client: operator` 与 `X-kube-resource-fcst-Client-Name: <Pod 名>`。
+- 来源增加 `operator`（开发者凭证 + 请求头 `X-kube-res-foresight-Client: operator`；页面会话不能冒充）。operator 的上报请求带 `X-kube-res-foresight-Client: operator` 与 `X-kube-res-foresight-Client-Name: <Pod 名>`。
 - 新字段：`request_id`（操作识别码：调用方的 `X-Request-Id`，没有则生成 `op-<UTC 时间>-<随机>`，同时写进响应头 `X-Request-Id`）、`client_name`（客户端）。列表有这两列，关键字也可搜；详情里显示。
 - 字段名：页面的列定义 key 与数据库字段不一致（`createdAt` 对 `created_at`）导致列设置里显示原始字段名；改正。所有没有页面定义的列由 `fieldTitle()` 取 `common.fields` 的中文名（`updatedAt` 与 `updated_at` 同一个），时间字段自动格式化。
 

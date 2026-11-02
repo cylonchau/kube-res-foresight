@@ -8,9 +8,9 @@ import (
 	"sort"
 	"time"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/decision"
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
-	"github.com/cylonchau/kube-resource-fcst/pkg/multimetric"
+	"github.com/cylonchau/kube-res-foresight/pkg/decision"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/multimetric"
 )
 
 // Considered records what happened to one algorithm instance on one source while a decision was made, eligible or not.

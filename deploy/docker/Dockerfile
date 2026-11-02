@@ -14,16 +14,16 @@ RUN go mod download
 COPY . .
 COPY --from=admin-builder /src/web/dist/ ./pkg/app/router/dist/
 ARG VERSION=dev
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/cylonchau/kube-resource-fcst/pkg/version.Version=${VERSION}" -o /out/kube-resource-fcst ./cmd && \
-    CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/cylonchau/kube-resource-fcst/pkg/version.Version=${VERSION}" -o /out/kube-resource-fcst-operator ./cmd/operator
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/cylonchau/kube-res-foresight/pkg/version.Version=${VERSION}" -o /out/kube-res-foresight ./cmd && \
+    CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/cylonchau/kube-res-foresight/pkg/version.Version=${VERSION}" -o /out/kube-res-foresight-operator ./cmd/operator
 FROM alpine:3.22 AS runtime-base
-RUN apk add --no-cache ca-certificates tzdata && addgroup -S -g 10001 kube-resource-fcst && adduser -S -u 10001 -G kube-resource-fcst kube-resource-fcst
+RUN apk add --no-cache ca-certificates tzdata && addgroup -S -g 10001 kube-res-foresight && adduser -S -u 10001 -G kube-res-foresight kube-res-foresight
 WORKDIR /app
 # a numeric user: Kubernetes (runAsNonRoot) cannot verify a user given by name
 USER 10001:10001
-FROM runtime-base AS kube-resource-fcst
-COPY --from=builder /out/kube-resource-fcst /usr/local/bin/kube-resource-fcst
-ENTRYPOINT ["kube-resource-fcst"]
+FROM runtime-base AS kube-res-foresight
+COPY --from=builder /out/kube-res-foresight /usr/local/bin/kube-res-foresight
+ENTRYPOINT ["kube-res-foresight"]
 FROM runtime-base AS operator
-COPY --from=builder /out/kube-resource-fcst-operator /usr/local/bin/kube-resource-fcst-operator
-ENTRYPOINT ["kube-resource-fcst-operator"]
+COPY --from=builder /out/kube-res-foresight-operator /usr/local/bin/kube-res-foresight-operator
+ENTRYPOINT ["kube-res-foresight-operator"]

@@ -1,8 +1,8 @@
 package bootstrap
 
 import (
-	"github.com/cylonchau/kube-resource-fcst/pkg/config"
-	"github.com/cylonchau/kube-resource-fcst/pkg/store"
+	"github.com/cylonchau/kube-res-foresight/pkg/config"
+	"github.com/cylonchau/kube-res-foresight/pkg/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"os"

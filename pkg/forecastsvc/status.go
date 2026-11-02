@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
 )
 
 // Why an enabled algorithm has, or has not, a result to show. Every enabled algorithm gets one of these on the result

@@ -1,4 +1,4 @@
-module github.com/cylonchau/kube-resource-fcst
+module github.com/cylonchau/kube-res-foresight
 
 go 1.27.0
 

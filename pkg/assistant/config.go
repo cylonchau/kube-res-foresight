@@ -14,9 +14,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
-	cryptoutils "github.com/cylonchau/kube-resource-fcst/pkg/utils"
+	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
+	cryptoutils "github.com/cylonchau/kube-res-foresight/pkg/utils"
 )
 
 // The assistant has one system parameter: the switch (off by default). Everything about a language model (provider, endpoint, model, key,

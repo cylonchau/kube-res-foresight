@@ -16,7 +16,7 @@ func TestSchemeKnowsTheScalableKindsAndNoCustomResource(t *testing.T) {
 	assert.True(t, scheme.Recognizes(appsv1.SchemeGroupVersion.WithKind("Deployment")))
 	assert.True(t, scheme.Recognizes(appsv1.SchemeGroupVersion.WithKind("StatefulSet")))
 	for gvk := range scheme.AllKnownTypes() {
-		assert.NotContains(t, gvk.Group, "kube-resource-fcst", "no custom resource of this project")
+		assert.NotContains(t, gvk.Group, "kube-res-foresight", "no custom resource of this project")
 	}
 }
 

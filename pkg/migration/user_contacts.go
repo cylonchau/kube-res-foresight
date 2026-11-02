@@ -3,7 +3,7 @@ package migration
 import (
 	"gorm.io/gorm"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
 )
 
 // seedUserContacts moves the email and phone columns of the users into contact rows (type email / phone), so the contacts of

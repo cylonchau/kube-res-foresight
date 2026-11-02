@@ -7,20 +7,20 @@ cluster: verify each step in a test cluster first (see "What is verified" below)
 
 | Component | Runs as | Needs |
 |---|---|---|
-| Platform (`kube-resource-fcst server`, or `all`) | one or more replicas | database, Prometheus-compatible datasources |
-| Job engine (`kube-resource-fcst job`, or inside `all`) | one process per database | same database; runs `forecast.run`, `forecast.backtest`, `forecast.evaluate`, `ldap.sync` |
-| kube-resource-fcst-operator (image target `operator`) | Helm chart `deploy/helm/kube-resource-fcst-operator` (RBAC, Deployment, metrics) or the plain `deploy/operator/` manifests | cluster access only; reads decisions from the platform over HTTPS |
-| Kyverno policy | `deploy/kyverno/kube-resource-fcst-requests.yaml` | Kyverno; **reference draft, not verified** |
+| Platform (`kube-res-foresight server`, or `all`) | one or more replicas | database, Prometheus-compatible datasources |
+| Job engine (`kube-res-foresight job`, or inside `all`) | one process per database | same database; runs `forecast.run`, `forecast.backtest`, `forecast.evaluate`, `ldap.sync` |
+| kube-res-foresight-operator (image target `operator`) | Helm chart `deploy/helm/kube-res-foresight-operator` (RBAC, Deployment, metrics) or the plain `deploy/operator/` manifests | cluster access only; reads decisions from the platform over HTTPS |
+| Kyverno policy | `deploy/kyverno/kube-res-foresight-requests.yaml` | Kyverno; **reference draft, not verified** |
 
 Platform metrics: set `metrics.listen` (for example `127.0.0.1:9100`) to serve `/metrics`, `/healthz` and `/readyz`.
-`kube_resource_fcst_*` series are labelled only by module, metric, algorithm, resource, source, state and datasource. The
+`kube_res_foresight_*` series are labelled only by module, metric, algorithm, resource, source, state and datasource. The
 metric catalog (Forecast > Metrics, `GET /api/v1/forecast-metrics/catalog`) is the single source of what exists: the
 query API (`/api/v1/forecast-metrics/query`), the Metrics page and the exported series all derive from it, and a test
-asserts that they agree. Besides the state gauges, `kube_resource_fcst_collect_*`, `kube_resource_fcst_predict_*`,
-`kube_resource_fcst_backtest_*` and `kube_resource_fcst_evaluation_*` count and time the pipeline work, and
-`kube_resource_fcst_datasource_up` / `_latency_seconds` report the last probe of each datasource.
+asserts that they agree. Besides the state gauges, `kube_res_foresight_collect_*`, `kube_res_foresight_predict_*`,
+`kube_res_foresight_backtest_*` and `kube_res_foresight_evaluation_*` count and time the pipeline work, and
+`kube_res_foresight_datasource_up` / `_latency_seconds` report the last probe of each datasource.
 
-Operator metrics (`kube_resource_fcst_operator_*`, same endpoint as the controller-runtime metrics, port 8080 by default):
+Operator metrics (`kube_res_foresight_operator_*`, same endpoint as the controller-runtime metrics, port 8080 by default):
 reconciles by result and their duration, scale actions by direction and result, desired / current / ready replicas per
 module, decision validity and time to expiry, conflicts by source (`hpa`, `keda`) and the requests
 to the platform. `deploy/operator/monitoring/metrics-service.yaml` has a Service and a ServiceMonitor.
@@ -60,7 +60,7 @@ not offered on purpose: this operator replaces HPA/KEDA.
 
 ## Order of rollout
 
-1. Migrate (`kube-resource-fcst server --migration`, or `--upgrade` on an existing database). Normal start-up never migrates.
+1. Migrate (`kube-res-foresight server --migration`, or `--upgrade` on an existing database). Normal start-up never migrates.
 2. Register a datasource and metric mappings (UI: Data sources). Test the connection.
 3. Create a forecast module in **Observe** mode, bind algorithms, run *Collect*, check *History and gaps*.
 4. Run *Backtest* and compare with the baseline; promotion needs a strictly better WAPE and no worse peak
@@ -78,7 +78,7 @@ Create *API credentials* (System > API credentials) and give each exactly one pe
 - Kyverno: `Admission Recommendations (read)`
 - exports: `Audit Export (read)`
 
-The credential is sent as `Authorization: kube-resource-fcst-AK <key>:<secret>`. LDAP routes are never reachable with one.
+The credential is sent as `Authorization: kube-res-foresight-AK <key>:<secret>`. LDAP routes are never reachable with one.
 
 ## Safety switches and rollback
 

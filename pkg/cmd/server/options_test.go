@@ -2,8 +2,8 @@ package server
 
 import (
 	"context"
-	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
 	"github.com/stretchr/testify/assert"
 	"testing"
 	"time"

@@ -161,7 +161,7 @@
 - **只向安全方向降级**：Fallback 副本低于当前副本时 operator 不缩容（现有规则）；Fallback 内存/CPU 低于 OOM 地板时被抬到地板。
 - **不抖动**：从降级恢复到算法结果需要连续 **2 个**成功周期（`recover_cycles`，可配置），期间继续使用 Fallback，避免数据时断时续造成震荡；恢复时记录恢复时间。
 - **新鲜度**：降级快照与正常快照一样带 TTL；过期后 operator 沿用现有「冻结/Fallback 只增不减」规则。
-- **可见性**：降级快照 `degraded=true` + 原因码；模块页显示降级标签；「降级与回退记录」可检索；指标 `kube_resource_fcst_fallback_total{module,reason}`（计数）与 `kube_resource_fcst_module_degraded{module}`（0/1），标签集合固定在原因码枚举内。
+- **可见性**：降级快照 `degraded=true` + 原因码；模块页显示降级标签；「降级与回退记录」可检索；指标 `kube_res_foresight_fallback_total{module,reason}`（计数）与 `kube_res_foresight_module_degraded{module}`（0/1），标签集合固定在原因码枚举内。
 
 ### 5.3 验收（降级专项）
 表驱动测试覆盖每个原因码 × 每个字段 × 有/无 Fallback：
@@ -173,7 +173,7 @@
 6. 降级 + OOM：Fallback 内存低于 OOM 地板时被抬高，且记录两个原因。
 7. 字段独立：只有 RPS 缺失 → 副本降级、CPU/内存仍来自算法。
 8. Bypass 与固定周期优先于降级且不产生降级记录（固定周期仍受 OOM 地板）。
-9. 降级记录页、模块页标签、指标 `kube_resource_fcst_fallback_total` 与快照字段一致（对账测试）；浏览器验收：把演示数据源禁用后，下一周期出现降级记录，恢复后需 2 个周期才恢复。
+9. 降级记录页、模块页标签、指标 `kube_res_foresight_fallback_total` 与快照字段一致（对账测试）；浏览器验收：把演示数据源禁用后，下一周期出现降级记录，恢复后需 2 个周期才恢复。
 
 ## 6. 实施顺序与风险
 
@@ -200,7 +200,7 @@
 | MACD（假设 A） | `macd_trend` 作趋势修正项 | 单变量算法，计算快/慢/信号 EMA 差分后外推趋势，`max_adjustment` 限幅，结果下限为 0；不读取协变量 |
 | 新指标种类名（R3、4.2） | `oom_events`、`jvm_heap_used_bytes` 等带单位后缀 | 沿用现有 `oom` 并以 `oom_working_set`、`jvm_heap_used`、`jvm_heap_max`、`jvm_nonheap_used`、`jvm_gc_pause`、`jvm_threads`、`k8s_cpu_requests`、`k8s_cpu_limits`、`k8s_mem_requests`、`k8s_mem_limits`、`k8s_cpu_throttle` 命名，单位由 `model.MetricKinds` 给出；目录里的 /metrics 名称为 `usage_<kind>` 系列 |
 | 降级原因码（5.1） | no_metric_data / insufficient_history / all_algorithms_failed / prediction_stale / prediction_system_error / covariate_missing / oom_floor | no_data / stale_data / insufficient_history / predictor_failed / no_prediction / stale_prediction / no_eligible_model / recovering / oom_floor。`covariate_missing` 不是降级码：丢弃策略下算法按单变量运行并在预测结果（`dropped_covariates`）里写明，degrade 策略下该算法失败并落入 predictor_failed；基线可用时不降级 |
-| 指标（5.2） | `kube_resource_fcst_fallback_total{module,reason}`、`kube_resource_fcst_module_degraded{module}` | `kube_resource_fcst_fallback_total{reason,field}`（不带 module，避免高基数）；是否降级走目录指标 `recommendation_degraded`（导出为 `kube_resource_fcst_recommendation_value{resource="degraded"}`），OOM 地板为 `recommendation_oom_floor` |
+| 指标（5.2） | `kube_res_foresight_fallback_total{module,reason}`、`kube_res_foresight_module_degraded{module}` | `kube_res_foresight_fallback_total{reason,field}`（不带 module，避免高基数）；是否降级走目录指标 `recommendation_degraded`（导出为 `kube_res_foresight_recommendation_value{resource="degraded"}`），OOM 地板为 `recommendation_oom_floor` |
 | 恢复滞后（5.2） | 连续 2 个成功周期 | `recover_cycles`（默认 2、可配）；状态存 `module_run_state`，只由定时流水线推进，手动「生成推荐」不改变它 |
 | 历史范围（R2.4） | 输入集历史天数不得超过模块 lookback | 历史天数取 min(输入集, 模块 lookback)，0 表示用模块全部；输入集中不再单独校验上限，避免与模块配置互相约束 |
 | 审计（R7.5） | 执行 → 快照 → 预测行 → 评估 | 执行记录链到快照页（按模块与版本过滤）；快照到预测行与评估的追溯沿用算法中心的绑定追溯，没有单页一键贯通 |

@@ -2,9 +2,9 @@ package config
 
 import (
 	"fmt"
-	"github.com/cylonchau/kube-resource-fcst/pkg/logger"
-	"github.com/cylonchau/kube-resource-fcst/pkg/store"
-	"github.com/cylonchau/kube-resource-fcst/pkg/utils"
+	"github.com/cylonchau/kube-res-foresight/pkg/logger"
+	"github.com/cylonchau/kube-res-foresight/pkg/store"
+	"github.com/cylonchau/kube-res-foresight/pkg/utils"
 	"github.com/spf13/viper"
 	"os"
 	"path/filepath"
@@ -46,7 +46,7 @@ type ServerConfig struct {
 	// JWTSecret signs and verifies API access/refresh tokens. Required for
 	// production: without it every instance (and every restart) uses a
 	// different generated key, invalidating sessions and breaking multi-
-	// instance deployments. Also settable via KUBE_RESOURCE_FCST_SERVER_JWT_SECRET.
+	// instance deployments. Also settable via KUBE_RES_FORESIGHT_SERVER_JWT_SECRET.
 	JWTSecret string `mapstructure:"jwt_secret"`
 	// DevMode is kept only so configuration files that still set it are read without error; nothing depends on it.
 	DevMode bool `mapstructure:"dev_mode"`
@@ -82,7 +82,7 @@ func Load(cfgPath string) (*Config, error) {
 		v.AddConfigPath(".")
 	}
 
-	v.SetEnvPrefix("KUBE_RESOURCE_FCST")
+	v.SetEnvPrefix("KUBE_RES_FORESIGHT")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
 
@@ -95,7 +95,7 @@ func Load(cfgPath string) (*Config, error) {
 	// Bind both names so saved deployments keep their database connection and JWT key.
 	keys := append(v.AllKeys(), "app_name", "database_driver", "server.jwt_secret", "server.port", "server.dev_mode", "metrics.listen", "sqlite.file")
 	for _, key := range keys {
-		env := "KUBE_RESOURCE_FCST_" + strings.ToUpper(strings.ReplaceAll(key, ".", "_"))
+		env := "KUBE_RES_FORESIGHT_" + strings.ToUpper(strings.ReplaceAll(key, ".", "_"))
 		if err := v.BindEnv(append([]string{key}, utils.ProjectEnvNames(env)...)...); err != nil {
 			return nil, fmt.Errorf("bind environment for %s: %w", key, err)
 		}
@@ -106,14 +106,17 @@ func Load(cfgPath string) (*Config, error) {
 		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
-	if cfg.AppName == "" || cfg.AppName == "kubeforecast" {
-		cfg.AppName = "kube-resource-fcst"
+	if cfg.AppName == "" || cfg.AppName == "kubeforecast" || cfg.AppName == "kube-resource-fcst" {
+		cfg.AppName = "kube-res-foresight"
 	}
-	if strings.EqualFold(cfg.DatabaseDriver, "sqlite") && filepath.Base(cfg.SQLite.File) == "kube-resource-fcst.db" {
-		legacy := filepath.Join(filepath.Dir(cfg.SQLite.File), "kubeforecast.db")
+	if strings.EqualFold(cfg.DatabaseDriver, "sqlite") && filepath.Base(cfg.SQLite.File) == "kube-res-foresight.db" {
 		if _, err := os.Stat(cfg.SQLite.File); os.IsNotExist(err) {
-			if info, err := os.Stat(legacy); err == nil && info.Mode().IsRegular() {
-				cfg.SQLite.File = legacy
+			for _, oldName := range []string{"kube-resource-fcst.db", "kubeforecast.db"} {
+				legacy := filepath.Join(filepath.Dir(cfg.SQLite.File), oldName)
+				if info, err := os.Stat(legacy); err == nil && info.Mode().IsRegular() {
+					cfg.SQLite.File = legacy
+					break
+				}
 			}
 		}
 	}

@@ -3,7 +3,7 @@ package migration
 import (
 	"gorm.io/gorm"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
 )
 
 // retiredAdmissionScaleKey was the switch that also kept a record for the Pods that scaling or a replacement creates. Those are not

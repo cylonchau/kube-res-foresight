@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
 )
 
 // PruneScores keeps the newest keep evaluations of a module and deletes the older ones. An evaluation is the set of scores

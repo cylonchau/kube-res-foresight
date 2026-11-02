@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/cylonchau/kube-resource-fcst/pkg/notify"
+	"github.com/cylonchau/kube-res-foresight/pkg/notify"
 	"net/http"
 	"time"
 )

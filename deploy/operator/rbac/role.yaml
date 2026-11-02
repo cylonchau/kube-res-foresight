@@ -2,7 +2,7 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: kube-resource-fcst-operator
+  name: kube-res-foresight-operator
 rules:
 - apiGroups:
   - apps

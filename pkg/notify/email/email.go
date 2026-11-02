@@ -19,11 +19,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
-	"github.com/cylonchau/kube-resource-fcst/pkg/notify"
-	"github.com/cylonchau/kube-resource-fcst/pkg/timing"
-	cryptoutils "github.com/cylonchau/kube-resource-fcst/pkg/utils"
+	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/notify"
+	"github.com/cylonchau/kube-res-foresight/pkg/timing"
+	cryptoutils "github.com/cylonchau/kube-res-foresight/pkg/utils"
 )
 
 // Channel is the identifier of the channel.
@@ -56,7 +56,7 @@ func DefaultConfigs() []model.SysConfig {
 		{ConfigKey: KeySecurity, ConfigValue: "starttls", ConfigName: "E-mail Security", Remark: "starttls, tls or none. A user name and password are sent only over starttls or tls (or to a server on this machine)."},
 		{ConfigKey: KeyUsername, ConfigValue: "", ConfigName: "E-mail SMTP User", Remark: "The account that signs in to the SMTP server; empty when the server needs none."},
 		{ConfigKey: KeyPassword, ConfigValue: "", ConfigName: "E-mail SMTP Password", Remark: "The password of the account. Stored encrypted and never shown."},
-		{ConfigKey: KeyFrom, ConfigValue: "", ConfigName: "E-mail Sender", Remark: "The address the mails come from, for example reports@example.com or \"kube-resource-fcst <reports@example.com>\"."},
+		{ConfigKey: KeyFrom, ConfigValue: "", ConfigName: "E-mail Sender", Remark: "The address the mails come from, for example reports@example.com or \"kube-res-foresight <reports@example.com>\"."},
 		{ConfigKey: KeySkipVerify, ConfigValue: "false", ConfigName: "E-mail Skip Certificate Check", Remark: "true does not check the certificate of the SMTP server (a server with a self-signed certificate). The connection can then be impersonated."},
 	}
 }

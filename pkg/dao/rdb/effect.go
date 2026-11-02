@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
 )
 
 // RecommendationsSince are the recommendations a module made at or after a time, oldest first, bounded to 5000 rows.

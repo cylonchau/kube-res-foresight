@@ -3,7 +3,7 @@
 // A0 of P7). The original database is never opened for writing; the backtest rows land in the copy and are deleted
 // with it.
 //
-//	go run ./scripts/baseline -db kube-resource-fcst.db [-cutoffs 5] [-module load-web]
+//	go run ./scripts/baseline -db kube-res-foresight.db [-cutoffs 5] [-module load-web]
 package main
 
 import (
@@ -22,13 +22,13 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/backtest"
-	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
-	"github.com/cylonchau/kube-resource-fcst/pkg/forecastsvc"
+	"github.com/cylonchau/kube-res-foresight/pkg/backtest"
+	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
+	"github.com/cylonchau/kube-res-foresight/pkg/forecastsvc"
 )
 
 func main() {
-	dbPath := flag.String("db", "kube-resource-fcst.db", "platform SQLite database (copied, not modified)")
+	dbPath := flag.String("db", "kube-res-foresight.db", "platform SQLite database (copied, not modified)")
 	cutoffs := flag.Int("cutoffs", 0, "rolling origins per algorithm (0 = the platform default)")
 	only := flag.String("module", "", "only the module with this name")
 	var sets, enables setFlag

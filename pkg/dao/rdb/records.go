@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
 )
 
 // RecordKinds are the record lists whose rows can be deleted in a batch, and the table each one is. Only records of what

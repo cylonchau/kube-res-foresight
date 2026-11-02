@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
 )
 
 // Reason codes of a degraded field. They are stable strings: the audit page, the exports and the alert rules

@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
 )
 
 // Metric groups of the catalog.
@@ -151,7 +151,7 @@ func usageMetric(name, metric, unit string, help Text) MetricDef {
 	return MetricDef{
 		Name: name, Group: GroupUsage, Help: help, Value: Text{"采集到的原始值", "the collected value"}, Unit: unit, Labels: []string{},
 		Table: "metric_sample", Time: "ts", Agg: AggAvg, RetentionDays: 0,
-		Export: &Export{Name: "kube_resource_fcst_usage_value", Fixed: map[string]string{"metric": metric}, Window: 3 * time.Hour},
+		Export: &Export{Name: "kube_res_foresight_usage_value", Fixed: map[string]string{"metric": metric}, Window: 3 * time.Hour},
 		load: func(ctx context.Context, s *Service, p loadParams) ([]rawPoint, bool, error) {
 			series, err := s.Samples.Series(ctx, p.ownerID, metric)
 			if err != nil {
@@ -171,7 +171,7 @@ func recommendationMetric(name, resource, unit string, help Text, pick func(mode
 	return MetricDef{
 		Name: name, Group: GroupExecution, Help: help, Value: Text{"该版本推荐的值；保留原值时没有点", "the value of that version; no point when the original is kept"},
 		Unit: unit, Labels: []string{}, Table: "recommendation", Time: "created_at", Agg: AggLast, RetentionDays: days(retention.Recommendations),
-		Export: &Export{Name: "kube_resource_fcst_recommendation_value", Fixed: map[string]string{"resource": resource}, Window: table1d},
+		Export: &Export{Name: "kube_res_foresight_recommendation_value", Fixed: map[string]string{"resource": resource}, Window: table1d},
 		load: func(ctx context.Context, s *Service, p loadParams) ([]rawPoint, bool, error) {
 			rows, truncated, err := s.Predictions.RecommendationsBetween(ctx, p.ownerID, p.from, p.to)
 			out := make([]rawPoint, 0, len(rows))
@@ -189,7 +189,7 @@ func scalingMetric(name, state string, help Text, pick func(model.ScalingExecuti
 	return MetricDef{
 		Name: name, Group: GroupExecution, Help: help, Value: Text{"operator 上报时的副本数", "replica count at the operator report"},
 		Unit: "count", Labels: []string{}, Table: "scaling_execution", Time: "created_at", Agg: AggLast, RetentionDays: 90,
-		Export: &Export{Name: "kube_resource_fcst_scaling_replicas", Fixed: map[string]string{"state": state}, Window: table1d},
+		Export: &Export{Name: "kube_res_foresight_scaling_replicas", Fixed: map[string]string{"state": state}, Window: table1d},
 		load: func(ctx context.Context, s *Service, p loadParams) ([]rawPoint, bool, error) {
 			rows, truncated, err := s.Predictions.ExecutionsBetween(ctx, p.ownerID, p.from, p.to)
 			out := make([]rawPoint, 0, len(rows))
@@ -281,7 +281,7 @@ var catalog = []MetricDef{
 		Value: Text{"每次预测运行在其整个 horizon 内的最大值，放在预测时间", "the maximum of each prediction run over its horizon, placed at the prediction time"},
 		Unit:  "metric", Labels: []string{"metric", "algorithm", "quantile"}, Table: "forecast_prediction", Time: "prediction_time", Agg: AggMax,
 		RetentionDays: days(retention.Predictions),
-		Export:        &Export{Name: "kube_resource_fcst_prediction_peak", Window: 6 * time.Hour},
+		Export:        &Export{Name: "kube_res_foresight_prediction_peak", Window: 6 * time.Hour},
 		load: func(ctx context.Context, s *Service, p loadParams) ([]rawPoint, bool, error) {
 			// the stored rows are keyed by target time; a run is every row sharing a prediction time
 			from := p.from
@@ -316,27 +316,27 @@ var catalog = []MetricDef{
 		},
 	},
 	evaluationMetric("evaluation_wape", Text{"实测 WAPE", "Measured WAPE"}, Text{"每个已评估的预测运行一个点", "one point per evaluated prediction run"}, "ratio",
-		func(e model.PredictionEvaluation) float64 { return e.WAPE }, "kube_resource_fcst_prediction_wape"),
+		func(e model.PredictionEvaluation) float64 { return e.WAPE }, "kube_res_foresight_prediction_wape"),
 	evaluationMetric("evaluation_mae", Text{"实测 MAE", "Measured MAE"}, Text{"每个已评估的预测运行一个点", "one point per evaluated prediction run"}, "metric",
-		func(e model.PredictionEvaluation) float64 { return e.MAE }, "kube_resource_fcst_prediction_mae"),
+		func(e model.PredictionEvaluation) float64 { return e.MAE }, "kube_res_foresight_prediction_mae"),
 	evaluationMetric("evaluation_bias", Text{"实测偏差", "Measured bias"}, Text{"预测减实测的均值，正数为高估", "mean of prediction minus actual; positive = over-prediction"}, "metric",
-		func(e model.PredictionEvaluation) float64 { return e.Bias }, "kube_resource_fcst_prediction_bias"),
+		func(e model.PredictionEvaluation) float64 { return e.Bias }, "kube_res_foresight_prediction_bias"),
 	evaluationMetric("evaluation_peak_under", Text{"实测峰值低估", "Measured peak underestimation"}, Text{"预测峰值比实测峰值低的相对幅度", "relative shortfall of the predicted peak"}, "ratio",
-		func(e model.PredictionEvaluation) float64 { return e.PeakUnder }, "kube_resource_fcst_prediction_peak_under"),
+		func(e model.PredictionEvaluation) float64 { return e.PeakUnder }, "kube_res_foresight_prediction_peak_under"),
 	evaluationMetric("evaluation_coverage", Text{"实测覆盖率", "Measured coverage"}, Text{"实测值不超过预测值的占比", "share of actuals at or below the forecast"}, "ratio",
-		func(e model.PredictionEvaluation) float64 { return e.Coverage }, "kube_resource_fcst_prediction_coverage"),
+		func(e model.PredictionEvaluation) float64 { return e.Coverage }, "kube_res_foresight_prediction_coverage"),
 	evaluationMetric("evaluation_points", Text{"实测周期数", "Measured steps"}, Text{"该预测运行中有实测值的步数", "forecast steps that had an actual"}, "count",
-		func(e model.PredictionEvaluation) float64 { return float64(e.Points) }, "kube_resource_fcst_prediction_points"),
+		func(e model.PredictionEvaluation) float64 { return float64(e.Points) }, "kube_res_foresight_prediction_points"),
 	backtestMetric("backtest_wape", Text{"回测 WAPE", "Backtest WAPE"}, Text{"每次回测一个点", "one point per backtest run"},
 		func(_ model.BacktestRun, s backtestScore) (float64, bool) {
 			return s.WAPE, s.Skipped == "" && s.Points > 0
-		}, "kube_resource_fcst_backtest_wape"),
+		}, "kube_res_foresight_backtest_wape"),
 	backtestMetric("backtest_peak_under", Text{"回测峰值低估", "Backtest peak underestimation"}, Text{"每次回测一个点", "one point per backtest run"},
 		func(_ model.BacktestRun, s backtestScore) (float64, bool) {
 			return s.PeakUnder, s.Skipped == "" && s.Points > 0
-		}, "kube_resource_fcst_backtest_peak_under"),
+		}, "kube_res_foresight_backtest_peak_under"),
 	backtestMetric("backtest_promoted", Text{"回测晋升", "Backtest promotion"}, Text{"1 表示该次回测晋升了算法", "1 when the run promoted the algorithm"},
-		func(r model.BacktestRun, _ backtestScore) (float64, bool) { return boolFloat(r.Promoted), true }, "kube_resource_fcst_backtest_promoted"),
+		func(r model.BacktestRun, _ backtestScore) (float64, bool) { return boolFloat(r.Promoted), true }, "kube_res_foresight_backtest_promoted"),
 	recommendationMetric("recommendation_replicas", "replicas", "count", Text{"推荐副本数", "Recommended replicas"},
 		func(r model.Recommendation) (float64, bool) { return float64(r.Replicas), r.ReplicasSet }),
 	recommendationMetric("recommendation_cpu_millicores", "cpu_millicores", "millicores", Text{"推荐 CPU", "Recommended CPU"},

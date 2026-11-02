@@ -1,21 +1,21 @@
 package cmd
 
 import (
-	allcmd "github.com/cylonchau/kube-resource-fcst/pkg/cmd/all"
-	"github.com/cylonchau/kube-resource-fcst/pkg/cmd/job"
-	notifycmd "github.com/cylonchau/kube-resource-fcst/pkg/cmd/notify"
-	operatorcmd "github.com/cylonchau/kube-resource-fcst/pkg/cmd/operator"
-	"github.com/cylonchau/kube-resource-fcst/pkg/cmd/server"
+	allcmd "github.com/cylonchau/kube-res-foresight/pkg/cmd/all"
+	"github.com/cylonchau/kube-res-foresight/pkg/cmd/job"
+	notifycmd "github.com/cylonchau/kube-res-foresight/pkg/cmd/notify"
+	operatorcmd "github.com/cylonchau/kube-res-foresight/pkg/cmd/operator"
+	"github.com/cylonchau/kube-res-foresight/pkg/cmd/server"
 	"github.com/spf13/cobra"
 )
 
-type KubeResourceFcstOptions struct{}
+type KubeResForesightOptions struct{}
 
-func NewKubeResourceFcstCommand(o KubeResourceFcstOptions) *cobra.Command {
+func NewKubeResForesightCommand(o KubeResForesightOptions) *cobra.Command {
 	rootCmd := &cobra.Command{
-		Use:   "kube-resource-fcst",
+		Use:   "kube-res-foresight",
 		Short: "Kubernetes resource forecasting and Pod scaling orchestration",
-		Long:  "kube-resource-fcst provides the management foundation for Kubernetes resource forecasting and Pod scaling.",
+		Long:  "kube-res-foresight provides the management foundation for Kubernetes resource forecasting and Pod scaling.",
 		Run: func(cmd *cobra.Command, args []string) {
 			cmd.Help()
 		},

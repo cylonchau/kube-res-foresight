@@ -1,16 +1,16 @@
 package router
 
 import (
-	"github.com/cylonchau/kube-resource-fcst/pkg/app/middleware"
-	"github.com/cylonchau/kube-resource-fcst/pkg/assistant"
-	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
-	"github.com/cylonchau/kube-resource-fcst/pkg/forecastsvc"
-	"github.com/cylonchau/kube-resource-fcst/pkg/job/tasks/aitask"
-	"github.com/cylonchau/kube-resource-fcst/pkg/ldapauth"
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/app/middleware"
+	"github.com/cylonchau/kube-res-foresight/pkg/assistant"
+	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
+	"github.com/cylonchau/kube-res-foresight/pkg/forecastsvc"
+	"github.com/cylonchau/kube-res-foresight/pkg/job/tasks/aitask"
+	"github.com/cylonchau/kube-res-foresight/pkg/ldapauth"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
 	"github.com/gin-gonic/gin"
 
-	v1 "github.com/cylonchau/kube-resource-fcst/pkg/app/server/api"
+	v1 "github.com/cylonchau/kube-res-foresight/pkg/app/server/api"
 )
 
 // RegisteredRouter composes the business-neutral platform APIs.

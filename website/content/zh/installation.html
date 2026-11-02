@@ -8,16 +8,16 @@ pnpm install --frozen-lockfile
 cd ..
 make package-web
 mkdir -p target/bin
-go build -o target/bin/kube-resource-fcst ./cmd</code></pre>
+go build -o target/bin/kube-res-foresight ./cmd</code></pre>
 <h2 id="configure">配置与启动</h2>
-<p>参考 <code>config.yaml</code> 配置数据库、监听地址、日志和稳定的 JWT 密钥。数据库支持 SQLite、MySQL、PostgreSQL。环境变量使用 <code>KUBE_RESOURCE_FCST_</code> 前缀，凭据加密密钥使用 <code>KUBE_RESOURCE_FCST_SECRET_KEY</code>。</p>
+<p>参考 <code>config.yaml</code> 配置数据库、监听地址、日志和稳定的 JWT 密钥。数据库支持 SQLite、MySQL、PostgreSQL。环境变量使用 <code>KUBE_RES_FORESIGHT_</code> 前缀，凭据加密密钥使用 <code>KUBE_RES_FORESIGHT_SECRET_KEY</code>。</p>
 <pre data-language="Bash"><code># 首次安装：显式迁移
-target/bin/kube-resource-fcst server --config config.yaml --migration
+target/bin/kube-res-foresight server --config config.yaml --migration
 
 # 启动管理平台与任务引擎
-target/bin/kube-resource-fcst all --config config.yaml</code></pre>
+target/bin/kube-res-foresight all --config config.yaml</code></pre>
 <p>示例服务端口为 <code>20001</code>，启动后访问 <code>http://localhost:20001</code>。也可分别运行 <code>server</code> 与 <code>job</code>。</p>
 <h2 id="upgrade">已有安装与执行组件</h2>
 <p>保留已有数据库连接、路径及密钥值。升级前先备份，再审阅 <code>--upgrade</code> 的清理范围；普通启动不执行退役表清理。</p>
 <p>Operator 与准入需要目标集群权限、凭据、证书及相应策略。先保持观察模式，检查资源引用和副本所有权，再开放执行。</p>
-<p><a data-source="deploy/README.md" href="https://github.com/cylonchau/hermes">部署说明 ↗</a> · <a data-source="deploy/helm/kube-resource-fcst-operator/README.md" href="https://github.com/cylonchau/hermes">Operator 安装说明 ↗</a></p>
+<p><a data-source="deploy/README.md" href="https://github.com/cylonchau/hermes">部署说明 ↗</a> · <a data-source="deploy/helm/kube-res-foresight-operator/README.md" href="https://github.com/cylonchau/hermes">Operator 安装说明 ↗</a></p>

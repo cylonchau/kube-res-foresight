@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
@@ -136,18 +136,18 @@ func TestForecastCollectorExportsBoundedLabelsAndFreshness(t *testing.T) {
 			}
 		}
 	}
-	for _, want := range []string{"kube_resource_fcst_module_enabled", "kube_resource_fcst_module_bypass", "kube_resource_fcst_recommendation_value",
-		"kube_resource_fcst_recommendation_source", "kube_resource_fcst_recommendation_valid", "kube_resource_fcst_series_latest_sample_age_seconds",
-		"kube_resource_fcst_prediction_age_seconds", "kube_resource_fcst_backtest_promoted", "kube_resource_fcst_forecast_metrics_error"} {
+	for _, want := range []string{"kube_res_foresight_module_enabled", "kube_res_foresight_module_bypass", "kube_res_foresight_recommendation_value",
+		"kube_res_foresight_recommendation_source", "kube_res_foresight_recommendation_valid", "kube_res_foresight_series_latest_sample_age_seconds",
+		"kube_res_foresight_prediction_age_seconds", "kube_res_foresight_backtest_promoted", "kube_res_foresight_forecast_metrics_error"} {
 		assert.Contains(t, names, want)
 	}
-	assert.Equal(t, 4, names["kube_resource_fcst_recommendation_source"], "one per resource: cpu, memory, replicas and gpu")
+	assert.Equal(t, 4, names["kube_res_foresight_recommendation_source"], "one per resource: cpu, memory, replicas and gpu")
 
-	expected := `# HELP kube_resource_fcst_forecast_metrics_error 1 when the last scrape of forecast state failed.
-# TYPE kube_resource_fcst_forecast_metrics_error gauge
-kube_resource_fcst_forecast_metrics_error 0
+	expected := `# HELP kube_res_foresight_forecast_metrics_error 1 when the last scrape of forecast state failed.
+# TYPE kube_res_foresight_forecast_metrics_error gauge
+kube_res_foresight_forecast_metrics_error 0
 `
-	require.NoError(t, testutil.GatherAndCompare(reg, strings.NewReader(expected), "kube_resource_fcst_forecast_metrics_error"))
+	require.NoError(t, testutil.GatherAndCompare(reg, strings.NewReader(expected), "kube_res_foresight_forecast_metrics_error"))
 	assert.NoError(t, f.svc.Ready(ctx))
 }
 

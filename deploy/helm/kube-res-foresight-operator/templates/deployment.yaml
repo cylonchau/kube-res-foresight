@@ -4,19 +4,19 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "kube-resource-fcst-operator.fullname" . }}
+  name: {{ include "kube-res-foresight-operator.fullname" . }}
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "kube-resource-fcst-operator.labels" . | nindent 4 }}
+    {{- include "kube-res-foresight-operator.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
-      {{- include "kube-resource-fcst-operator.selectorLabels" . | nindent 6 }}
+      {{- include "kube-res-foresight-operator.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "kube-resource-fcst-operator.selectorLabels" . | nindent 8 }}
+        {{- include "kube-res-foresight-operator.selectorLabels" . | nindent 8 }}
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -25,7 +25,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
     spec:
-      serviceAccountName: {{ include "kube-resource-fcst-operator.serviceAccountName" . }}
+      serviceAccountName: {{ include "kube-res-foresight-operator.serviceAccountName" . }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -47,12 +47,12 @@ spec:
             - --namespace={{ . }}
             {{- end }}
             - --platform-url={{ required "platform.url is required: the operator scales the workloads of the platform's modules" .Values.platform.url }}
-            - --platform-credential-file=/etc/kube-resource-fcst/platform/{{ .Values.platform.credentialSecret.key }}
+            - --platform-credential-file=/etc/kube-res-foresight/platform/{{ .Values.platform.credentialSecret.key }}
             - --platform-sync-interval={{ .Values.platform.syncInterval }}
             {{- if .Values.platform.caSecret.name }}
-            - --platform-ca-file=/etc/kube-resource-fcst/platform-ca/{{ .Values.platform.caSecret.key }}
+            - --platform-ca-file=/etc/kube-res-foresight/platform-ca/{{ .Values.platform.caSecret.key }}
             {{- end }}
-            - --report-spool-file=/var/spool/kube-resource-fcst-operator/reports.jsonl
+            - --report-spool-file=/var/spool/kube-res-foresight-operator/reports.jsonl
             {{- range .Values.operator.extraArgs }}
             - {{ . | quote }}
             {{- end }}
@@ -75,13 +75,13 @@ spec:
             periodSeconds: 10
           volumeMounts:
             - name: report-spool
-              mountPath: /var/spool/kube-resource-fcst-operator
+              mountPath: /var/spool/kube-res-foresight-operator
             - name: platform-credential
-              mountPath: /etc/kube-resource-fcst/platform
+              mountPath: /etc/kube-res-foresight/platform
               readOnly: true
             {{- if .Values.platform.caSecret.name }}
             - name: platform-ca
-              mountPath: /etc/kube-resource-fcst/platform-ca
+              mountPath: /etc/kube-res-foresight/platform-ca
               readOnly: true
             {{- end }}
           resources:

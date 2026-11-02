@@ -1,8 +1,8 @@
-# Values of the kube-resource-fcst-operator chart. It has not been installed in a real cluster yet.
+# Values of the kube-res-foresight-operator chart. It has not been installed in a real cluster yet.
 
 # The operator image (deploy/docker/Dockerfile, target "operator"). There is no public image: build and push one.
 image:
-  repository: "" # required, for example registry.example.com/kube-resource-fcst-operator
+  repository: "" # required, for example registry.example.com/kube-res-foresight-operator
   tag: "" # defaults to the chart appVersion
   pullPolicy: IfNotPresent
 imagePullSecrets: []
@@ -24,7 +24,7 @@ operator:
 # The platform (required). The operator reads its auto modules (namespace, workload, bounds, fallback, pace) and scales their workloads
 # through the scale subresource: the module is the only configuration, and the operator creates nothing else in the cluster.
 platform:
-  url: "" # required, for example https://kube-resource-fcst.example.com
+  url: "" # required, for example https://kube-res-foresight.example.com
   # The value the operator starts with. The platform's system parameter operator.sync_interval_seconds takes over once it answers and is
   # read again from time to time (so are the request timeout and the cache lifetimes: operator.* on the platform's system parameter page).
   syncInterval: 30s

@@ -2,7 +2,7 @@ package app
 
 import (
 	"context"
-	"github.com/cylonchau/kube-resource-fcst/pkg/config"
+	"github.com/cylonchau/kube-res-foresight/pkg/config"
 	"github.com/stretchr/testify/require"
 	"os"
 	"path/filepath"
@@ -12,7 +12,7 @@ import (
 
 func TestHTTPServerStartsAndShutsDownWithContext(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	require.NoError(t, os.WriteFile(path, []byte("app_name: kube-resource-fcst-test\nserver:\n  port: 0\n"), 0600))
+	require.NoError(t, os.WriteFile(path, []byte("app_name: kube-res-foresight-test\nserver:\n  port: 0\n"), 0600))
 	_, err := config.Load(path)
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(context.Background())

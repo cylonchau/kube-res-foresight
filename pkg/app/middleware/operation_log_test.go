@@ -77,10 +77,10 @@ func TestTheKeyOfAConnectionIsRedactedInTheBody(t *testing.T) {
 func TestResolveClientType(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	newCtx := func(developerCredential bool, xKubeResourceFcstClient string) *gin.Context {
+	newCtx := func(developerCredential bool, xKubeResForesightClient string) *gin.Context {
 		req := httptest.NewRequest("POST", "/api/v1/users", nil)
-		if xKubeResourceFcstClient != "" {
-			req.Header.Set("X-kube-resource-fcst-Client", xKubeResourceFcstClient)
+		if xKubeResForesightClient != "" {
+			req.Header.Set("X-kube-res-foresight-Client", xKubeResForesightClient)
 		}
 		c, _ := gin.CreateTestContext(httptest.NewRecorder())
 		c.Request = req
@@ -93,19 +93,19 @@ func TestResolveClientType(t *testing.T) {
 	cases := []struct {
 		name                    string
 		developerCredential     bool
-		xKubeResourceFcstClient string
+		xKubeResForesightClient string
 		want                    string
 	}{
-		{"kube-resource-fcstctl CLI over a developer credential", true, "cli", "cli"},
+		{"kube-res-foresightctl CLI over a developer credential", true, "cli", "cli"},
 		{"the operator over a developer credential", true, "operator", "operator"},
 		{"a page session cannot claim to be the operator", false, "operator", "page"},
 		{"a different integration over the same developer credential", true, "", "api"},
-		{"a developer credential with an unrelated X-kube-resource-fcst-Client value", true, "something-else", "api"},
+		{"a developer credential with an unrelated X-kube-res-foresight-Client value", true, "something-else", "api"},
 		{"web admin session (no header, no developer credential)", false, "", "page"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := resolveClientType(newCtx(tc.developerCredential, tc.xKubeResourceFcstClient)); got != tc.want {
+			if got := resolveClientType(newCtx(tc.developerCredential, tc.xKubeResForesightClient)); got != tc.want {
 				t.Errorf("resolveClientType() = %q, want %q", got, tc.want)
 			}
 		})

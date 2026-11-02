@@ -21,10 +21,10 @@
 原有 .agents/skills/constraint 的前后端调研已补成可发现技能，保留列表、表单、采集预算和 SDK 优先等约束，清理旧品牌、失效章节、交易项目路径与镜像流程。覆盖率是研究目标，不能宣称现有代码已满足。
 
 - 目标是单集群资源预测和 Pod 扩缩容。金融指标只是过去的多算法示例，已从正式候选、参数 UI 与验收中排除；不再安排交易指标资源化改造。算法以统计基线、树模型、深度时序与预训练时序模型分层，依据 algorithm-library/references/research.md 的调研及实际回测筛选。
-- hpa-operator 即 kube-resource-fcst-operator，指本项目kube-resource-fcst-operator，用于替代 HPA/KEDA，不能与原生 HPA 双写；研究八个组件是逻辑职责，不要求八个微服务。
+- hpa-operator 即 kube-res-foresight-operator，指本项目kube-res-foresight-operator，用于替代 HPA/KEDA，不能与原生 HPA 双写；研究八个组件是逻辑职责，不要求八个微服务。
 - 系统六项能力现跨 system/authorization 分组保留，不为名称统一强迁菜单；当前四入口与未来规划明确区分。
 - 数据持久化统一复用现有 GORM ORM，兼容 SQLite、MySQL、PostgreSQL，由部署配置选择；PostgreSQL 不是唯一或强制后端。系统设置、用户、角色、权限、菜单和操作日志复用现有模型、DAO、API、页面及权限体系，只做增量扩展，不重复建表或重建模块。
-- 研究 predictive_* 与 Factory 默认 kube_resource_fcst_ 前缀需实施时明确兼容映射。
+- 研究 predictive_* 与 Factory 默认 kube_res_foresight_ 前缀需实施时明确兼容映射。
 - bypass/调用故障保留原资源；模块合法 fallback 只在启用控制而模型不可用时使用，无效则保留原值，不能拼造资源。
 
 ## 未决事项

@@ -57,7 +57,7 @@ func TestTheClientSpeaksTheOpenAIProtocolWithTheToolsAndReadsAToolCall(t *testin
 
 	assert.Equal(t, "/v1/chat/completions", f.paths[0])
 	assert.Equal(t, "Bearer sk-secret", f.headers[0].Get("Authorization"))
-	assert.Equal(t, "kube-resource-fcst-assistant", f.headers[0].Get("User-Agent"))
+	assert.Equal(t, "kube-res-foresight-assistant", f.headers[0].Get("User-Agent"))
 	sent := f.seen[0]
 	assert.Equal(t, "test-model", sent["model"])
 	assert.EqualValues(t, 500, sent["max_completion_tokens"])
@@ -128,12 +128,12 @@ func TestTheAdvancedSettingsOfAConnectionReachTheRequest(t *testing.T) {
 	t.Cleanup(srv.Close)
 	temperature := 0.3
 	llm := NewOpenAI(Connection{Endpoint: srv.URL + "/v1", APIKey: "sk-secret", Model: "m", Timeout: 5 * time.Second,
-		Headers:      []Header{{Key: "HTTP-Referer", Value: "https://console.example.com"}, {Key: "X-Title", Value: "kube-resource-fcst"}},
+		Headers:      []Header{{Key: "HTTP-Referer", Value: "https://console.example.com"}, {Key: "X-Title", Value: "kube-res-foresight"}},
 		CustomParams: map[string]any{"top_p": 0.9, "reasoning": map[string]any{"effort": "low"}}, Temperature: &temperature})
 	_, err := llm.Complete(context.Background(), []Message{{Role: "user", Content: "hi"}}, nil, 777)
 	require.NoError(t, err)
 	assert.Equal(t, "https://console.example.com", f.headers[0].Get("HTTP-Referer"))
-	assert.Equal(t, "kube-resource-fcst", f.headers[0].Get("X-Title"))
+	assert.Equal(t, "kube-res-foresight", f.headers[0].Get("X-Title"))
 	sent := f.seen[0]
 	assert.EqualValues(t, 0.9, sent["top_p"])
 	assert.Equal(t, map[string]any{"effort": "low"}, sent["reasoning"])

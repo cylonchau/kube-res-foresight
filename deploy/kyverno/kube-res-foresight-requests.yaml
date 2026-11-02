@@ -1,4 +1,4 @@
-# kube-resource-fcst admission policy for Kyverno (tested on Kyverno 1.19.1, Docker Desktop kubeadm cluster).
+# kube-res-foresight admission policy for Kyverno (tested on Kyverno 1.19.1, Docker Desktop kubeadm cluster).
 #
 # For a Pod created by a workload that a platform module manages (module mode admission or auto), sets the container
 # requests (CPU, memory, GPU) to what the platform recommends and, when the module manages them (limit_cpu_ratio,
@@ -12,7 +12,7 @@
 #
 # Needs (see deploy/testbed/kyverno-credential.yaml for the Secret and the RBAC that lets Kyverno read only that Secret):
 #   - the system setting forecast.allow_admission_mode = true on the platform;
-#   - a developer credential holding "Admission Recommendations (read)" in Secret kyverno/kube-resource-fcst-admission,
+#   - a developer credential holding "Admission Recommendations (read)" in Secret kyverno/kube-res-foresight-admission,
 #     key "credential" = "<access key>:<access secret>".
 # Replace PLATFORM_URL below with the address of the platform as seen from the Kyverno pods.
 #
@@ -25,11 +25,11 @@
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:
-  name: kube-resource-fcst-resources
+  name: kube-res-foresight-resources
   annotations:
-    policies.kyverno.io/title: kube-resource-fcst recommended requests and limits
+    policies.kyverno.io/title: kube-res-foresight recommended requests and limits
     policies.kyverno.io/description: >-
-      Sets container requests (and managed limits) from kube-resource-fcst recommendations of admission/auto modules.
+      Sets container requests (and managed limits) from kube-res-foresight recommendations of admission/auto modules.
 spec:
   failurePolicy: Ignore
   webhookTimeoutSeconds: 5
@@ -44,7 +44,7 @@ spec:
       exclude:
         any:
           - resources:
-              namespaces: ["kube-system", "kube-public", "kube-node-lease", "kyverno", "kube-resource-fcst-system", "monitoring"]
+              namespaces: ["kube-system", "kube-public", "kube-node-lease", "kyverno", "kube-res-foresight-system", "monitoring"]
       preconditions:
         all:
           - key: "{{ request.object.metadata.ownerReferences[0].kind || '' }}"
@@ -67,7 +67,7 @@ spec:
               request.object.metadata.labels."pod-template-hash" || request.object.metadata.labels."controller-revision-hash" || ''
         - name: credential
           apiCall:
-            urlPath: /api/v1/namespaces/kyverno/secrets/kube-resource-fcst-admission
+            urlPath: /api/v1/namespaces/kyverno/secrets/kube-res-foresight-admission
             jmesPath: data.credential | base64_decode(@)
             default: ""
         - name: recommendation
@@ -78,7 +78,7 @@ spec:
                 PLATFORM_URL/api/v1/admission/recommendations?namespace={{request.namespace}}&kind={{workloadKind}}&workload={{workload}}&container={{request.object.spec.containers[0].name}}&revision={{revision}}&request_uid={{request.uid}}&operation={{request.operation}}
               headers:
                 - key: Authorization
-                  value: "kube-resource-fcst-AK {{ credential }}"
+                  value: "kube-res-foresight-AK {{ credential }}"
             default:
               apply: false
             jmesPath: data

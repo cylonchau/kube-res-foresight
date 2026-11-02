@@ -10,12 +10,12 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
-	"github.com/cylonchau/kube-resource-fcst/pkg/job"
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
-	"github.com/cylonchau/kube-resource-fcst/pkg/notify"
-	"github.com/cylonchau/kube-resource-fcst/pkg/notify/email"
-	"github.com/cylonchau/kube-resource-fcst/pkg/timezone"
+	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
+	"github.com/cylonchau/kube-res-foresight/pkg/job"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/notify"
+	"github.com/cylonchau/kube-res-foresight/pkg/notify/email"
+	"github.com/cylonchau/kube-res-foresight/pkg/timezone"
 )
 
 // AI scheduled tasks are a framework: a task is a prompt and a schedule. At the time, the platform asks the language model the prompt (with
@@ -334,8 +334,8 @@ func (s *Service) deliver(ctx context.Context, t *model.AssistantTask, run *mode
 		return errors.New("the e-mail channel is not available in this process")
 	}
 	zone := timezone.Location()
-	footer := fmt.Sprintf("\n\n--\n%s · %s · kube-resource-fcst", t.Name, run.StartedAt.In(zone).Format("2006-01-02 15:04 MST"))
-	return ch.Send(ctx, to, notify.Message{Title: "[kube-resource-fcst] " + t.Name, Content: run.Output + footer})
+	footer := fmt.Sprintf("\n\n--\n%s · %s · kube-res-foresight", t.Name, run.StartedAt.In(zone).Format("2006-01-02 15:04 MST"))
+	return ch.Send(ctx, to, notify.Message{Title: "[kube-res-foresight] " + t.Name, Content: run.Output + footer})
 }
 
 // ---- the tools of a question that has a signed-in user: make, list and delete the tasks of that user

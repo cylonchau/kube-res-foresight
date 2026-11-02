@@ -6,29 +6,29 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/logger"
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/logger"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
 // Label cardinality is bounded by the number of modules, the three forecast metrics and the registered
 // algorithms; nothing is labelled by pod, time or request.
 var (
-	descModuleEnabled   = prometheus.NewDesc("kube_resource_fcst_module_enabled", "1 when the module is enabled.", []string{"module", "mode"}, nil)
-	descModuleBypass    = prometheus.NewDesc("kube_resource_fcst_module_bypass", "1 when the module keeps every original value.", []string{"module"}, nil)
-	descRecSource       = prometheus.NewDesc("kube_resource_fcst_recommendation_source", "1 for the source that decided each resource of the latest recommendation.", []string{"module", "resource", "source"}, nil)
-	descRecAge          = prometheus.NewDesc("kube_resource_fcst_recommendation_age_seconds", "Age of the latest recommendation.", []string{"module"}, nil)
-	descRecValid        = prometheus.NewDesc("kube_resource_fcst_recommendation_valid", "1 while the latest recommendation has not expired.", []string{"module"}, nil)
-	descSampleAge       = prometheus.NewDesc("kube_resource_fcst_series_latest_sample_age_seconds", "Age of the newest stored sample.", []string{"module", "metric"}, nil)
-	descPredictionAge   = prometheus.NewDesc("kube_resource_fcst_prediction_age_seconds", "Age of the newest prediction run.", []string{"module", "metric", "algorithm"}, nil)
-	descDatasourceUp    = prometheus.NewDesc("kube_resource_fcst_datasource_up", "1 when the last probe of the datasource succeeded.", []string{"datasource"}, nil)
-	descDatasourceDelay = prometheus.NewDesc("kube_resource_fcst_datasource_latency_seconds", "Latency of the last probe of the datasource.", []string{"datasource"}, nil)
-	descAlgoScore       = prometheus.NewDesc("kube_resource_fcst_algorithm_score", "Latest composite score (0-100) of an algorithm instance.", []string{"module", "algorithm"}, nil)
-	descAlgoSelected    = prometheus.NewDesc("kube_resource_fcst_algorithm_selected", "1 for the algorithm instance in use.", []string{"module", "algorithm"}, nil)
-	descEffectiveMax    = prometheus.NewDesc("kube_resource_fcst_effective_max_replicas", "Replica ceiling in force (the fixed maximum, or the dynamically expanded one).", []string{"module"}, nil)
-	descHardMax         = prometheus.NewDesc("kube_resource_fcst_hard_max_replicas", "Safety ceiling the dynamic expansion never passes.", []string{"module"}, nil)
-	descConsecutiveFail = prometheus.NewDesc("kube_resource_fcst_consecutive_failures", "Pipeline cycles in a row that failed.", []string{"module"}, nil)
-	descCollectorError  = prometheus.NewDesc("kube_resource_fcst_forecast_metrics_error", "1 when the last scrape of forecast state failed.", nil, nil)
+	descModuleEnabled   = prometheus.NewDesc("kube_res_foresight_module_enabled", "1 when the module is enabled.", []string{"module", "mode"}, nil)
+	descModuleBypass    = prometheus.NewDesc("kube_res_foresight_module_bypass", "1 when the module keeps every original value.", []string{"module"}, nil)
+	descRecSource       = prometheus.NewDesc("kube_res_foresight_recommendation_source", "1 for the source that decided each resource of the latest recommendation.", []string{"module", "resource", "source"}, nil)
+	descRecAge          = prometheus.NewDesc("kube_res_foresight_recommendation_age_seconds", "Age of the latest recommendation.", []string{"module"}, nil)
+	descRecValid        = prometheus.NewDesc("kube_res_foresight_recommendation_valid", "1 while the latest recommendation has not expired.", []string{"module"}, nil)
+	descSampleAge       = prometheus.NewDesc("kube_res_foresight_series_latest_sample_age_seconds", "Age of the newest stored sample.", []string{"module", "metric"}, nil)
+	descPredictionAge   = prometheus.NewDesc("kube_res_foresight_prediction_age_seconds", "Age of the newest prediction run.", []string{"module", "metric", "algorithm"}, nil)
+	descDatasourceUp    = prometheus.NewDesc("kube_res_foresight_datasource_up", "1 when the last probe of the datasource succeeded.", []string{"datasource"}, nil)
+	descDatasourceDelay = prometheus.NewDesc("kube_res_foresight_datasource_latency_seconds", "Latency of the last probe of the datasource.", []string{"datasource"}, nil)
+	descAlgoScore       = prometheus.NewDesc("kube_res_foresight_algorithm_score", "Latest composite score (0-100) of an algorithm instance.", []string{"module", "algorithm"}, nil)
+	descAlgoSelected    = prometheus.NewDesc("kube_res_foresight_algorithm_selected", "1 for the algorithm instance in use.", []string{"module", "algorithm"}, nil)
+	descEffectiveMax    = prometheus.NewDesc("kube_res_foresight_effective_max_replicas", "Replica ceiling in force (the fixed maximum, or the dynamically expanded one).", []string{"module"}, nil)
+	descHardMax         = prometheus.NewDesc("kube_res_foresight_hard_max_replicas", "Safety ceiling the dynamic expansion never passes.", []string{"module"}, nil)
+	descConsecutiveFail = prometheus.NewDesc("kube_res_foresight_consecutive_failures", "Pipeline cycles in a row that failed.", []string{"module"}, nil)
+	descCollectorError  = prometheus.NewDesc("kube_res_foresight_forecast_metrics_error", "1 when the last scrape of forecast state failed.", nil, nil)
 )
 
 // maxMetricModules bounds the modules exported in one scrape.

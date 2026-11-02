@@ -2,11 +2,11 @@ package api
 
 import (
 	"errors"
-	"github.com/cylonchau/kube-resource-fcst/pkg/apis"
-	"github.com/cylonchau/kube-resource-fcst/pkg/app/query"
-	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
-	"github.com/cylonchau/kube-resource-fcst/pkg/job"
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/apis"
+	"github.com/cylonchau/kube-res-foresight/pkg/app/query"
+	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
+	"github.com/cylonchau/kube-res-foresight/pkg/job"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
 	"github.com/gin-gonic/gin"
 	"sort"
 )

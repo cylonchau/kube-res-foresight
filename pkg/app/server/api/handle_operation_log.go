@@ -2,9 +2,9 @@ package api
 
 import (
 	"context"
-	"github.com/cylonchau/kube-resource-fcst/pkg/apis"
-	"github.com/cylonchau/kube-resource-fcst/pkg/app/query"
-	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
+	"github.com/cylonchau/kube-res-foresight/pkg/apis"
+	"github.com/cylonchau/kube-res-foresight/pkg/app/query"
+	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
 	"github.com/gin-gonic/gin"
 	"time"
 )

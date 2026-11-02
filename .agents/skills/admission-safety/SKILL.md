@@ -1,6 +1,6 @@
 ---
 name: admission-safety
-description: 用于 kube-resource-fcst Pod 资源准入、固定周期、默认配置、bypass、推荐快照及运行中资源调整的实现和审查，检查数值安全与发布故障旁路。
+description: 用于 kube-res-foresight Pod 资源准入、固定周期、默认配置、bypass、推荐快照及运行中资源调整的实现和审查，检查数值安全与发布故障旁路。
 ---
 
 # 资源准入与故障回退
@@ -9,7 +9,7 @@ description: 用于 kube-resource-fcst Pod 资源准入、固定周期、默认�
 
 ## 准入记录只留真实的部署／更新（R20）
 
-`admission_decision` 只由 `GET /admission/recommendations` 写，预测、周期计算、副本决策从不写。策略传 `revision`（pod-template-hash 或 controller-revision-hash）：创建工作负载的询问（`container=-`）记「创建」，一个版本的第一个 Pod 记「部署／更新」，同版本其余 Pod（扩容、替换）不是准入操作：照常回答但**不记录，也没有开关**（2026-10-31 删除了 `forecast.admission_record_scaling` 与「扩容／替换」来源；`--migration` 会删掉已有的这类记录）。`rollout restart` 在 Kyverno 看来和更新一样是新版本的第一个 Pod，无法区分，仍记为「部署／更新」。判断与写入在 `RuntimeRouter.admissionMu` 下完成。改这里要同步 `TestOnlyARolloutAndTheCreationOfAWorkloadAreKeptAsAdmissionRecords` 和 `deploy/kyverno/kube-resource-fcst-requests.yaml`。
+`admission_decision` 只由 `GET /admission/recommendations` 写，预测、周期计算、副本决策从不写。策略传 `revision`（pod-template-hash 或 controller-revision-hash）：创建工作负载的询问（`container=-`）记「创建」，一个版本的第一个 Pod 记「部署／更新」，同版本其余 Pod（扩容、替换）不是准入操作：照常回答但**不记录，也没有开关**（2026-10-31 删除了 `forecast.admission_record_scaling` 与「扩容／替换」来源；`--migration` 会删掉已有的这类记录）。`rollout restart` 在 Kyverno 看来和更新一样是新版本的第一个 Pod，无法区分，仍记为「部署／更新」。判断与写入在 `RuntimeRouter.admissionMu` 下完成。改这里要同步 `TestOnlyARolloutAndTheCreationOfAWorkloadAreKeptAsAdmissionRecords` 和 `deploy/kyverno/kube-res-foresight-requests.yaml`。
 
 ## 实施流程
 
@@ -26,7 +26,7 @@ description: 用于 kube-resource-fcst Pod 资源准入、固定周期、默认�
 ## 已实现的准入侧（未在集群验证）
 
 - 平台接口 `GET /api/v1/admission/recommendations?namespace=&kind=&workload=&container=[&limit_cpu_milli=&limit_memory_bytes=]`（pkg/app/server/api/handle_runtime.go）：回 requests（CPU 毫核、内存字节），模块配置了 `limit_cpu_ratio` / `limit_memory_ratio`（0 或 1–10）时再回 `limits`（= 应用的 request × 比例；0 保持工作负载自己声明的 limit，此时推荐超过声明 limit 的字段仍被丢弃）；从不回副本，副本只归 operator。对 enabled、mode 为 admission 或 auto（auto ⊇ admission）、未 bypass、推荐未过期的模块返回 apply=true；无字段可用则 apply=false 并给原因。没有为该工作负载添加模块时返回 apply=false，不是错误。每次回答都检查 forecast.allow_admission_mode（默认 false，缓存约 10 秒），所以关闭开关即刻停止准入。凭据权限 `Admission Recommendations (read)`。
-- Kyverno 策略 deploy/kyverno/kube-resource-fcst-requests.yaml（ClusterPolicy `kube-resource-fcst-resources`，Kyverno 1.19.1 上用 kubeadm Docker Desktop 集群验证过：有模块的新 Pod requests/limits 被改写，没有模块或平台不可用时 Pod 原样创建且不报错）：一个 Pod 只调一次平台；凭据读自 Secret `kyverno/kube-resource-fcst-admission`（Role 只允许读这一个 Secret，见 deploy/testbed/kyverno-credential.yaml）；failurePolicy=Ignore、超时 5 秒，准入链路不等待模型、Kafka 或 Prometheus。只改**新建**的 Pod；运行中的 Pod 要等工作负载滚动，副本数不由 Kyverno 管。ReplicaSet 哈希剥离、LimitRange/ResourceQuota 交互、MySQL 以外库的行为仍未验证。
+- Kyverno 策略 deploy/kyverno/kube-res-foresight-requests.yaml（ClusterPolicy `kube-res-foresight-resources`，Kyverno 1.19.1 上用 kubeadm Docker Desktop 集群验证过：有模块的新 Pod requests/limits 被改写，没有模块或平台不可用时 Pod 原样创建且不报错）：一个 Pod 只调一次平台；凭据读自 Secret `kyverno/kube-res-foresight-admission`（Role 只允许读这一个 Secret，见 deploy/testbed/kyverno-credential.yaml）；failurePolicy=Ignore、超时 5 秒，准入链路不等待模型、Kafka 或 Prometheus。只改**新建**的 Pod；运行中的 Pod 要等工作负载滚动，副本数不由 Kyverno 管。ReplicaSet 哈希剥离、LimitRange/ResourceQuota 交互、MySQL 以外库的行为仍未验证。
 - 决策优先级（bypass > 固定周期 > 算法建议 > 模块 fallback > 原值）、硬边界裁剪、TTL 与 UTC/IANA 周期在 pkg/decision，推荐快照 recommendation.detail 保存每个字段的来源/原因。
 
 **资源规格与副本分开（R10）**：Pod 的 CPU/内存 requests 是准入阶段的事，副本数是扩缩容阶段的事。规格生效后保持不变（预测与它相差不超过 forecast.resource_change_ratio 不改，降低要等 forecast.resource_hold_hours；增加、固定周期、旁路、OOM 保护立即生效），取整成可执行的规格（CPU 10m/50m，内存 Mi 级 10Mi/64Mi），带规格版本；准入接口回的就是这个生效规格，所以扩容产生的新 Pod 与旧 Pod 一致。算法预测以副本数为主要输出。详见 [算法框架规格](../requirements/references/algorithm-framework-spec.md) 第 16 节。

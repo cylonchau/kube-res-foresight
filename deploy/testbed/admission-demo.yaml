@@ -1,4 +1,4 @@
-# Admission demo workload: NO platform module has this name, so the policy kube-resource-fcst-require-module refuses it.
+# Admission demo workload: NO platform module has this name, so the policy kube-res-foresight-require-module refuses it.
 #   kubectl apply -f deploy/testbed/admission-demo.yaml      -> error from Kyverno: "... 没有在预测平台配置模块，禁止部署 ..."
 # Create a module named demo-unmanaged (namespace forecast-test, kind Deployment) in the platform and apply it again: it is admitted.
 apiVersion: apps/v1

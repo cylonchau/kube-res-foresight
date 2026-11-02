@@ -1,45 +1,36 @@
-# kube-resource-fcst 名称与升级说明
+# kube-res-foresight 名称与升级
 
-> **2026-10-31：自定义资源 PredictiveScaler（CRD）已移除。** operator 只读平台的模块并写副本，不在集群里创建任何资源；下文提到 CRD、PredictiveScaler、Static/Prometheus 决策来源、Observe 模式的地方是当时的设计，不再适用。现状见 `.agents/skills/control-plane/SKILL.md`。
+项目统一使用 `kube-res-foresight`。Go 模块为 `github.com/cylonchau/kube-res-foresight`，程序、镜像示例、Helm Chart、前端和官网同步采用新名称。
 
-
-项目名称统一为 `kube-resource-fcst`。本说明只涉及名称与接入标识变化，不要求重建业务数据库。
-
-| 用途 | 当前名称 |
+| 用途 | 当前标识 |
 |---|---|
-| 展示名称、CLI、平台二进制 | `kube-resource-fcst` |
-| Operator 二进制与 Helm chart | `kube-resource-fcst-operator` |
-| Go 模块 | `github.com/cylonchau/kube-resource-fcst` |
-| 配置环境变量 | `KUBE_RESOURCE_FCST_*` |
-| 凭据加密密钥 | `KUBE_RESOURCE_FCST_SECRET_KEY` |
-| HTTP 客户端头 | `X-kube-resource-fcst-Client` |
-| HTTP 开发者凭据头 | `X-kube-resource-fcst-AccessKey` / `X-kube-resource-fcst-AccessSecret` |
-| Authorization scheme | `kube-resource-fcst-AK <key>:<secret>` |
-| WebSocket 子协议 | `kube-resource-fcst.jwt` |
-| Platform / Operator 指标 | `kube_resource_fcst_*` / `kube_resource_fcst_operator_*` |
-| PredictiveScaler API group | `autoscaling.kube-resource-fcst.io/v1alpha1` |
-| 新安装 SQLite 默认文件 | `kube-resource-fcst.db` |
+| 命令行 | `kube-res-foresight` / `kube-res-foresightctl` |
+| 环境变量 | `KUBE_RES_FORESIGHT_*` |
+| 凭据加密密钥 | `KUBE_RES_FORESIGHT_SECRET_KEY` |
+| API 客户端头 | `X-kube-res-foresight-Client` |
+| 开发者凭据头 | `X-kube-res-foresight-AccessKey` / `X-kube-res-foresight-AccessSecret` |
+| Authorization scheme | `kube-res-foresight-AK <key>:<secret>` |
+| WebSocket 子协议 | `kube-res-foresight.jwt` |
+| 指标 | `kube_res_foresight_*` / `kube_res_foresight_operator_*` |
+| 新安装 SQLite 默认文件 | `kube-res-foresight.db` |
 
-## 数据库与密钥
+## 配置、数据库与密钥
 
-- 保持已有数据库连接、路径、账号和加密密钥的值不变。更换环境变量名称不等于更换密钥值。
-- 配置读取、凭据加密、Operator 平台凭据与诊断入口保留 `KUBEFORECAST_*` 的兼容读取；同一项的新名称优先。旧名称仅用于升级兼容，不再作为配置示例。
-- 若配置指向默认 `kube-resource-fcst.db`，该文件尚不存在，但同目录已有 `kubeforecast.db`，平台继续使用已有文件，不移动文件、不新建空库。新文件已经存在或使用自定义路径时，遵循所配置的文件。
-- 不重命名正在使用的 SQLite 主文件、WAL 或 SHM；需要统一物理文件名时，先停服务、完成备份，再以数据库的安全备份/恢复方式处理，并明确更新配置。
-- 现有数据库中的业务与审计记录不做品牌文本批量覆盖。登录会话与已有 TOTP 秘钥不因展示名称变化而重置。
+- 新环境变量优先，其次读取 `KUBE_RESOURCE_FCST_*`，最后读取更早的 `KUBEFORECAST_*`。显式设置的新变量（包括空值）优先，不会被旧值覆盖。时区变量也保留这两个旧前缀的兼容读取。
+- 只调整变量名称，保持已有 JWT 密钥、凭据加密密钥、数据库连接信息的值不变。既有凭据无需重新加密，数据库里的业务记录不批量改名。
+- 配置使用新默认 SQLite 文件，而文件不存在时，优先使用同目录的 `kube-resource-fcst.db`，再寻找 `kubeforecast.db`。新文件已存在或使用自定义路径时遵循配置。
+- 不移动运行中的 SQLite 主文件、WAL 或 SHM。需要更改物理文件名时先停服务并备份，再通过安全备份/恢复流程处理。
 
-## API 与监控客户端
+## 客户端、监控与部署
 
-同步更新调用方的请求头、Authorization scheme、WebSocket 子协议及 Prometheus 查询/告警中的指标前缀，再切换服务端。旧指标名称不作为双份别名导出。指标历史仍保留在原监控存储中，跨切换窗口查询时分别读取相应前缀。
+同步更新前后端、Operator、CLI 和外部调用方的请求头、Authorization scheme、WebSocket 子协议。Prometheus 查询、告警和 Grafana 使用新指标前缀；不重复导出旧指标，历史窗口仍需查询原监控存储中的旧前缀。
 
-## Kubernetes 与 Helm
+当前 Operator 只读取平台模块并修改目标工作负载副本，不使用 PredictiveScaler CRD。升级时保留平台地址、凭据与工作负载配置，确认新旧 Operator 不会因 Deployment 或 Lease 改名而同时控制同一目标，再恢复自动执行。不自动更改集群中的 Namespace、Secret、RBAC 或 Helm release。
 
-CRD API group、命名空间、Service、Secret、RBAC、Lease 和 Helm 命名均已更新。它们是集群中的对象标识，改名不会自动搬迁已有对象。
+Operator Helm 路径为 `deploy/helm/kube-res-foresight-operator`。平台 Chart 如在本地维护，路径同步为 `deploy/helm/kube-res-foresight`。管理前端位于独立的 `web/` Git 仓库，分别检查与提交。
 
-1. 记录原工作负载、策略、边界、Secret 与实际副本状态，备份原 PredictiveScaler 的 spec。
-2. 将原控制器停止写入目标，并将原策略保持在观察或旁路状态；确认 HPA/KEDA 与其他控制器不会竞争副本。
-3. 安装新 CRD/RBAC，按新 API group 重建策略，或采用平台模块驱动方式。新部署先保持 Observe，并更新平台地址、认证与引用的 Secret。
-4. 检查新配置、推荐读取和冲突状态后，再授权唯一的控制器执行。不得让新旧 Deployment 因 Lease 名称不同而同时调整同一工作负载。
-5. 确认切换后再按维护流程处理旧资源。不要直接删除仍含有效对象的旧 CRD，也不要直接对旧 Helm release 使用可能引发重建的升级方式。
+## GitHub 仓库与 Pages
 
-仓库仅更新源码与清单，不自动操作现有集群，不创建或重命名 GitHub 仓库，不更改 Git remote。
+本地名称调整不会自动改变 GitHub 的仓库名。当前远端仍为 `cylonchau/hermes`，官网仓库链接仍指向这个实际存在的地址。本次环境未提供可用于重命名 GitHub 仓库的管理凭据。
+
+仓库管理员可在 GitHub 的 Settings → General → Repository name 修改为 `kube-res-foresight`，随后把本地 origin 更新为 `https://github.com/cylonchau/kube-res-foresight.git`，并同步 `site/assets/config.js` 的仓库地址。Pages 使用相对链接，支持新仓库子路径；检查 Settings → Pages 与工作流运行状态。这里不执行推送、远端改名或集群操作。

@@ -12,10 +12,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/cylonchau/kube-resource-fcst/pkg/dao/rdb"
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
-	"github.com/cylonchau/kube-resource-fcst/pkg/notify"
-	"github.com/cylonchau/kube-resource-fcst/pkg/notify/template"
+	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/notify"
+	"github.com/cylonchau/kube-res-foresight/pkg/notify/template"
 )
 
 // JobType is the "notify" task's identifier — see pkg/job/tasks/notifytask.

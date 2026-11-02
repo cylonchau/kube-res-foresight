@@ -1,6 +1,6 @@
-The kube-resource-fcst operator is installed in namespace {{ .Release.Namespace }}.
+The kube-res-foresight operator is installed in namespace {{ .Release.Namespace }}.
 
-  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "kube-resource-fcst-operator.fullname" . }}
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "kube-res-foresight-operator.fullname" . }}
 
 The operator reads the auto modules from {{ .Values.platform.url }} and scales their workloads; replicas, bounds, fallback and pace
 are configured on the module in the platform. It creates no resource of its own in the cluster. Its time limits (request timeout, sync

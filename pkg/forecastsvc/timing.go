@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
-	"github.com/cylonchau/kube-resource-fcst/pkg/timing"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/timing"
 )
 
 // Timing is the time limit a system parameter sets (see package timing): what is stored, kept in the range of the parameter, or its

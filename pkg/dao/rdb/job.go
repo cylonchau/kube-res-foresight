@@ -3,8 +3,8 @@ package rdb
 import (
 	"context"
 	"errors"
-	"github.com/cylonchau/kube-resource-fcst/pkg/apis"
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/apis"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"time"

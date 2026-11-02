@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/cylonchau/kube-resource-fcst/pkg/job/tasks/notifyjob"
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
-	"github.com/cylonchau/kube-resource-fcst/pkg/notify"
+	"github.com/cylonchau/kube-res-foresight/pkg/job/tasks/notifyjob"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/notify"
 )
 
 // Task implements job.Task for JobType.

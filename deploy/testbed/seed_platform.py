@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Seed a kube-resource-fcst platform for the local test bed, through its API (never the database).
+"""Seed a kube-res-foresight platform for the local test bed, through its API (never the database).
 
   python deploy/testbed/seed_platform.py [--platform http://127.0.0.1:20001] [--prometheus http://127.0.0.1:30090]
          [--password 123456] [--modules load-web,load-api,load-batch,load-cache] [--mode auto|admission|recommend]

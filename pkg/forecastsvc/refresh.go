@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cylonchau/kube-resource-fcst/pkg/model"
-	"github.com/cylonchau/kube-resource-fcst/pkg/timing"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/timing"
 )
 
 // ConfigDecisionMaxAge is the system parameter that says how old the recommendation the operator reads may be, in seconds: 0 turns

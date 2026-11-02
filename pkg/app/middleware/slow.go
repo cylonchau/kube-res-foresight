@@ -1,7 +1,7 @@
 package middleware
 
 import (
-	"github.com/cylonchau/kube-resource-fcst/pkg/logger"
+	"github.com/cylonchau/kube-res-foresight/pkg/logger"
 	"github.com/gin-gonic/gin"
 	"strings"
 	"time"
