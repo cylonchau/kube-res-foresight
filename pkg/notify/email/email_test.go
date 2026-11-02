@@ -226,3 +226,12 @@ func TestTheChannelSaysWhatIsMissingAndRefusesWhatIsNotAnAddress(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "ann@example.com", got)
 }
+
+func TestTheSeededParametersFitTheColumns(t *testing.T) {
+	// PostgreSQL and MySQL enforce the width of the columns; SQLite does not, so this is the only place it is seen in the tests
+	for _, c := range DefaultConfigs() {
+		assert.LessOrEqual(t, len([]rune(c.Remark)), 255, c.ConfigKey)
+		assert.LessOrEqual(t, len([]rune(c.ConfigName)), 255, c.ConfigKey)
+		assert.LessOrEqual(t, len([]rune(c.ConfigValue)), 255, c.ConfigKey)
+	}
+}
