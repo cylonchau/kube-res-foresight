@@ -39,7 +39,7 @@
     "llm-configuration": {"zh": ["LLM 连接配置", "设置默认与指定模型、工具调用、高级参数和凭据。"], "en": ["LLM configuration", "Configure default and selected models, tools, advanced settings, and credentials."]},
     "ai-tasks": {"zh": ["AI 定时任务与邮件", "按计划查询平台，把模型回答保存并通过邮件发送。"], "en": ["AI scheduled tasks and email", "Ask on a schedule, retain answers, and deliver them by email."]},
     "dashboard": {"zh": ["首页与运行概览", "查看模块状态、需要关注的模块和实际扩缩容活动。"], "en": ["Dashboard and activity", "Review module status, attention flags, and applied scaling activity."]},
-    "architecture": {"zh": ["系统架构与模块图", "从系统总览、功能模块和两条执行路径理解平台。"], "en": ["Architecture and modules", "Explore the overview, module responsibilities, and execution paths."]},
+    "architecture": {"zh": ["系统架构", "从系统总览、功能模块和两条执行路径理解平台。"], "en": ["System architecture", "Explore the overview, module responsibilities, and execution paths."]},
     "runtime": {"zh": ["运行逻辑与反馈循环", "理解采集、预测、推荐、按需刷新和实际结果如何协同。"], "en": ["Runtime and feedback loops", "Understand collection, forecasts, advice, refresh, and actual outcomes."]}
   }
 }

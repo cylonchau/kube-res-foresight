@@ -1,6 +1,91 @@
 <h2 id="components">Choose the components</h2>
 <p>The platform provides the console, data management, forecasting, and advice. The job engine runs recurring work. Add the Operator for replica changes and admission policies for resource advice on new Pods.</p>
 <table><thead><tr><th>Component</th><th>Purpose</th></tr></thead><tbody><tr><td>Platform</td><td>Console, API, metrics, forecasts, and recommendations.</td></tr><tr><td>Job engine</td><td>Recurring collection, forecasts, backtests, and evaluations; can run with the platform.</td></tr><tr><td>Operator</td><td>Adjust workload replicas within authorization and bounds.</td></tr><tr><td>Resource admission</td><td>Apply valid resource advice to new Pod requests / limits.</td></tr></tbody></table>
+<h2 id="helm-platform">Deploy the platform with Helm</h2>
+<p>Run these commands from the repository root with Helm 3, access to Kubernetes, and an image registry. Platform and Operator have separate charts. The platform chart runs the console, API, forecasting, and job engine; it does not install a database or the Operator.</p>
+<p>Prepare the separate <code>web/</code> sources, then build and push the platform image. Replace the example registry and tag.</p>
+<pre data-language="Bash"><code>docker build -f deploy/docker/Dockerfile --target kube-res-foresight \
+  -t registry.example.com/kube-res-foresight:0.1.0 .
+docker push registry.example.com/kube-res-foresight:0.1.0</code></pre>
+<p>For a trial, the defaults use SQLite and a 5Gi PVC. A working StorageClass is required. SQLite permits only one platform replica.</p>
+<pre data-language="Bash"><code>helm install fcst deploy/helm/kube-res-foresight \
+  -n kube-res-foresight --create-namespace \
+  --set image.repository=registry.example.com/kube-res-foresight \
+  --set image.tag=0.1.0</code></pre>
+<h2 id="helm-database">Database and secrets</h2>
+<p>For external PostgreSQL or MySQL, create a database and a user allowed to create tables, then prepare a credentials Secret. The platform does not provision a database server. This is an alternative installation; do not run it after the SQLite example.</p>
+<pre data-language="Bash"><code>kubectl create namespace kube-res-foresight
+kubectl -n kube-res-foresight create secret generic fcst-credentials \
+  --from-file=jwt-secret=./jwt-secret.txt \
+  --from-file=secret-key=./secret-key.txt \
+  --from-file=database-password=./database-password.txt</code></pre>
+<p>The files contain the JWT signing key, an encryption key of at least 32 characters, and the database password, respectively, with no trailing newline. Protect these files and keep them out of version control. Create <code>values-production.yaml</code>:</p>
+<pre data-language="YAML"><code>image:
+  repository: registry.example.com/kube-res-foresight
+  tag: "0.1.0"
+database:
+  driver: postgres
+  host: pg.example.internal
+  port: 5432
+  name: kube-res-foresight
+  username: kube-res-foresight
+  sslMode: require
+secrets:
+  existingSecret: fcst-credentials
+persistence:
+  enabled: false</code></pre>
+<pre data-language="Bash"><code>helm install fcst deploy/helm/kube-res-foresight \
+  -n kube-res-foresight -f values-production.yaml
+kubectl -n kube-res-foresight rollout status deployment/fcst-kube-res-foresight
+helm test fcst -n kube-res-foresight
+kubectl -n kube-res-foresight port-forward svc/fcst-kube-res-foresight 8080:80</code></pre>
+<p>Open <code>http://localhost:8080</code>. The initial login is <code>admin / 123456</code>; change the password immediately. For MySQL, use <code>database.driver: mysql</code>, port <code>3306</code>, and the corresponding connection settings. <code>sslMode</code> applies only to PostgreSQL; this example requires TLS support on the server.</p>
+<table><thead><tr><th>Value</th><th>Purpose</th></tr></thead><tbody>
+<tr><td><code>migration.mode: auto</code></td><td>Defaults to an init container for SQLite and a pre-install/pre-upgrade hook Job for external databases.</td></tr>
+<tr><td><code>imagePullSecrets</code></td><td>Credentials for pulling private images.</td></tr>
+<tr><td><code>ingress</code></td><td>Controller class, host, and TLS; disabled by default.</td></tr>
+<tr><td><code>resources</code></td><td>Platform container requests / limits; size for module count and history windows.</td></tr>
+<tr><td><code>secrets.existingSecret</code></td><td>Reuse stable keys. Default keys: jwt-secret, secret-key, database-password.</td></tr>
+</tbody></table>
+<p>Manage mail, model connections, and prediction rules in the console. All deployment settings are listed in <a data-source="deploy/helm/kube-res-foresight/values.yaml" href="https://github.com/cylonchau/hermes">platform values.yaml ↗</a>.</p>
+<h2 id="helm-operator">Deploy the Operator with Helm</h2>
+<p>Create a platform developer credential restricted to Operator decision reading and reporting. Save <code>access-key:access-secret</code> in <code>operator-credential.txt</code> without a trailing newline, then create its Secret. The platform chart does not create this credential.</p>
+<pre data-language="Bash"><code>docker build -f deploy/docker/Dockerfile --target operator \
+  -t registry.example.com/kube-res-foresight-operator:0.1.0 .
+docker push registry.example.com/kube-res-foresight-operator:0.1.0
+kubectl -n kube-res-foresight create secret generic kube-res-foresight-platform \
+  --from-file=credential=./operator-credential.txt
+helm install kube-res-foresight-operator deploy/helm/kube-res-foresight-operator \
+  -n kube-res-foresight \
+  --set image.repository=registry.example.com/kube-res-foresight-operator \
+  --set image.tag=0.1.0 \
+  --set platform.url=http://fcst-kube-res-foresight.kube-res-foresight.svc \
+  --set platform.credentialSecret.name=kube-res-foresight-platform
+kubectl -n kube-res-foresight rollout status deployment/kube-res-foresight-operator</code></pre>
+<p>The Operator defaults to two replicas with leader election and needs no CRD. Configure workloads and scaling rules through platform modules. Check that HPA/KEDA does not control the same target before enabling the global auto-mode setting and module Auto mode. Configure Kyverno separately for new Pod resource admission.</p>
+<h2 id="helm-monitoring">Prometheus and Grafana</h2>
+<p>With the Prometheus Operator CRDs installed, enable discovery, alert rules, and the Grafana dashboard ConfigMap. Replace the example <code>release=prom</code> selector label to match your Prometheus. Grafana needs a sidecar configured to load dashboard ConfigMaps.</p>
+<pre data-language="Bash"><code>helm upgrade fcst deploy/helm/kube-res-foresight \
+  -n kube-res-foresight --reuse-values \
+  --set metrics.serviceMonitor.enabled=true \
+  --set metrics.serviceMonitor.labels.release=prom \
+  --set metrics.prometheusRule.enabled=true \
+  --set metrics.prometheusRule.labels.release=prom \
+  --set metrics.grafanaDashboard.enabled=true
+helm upgrade kube-res-foresight-operator deploy/helm/kube-res-foresight-operator \
+  -n kube-res-foresight --reuse-values \
+  --set metrics.serviceMonitor.enabled=true \
+  --set metrics.serviceMonitor.labels.release=prom</code></pre>
+<h2 id="helm-lifecycle">Helm upgrade and uninstall</h2>
+<p>Back up the database before upgrading and keep the original Secret. Changing the encryption key prevents decryption of existing connection passwords. The chart runs regular migrations, not the retired-table cleanup performed by <code>--upgrade</code>.</p>
+<pre data-language="Bash"><code>helm upgrade fcst deploy/helm/kube-res-foresight \
+  -n kube-res-foresight --reuse-values --set image.tag=NEW_TAG
+helm upgrade kube-res-foresight-operator deploy/helm/kube-res-foresight-operator \
+  -n kube-res-foresight --reuse-values --set image.tag=NEW_TAG</code></pre>
+<p>To remove the execution component and platform:</p>
+<pre data-language="Bash"><code>helm uninstall kube-res-foresight-operator -n kube-res-foresight
+helm uninstall fcst -n kube-res-foresight</code></pre>
+<p>SQLite updates use Recreate with a brief interruption. Uninstall retains the chart-created platform Secret and SQLite PVC. External databases and user-created Secrets remain unchanged. Uninstalling the Operator leaves the workload replica counts it last wrote.</p>
 <h2 id="build">Build the platform</h2>
 <p>Use the Go, Node.js, and pnpm toolchains declared by the repository. The <code>web/</code> frontend is a separate repository; prepare its sources before building.</p>
 <pre data-language="Bash"><code>cd web

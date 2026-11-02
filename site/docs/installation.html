@@ -7,12 +7,97 @@
 <div class="header-tools"><button class="search-trigger" type="button" data-search-open aria-label="搜索文档"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></svg><span>搜索文档</span><kbd>⌘ K</kbd></button>
 <div class="language-switch" role="group" aria-label="选择语言"><a href="installation.html?lang=zh" data-language="zh" lang="zh-CN" aria-current="true">中文</a><a href="../en/docs/installation.html?lang=en" data-language="en" lang="en">EN</a></div>
 <div class="theme-control"><button type="button" class="theme-toggle" id="theme-toggle" aria-expanded="false" aria-controls="theme-menu" aria-label="切换外观"><span aria-hidden="true">◐</span></button><div id="theme-menu" class="theme-menu" role="group" aria-label="外观" hidden><button type="button" data-theme-mode="auto" aria-pressed="true"><span aria-hidden="true">◐</span>跟随系统</button><button type="button" data-theme-mode="light" aria-pressed="false"><span aria-hidden="true">☀</span>浅色</button><button type="button" data-theme-mode="dark" aria-pressed="false"><span aria-hidden="true">☾</span>深色</button></div></div>
-<button type="button" class="menu-toggle" aria-label="展开导航" aria-expanded="false" aria-controls="site-nav"><span aria-hidden="true">☰</span></button></div></div></header><div class="docs-mobilebar"><button type="button" class="docs-nav-toggle" aria-expanded="false" aria-controls="docs-sidebar">☰ 文档目录</button><button type="button" data-search-open><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></svg>搜索</button></div><button class="sidebar-backdrop" type="button" aria-label="关闭目录" hidden></button><div class="docs-layout"><aside id="docs-sidebar" class="docs-sidebar" aria-label="文档导航"><a class="sidebar-title" href="index.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h6a3 3 0 0 1 2 1 3 3 0 0 1 2-1h6v15h-6a3 3 0 0 0-2 1 3 3 0 0 0-2-1H4Zm8 1v15"/></svg>项目文档</a><details class="nav-group" open><summary>开始使用</summary><div><a href="getting-started.html">快速开始</a><a href="installation.html" aria-current="page" class="current">安装与部署</a></div></details><details class="nav-group" open><summary>核心概念</summary><div><a href="architecture.html">系统架构与模块图</a><a href="runtime.html">运行逻辑与反馈循环</a><a href="concepts.html">功能架构与核心概念</a><a href="metrics.html">指标接入与数据质量</a><a href="algorithms.html">算法与模型管理</a></div></details><details class="nav-group" open><summary>算法参数手册</summary><div><a href="algorithm-naive.html">Naive · 持续值</a><a href="algorithm-seasonal_naive.html">Seasonal Naive · 季节持续</a><a href="algorithm-ewma.html">EWMA · 指数平滑</a><a href="algorithm-hist_percentile.html">Histogram Percentile · 历史分位数</a><a href="algorithm-random_forest.html">Random Forest · 随机森林</a><a href="algorithm-knn.html">KNN · 历史相似窗口</a><a href="algorithm-holt_winters.html">Holt-Winters · 趋势与季节</a><a href="algorithm-model_service.html">模型服务 · 预测与微调</a><a href="algorithm-theta.html">Theta · 平滑与漂移</a><a href="algorithm-mstl.html">MSTL · 多重季节分解</a><a href="algorithm-seasonal_profile.html">Seasonal Profile · 周期画像</a><a href="algorithm-peak_envelope.html">Peak Envelope · 峰值包络</a><a href="algorithm-combination.html">Combination · 组合预测</a><a href="algorithm-ridge_ar.html">Ridge AR · 岭回归自回归</a><a href="algorithm-gbdt.html">GBDT · 梯度提升树</a></div></details><details class="nav-group" open><summary>使用指南</summary><div><a href="evaluation.html">回测与效果评估</a><a href="recommendations.html">资源推荐与前瞻决策</a><a href="scaling.html">资源准入与弹性伸缩</a><a href="safety.html">安全边界与故障回退</a></div></details><details class="nav-group" open><summary>AI 助手</summary><div><a href="assistant.html">AI 助手与 Skill</a><a href="llm-configuration.html">LLM 连接配置</a><a href="ai-tasks.html">AI 定时任务与邮件</a></div></details><details class="nav-group" open><summary>运维与管理</summary><div><a href="dashboard.html">首页与运行概览</a><a href="monitoring.html">监控与问题排查</a><a href="administration.html">平台管理</a><a href="faq.html">常见问题</a></div></details></aside><main id="main" class="docs-content"><nav class="breadcrumbs" aria-label="当前位置"><a href="index.html">文档</a><span aria-hidden="true">/</span><span>开始使用</span></nav><div class="article-heading"><p class="eyebrow">使用指南</p><h1>安装与部署</h1><p>准备管理平台、任务引擎与执行组件，了解配置和启动方式。</p></div><article class="article-body"><h2 id="components">准备哪些组件</h2>
+<button type="button" class="menu-toggle" aria-label="展开导航" aria-expanded="false" aria-controls="site-nav"><span aria-hidden="true">☰</span></button></div></div></header><div class="docs-mobilebar"><button type="button" class="docs-nav-toggle" aria-expanded="false" aria-controls="docs-sidebar">☰ 文档目录</button><button type="button" data-search-open><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></svg>搜索</button></div><button class="sidebar-backdrop" type="button" aria-label="关闭目录" hidden></button><div class="docs-layout"><aside id="docs-sidebar" class="docs-sidebar" aria-label="文档导航"><a class="sidebar-title" href="index.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h6a3 3 0 0 1 2 1 3 3 0 0 1 2-1h6v15h-6a3 3 0 0 0-2 1 3 3 0 0 0-2-1H4Zm8 1v15"/></svg>项目文档</a><details class="nav-group" open><summary>开始使用</summary><div><a href="getting-started.html">快速开始</a><a href="installation.html" aria-current="page" class="current">安装与部署</a></div></details><details class="nav-group" open><summary>核心概念</summary><div><a href="architecture.html">系统架构</a><a href="runtime.html">运行逻辑与反馈循环</a><a href="concepts.html">功能架构与核心概念</a><a href="metrics.html">指标接入与数据质量</a><a href="algorithms.html">算法与模型管理</a></div></details><details class="nav-group" open><summary>算法参数手册</summary><div><a href="algorithm-naive.html">Naive · 持续值</a><a href="algorithm-seasonal_naive.html">Seasonal Naive · 季节持续</a><a href="algorithm-ewma.html">EWMA · 指数平滑</a><a href="algorithm-hist_percentile.html">Histogram Percentile · 历史分位数</a><a href="algorithm-random_forest.html">Random Forest · 随机森林</a><a href="algorithm-knn.html">KNN · 历史相似窗口</a><a href="algorithm-holt_winters.html">Holt-Winters · 趋势与季节</a><a href="algorithm-model_service.html">模型服务 · 预测与微调</a><a href="algorithm-theta.html">Theta · 平滑与漂移</a><a href="algorithm-mstl.html">MSTL · 多重季节分解</a><a href="algorithm-seasonal_profile.html">Seasonal Profile · 周期画像</a><a href="algorithm-peak_envelope.html">Peak Envelope · 峰值包络</a><a href="algorithm-combination.html">Combination · 组合预测</a><a href="algorithm-ridge_ar.html">Ridge AR · 岭回归自回归</a><a href="algorithm-gbdt.html">GBDT · 梯度提升树</a></div></details><details class="nav-group" open><summary>使用指南</summary><div><a href="evaluation.html">回测与效果评估</a><a href="recommendations.html">资源推荐与前瞻决策</a><a href="scaling.html">资源准入与弹性伸缩</a><a href="safety.html">安全边界与故障回退</a></div></details><details class="nav-group" open><summary>AI 助手</summary><div><a href="assistant.html">AI 助手与 Skill</a><a href="llm-configuration.html">LLM 连接配置</a><a href="ai-tasks.html">AI 定时任务与邮件</a></div></details><details class="nav-group" open><summary>运维与管理</summary><div><a href="dashboard.html">首页与运行概览</a><a href="monitoring.html">监控与问题排查</a><a href="administration.html">平台管理</a><a href="faq.html">常见问题</a></div></details></aside><main id="main" class="docs-content"><nav class="breadcrumbs" aria-label="当前位置"><a href="index.html">文档</a><span aria-hidden="true">/</span><span>开始使用</span></nav><div class="article-heading"><p class="eyebrow">使用指南</p><h1>安装与部署</h1><p>准备管理平台、任务引擎与执行组件，了解配置和启动方式。</p></div><article class="article-body"><h2 id="components">准备哪些组件</h2>
 <p>管理平台提供控制台、数据管理、预测和推荐；任务引擎负责周期运行。需要调整集群副本时部署 Operator，需要为新 Pod 应用资源建议时配置准入策略。</p>
 <div class="table-wrap"><table><thead><tr><th>组件</th><th>用途</th></tr></thead><tbody><tr><td>Platform</td><td>管理界面、API、指标、预测与推荐。</td></tr><tr><td>Job engine</td><td>采集、预测、回测、评估等周期任务，可与平台一起运行。</td></tr><tr><td>Operator</td><td>按授权和边界调整目标工作负载的副本。</td></tr><tr><td>资源准入</td><td>使用有效资源建议处理新 Pod 的 requests / limits。</td></tr></tbody></table></div>
+<h2 id="helm-platform">Helm 部署平台</h2>
+<p>在仓库根目录执行以下命令。准备 Helm 3、可用的 Kubernetes 集群及镜像仓库。平台与 Operator 分别安装，平台 Chart 包含控制台、API、预测和任务引擎，不包含数据库或 Operator。</p>
+<p>先准备 <code>web/</code> 源码，构建并推送平台镜像；将示例中的仓库地址与版本替换为自己的值。</p>
+<div class="code-block"><div class="code-header"><span>Bash</span><button type="button" data-copy="code-1" aria-label="复制代码">复制</button></div><pre><code id="code-1">docker build -f deploy/docker/Dockerfile --target kube-res-foresight \
+  -t registry.example.com/kube-res-foresight:0.1.0 .
+docker push registry.example.com/kube-res-foresight:0.1.0</code></pre></div>
+<p>试用可使用默认 SQLite 与 5Gi PVC，集群需提供可用的 StorageClass；SQLite 只允许一个平台副本。</p>
+<div class="code-block"><div class="code-header"><span>Bash</span><button type="button" data-copy="code-2" aria-label="复制代码">复制</button></div><pre><code id="code-2">helm install fcst deploy/helm/kube-res-foresight \
+  -n kube-res-foresight --create-namespace \
+  --set image.repository=registry.example.com/kube-res-foresight \
+  --set image.tag=0.1.0</code></pre></div>
+<h2 id="helm-database">数据库与密钥</h2>
+<p>使用外部 PostgreSQL 或 MySQL 时，先创建数据库和具有建表权限的用户，并准备平台凭据 Secret。平台不负责创建数据库实例。以下为独立安装示例，不要与前面的 SQLite 安装连续执行。</p>
+<div class="code-block"><div class="code-header"><span>Bash</span><button type="button" data-copy="code-3" aria-label="复制代码">复制</button></div><pre><code id="code-3">kubectl create namespace kube-res-foresight
+kubectl -n kube-res-foresight create secret generic fcst-credentials \
+  --from-file=jwt-secret=./jwt-secret.txt \
+  --from-file=secret-key=./secret-key.txt \
+  --from-file=database-password=./database-password.txt</code></pre></div>
+<p>三个文件分别保存 JWT 签名密钥、至少 32 字符的凭据加密密钥和数据库密码，文件内容不要带末尾换行。妥善保管密钥文件，不加入仓库。创建 <code>values-production.yaml</code>：</p>
+<div class="code-block"><div class="code-header"><span>YAML</span><button type="button" data-copy="code-4" aria-label="复制代码">复制</button></div><pre><code id="code-4">image:
+  repository: registry.example.com/kube-res-foresight
+  tag: "0.1.0"
+database:
+  driver: postgres
+  host: pg.example.internal
+  port: 5432
+  name: kube-res-foresight
+  username: kube-res-foresight
+  sslMode: require
+secrets:
+  existingSecret: fcst-credentials
+persistence:
+  enabled: false</code></pre></div>
+<div class="code-block"><div class="code-header"><span>Bash</span><button type="button" data-copy="code-5" aria-label="复制代码">复制</button></div><pre><code id="code-5">helm install fcst deploy/helm/kube-res-foresight \
+  -n kube-res-foresight -f values-production.yaml
+kubectl -n kube-res-foresight rollout status deployment/fcst-kube-res-foresight
+helm test fcst -n kube-res-foresight
+kubectl -n kube-res-foresight port-forward svc/fcst-kube-res-foresight 8080:80</code></pre></div>
+<p>打开 <code>http://localhost:8080</code>。首次登录为 <code>admin / 123456</code>，登录后立即修改密码。MySQL 将 <code>database.driver</code> 改为 <code>mysql</code>、端口改为 <code>3306</code>，并填写对应连接信息；<code>sslMode</code> 仅用于 PostgreSQL。示例要求 PostgreSQL 支持 TLS。</p>
+<div class="table-wrap"><table><thead><tr><th>配置</th><th>用途</th></tr></thead><tbody>
+<tr><td><code>migration.mode: auto</code></td><td>默认 SQLite 用 init container 迁移，外部数据库用安装/升级前的 hook Job 迁移。</td></tr>
+<tr><td><code>imagePullSecrets</code></td><td>配置私有镜像仓库拉取凭据。</td></tr>
+<tr><td><code>ingress</code></td><td>设置入口控制器、域名与 TLS；默认关闭。</td></tr>
+<tr><td><code>resources</code></td><td>设置平台容器的 requests / limits，按模块数与历史窗口调整。</td></tr>
+<tr><td><code>secrets.existingSecret</code></td><td>复用稳定密钥。默认键名为 jwt-secret、secret-key、database-password。</td></tr>
+</tbody></table></div>
+<p>邮件、模型连接和预测规则在控制台中管理，不写入 Helm values。全部部署参数见<a data-source="deploy/helm/kube-res-foresight/values.yaml" href="https://github.com/cylonchau/hermes">平台 values.yaml ↗</a>。</p>
+<h2 id="helm-operator">Helm 部署 Operator</h2>
+<p>在平台创建仅有 Operator 决策读取与上报权限的开发凭据，将 <code>访问密钥:访问密钥密码</code> 保存到无末尾换行的本地文件 <code>operator-credential.txt</code>，再创建 Secret。平台安装不会自动创建此凭据。</p>
+<div class="code-block"><div class="code-header"><span>Bash</span><button type="button" data-copy="code-6" aria-label="复制代码">复制</button></div><pre><code id="code-6">docker build -f deploy/docker/Dockerfile --target operator \
+  -t registry.example.com/kube-res-foresight-operator:0.1.0 .
+docker push registry.example.com/kube-res-foresight-operator:0.1.0
+kubectl -n kube-res-foresight create secret generic kube-res-foresight-platform \
+  --from-file=credential=./operator-credential.txt
+helm install kube-res-foresight-operator deploy/helm/kube-res-foresight-operator \
+  -n kube-res-foresight \
+  --set image.repository=registry.example.com/kube-res-foresight-operator \
+  --set image.tag=0.1.0 \
+  --set platform.url=http://fcst-kube-res-foresight.kube-res-foresight.svc \
+  --set platform.credentialSecret.name=kube-res-foresight-platform
+kubectl -n kube-res-foresight rollout status deployment/kube-res-foresight-operator</code></pre></div>
+<p>Operator 默认两个副本并启用 leader election，不需要安装 CRD。平台模块是工作负载与伸缩规则的配置入口；确认没有 HPA/KEDA 同时控制目标后，再开启系统自动模式开关和模块自动模式。新 Pod 资源准入另行配置 Kyverno，不由此 Chart 安装。</p>
+<h2 id="helm-monitoring">Prometheus 与 Grafana</h2>
+<p>集群已有 Prometheus Operator CRD 时，可开启指标发现、告警规则和 Grafana 看板 ConfigMap。以下 <code>release=prom</code> 仅为选择标签示例，需与实际 Prometheus 的 selector 一致；Grafana 需配置读取看板 ConfigMap 的 sidecar。</p>
+<div class="code-block"><div class="code-header"><span>Bash</span><button type="button" data-copy="code-7" aria-label="复制代码">复制</button></div><pre><code id="code-7">helm upgrade fcst deploy/helm/kube-res-foresight \
+  -n kube-res-foresight --reuse-values \
+  --set metrics.serviceMonitor.enabled=true \
+  --set metrics.serviceMonitor.labels.release=prom \
+  --set metrics.prometheusRule.enabled=true \
+  --set metrics.prometheusRule.labels.release=prom \
+  --set metrics.grafanaDashboard.enabled=true
+helm upgrade kube-res-foresight-operator deploy/helm/kube-res-foresight-operator \
+  -n kube-res-foresight --reuse-values \
+  --set metrics.serviceMonitor.enabled=true \
+  --set metrics.serviceMonitor.labels.release=prom</code></pre></div>
+<h2 id="helm-lifecycle">Helm 升级与卸载</h2>
+<p>升级前备份数据库，保留原 Secret。更换凭据加密密钥会使已有连接密码无法解密。Chart 自动执行常规迁移，不执行清理退役表的 <code>--upgrade</code>。</p>
+<div class="code-block"><div class="code-header"><span>Bash</span><button type="button" data-copy="code-8" aria-label="复制代码">复制</button></div><pre><code id="code-8">helm upgrade fcst deploy/helm/kube-res-foresight \
+  -n kube-res-foresight --reuse-values --set image.tag=NEW_TAG
+helm upgrade kube-res-foresight-operator deploy/helm/kube-res-foresight-operator \
+  -n kube-res-foresight --reuse-values --set image.tag=NEW_TAG</code></pre></div>
+<p>不再使用时，分别卸载执行组件和平台：</p>
+<div class="code-block"><div class="code-header"><span>Bash</span><button type="button" data-copy="code-9" aria-label="复制代码">复制</button></div><pre><code id="code-9">helm uninstall kube-res-foresight-operator -n kube-res-foresight
+helm uninstall fcst -n kube-res-foresight</code></pre></div>
+<p>SQLite 更新采用 Recreate，会短暂中断。卸载保留平台 Chart 创建的 Secret 与 SQLite PVC，外部数据库和自行创建的 Secret 不受影响。卸载 Operator 不会还原它最后写入的工作负载副本数。</p>
 <h2 id="build">构建管理平台</h2>
 <p>准备仓库声明的 Go、Node.js 与 pnpm 工具链。管理前端 <code>web/</code> 是独立仓库，构建前需要准备好其源码。</p>
-<div class="code-block"><div class="code-header"><span>Bash</span><button type="button" data-copy="code-1" aria-label="复制代码">复制</button></div><pre><code id="code-1">cd web
+<div class="code-block"><div class="code-header"><span>Bash</span><button type="button" data-copy="code-10" aria-label="复制代码">复制</button></div><pre><code id="code-10">cd web
 pnpm install --frozen-lockfile
 cd ..
 make package-web
@@ -20,7 +105,7 @@ mkdir -p target/bin
 go build -o target/bin/kube-res-foresight ./cmd</code></pre></div>
 <h2 id="configure">配置与启动</h2>
 <p>参考 <code>config.yaml</code> 配置数据库、监听地址、日志和稳定的 JWT 密钥。数据库支持 SQLite、MySQL、PostgreSQL。环境变量使用 <code>KUBE_RES_FORESIGHT_</code> 前缀，凭据加密密钥使用 <code>KUBE_RES_FORESIGHT_SECRET_KEY</code>。</p>
-<div class="code-block"><div class="code-header"><span>Bash</span><button type="button" data-copy="code-2" aria-label="复制代码">复制</button></div><pre><code id="code-2"># 首次安装：显式迁移
+<div class="code-block"><div class="code-header"><span>Bash</span><button type="button" data-copy="code-11" aria-label="复制代码">复制</button></div><pre><code id="code-11"># 首次安装：显式迁移
 target/bin/kube-res-foresight server --config config.yaml --migration
 
 # 启动管理平台与任务引擎
@@ -30,4 +115,4 @@ target/bin/kube-res-foresight all --config config.yaml</code></pre></div>
 <p>保留已有数据库连接、路径及密钥值。升级前先备份，再审阅 <code>--upgrade</code> 的清理范围；普通启动不执行退役表清理。</p>
 <p>Operator 与准入需要目标集群权限、凭据、证书及相应策略。先保持观察模式，检查资源引用和副本所有权，再开放执行。</p>
 <p><a data-source="deploy/README.md" href="https://github.com/cylonchau/hermes">部署说明 ↗</a> · <a data-source="deploy/helm/kube-res-foresight-operator/README.md" href="https://github.com/cylonchau/hermes">Operator 安装说明 ↗</a></p>
-</article><a class="edit-page" data-source="website/content/zh/installation.html" href="https://github.com/cylonchau/hermes">在 GitHub 上编辑此页 ↗</a><nav class="article-pager" aria-label="相邻文章"><a href="getting-started.html" class="previous"><small>上一篇</small><span>← 快速开始</span></a><a href="architecture.html" class="next"><small>下一篇</small><span>系统架构与模块图 →</span></a></nav></main><aside class="page-toc" aria-label="本页目录"><strong>本页内容</strong><nav><a href="#components">准备哪些组件</a><a href="#build">构建管理平台</a><a href="#configure">配置与启动</a><a href="#upgrade">已有安装与执行组件</a></nav><a class="back-top" href="#main">返回顶部 ↑</a></aside></div><footer class="site-footer"><div class="container footer-grid"><div><a class="brand" href="../index.html"><img src="../assets/favicon.svg" alt="" width="28" height="28"><span>kube-res-foresight</span></a><p>预测需求，合理配置资源。</p></div><div><strong>了解项目</strong><a href="concepts.html">核心概念</a><a href="algorithms.html">算法管理</a></div><div><strong>开始使用</strong><a href="getting-started.html">快速开始</a><a href="installation.html">安装与部署</a></div><div><strong>参与项目</strong><a data-repo href="https://github.com/cylonchau/hermes">GitHub ↗</a><a data-issues href="https://github.com/cylonchau/hermes/issues">问题反馈 ↗</a></div></div><div class="container footer-bottom"><span>© 2026 kube-res-foresight</span><span>面向 Kubernetes 的资源预测与弹性调度</span></div></footer><dialog id="search-dialog" aria-labelledby="search-title"><div class="search-dialog-head"><span id="search-title">搜索文档</span><button type="button" data-search-close aria-label="关闭搜索">Esc</button></div><div class="search-input-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></svg><input id="doc-search" type="search" autocomplete="off" placeholder="搜索功能、配置或使用问题…" aria-label="搜索关键词" aria-describedby="search-status"></div><p id="search-status" role="status"></p><ul id="search-results" aria-label="搜索结果"></ul><div class="search-help">↑ ↓ 选择 · Enter 打开 · Esc 关闭</div></dialog></body></html>
+</article><a class="edit-page" data-source="website/content/zh/installation.html" href="https://github.com/cylonchau/hermes">在 GitHub 上编辑此页 ↗</a><nav class="article-pager" aria-label="相邻文章"><a href="getting-started.html" class="previous"><small>上一篇</small><span>← 快速开始</span></a><a href="architecture.html" class="next"><small>下一篇</small><span>系统架构 →</span></a></nav></main><aside class="page-toc" aria-label="本页目录"><strong>本页内容</strong><nav><a href="#components">准备哪些组件</a><a href="#helm-platform">Helm 部署平台</a><a href="#helm-database">数据库与密钥</a><a href="#helm-operator">Helm 部署 Operator</a><a href="#helm-monitoring">Prometheus 与 Grafana</a><a href="#helm-lifecycle">Helm 升级与卸载</a><a href="#build">构建管理平台</a><a href="#configure">配置与启动</a><a href="#upgrade">已有安装与执行组件</a></nav><a class="back-top" href="#main">返回顶部 ↑</a></aside></div><footer class="site-footer"><div class="container footer-grid"><div><a class="brand" href="../index.html"><img src="../assets/favicon.svg" alt="" width="28" height="28"><span>kube-res-foresight</span></a><p>预测需求，合理配置资源。</p></div><div><strong>了解项目</strong><a href="concepts.html">核心概念</a><a href="algorithms.html">算法管理</a></div><div><strong>开始使用</strong><a href="getting-started.html">快速开始</a><a href="installation.html">安装与部署</a></div><div><strong>参与项目</strong><a data-repo href="https://github.com/cylonchau/hermes">GitHub ↗</a><a data-issues href="https://github.com/cylonchau/hermes/issues">问题反馈 ↗</a></div></div><div class="container footer-bottom"><span>© 2026 kube-res-foresight</span><span>面向 Kubernetes 的资源预测与弹性调度</span></div></footer><dialog id="search-dialog" aria-labelledby="search-title"><div class="search-dialog-head"><span id="search-title">搜索文档</span><button type="button" data-search-close aria-label="关闭搜索">Esc</button></div><div class="search-input-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></svg><input id="doc-search" type="search" autocomplete="off" placeholder="搜索功能、配置或使用问题…" aria-label="搜索关键词" aria-describedby="search-status"></div><p id="search-status" role="status"></p><ul id="search-results" aria-label="搜索结果"></ul><div class="search-help">↑ ↓ 选择 · Enter 打开 · Esc 关闭</div></dialog></body></html>

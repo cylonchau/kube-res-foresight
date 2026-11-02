@@ -6,7 +6,6 @@
 <h2 id="gradual-rollout">逐步开放自动化</h2>
 <p>模块从 <strong>Observe（观察）</strong>起步，使用 <strong>Recommend（推荐）</strong>审查建议。需要应用配置时，分别授权 <strong>Admission（准入）</strong>和 <strong>Auto（自动）</strong>。两类写入都有全局开关，默认关闭。</p>
 <div class="callout"><strong>先确认，再应用</strong><p>确认指标语义一致、历史充足、建议可解释、上下界与兜底值合理。准入和副本伸缩应分别检查。</p></div>
-<p>尚未部署管理平台？继续阅读<a href="installation.html">安装与部署</a>。</p>
 <h2 id="enable-prediction">从采集过渡到模型预测</h2>
 <p>创建模块后，先确认历史采集正常，再打开“启用预测”。需要多方法比较时选择“动态算法”；已选定方法时选择“固定算法”，并指定算法。非基线模型先完成回测晋升，再检查推荐是否采用它。</p>
 <p>预测未开启或选择“不预测”时，看到兜底默认值是正常行为。保持仅观察或仅推荐，检查预测、评分和前瞻明细后，再单独授权准入或自动伸缩。详见<a href="algorithms.html#prediction-modes">预测方式</a>。</p>

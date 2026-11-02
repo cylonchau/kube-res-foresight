@@ -1,6 +1,91 @@
 <h2 id="components">准备哪些组件</h2>
 <p>管理平台提供控制台、数据管理、预测和推荐；任务引擎负责周期运行。需要调整集群副本时部署 Operator，需要为新 Pod 应用资源建议时配置准入策略。</p>
 <table><thead><tr><th>组件</th><th>用途</th></tr></thead><tbody><tr><td>Platform</td><td>管理界面、API、指标、预测与推荐。</td></tr><tr><td>Job engine</td><td>采集、预测、回测、评估等周期任务，可与平台一起运行。</td></tr><tr><td>Operator</td><td>按授权和边界调整目标工作负载的副本。</td></tr><tr><td>资源准入</td><td>使用有效资源建议处理新 Pod 的 requests / limits。</td></tr></tbody></table>
+<h2 id="helm-platform">Helm 部署平台</h2>
+<p>在仓库根目录执行以下命令。准备 Helm 3、可用的 Kubernetes 集群及镜像仓库。平台与 Operator 分别安装，平台 Chart 包含控制台、API、预测和任务引擎，不包含数据库或 Operator。</p>
+<p>先准备 <code>web/</code> 源码，构建并推送平台镜像；将示例中的仓库地址与版本替换为自己的值。</p>
+<pre data-language="Bash"><code>docker build -f deploy/docker/Dockerfile --target kube-res-foresight \
+  -t registry.example.com/kube-res-foresight:0.1.0 .
+docker push registry.example.com/kube-res-foresight:0.1.0</code></pre>
+<p>试用可使用默认 SQLite 与 5Gi PVC，集群需提供可用的 StorageClass；SQLite 只允许一个平台副本。</p>
+<pre data-language="Bash"><code>helm install fcst deploy/helm/kube-res-foresight \
+  -n kube-res-foresight --create-namespace \
+  --set image.repository=registry.example.com/kube-res-foresight \
+  --set image.tag=0.1.0</code></pre>
+<h2 id="helm-database">数据库与密钥</h2>
+<p>使用外部 PostgreSQL 或 MySQL 时，先创建数据库和具有建表权限的用户，并准备平台凭据 Secret。平台不负责创建数据库实例。以下为独立安装示例，不要与前面的 SQLite 安装连续执行。</p>
+<pre data-language="Bash"><code>kubectl create namespace kube-res-foresight
+kubectl -n kube-res-foresight create secret generic fcst-credentials \
+  --from-file=jwt-secret=./jwt-secret.txt \
+  --from-file=secret-key=./secret-key.txt \
+  --from-file=database-password=./database-password.txt</code></pre>
+<p>三个文件分别保存 JWT 签名密钥、至少 32 字符的凭据加密密钥和数据库密码，文件内容不要带末尾换行。妥善保管密钥文件，不加入仓库。创建 <code>values-production.yaml</code>：</p>
+<pre data-language="YAML"><code>image:
+  repository: registry.example.com/kube-res-foresight
+  tag: "0.1.0"
+database:
+  driver: postgres
+  host: pg.example.internal
+  port: 5432
+  name: kube-res-foresight
+  username: kube-res-foresight
+  sslMode: require
+secrets:
+  existingSecret: fcst-credentials
+persistence:
+  enabled: false</code></pre>
+<pre data-language="Bash"><code>helm install fcst deploy/helm/kube-res-foresight \
+  -n kube-res-foresight -f values-production.yaml
+kubectl -n kube-res-foresight rollout status deployment/fcst-kube-res-foresight
+helm test fcst -n kube-res-foresight
+kubectl -n kube-res-foresight port-forward svc/fcst-kube-res-foresight 8080:80</code></pre>
+<p>打开 <code>http://localhost:8080</code>。首次登录为 <code>admin / 123456</code>，登录后立即修改密码。MySQL 将 <code>database.driver</code> 改为 <code>mysql</code>、端口改为 <code>3306</code>，并填写对应连接信息；<code>sslMode</code> 仅用于 PostgreSQL。示例要求 PostgreSQL 支持 TLS。</p>
+<table><thead><tr><th>配置</th><th>用途</th></tr></thead><tbody>
+<tr><td><code>migration.mode: auto</code></td><td>默认 SQLite 用 init container 迁移，外部数据库用安装/升级前的 hook Job 迁移。</td></tr>
+<tr><td><code>imagePullSecrets</code></td><td>配置私有镜像仓库拉取凭据。</td></tr>
+<tr><td><code>ingress</code></td><td>设置入口控制器、域名与 TLS；默认关闭。</td></tr>
+<tr><td><code>resources</code></td><td>设置平台容器的 requests / limits，按模块数与历史窗口调整。</td></tr>
+<tr><td><code>secrets.existingSecret</code></td><td>复用稳定密钥。默认键名为 jwt-secret、secret-key、database-password。</td></tr>
+</tbody></table>
+<p>邮件、模型连接和预测规则在控制台中管理，不写入 Helm values。全部部署参数见<a data-source="deploy/helm/kube-res-foresight/values.yaml" href="https://github.com/cylonchau/hermes">平台 values.yaml ↗</a>。</p>
+<h2 id="helm-operator">Helm 部署 Operator</h2>
+<p>在平台创建仅有 Operator 决策读取与上报权限的开发凭据，将 <code>访问密钥:访问密钥密码</code> 保存到无末尾换行的本地文件 <code>operator-credential.txt</code>，再创建 Secret。平台安装不会自动创建此凭据。</p>
+<pre data-language="Bash"><code>docker build -f deploy/docker/Dockerfile --target operator \
+  -t registry.example.com/kube-res-foresight-operator:0.1.0 .
+docker push registry.example.com/kube-res-foresight-operator:0.1.0
+kubectl -n kube-res-foresight create secret generic kube-res-foresight-platform \
+  --from-file=credential=./operator-credential.txt
+helm install kube-res-foresight-operator deploy/helm/kube-res-foresight-operator \
+  -n kube-res-foresight \
+  --set image.repository=registry.example.com/kube-res-foresight-operator \
+  --set image.tag=0.1.0 \
+  --set platform.url=http://fcst-kube-res-foresight.kube-res-foresight.svc \
+  --set platform.credentialSecret.name=kube-res-foresight-platform
+kubectl -n kube-res-foresight rollout status deployment/kube-res-foresight-operator</code></pre>
+<p>Operator 默认两个副本并启用 leader election，不需要安装 CRD。平台模块是工作负载与伸缩规则的配置入口；确认没有 HPA/KEDA 同时控制目标后，再开启系统自动模式开关和模块自动模式。新 Pod 资源准入另行配置 Kyverno，不由此 Chart 安装。</p>
+<h2 id="helm-monitoring">Prometheus 与 Grafana</h2>
+<p>集群已有 Prometheus Operator CRD 时，可开启指标发现、告警规则和 Grafana 看板 ConfigMap。以下 <code>release=prom</code> 仅为选择标签示例，需与实际 Prometheus 的 selector 一致；Grafana 需配置读取看板 ConfigMap 的 sidecar。</p>
+<pre data-language="Bash"><code>helm upgrade fcst deploy/helm/kube-res-foresight \
+  -n kube-res-foresight --reuse-values \
+  --set metrics.serviceMonitor.enabled=true \
+  --set metrics.serviceMonitor.labels.release=prom \
+  --set metrics.prometheusRule.enabled=true \
+  --set metrics.prometheusRule.labels.release=prom \
+  --set metrics.grafanaDashboard.enabled=true
+helm upgrade kube-res-foresight-operator deploy/helm/kube-res-foresight-operator \
+  -n kube-res-foresight --reuse-values \
+  --set metrics.serviceMonitor.enabled=true \
+  --set metrics.serviceMonitor.labels.release=prom</code></pre>
+<h2 id="helm-lifecycle">Helm 升级与卸载</h2>
+<p>升级前备份数据库，保留原 Secret。更换凭据加密密钥会使已有连接密码无法解密。Chart 自动执行常规迁移，不执行清理退役表的 <code>--upgrade</code>。</p>
+<pre data-language="Bash"><code>helm upgrade fcst deploy/helm/kube-res-foresight \
+  -n kube-res-foresight --reuse-values --set image.tag=NEW_TAG
+helm upgrade kube-res-foresight-operator deploy/helm/kube-res-foresight-operator \
+  -n kube-res-foresight --reuse-values --set image.tag=NEW_TAG</code></pre>
+<p>不再使用时，分别卸载执行组件和平台：</p>
+<pre data-language="Bash"><code>helm uninstall kube-res-foresight-operator -n kube-res-foresight
+helm uninstall fcst -n kube-res-foresight</code></pre>
+<p>SQLite 更新采用 Recreate，会短暂中断。卸载保留平台 Chart 创建的 Secret 与 SQLite PVC，外部数据库和自行创建的 Secret 不受影响。卸载 Operator 不会还原它最后写入的工作负载副本数。</p>
 <h2 id="build">构建管理平台</h2>
 <p>准备仓库声明的 Go、Node.js 与 pnpm 工具链。管理前端 <code>web/</code> 是独立仓库，构建前需要准备好其源码。</p>
 <pre data-language="Bash"><code>cd web
