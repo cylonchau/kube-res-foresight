@@ -17,14 +17,14 @@
   -t registry.example.com/kube-res-foresight:0.1.0 .
 docker push registry.example.com/kube-res-foresight:0.1.0</code></pre></div>
 <p>For a trial, the defaults use SQLite and a 5Gi PVC. A working StorageClass is required. SQLite permits only one platform replica.</p>
-<div class="code-block"><div class="code-header"><span>Bash</span><button type="button" data-copy="code-2" aria-label="Copy code">Copy</button></div><pre><code id="code-2">helm install fcst deploy/helm/kube-res-foresight \
+<div class="code-block"><div class="code-header"><span>Bash</span><button type="button" data-copy="code-2" aria-label="Copy code">Copy</button></div><pre><code id="code-2">helm install kube-res-foresight deploy/helm/kube-res-foresight \
   -n kube-res-foresight --create-namespace \
   --set image.repository=registry.example.com/kube-res-foresight \
   --set image.tag=0.1.0</code></pre></div>
 <h2 id="helm-database">Database and secrets</h2>
 <p>For external PostgreSQL or MySQL, create a database and a user allowed to create tables, then prepare a credentials Secret. The platform does not provision a database server. This is an alternative installation; do not run it after the SQLite example.</p>
 <div class="code-block"><div class="code-header"><span>Bash</span><button type="button" data-copy="code-3" aria-label="Copy code">Copy</button></div><pre><code id="code-3">kubectl create namespace kube-res-foresight
-kubectl -n kube-res-foresight create secret generic fcst-credentials \
+kubectl -n kube-res-foresight create secret generic kube-res-foresight-credentials \
   --from-file=jwt-secret=./jwt-secret.txt \
   --from-file=secret-key=./secret-key.txt \
   --from-file=database-password=./database-password.txt</code></pre></div>
@@ -40,14 +40,14 @@ database:
   username: kube-res-foresight
   sslMode: require
 secrets:
-  existingSecret: fcst-credentials
+  existingSecret: kube-res-foresight-credentials
 persistence:
   enabled: false</code></pre></div>
-<div class="code-block"><div class="code-header"><span>Bash</span><button type="button" data-copy="code-5" aria-label="Copy code">Copy</button></div><pre><code id="code-5">helm install fcst deploy/helm/kube-res-foresight \
+<div class="code-block"><div class="code-header"><span>Bash</span><button type="button" data-copy="code-5" aria-label="Copy code">Copy</button></div><pre><code id="code-5">helm install kube-res-foresight deploy/helm/kube-res-foresight \
   -n kube-res-foresight -f values-production.yaml
-kubectl -n kube-res-foresight rollout status deployment/fcst-kube-res-foresight
-helm test fcst -n kube-res-foresight
-kubectl -n kube-res-foresight port-forward svc/fcst-kube-res-foresight 8080:80</code></pre></div>
+kubectl -n kube-res-foresight rollout status deployment/kube-res-foresight
+helm test kube-res-foresight -n kube-res-foresight
+kubectl -n kube-res-foresight port-forward svc/kube-res-foresight 8080:80</code></pre></div>
 <p>Open <code>http://localhost:8080</code>. The initial login is <code>admin / 123456</code>; change the password immediately. For MySQL, use <code>database.driver: mysql</code>, port <code>3306</code>, and the corresponding connection settings. <code>sslMode</code> applies only to PostgreSQL; this example requires TLS support on the server.</p>
 <div class="table-wrap"><table><thead><tr><th>Value</th><th>Purpose</th></tr></thead><tbody>
 <tr><td><code>migration.mode: auto</code></td><td>Defaults to an init container for SQLite and a pre-install/pre-upgrade hook Job for external databases.</td></tr>
@@ -68,13 +68,13 @@ helm install kube-res-foresight-operator deploy/helm/kube-res-foresight-operator
   -n kube-res-foresight \
   --set image.repository=registry.example.com/kube-res-foresight-operator \
   --set image.tag=0.1.0 \
-  --set platform.url=http://fcst-kube-res-foresight.kube-res-foresight.svc \
+  --set platform.url=http://kube-res-foresight.kube-res-foresight.svc \
   --set platform.credentialSecret.name=kube-res-foresight-platform
 kubectl -n kube-res-foresight rollout status deployment/kube-res-foresight-operator</code></pre></div>
 <p>The Operator defaults to two replicas with leader election and needs no CRD. Configure workloads and scaling rules through platform modules. Check that HPA/KEDA does not control the same target before enabling the global auto-mode setting and module Auto mode. Configure Kyverno separately for new Pod resource admission.</p>
 <h2 id="helm-monitoring">Prometheus and Grafana</h2>
 <p>With the Prometheus Operator CRDs installed, enable discovery, alert rules, and the Grafana dashboard ConfigMap. Replace the example <code>release=prom</code> selector label to match your Prometheus. Grafana needs a sidecar configured to load dashboard ConfigMaps.</p>
-<div class="code-block"><div class="code-header"><span>Bash</span><button type="button" data-copy="code-7" aria-label="Copy code">Copy</button></div><pre><code id="code-7">helm upgrade fcst deploy/helm/kube-res-foresight \
+<div class="code-block"><div class="code-header"><span>Bash</span><button type="button" data-copy="code-7" aria-label="Copy code">Copy</button></div><pre><code id="code-7">helm upgrade kube-res-foresight deploy/helm/kube-res-foresight \
   -n kube-res-foresight --reuse-values \
   --set metrics.serviceMonitor.enabled=true \
   --set metrics.serviceMonitor.labels.release=prom \
@@ -87,13 +87,13 @@ helm upgrade kube-res-foresight-operator deploy/helm/kube-res-foresight-operator
   --set metrics.serviceMonitor.labels.release=prom</code></pre></div>
 <h2 id="helm-lifecycle">Helm upgrade and uninstall</h2>
 <p>Back up the database before upgrading and keep the original Secret. Changing the encryption key prevents decryption of existing connection passwords. The chart runs regular migrations, not the retired-table cleanup performed by <code>--upgrade</code>.</p>
-<div class="code-block"><div class="code-header"><span>Bash</span><button type="button" data-copy="code-8" aria-label="Copy code">Copy</button></div><pre><code id="code-8">helm upgrade fcst deploy/helm/kube-res-foresight \
+<div class="code-block"><div class="code-header"><span>Bash</span><button type="button" data-copy="code-8" aria-label="Copy code">Copy</button></div><pre><code id="code-8">helm upgrade kube-res-foresight deploy/helm/kube-res-foresight \
   -n kube-res-foresight --reuse-values --set image.tag=NEW_TAG
 helm upgrade kube-res-foresight-operator deploy/helm/kube-res-foresight-operator \
   -n kube-res-foresight --reuse-values --set image.tag=NEW_TAG</code></pre></div>
 <p>To remove the execution component and platform:</p>
 <div class="code-block"><div class="code-header"><span>Bash</span><button type="button" data-copy="code-9" aria-label="Copy code">Copy</button></div><pre><code id="code-9">helm uninstall kube-res-foresight-operator -n kube-res-foresight
-helm uninstall fcst -n kube-res-foresight</code></pre></div>
+helm uninstall kube-res-foresight -n kube-res-foresight</code></pre></div>
 <p>SQLite updates use Recreate with a brief interruption. Uninstall retains the chart-created platform Secret and SQLite PVC. External databases and user-created Secrets remain unchanged. Uninstalling the Operator leaves the workload replica counts it last wrote.</p>
 <h2 id="build">Build the platform</h2>
 <p>Use the Go, Node.js, and pnpm toolchains declared by the repository. The <code>web/</code> frontend is a separate repository; prepare its sources before building.</p>

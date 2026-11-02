@@ -36,14 +36,14 @@ Installed with Helm 3.16 on a Docker Desktop Kubernetes cluster, with an image b
 Trial with sqlite on a volume:
 
 ```bash
-helm install fcst deploy/helm/kube-res-foresight -n kube-res-foresight --create-namespace \
+helm install kube-res-foresight deploy/helm/kube-res-foresight -n kube-res-foresight --create-namespace \
   --set image.repository=REGISTRY/kube-res-foresight --set image.tag=TAG
 ```
 
 With PostgreSQL (the schema is made by a hook Job before the Deployment starts):
 
 ```bash
-helm install fcst deploy/helm/kube-res-foresight -n kube-res-foresight --create-namespace \
+helm install kube-res-foresight deploy/helm/kube-res-foresight -n kube-res-foresight --create-namespace \
   --set image.repository=REGISTRY/kube-res-foresight --set image.tag=TAG \
   --set database.driver=postgres --set database.host=pg.example.internal --set database.name=kube-res-foresight \
   --set database.username=kube-res-foresight --set secrets.databasePassword=...
@@ -52,20 +52,20 @@ helm install fcst deploy/helm/kube-res-foresight -n kube-res-foresight --create-
 Use `database.driver=mysql` the same way. Keep the passwords out of the command line with an existing Secret:
 
 ```bash
-kubectl -n kube-res-foresight create secret generic fcst-credentials \
+kubectl -n kube-res-foresight create secret generic kube-res-foresight-credentials \
   --from-literal=jwt-secret="$(openssl rand -hex 24)" \
   --from-literal=secret-key="$(openssl rand -hex 24)" \
   --from-literal=database-password='...'
-helm install fcst deploy/helm/kube-res-foresight ... --set secrets.existingSecret=fcst-credentials
+helm install kube-res-foresight deploy/helm/kube-res-foresight ... --set secrets.existingSecret=kube-res-foresight-credentials
 ```
 
-Then open the console (`kubectl port-forward svc/fcst-kube-res-foresight 8080:80`, or the Ingress). **The first sign-in is `admin` /
-`123456`: change the password at once.** `helm test fcst` checks `/readyz` and the metrics through the Service.
+Then open the console (`kubectl port-forward svc/kube-res-foresight 8080:80`, or the Ingress). **The first sign-in is `admin` /
+`123456`: change the password at once.** `helm test kube-res-foresight` checks `/readyz` and the metrics through the Service.
 
 With monitoring (kube-prometheus-stack: the labels are the ones its Prometheus and Grafana select by):
 
 ```bash
-helm upgrade fcst deploy/helm/kube-res-foresight -n kube-res-foresight --reuse-values \
+helm upgrade kube-res-foresight deploy/helm/kube-res-foresight -n kube-res-foresight --reuse-values \
   --set metrics.serviceMonitor.enabled=true --set metrics.serviceMonitor.labels.release=prom \
   --set metrics.prometheusRule.enabled=true --set metrics.prometheusRule.labels.release=prom \
   --set metrics.grafanaDashboard.enabled=true
@@ -109,7 +109,7 @@ system parameters in the database, not chart values.
 ## Upgrade
 
 ```bash
-helm upgrade fcst deploy/helm/kube-res-foresight -n kube-res-foresight --reuse-values --set image.tag=NEWTAG
+helm upgrade kube-res-foresight deploy/helm/kube-res-foresight -n kube-res-foresight --reuse-values --set image.tag=NEWTAG
 ```
 
 The schema is migrated before the new version starts (the hook Job, or the init container). With sqlite the Deployment is `Recreate`
@@ -122,15 +122,15 @@ changed `secretKey` makes the stored LLM keys and passwords unreadable.
 ## Uninstall
 
 ```bash
-helm uninstall fcst -n kube-res-foresight
+helm uninstall kube-res-foresight -n kube-res-foresight
 ```
 
 The Secret (the keys) and the sqlite volume claim are **kept** (`helm.sh/resource-policy: keep`), so that a reinstall finds its data.
 Delete them when the data is not wanted any more:
 
 ```bash
-kubectl -n kube-res-foresight delete pvc fcst-kube-res-foresight
-kubectl -n kube-res-foresight delete secret fcst-kube-res-foresight
+kubectl -n kube-res-foresight delete pvc kube-res-foresight
+kubectl -n kube-res-foresight delete secret kube-res-foresight
 ```
 
 A MySQL or PostgreSQL database is never touched.

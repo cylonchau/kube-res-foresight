@@ -17,14 +17,14 @@
   -t registry.example.com/kube-res-foresight:0.1.0 .
 docker push registry.example.com/kube-res-foresight:0.1.0</code></pre></div>
 <p>试用可使用默认 SQLite 与 5Gi PVC，集群需提供可用的 StorageClass；SQLite 只允许一个平台副本。</p>
-<div class="code-block"><div class="code-header"><span>Bash</span><button type="button" data-copy="code-2" aria-label="复制代码">复制</button></div><pre><code id="code-2">helm install fcst deploy/helm/kube-res-foresight \
+<div class="code-block"><div class="code-header"><span>Bash</span><button type="button" data-copy="code-2" aria-label="复制代码">复制</button></div><pre><code id="code-2">helm install kube-res-foresight deploy/helm/kube-res-foresight \
   -n kube-res-foresight --create-namespace \
   --set image.repository=registry.example.com/kube-res-foresight \
   --set image.tag=0.1.0</code></pre></div>
 <h2 id="helm-database">数据库与密钥</h2>
 <p>使用外部 PostgreSQL 或 MySQL 时，先创建数据库和具有建表权限的用户，并准备平台凭据 Secret。平台不负责创建数据库实例。以下为独立安装示例，不要与前面的 SQLite 安装连续执行。</p>
 <div class="code-block"><div class="code-header"><span>Bash</span><button type="button" data-copy="code-3" aria-label="复制代码">复制</button></div><pre><code id="code-3">kubectl create namespace kube-res-foresight
-kubectl -n kube-res-foresight create secret generic fcst-credentials \
+kubectl -n kube-res-foresight create secret generic kube-res-foresight-credentials \
   --from-file=jwt-secret=./jwt-secret.txt \
   --from-file=secret-key=./secret-key.txt \
   --from-file=database-password=./database-password.txt</code></pre></div>
@@ -40,14 +40,14 @@ database:
   username: kube-res-foresight
   sslMode: require
 secrets:
-  existingSecret: fcst-credentials
+  existingSecret: kube-res-foresight-credentials
 persistence:
   enabled: false</code></pre></div>
-<div class="code-block"><div class="code-header"><span>Bash</span><button type="button" data-copy="code-5" aria-label="复制代码">复制</button></div><pre><code id="code-5">helm install fcst deploy/helm/kube-res-foresight \
+<div class="code-block"><div class="code-header"><span>Bash</span><button type="button" data-copy="code-5" aria-label="复制代码">复制</button></div><pre><code id="code-5">helm install kube-res-foresight deploy/helm/kube-res-foresight \
   -n kube-res-foresight -f values-production.yaml
-kubectl -n kube-res-foresight rollout status deployment/fcst-kube-res-foresight
-helm test fcst -n kube-res-foresight
-kubectl -n kube-res-foresight port-forward svc/fcst-kube-res-foresight 8080:80</code></pre></div>
+kubectl -n kube-res-foresight rollout status deployment/kube-res-foresight
+helm test kube-res-foresight -n kube-res-foresight
+kubectl -n kube-res-foresight port-forward svc/kube-res-foresight 8080:80</code></pre></div>
 <p>打开 <code>http://localhost:8080</code>。首次登录为 <code>admin / 123456</code>，登录后立即修改密码。MySQL 将 <code>database.driver</code> 改为 <code>mysql</code>、端口改为 <code>3306</code>，并填写对应连接信息；<code>sslMode</code> 仅用于 PostgreSQL。示例要求 PostgreSQL 支持 TLS。</p>
 <div class="table-wrap"><table><thead><tr><th>配置</th><th>用途</th></tr></thead><tbody>
 <tr><td><code>migration.mode: auto</code></td><td>默认 SQLite 用 init container 迁移，外部数据库用安装/升级前的 hook Job 迁移。</td></tr>
@@ -68,13 +68,13 @@ helm install kube-res-foresight-operator deploy/helm/kube-res-foresight-operator
   -n kube-res-foresight \
   --set image.repository=registry.example.com/kube-res-foresight-operator \
   --set image.tag=0.1.0 \
-  --set platform.url=http://fcst-kube-res-foresight.kube-res-foresight.svc \
+  --set platform.url=http://kube-res-foresight.kube-res-foresight.svc \
   --set platform.credentialSecret.name=kube-res-foresight-platform
 kubectl -n kube-res-foresight rollout status deployment/kube-res-foresight-operator</code></pre></div>
 <p>Operator 默认两个副本并启用 leader election，不需要安装 CRD。平台模块是工作负载与伸缩规则的配置入口；确认没有 HPA/KEDA 同时控制目标后，再开启系统自动模式开关和模块自动模式。新 Pod 资源准入另行配置 Kyverno，不由此 Chart 安装。</p>
 <h2 id="helm-monitoring">Prometheus 与 Grafana</h2>
 <p>集群已有 Prometheus Operator CRD 时，可开启指标发现、告警规则和 Grafana 看板 ConfigMap。以下 <code>release=prom</code> 仅为选择标签示例，需与实际 Prometheus 的 selector 一致；Grafana 需配置读取看板 ConfigMap 的 sidecar。</p>
-<div class="code-block"><div class="code-header"><span>Bash</span><button type="button" data-copy="code-7" aria-label="复制代码">复制</button></div><pre><code id="code-7">helm upgrade fcst deploy/helm/kube-res-foresight \
+<div class="code-block"><div class="code-header"><span>Bash</span><button type="button" data-copy="code-7" aria-label="复制代码">复制</button></div><pre><code id="code-7">helm upgrade kube-res-foresight deploy/helm/kube-res-foresight \
   -n kube-res-foresight --reuse-values \
   --set metrics.serviceMonitor.enabled=true \
   --set metrics.serviceMonitor.labels.release=prom \
@@ -87,13 +87,13 @@ helm upgrade kube-res-foresight-operator deploy/helm/kube-res-foresight-operator
   --set metrics.serviceMonitor.labels.release=prom</code></pre></div>
 <h2 id="helm-lifecycle">Helm 升级与卸载</h2>
 <p>升级前备份数据库，保留原 Secret。更换凭据加密密钥会使已有连接密码无法解密。Chart 自动执行常规迁移，不执行清理退役表的 <code>--upgrade</code>。</p>
-<div class="code-block"><div class="code-header"><span>Bash</span><button type="button" data-copy="code-8" aria-label="复制代码">复制</button></div><pre><code id="code-8">helm upgrade fcst deploy/helm/kube-res-foresight \
+<div class="code-block"><div class="code-header"><span>Bash</span><button type="button" data-copy="code-8" aria-label="复制代码">复制</button></div><pre><code id="code-8">helm upgrade kube-res-foresight deploy/helm/kube-res-foresight \
   -n kube-res-foresight --reuse-values --set image.tag=NEW_TAG
 helm upgrade kube-res-foresight-operator deploy/helm/kube-res-foresight-operator \
   -n kube-res-foresight --reuse-values --set image.tag=NEW_TAG</code></pre></div>
 <p>不再使用时，分别卸载执行组件和平台：</p>
 <div class="code-block"><div class="code-header"><span>Bash</span><button type="button" data-copy="code-9" aria-label="复制代码">复制</button></div><pre><code id="code-9">helm uninstall kube-res-foresight-operator -n kube-res-foresight
-helm uninstall fcst -n kube-res-foresight</code></pre></div>
+helm uninstall kube-res-foresight -n kube-res-foresight</code></pre></div>
 <p>SQLite 更新采用 Recreate，会短暂中断。卸载保留平台 Chart 创建的 Secret 与 SQLite PVC，外部数据库和自行创建的 Secret 不受影响。卸载 Operator 不会还原它最后写入的工作负载副本数。</p>
 <h2 id="build">构建管理平台</h2>
 <p>准备仓库声明的 Go、Node.js 与 pnpm 工具链。管理前端 <code>web/</code> 是独立仓库，构建前需要准备好其源码。</p>

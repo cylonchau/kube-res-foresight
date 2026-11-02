@@ -10,7 +10,7 @@
 # failurePolicy is Ignore, so an outage of the platform never blocks a deployment.
 #
 # Same Secret and platform URL as kube-res-foresight-requests.yaml. Replace PLATFORM_URL and CREDENTIAL_SECRET
-# (kube-res-foresight-admission; the local test bed's Secret is named kubeforecast-admission).
+# (kube-res-foresight-admission, which is also the name the local test bed uses).
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:
