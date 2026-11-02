@@ -12,6 +12,8 @@
 <h2 id="oom">单独配置 OOM 内存保护</h2>
 <p>模块将 OOM 保护与预测指标分开管理：配置回看天数、内存提升系数和堆压力，并单独接入 OOM 次数、OOM 前工作集、内存 limits 与 JVM 堆指标。未接入对应指标的规则不会生效，推荐说明会标明缺失。</p>
 <p>OOM 评分加权默认关闭。启用后，仅在评估窗口内存配置不足时扣减内存得分，不扣 CPU 得分；内存地板与模型评分分别承担保护和比较职责。</p>
-<h2 id="operator-cache">平台暂时不可达时如何处理</h2>
-<p>Operator 默认可在最后一次成功响应后的 10 分钟内使用本地缓存决策，只允许扩容、不缩容，也不沿用紧急扩容标记，冷却和步长仍然生效。决策缓存过期后，使用不低于当前副本的兜底值，或保持当前副本。</p>
-<p>模块配置默认缓存 1 小时；配置也过期后保持副本不变。平台恢复后默认需要连续两次响应才允许缩容。平台明确返回“无决策”会清除缓存；缓存仅存在进程内，Operator 重启后不会保留。</p>
+<h2 id="operator-cache">平台失联时的保持、降级与恢复</h2>
+<p>Operator 为每个模块分别记录状态，连接故障不会立即把副本切到兜底值。时间限制在系统参数中维护，由平台下发；以下为默认行为。</p>
+<table><thead><tr><th>状态</th><th>副本行为</th></tr></thead><tbody><tr><td>正常</td><td>使用平台决策，受模块边界、冷却与步长约束。</td></tr><tr><td>缓存接管</td><td>最后一次成功响应未满 10 分钟时使用缓存，只上调、不下调，不继承紧急标记。</td></tr><tr><td>保持</td><td>没有有效缓存时，先保持当前副本 5 分钟，不立即套兜底。</td></tr><tr><td>降级</td><td>保持期结束后，按兜底值单步上调，不低于当前副本，两次调整间遵守降级冷却。</td></tr><tr><td>恢复中</td><td>平台重新响应后，上调可跟随；下调同时要求连续 2 次成功响应及至少 5 分钟稳定期。</td></tr></tbody></table>
+<p>决策缓存、模块配置缓存、保持期、降级冷却、恢复响应次数和稳定期分别通过 <code>operator.decision_cache_ttl_seconds</code>、<code>module_cache_ttl_seconds</code>、<code>degrade_hold_seconds</code>、<code>degrade_cooldown_seconds</code>、<code>recover_answers</code>、<code>recover_stable_seconds</code> 配置，均使用 <code>operator.</code> 前缀。模块配置也失效时保持副本。平台明确回答“无决策”优先于旧缓存，不会被旧建议替代。</p>
+<p>决策缓存仅在内存中，重启后不保留；离线执行记录可单独落盘，见<a href="scaling.html#offline-records">离线补报</a>。</p>

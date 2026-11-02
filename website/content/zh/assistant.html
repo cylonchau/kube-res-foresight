@@ -1,0 +1,29 @@
+<h2 id="start">打开 AI 助手</h2>
+<p>管理员在系统参数中启用 <code>assistant.enabled</code>，并为用户授予 <code>assistant:chat</code> 按钮权限后，右上角显示助手入口。对话在浮动窗口中进行；关闭总开关后入口和窗口都会隐藏。模型连接与技能在“AI 配置”菜单管理。</p>
+<p>可以直接提问：“哪些模块需要关注？”“订单服务最近的扩容是否及时？”“平台失联期间 Operator 做了什么？”助手按需读取平台已存的模块、效果报告、伸缩与准入记录，并将结果组织成回答。</p>
+<h2 id="skills">用斜杠命令完成常见查询</h2>
+<p>输入 <code>/</code> 查看可用技能，使用方向键选择，Enter 执行、Tab 补全、Esc 关闭列表。管理员禁用的技能不会出现在可用列表中。</p>
+<table><thead><tr><th>命令</th><th>用途</th><th>需要 LLM</th></tr></thead><tbody>
+<tr><td><code>/help</code></td><td>列出可用技能与参数说明。</td><td>否</td></tr>
+<tr><td><code>/report</code></td><td>生成近 24 小时使用报告，提供文档与 JSON 下载。</td><td>否</td></tr>
+<tr><td><code>/export</code></td><td>导出近 24 小时服务运行状态。</td><td>否</td></tr>
+<tr><td><code>/tasks</code></td><td>查看自己的 AI 定时任务、下次运行与最近结果。</td><td>否</td></tr>
+<tr><td><code>/attention</code></td><td>分析需要关注的模块及原因。</td><td>是</td></tr>
+<tr><td><code>/outage</code></td><td>检查平台失联、离线补报和降级情况。</td><td>是</td></tr>
+<tr><td><code>/actions [模块]</code></td><td>解读伸缩动作，可指定模块。</td><td>是</td></tr>
+<tr><td><code>/effect &lt;模块&gt;</code></td><td>解读指定模块的预测效果。</td><td>是，模块必填</td></tr>
+<tr><td><code>/admission</code></td><td>解读准入决策记录。</td><td>是</td></tr>
+</tbody></table>
+<p>报告与导出直接根据平台记录生成，没有配置 LLM 时也可使用；总开关和访问权限仍需满足。</p>
+<h2 id="custom-skills">管理和编写 Skill</h2>
+<p>在“AI 配置 → Skill 管理”维护技能。内置技能可启用或禁用，提示词只读；需要模型的技能可指定 LLM，未指定时使用默认模型。内置技能不能删除。</p>
+<p>自定义技能配置命令、标题、描述、参数模式（不带参数、必填或可选）、模型和提示词。用 <code>{{args}}</code> 引用命令后的输入。例如创建 <code>/review</code>，要求模块参数，并使用以下提示词：</p>
+<pre data-language="Text"><code>请分析模块 {{args}} 最近 24 小时的预测效果与伸缩记录，区分已知事实、可能原因和缺少的数据。</code></pre>
+<p>保存并启用后，聊天命令列表即可使用该技能。指定的模型须可用；技能没有自己的模型时跟随默认连接。</p>
+<h2 id="scope">回答范围与操作能力</h2>
+<p>助手查询已有记录，不修改算法参数、工作负载资源或副本。数值预测仍由预测算法与时序模型计算，执行仍经过平台规则和 Operator。自然语言解释应与对应记录一起阅读。</p>
+<p>对话可创建、查看和删除用户自己的 <a href="ai-tasks.html">AI 定时任务</a>；这类任务只查询平台并发送回答，不执行资源变更。聊天创建任务只发送到当前用户自己的邮箱。</p>
+<p>聊天、技能和导出使用 <code>assistant:chat</code> 权限；LLM 管理、Skill 管理与任务管理分别授权。助手当前可读取平台范围的数据，不能将聊天权限理解为仅能读取个人名下模块。</p>
+<h2 id="troubleshooting">无法提问时检查什么</h2>
+<ol><li>没有入口：检查总开关与聊天权限。</li><li>报告可用但提问失败：检查默认 LLM 是否启用、地址与模型名称、工具调用兼容性及密钥。</li><li>技能未显示：检查是否禁用；需要参数的命令先补齐参数。</li><li>回答缺少信息：核对平台本身是否已有对应时间范围的采集、推荐与执行记录。</li></ol>
+<p>继续阅读<a href="llm-configuration.html">LLM 连接配置</a>和<a href="ai-tasks.html">定时任务与邮件</a>。</p>

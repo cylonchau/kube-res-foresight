@@ -11,3 +11,10 @@
 <h2 id="timeliness">Did capacity arrive before demand?</h2>
 <p>Open Expansion timeliness from scale-up records to inspect timely rate, late-arrival P90, emergency share, peak-underestimation P90, horizon-to-lead ratio, and decision wait. Each measure includes sample counts and status. Insufficient samples remain pending; suitable settings alone do not establish successful scale-up outcomes.</p>
 <p>Upward decisions are evaluated against subsequent demand and Ready replicas as timely, late, or demand not arriving. Evaluated readiness and lateness feed later lead times. This outcome assessment covers scale-ups rather than scale-downs.</p>
+<h2 id="offline-records">Report actions after an outage</h2>
+<p>The Operator queues reports before sending and replays them in occurrence order after recovery. <code>--report-spool-file</code> persists them to a mounted file. Deployment manifests use emptyDir, surviving container restarts within the same Pod, not necessarily Pod replacement.</p>
+<p>The queue holds 10,000 records; overflow drops the oldest and increments a counter. Explicitly rejected records are removed so they do not block later reports. This is bounded delivery storage, not indefinite audit retention.</p>
+<p>Optional action columns include <code>record_id</code>, occurrence and reporting times, decision source, outage state, and Operator identity. The platform deduplicates by record ID and archives late reports by occurrence time.</p>
+<h2 id="limit-ratios">Requests, limit ratios, and OOM floors</h2>
+<p>When configured, limit ratios apply to the final request: a 10 GiB memory request with a 1.2 ratio produces a 12 GiB limit. OOM uplift raises the request floor without repeatedly compounding the limit ratio.</p>
+<p>Admission calls carry <code>request_uid</code> and <code>operation</code> for attribution and deduplication. Queries without a request UID still return advice but do not create admission records.</p>

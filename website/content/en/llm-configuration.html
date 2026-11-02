@@ -1,0 +1,23 @@
+<h2 id="connection">Add a language model connection</h2>
+<p>In AI configuration → LLM management, add a name, provider type, API base URL, model identifier, and credential. Test connection checks the current form. Include the provider's base prefix, such as <code>/v1</code>, rather than a complete chat endpoint path.</p>
+<p>The current provider type uses the OpenAI-compatible protocol. Compatible gateways and self-hosted services can be configured; native Anthropic and Gemini protocols are not current provider types. Choose a model supporting tool calls to query platform data.</p>
+<h2 id="default">Enabled, default, and selected models</h2>
+<p>Multiple connections may be enabled. Ordinary questions, skills, and tasks without a selected model use the default connection; without an explicit default, the earliest enabled connection is used. A default connection must be enabled. Skills and tasks may select their own model.</p>
+<p>LLM management is for language models. Model management under forecasting connects time-series models such as Chronos for numerical forecasts; the two connection types are managed separately.</p>
+<h2 id="advanced">Advanced settings</h2>
+<table><thead><tr><th>Setting</th><th>Purpose</th></tr></thead><tbody>
+<tr><td>Request timeout</td><td>Default 90 seconds, range 5–600, for one model request.</td></tr>
+<tr><td>Tool rounds</td><td>Default 6, range 1–12, limiting successive tool-call rounds for a question.</td></tr>
+<tr><td>Temperature</td><td>Optional sampling setting, subject to provider support.</td></tr>
+<tr><td>Maximum tokens</td><td>Bounds a reply; zero omits the limit and lets the service decide.</td></tr>
+<tr><td>Context length</td><td>Context budget; older messages are trimmed first. Zero means unknown and disables trimming by this setting.</td></tr>
+<tr><td>Proxy and TLS</td><td>Configure a proxy or per-connection certificate-verification bypass. Retain verification for normal certificate connections.</td></tr>
+<tr><td>Custom headers</td><td>Additional gateway headers, stored encrypted without returning saved plaintext.</td></tr>
+<tr><td>Custom JSON parameters</td><td>Additional service parameters; model, messages, tools, stream, and other platform-managed fields cannot be overridden.</td></tr>
+</tbody></table>
+<p>Test connection uses the current endpoint, model, and advanced settings. Editing can reuse an existing credential. Save after testing and review the default selection.</p>
+<h2 id="credentials">Credentials and permissions</h2>
+<p>Credentials and custom header values are encrypted and are not returned in plaintext in lists or edit forms. Connection management and chat have separate permissions.</p>
+<p>System settings retain only the global <code>assistant.enabled</code> switch. Manage endpoints, credentials, and limits in LLM management. Explicit database migration moves legacy assistant parameters into connection records.</p>
+<h2 id="checks">After connecting</h2>
+<ol><li>Test the connection and verify the model identifier and credential.</li><li>Enable it, select the default, and ask the assistant a question requiring platform data.</li><li>Review tool reads and the answer to verify tool-call compatibility.</li><li>Select other enabled models for skills or tasks with different needs.</li></ol>

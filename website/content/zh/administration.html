@@ -10,4 +10,7 @@
 <p>登录日志记录认证行为，操作日志记录配置和导出等操作。推荐、执行、准入和降级记录帮助解释资源变化。按复盘周期设置保留要求，备份数据库及稳定的凭据加密密钥。</p>
 <h2 id="history-controls">控制历史保留与准入记录量</h2>
 <p>通过系统参数 <code>forecast.history_retention_days</code> 统一配置历史保留天数；默认 0 使用各类记录内置保留周期。<code>forecast.evaluation_max_per_module</code> 默认每模块保留最新 20,000 条实测评估，最少 100 条。</p>
-<p>具备工作负载版本信息时，准入默认记录创建及每个新版本的首个 Pod；扩容和替换产生的后续 Pod 仍正常处理，但不逐一记录。需要完整记录时启用 <code>forecast.admission_record_scaling</code>。没有版本信息的请求继续逐次记录。</p>
+<p>准入调用需携带 <code>request_uid</code> 才生成记录，并按 UID 去重。具备工作负载版本信息时，默认记录创建及每个新版本的首个 Pod；扩容和替换产生的后续 Pod 仍正常处理，但不逐一记录。需要完整记录时启用 <code>forecast.admission_record_scaling</code>。有请求 UID、没有版本信息时继续逐次记录。</p>
+<h2 id="ai-administration">AI 配置与通知</h2>
+<p>系统参数 <code>assistant.enabled</code> 控制聊天入口；“AI 配置”分别管理 <a href="llm-configuration.html">LLM 连接</a>、<a href="assistant.html#custom-skills">Skill</a> 与 <a href="ai-tasks.html">定时任务</a>。LLM、Skill、任务菜单和 <code>assistant:chat</code> 权限分别授予。</p>
+<p>邮件使用系统参数通知分类的 <code>notify.email.*</code> 配置。接入前同时检查模型连接、邮箱与 SMTP，定时任务运行结果在任务中心与任务记录中查看。</p>

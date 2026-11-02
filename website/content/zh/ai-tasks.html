@@ -1,0 +1,17 @@
+<h2 id="purpose">按计划提问并发送回答</h2>
+<p>AI 定时任务由提示词、运行计划、收件人、回答语言和可选 LLM 组成。平台到点后调用模型，模型使用与聊天相同的平台查询工具，回答保存为运行记录并通过邮件发送。可用于每日状态摘要、每周模块效果分析或定期检查降级情况。</p>
+<p>任务不会自动修改资源或参数。运行结果取决于提示词、可用记录与所选模型；配置的定时提问也不会替代持续告警规则。</p>
+<h2 id="create">创建任务</h2>
+<p>聊天中可以说：“每周一早上 9 点把所有模块的使用状态发到我的邮箱。”助手创建后会说明计划与下次时间。当前用户必须有身份和有效邮箱；聊天创建的任务只发给本人，提示词中指定其他收件人不会改变这一点。</p>
+<p>使用 <code>/tasks</code> 查看自己的任务。管理员可在“AI 配置 → 定时任务”管理全部任务，新增或修改提示词、计划、收件人、语言、启用状态与模型，也可立即运行并查看各次回答。</p>
+<h2 id="schedule">计划与时区</h2>
+<p>计划按平台时区解释，默认 UTC+8；下面示例均按 UTC+8。最短间隔为 1 小时，每个用户最多 20 个任务，提示词最长 2000 字符。</p>
+<table><thead><tr><th>计划</th><th>含义</th></tr></thead><tbody><tr><td><code>0 9 * * 1</code></td><td>每周一 09:00。</td></tr><tr><td><code>0 8 * * *</code></td><td>每天 08:00。</td></tr><tr><td><code>0 9 1 * *</code></td><td>每月 1 日 09:00。</td></tr><tr><td><code>@every 24h</code></td><td>按 24 小时间隔执行，不等同于固定每天某个钟点。</td></tr></tbody></table>
+<p>保存前确认界面的下次运行时间。停机期间遗漏的历史时刻不会逐次补跑；恢复后到期任务执行一次，再推进到后续计划。上一次运行未结束时跳过下一次，避免重叠。</p>
+<h2 id="email">配置邮件渠道</h2>
+<p>在“系统管理 → 系统参数”的通知分类配置 SMTP。任务使用平台通知渠道发送，必须先配置可用的发件服务器。</p>
+<table><thead><tr><th>参数</th><th>含义</th></tr></thead><tbody><tr><td><code>notify.email.host</code> / <code>port</code></td><td>SMTP 服务器与端口。</td></tr><tr><td><code>notify.email.security</code></td><td><code>starttls</code>、<code>tls</code> 或 <code>none</code>，与邮件服务要求一致。</td></tr><tr><td><code>notify.email.username</code> / <code>password</code></td><td>登录账户与密码，密码加密保存并遮盖显示。</td></tr><tr><td><code>notify.email.from</code></td><td>发件地址。</td></tr><tr><td><code>notify.email.skip_verify</code></td><td>是否跳过服务端证书验证。</td></tr><tr><td><code>notify.email.timeout_seconds</code></td><td>邮件连接与发送的超时。</td></tr></tbody></table>
+<p>带密码的认证只在加密连接或本机连接上发送。当前邮件为纯文本，Markdown 按文本保留。</p>
+<h2 id="runs">运行记录与重试</h2>
+<p>运行进入任务中心，可查看回答、模型读取的工具、收件人与发送结果。失败可重试；已有回答会复用，不重复询问模型，已经发送成功的收件人不会因同次作业重试再次收到邮件。</p>
+<p>没有收到邮件时，依次检查：任务启用与下次时间、默认或指定模型、任务中心运行错误、SMTP 配置和收件地址。没有配置模型或邮件渠道时，查看明确错误后先完成配置。</p>

@@ -1,0 +1,29 @@
+<h2 id="start">Open the AI assistant</h2>
+<p>Enable <code>assistant.enabled</code> in system settings and grant the user <code>assistant:chat</code>. The assistant opens from the top-right button in a floating window. Turning off the global switch hides both the entry and the window. Manage connections and skills under AI configuration.</p>
+<p>Ask which modules need attention, whether a service scaled in time, or what the Operator did during an outage. The assistant reads stored modules, effect reports, scaling actions, and admission records as needed to answer.</p>
+<h2 id="skills">Use slash commands</h2>
+<p>Type <code>/</code> to list available skills. Use the arrow keys to select, Enter to run, Tab to complete, and Esc to dismiss. Disabled skills are omitted.</p>
+<table><thead><tr><th>Command</th><th>Purpose</th><th>Requires an LLM</th></tr></thead><tbody>
+<tr><td><code>/help</code></td><td>List skills and argument requirements.</td><td>No</td></tr>
+<tr><td><code>/report</code></td><td>Produce a 24-hour usage report with document and JSON downloads.</td><td>No</td></tr>
+<tr><td><code>/export</code></td><td>Export the last 24 hours of service status.</td><td>No</td></tr>
+<tr><td><code>/tasks</code></td><td>List your AI scheduled tasks, next runs, and recent results.</td><td>No</td></tr>
+<tr><td><code>/attention</code></td><td>Explain modules needing attention.</td><td>Yes</td></tr>
+<tr><td><code>/outage</code></td><td>Review outages, queued reports, and degradation.</td><td>Yes</td></tr>
+<tr><td><code>/actions [module]</code></td><td>Explain scaling actions, optionally for a module.</td><td>Yes</td></tr>
+<tr><td><code>/effect &lt;module&gt;</code></td><td>Explain a module's forecasting effectiveness.</td><td>Yes; module required</td></tr>
+<tr><td><code>/admission</code></td><td>Explain admission records.</td><td>Yes</td></tr>
+</tbody></table>
+<p>Reports and exports are built directly from stored facts and work without an LLM connection. The global switch and access permissions still apply.</p>
+<h2 id="custom-skills">Manage and write skills</h2>
+<p>Use AI configuration → Skill management. Built-in skills can be enabled or disabled; their prompts are read-only and they cannot be deleted. Model-dependent skills can select an LLM; otherwise they use the default.</p>
+<p>Custom skills define a command, title, description, argument mode (none, required, or optional), model, and prompt. Reference the argument using <code>{{args}}</code>. For example, create <code>/review</code> with a required module argument:</p>
+<pre data-language="Text"><code>Analyze the last 24 hours of forecasts and scaling actions for module {{args}}. Separate recorded facts, possible causes, and missing information.</code></pre>
+<p>Save and enable the skill to make it available in chat. Its selected model must be available; a skill without one follows the default connection.</p>
+<h2 id="scope">Data scope and actions</h2>
+<p>The assistant queries existing records and does not change algorithm parameters, workload resources, or replicas. Forecasting remains with the forecasting methods, and execution remains with platform rules and the Operator. Read explanations alongside their underlying records.</p>
+<p>Chat can create, list, and delete the user's own <a href="ai-tasks.html">AI scheduled tasks</a>. These query the platform and send answers without resource changes. Tasks created through chat send only to the current user's own email.</p>
+<p>Chat, skills, and exports use <code>assistant:chat</code>. LLM, skill, and task management have separate permissions. Assistant access currently exposes platform-wide data, rather than an owner-only subset of modules.</p>
+<h2 id="troubleshooting">Troubleshooting</h2>
+<ol><li>Missing entry: check the global switch and chat permission.</li><li>Reports work but questions fail: check the enabled default LLM, endpoint, model name, tool-calling compatibility, and credentials.</li><li>Missing skill: check activation and supply required arguments.</li><li>Incomplete answer: confirm that collection, recommendations, and execution records exist for the requested window.</li></ol>
+<p>Continue with <a href="llm-configuration.html">LLM configuration</a> and <a href="ai-tasks.html">scheduled tasks and email</a>.</p>

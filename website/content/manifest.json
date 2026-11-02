@@ -4,10 +4,11 @@
     {"id": "concepts", "zh": "核心概念", "en": "Core concepts", "pages": ["concepts", "metrics", "algorithms"]},
     {"id": "algorithm-reference", "zh": "算法参数手册", "en": "Algorithm reference", "pages": ["algorithm-naive", "algorithm-seasonal_naive", "algorithm-ewma", "algorithm-hist_percentile", "algorithm-random_forest", "algorithm-knn", "algorithm-holt_winters", "algorithm-model_service", "algorithm-theta", "algorithm-mstl", "algorithm-seasonal_profile", "algorithm-peak_envelope", "algorithm-combination", "algorithm-ridge_ar", "algorithm-gbdt"]},
     {"id": "guides", "zh": "使用指南", "en": "User guides", "pages": ["evaluation", "recommendations", "scaling", "safety"]},
-    {"id": "operations", "zh": "运维与管理", "en": "Operations", "pages": ["monitoring", "administration", "faq"]}
+    {"id": "ai", "zh": "AI 助手", "en": "AI assistant", "pages": ["assistant", "llm-configuration", "ai-tasks"]},
+    {"id": "operations", "zh": "运维与管理", "en": "Operations", "pages": ["dashboard", "monitoring", "administration", "faq"]}
   ],
   "pages": {
-    "getting-started": {"zh": ["快速开始", "从演示体验到接入第一个工作负载，走通预测与推荐流程。"], "en": ["Quick start", "Explore the demo, connect a workload, and follow your first recommendation."]},
+    "getting-started": {"zh": ["快速开始", "接入第一个工作负载，走通预测与推荐流程。"], "en": ["Quick start", "Connect a workload and follow your first recommendation."]},
     "installation": {"zh": ["安装与部署", "准备管理平台、任务引擎与执行组件，了解配置和启动方式。"], "en": ["Installation", "Prepare the platform, job engine, and optional execution components."]},
     "concepts": {"zh": ["功能架构与核心概念", "理解工作负载模块、指标模板、算法与执行策略之间的关系。"], "en": ["Capabilities and concepts", "Understand modules, metric templates, models, and operating policies."]},
     "metrics": {"zh": ["指标接入与数据质量", "配置数据源、指标模板和数据集，为预测准备可信输入。"], "en": ["Metrics and data quality", "Connect sources, templates, and datasets to prepare dependable inputs."]},
@@ -33,6 +34,10 @@
     "algorithm-peak_envelope": {"zh": ["Peak Envelope · 峰值包络", "先计算滚动最大值包络，再用稳健斜率外推，关注高水位而非平均值。适合内存锯齿、缓存增长等形态。"], "en": ["Peak Envelope", "Builds a rolling-maximum envelope and extrapolates its robust slope. Targets high-water demand rather than averages, such as memory sawtooth patterns and cache growth."]},
     "algorithm-combination": {"zh": ["Combination · 组合预测", "对多个成员的预测逐步取中位数，或按近期误差加权。组合本身也需要回测晋升，不默认优于单个成员。"], "en": ["Combination", "Combines member forecasts using a stepwise median or recent-error weights. The combination must earn backtest promotion like other candidates."]},
     "algorithm-ridge_ar": {"zh": ["Ridge AR · 岭回归自回归", "用滞后值、可选 UTC 日历特征与协变量拟合线性关系。适合稳定的线性依赖，作为低成本机器学习候选。"], "en": ["Ridge AR", "Fits linear relationships from lags, optional UTC calendar features, and covariates. A relatively inexpensive machine-learning candidate for stable linear dependencies."]},
-    "algorithm-gbdt": {"zh": ["GBDT · 梯度提升树", "逐棵拟合残差，学习滞后、日历与协变量的非线性关系。可预测均值附近的点值，也可直接训练分位数目标。"], "en": ["GBDT", "Fits successive trees to residuals using lags, calendars, and covariates. Supports squared-error point forecasts or a native quantile objective."]}
+    "algorithm-gbdt": {"zh": ["GBDT · 梯度提升树", "逐棵拟合残差，学习滞后、日历与协变量的非线性关系。可预测均值附近的点值，也可直接训练分位数目标。"], "en": ["GBDT", "Fits successive trees to residuals using lags, calendars, and covariates. Supports squared-error point forecasts or a native quantile objective."]},
+    "assistant": {"zh": ["AI 助手与 Skill", "查询平台状态、使用斜杠技能，导出报告并解读资源变化。"], "en": ["AI assistant and skills", "Query platform state, use slash commands, export reports, and explain changes."]},
+    "llm-configuration": {"zh": ["LLM 连接配置", "设置默认与指定模型、工具调用、高级参数和凭据。"], "en": ["LLM configuration", "Configure default and selected models, tools, advanced settings, and credentials."]},
+    "ai-tasks": {"zh": ["AI 定时任务与邮件", "按计划查询平台，把模型回答保存并通过邮件发送。"], "en": ["AI scheduled tasks and email", "Ask on a schedule, retain answers, and deliver them by email."]},
+    "dashboard": {"zh": ["首页与运行概览", "查看模块状态、需要关注的模块和实际扩缩容活动。"], "en": ["Dashboard and activity", "Review module status, attention flags, and applied scaling activity."]}
   }
 }
