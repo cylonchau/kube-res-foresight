@@ -10,6 +10,7 @@ import (
 	"github.com/cylonchau/kube-res-foresight/pkg/ldapauth"
 	"github.com/cylonchau/kube-res-foresight/pkg/migration"
 	"github.com/cylonchau/kube-res-foresight/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/notify"
 	"github.com/cylonchau/kube-res-foresight/pkg/notify/email"
 	cryptoutils "github.com/cylonchau/kube-res-foresight/pkg/utils"
 	"github.com/gin-gonic/gin"
@@ -93,6 +94,32 @@ func (h *ConfigRouter) Get(c *gin.Context) {
 		return
 	}
 	query.SuccessResponse(c, nil, sysConfigDTO(item))
+}
+
+// TestEmail serves POST /configs/notify-email/test {"to": "..."}: it sends a short message to one address through the e-mail channel as it
+// is set up now, so an administrator sees at once whether the SMTP server, the sign-in and the sender are right. The answer is the error
+// of the server, when there is one.
+func (h *ConfigRouter) TestEmail(c *gin.Context) {
+	var req struct {
+		To string `json:"to" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		query.BadRequest(c, err)
+		return
+	}
+	to, err := email.ValidAddress(req.To)
+	if err != nil {
+		query.BadRequest(c, err)
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Minute)
+	defer cancel()
+	msg := notify.Message{Title: "[kube-res-foresight] test mail", Content: "This is a test mail of the e-mail channel of kube-res-foresight: the SMTP settings work.\n"}
+	if err := email.New(h.DAO).Send(ctx, to, msg); err != nil {
+		query.BadRequest(c, err)
+		return
+	}
+	query.SuccessResponse(c, nil, "sent")
 }
 
 func (h *ConfigRouter) Update(c *gin.Context) {

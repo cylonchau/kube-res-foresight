@@ -87,6 +87,7 @@ func RegisteredRouter(e *gin.Engine) {
 	configHandler := &v1.ConfigRouter{DAO: rdb.NewSysConfigDAO(model.DB)}
 	configGroup := v1Group.Group("/configs")
 	configGroup.GET("", configHandler.List)
+	configGroup.POST("/notify-email/test", configHandler.TestEmail)
 	configGroup.GET("/:key", configHandler.Get)
 	configGroup.PUT("/:key", configHandler.Update)
 

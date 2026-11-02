@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
 	"github.com/cylonchau/kube-res-foresight/pkg/logger"
 	"github.com/cylonchau/kube-res-foresight/pkg/model"
 	"github.com/prometheus/client_golang/prometheus"
@@ -28,6 +29,10 @@ var (
 	descEffectiveMax    = prometheus.NewDesc("kube_res_foresight_effective_max_replicas", "Replica ceiling in force (the fixed maximum, or the dynamically expanded one).", []string{"module"}, nil)
 	descHardMax         = prometheus.NewDesc("kube_res_foresight_hard_max_replicas", "Safety ceiling the dynamic expansion never passes.", []string{"module"}, nil)
 	descConsecutiveFail = prometheus.NewDesc("kube_res_foresight_consecutive_failures", "Pipeline cycles in a row that failed.", []string{"module"}, nil)
+	descScalingActions  = prometheus.NewDesc("kube_res_foresight_scaling_actions_24h", "Scaling actions the operator reported in the last 24 hours, by action (ScaleUp, ScaleDown, None) and result.", []string{"module", "action", "result"}, nil)
+	descScalingLastAge  = prometheus.NewDesc("kube_res_foresight_scaling_last_report_age_seconds", "Age of the newest scaling report of the module.", []string{"module"}, nil)
+	descScalingState    = prometheus.NewDesc("kube_res_foresight_scaling_degrade_state", "1 for the state the module was in at its newest scaling report (normal, cached, holding, degraded, recovering).", []string{"module", "state"}, nil)
+	descJobs            = prometheus.NewDesc("kube_res_foresight_jobs", "Jobs of the task center created in the last 24 hours, by type and status.", []string{"type", "status"}, nil)
 	descCollectorError  = prometheus.NewDesc("kube_res_foresight_forecast_metrics_error", "1 when the last scrape of forecast state failed.", nil, nil)
 )
 
@@ -39,6 +44,8 @@ const maxMetricModules = 500
 type Collector struct {
 	svc *Service
 	ttl time.Duration
+	// Jobs is the task center's job table; nil leaves the job counts out.
+	Jobs *rdb.JobDAO
 
 	mu      sync.Mutex
 	at      time.Time
@@ -173,6 +180,39 @@ func (c *Collector) build(ctx context.Context) ([]prometheus.Metric, error) {
 		}
 		if err := c.exportCatalog(ctx, now, m.ID, m.Name, gauge); err != nil {
 			return nil, err
+		}
+
+		// what the operator did in the last day
+		reports, _, err := c.svc.Predictions.ExecutionsBetween(ctx, m.ID, now.Add(-24*time.Hour), now)
+		if err != nil {
+			return nil, err
+		}
+		counts := map[[2]string]int{}
+		for _, r := range reports {
+			counts[[2]string{r.Action, r.Result}]++
+		}
+		for key, n := range counts {
+			gauge(descScalingActions, float64(n), m.Name, key[0], key[1])
+		}
+		if len(reports) > 0 {
+			last := reports[len(reports)-1]
+			gauge(descScalingLastAge, now.Sub(last.CreatedAt).Seconds(), m.Name)
+			for _, state := range []string{"normal", "cached", "holding", "degraded", "recovering"} {
+				current := last.DegradeState
+				if current == "" {
+					current = "normal"
+				}
+				gauge(descScalingState, boolFloat(current == state), m.Name, state)
+			}
+		}
+	}
+	if c.Jobs != nil {
+		counts, err := c.Jobs.CountsSince(ctx, now.Add(-24*time.Hour))
+		if err != nil {
+			return nil, err
+		}
+		for _, n := range counts {
+			gauge(descJobs, float64(n.Count), n.Type, n.Status)
 		}
 	}
 	return out, nil

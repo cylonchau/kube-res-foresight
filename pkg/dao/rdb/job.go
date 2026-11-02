@@ -451,3 +451,18 @@ func (dao *JobDAO) SupersedeStaleScheduled(ctx context.Context) (int64, error) {
 		})
 	return res.RowsAffected, res.Error
 }
+
+// JobCount is how many jobs of a type are in a status.
+type JobCount struct {
+	Type   string
+	Status string
+	Count  int64
+}
+
+// CountsSince counts the jobs created since the time, by type and status.
+func (dao *JobDAO) CountsSince(ctx context.Context, since time.Time) ([]JobCount, error) {
+	var out []JobCount
+	err := dao.db.WithContext(ctx).Model(&model.Job{}).Select("job_type AS type, status, COUNT(*) AS count").
+		Where("created_at >= ?", since).Group("job_type, status").Scan(&out).Error
+	return out, err
+}

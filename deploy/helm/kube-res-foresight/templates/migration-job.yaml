@@ -1,0 +1,58 @@
+{{- if and .Values.migration.enabled (eq (include "kube-res-foresight.migrationMode" .) "job") }}
+{{- $secret := include "kube-res-foresight.secretName" . }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "kube-res-foresight.fullname" . }}-migrate
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kube-res-foresight.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migration
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "0"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 900
+  template:
+    metadata:
+      labels:
+        {{- include "kube-res-foresight.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: migration
+    spec:
+      restartPolicy: OnFailure
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: migrate
+          image: {{ include "kube-res-foresight.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["server", "--migration", "-c", "/etc/kube-res-foresight/config.yaml", "--sql-driver", {{ include "kube-res-foresight.driver" . | quote }}]
+          env:
+            {{- if .Values.secrets.existingSecret }}
+            {{- include "kube-res-foresight.env" . | nindent 12 }}
+            {{- else }}
+            {{- include "kube-res-foresight.env" . | replace (printf "name: %s\n" $secret) (printf "name: %s-migrate\n" $secret) | nindent 12 }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.migration.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/kube-res-foresight
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "kube-res-foresight.fullname" . }}-migrate
+        - name: tmp
+          emptyDir: {}
+{{- end }}

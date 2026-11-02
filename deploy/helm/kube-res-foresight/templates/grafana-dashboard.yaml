@@ -1,0 +1,20 @@
+{{- if .Values.metrics.grafanaDashboard.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kube-res-foresight.fullname" . }}-dashboard
+  namespace: {{ default .Release.Namespace .Values.metrics.grafanaDashboard.namespace }}
+  labels:
+    {{- include "kube-res-foresight.labels" . | nindent 4 }}
+    {{ .Values.metrics.grafanaDashboard.labelKey }}: {{ .Values.metrics.grafanaDashboard.labelValue | quote }}
+    {{- with .Values.metrics.grafanaDashboard.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.metrics.grafanaDashboard.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+data:
+  kube-res-foresight.json: |
+    {{- .Files.Get "files/dashboard.json" | nindent 4 }}
+{{- end }}

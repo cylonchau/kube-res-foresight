@@ -20,7 +20,9 @@ func startForecastMetrics(ctx context.Context) {
 	svc := forecastsvc.New(rdb.NewModuleDAO(model.DB), rdb.NewMetricMappingDAO(model.DB), rdb.NewDatasourceDAO(model.DB),
 		rdb.NewSampleDAO(model.DB), rdb.NewPredictionDAO(model.DB))
 	registerForecastCollector.Do(func() {
-		metrics.Registry.MustRegister(forecastsvc.NewCollector(svc))
+		collector := forecastsvc.NewCollector(svc)
+		collector.Jobs = rdb.NewJobDAO(model.DB)
+		metrics.Registry.MustRegister(collector)
 		metrics.Registry.MustRegister(forecastsvc.SharedTelemetry().Collectors()...)
 	})
 	metrics.Serve(ctx, config.Get().Metrics.Listen, func() error { return svc.Ready(ctx) })

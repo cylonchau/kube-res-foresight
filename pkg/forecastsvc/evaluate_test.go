@@ -2,11 +2,13 @@ package forecastsvc
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
 	"github.com/cylonchau/kube-res-foresight/pkg/model"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
@@ -234,4 +236,52 @@ func TestLeaderboardRanksAnAlgorithmThatRunsLowBelowOneThatRunsHigh(t *testing.T
 	assert.Equal(t, 2, byAlgo["ewma"].Rank)
 	require.NotNil(t, byAlgo["ewma"].BeatsBaseline)
 	assert.False(t, *byAlgo["ewma"].BeatsBaseline, "it does not beat the baseline once running low is counted")
+}
+
+func TestCollectorExportsTheScalingReportsAndTheJobsOfTheLastDay(t *testing.T) {
+	f := newFixture(t)
+	require.NoError(t, f.db.AutoMigrate(&model.Job{}))
+	now := f.svc.now()
+	rid := func(s string) *string { return &s }
+	for i, r := range []model.ScalingExecution{
+		{Action: "ScaleUp", Result: "applied", DegradeState: "normal", RecordID: rid("a")},
+		{Action: "ScaleUp", Result: "applied", DegradeState: "normal", RecordID: rid("b")},
+		{Action: "ScaleDown", Result: "failed", DegradeState: "cached", RecordID: rid("c")},
+	} {
+		r.ModuleID, r.Namespace, r.Scaler, r.TargetKind, r.TargetName = f.module.ID, "ns", "s", "Deployment", "d"
+		r.CreatedAt = now.Add(-time.Duration(30-i*10) * time.Minute)
+		require.NoError(t, f.db.Create(&r).Error)
+	}
+	old := model.ScalingExecution{ModuleID: f.module.ID, Namespace: "ns", Scaler: "s", TargetKind: "Deployment", TargetName: "d", Action: "ScaleUp", Result: "applied", RecordID: rid("old")}
+	old.CreatedAt = now.Add(-48 * time.Hour)
+	require.NoError(t, f.db.Create(&old).Error)
+	for _, j := range []model.Job{{JobType: "forecast.run", Status: "success"}, {JobType: "forecast.run", Status: "success"}, {JobType: "ai.run", Status: "failed"}} {
+		j.IdempotencyKey = fmt.Sprintf("k%d", time.Now().UnixNano())
+		time.Sleep(time.Microsecond)
+		require.NoError(t, f.db.Create(&j).Error)
+	}
+
+	c := NewCollector(f.svc)
+	c.Jobs = rdb.NewJobDAO(f.db)
+	reg := prometheus.NewRegistry()
+	require.NoError(t, reg.Register(c))
+	got := map[string]float64{}
+	families, err := reg.Gather()
+	require.NoError(t, err)
+	for _, mf := range families {
+		for _, m := range mf.GetMetric() {
+			key := mf.GetName()
+			for _, l := range m.GetLabel() {
+				key += "|" + l.GetValue()
+			}
+			got[key] = m.GetGauge().GetValue()
+		}
+	}
+	mod := f.module.Name
+	assert.Equal(t, 2.0, got["kube_res_foresight_scaling_actions_24h|ScaleUp|"+mod+"|applied"], "the report of two days ago is not counted")
+	assert.Equal(t, 1.0, got["kube_res_foresight_scaling_actions_24h|ScaleDown|"+mod+"|failed"])
+	assert.Equal(t, 1.0, got["kube_res_foresight_scaling_degrade_state|"+mod+"|cached"], "the state of the newest report")
+	assert.Equal(t, 0.0, got["kube_res_foresight_scaling_degrade_state|"+mod+"|normal"])
+	assert.Equal(t, 2.0, got["kube_res_foresight_jobs|success|forecast.run"])
+	assert.Equal(t, 1.0, got["kube_res_foresight_jobs|failed|ai.run"])
 }

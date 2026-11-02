@@ -50,3 +50,4 @@
 - 前端：web 中 pnpm typecheck、pnpm test:unit、pnpm build，按范围选择。
 - 端到端：scripts/prepare-platform-qa.py、scripts/e2e/platform.mjs，先读参数和临时目录行为，在隔离数据运行。
 - web 是独立 Git 仓库，根仓库忽略 /web/；跨端变更分别检查。文档修改不要求重新编译应用。
+| 监控看板与部署 | deploy/grafana/kube-res-foresight-dashboard.json（Grafana 看板，同一份在 chart 的 files/dashboard.json）、deploy/helm/kube-res-foresight（平台 Chart）、deploy/helm/kube-res-foresight-operator、pkg/forecastsvc/metrics.go（抓取时导出：模块状态、扩缩容记录 24 小时计数、降级状态、任务中心作业计数）、POST /configs/notify-email/test（测试邮件）；web assistant-button.vue（窗口调大小、放大） | 看板和 Chart 的指标名必须与目录一致（目录测试保证）；Chart 不创建 operator 凭据，operator 另装 | deploy/grafana/README.md、deploy/helm/kube-res-foresight/README.md |

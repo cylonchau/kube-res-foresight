@@ -1,0 +1,162 @@
+# Values of the kube-res-foresight chart: the platform (API, web console, forecasting and the job engine, started as "all").
+# The operator that scales the workloads is a chart of its own (deploy/helm/kube-res-foresight-operator): install this chart first,
+# create the developer credential in the console, then install the operator with it.
+
+# The platform image (deploy/docker/Dockerfile, target "kube-res-foresight"). There is no public image: build and push one.
+image:
+  repository: "" # required, for example registry.example.com/kube-res-foresight
+  tag: "" # defaults to the chart appVersion
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+# Every replica runs the API and the job engine; jobs are claimed from the database, so more than one replica needs mysql or postgres
+# (sqlite is one file on one volume: the chart refuses more than one replica with it).
+replicaCount: 1
+
+# The time zone times are shown in (KUBE_RES_FORESIGHT_TIMEZONE); empty keeps the platform default, UTC+8.
+timezone: ""
+
+server:
+  port: 10000
+  # Origins that may call the API from another site (a frontend dev server). Empty sends no CORS headers.
+  corsAllowedOrigins: []
+
+# Where the platform keeps its data.
+database:
+  # sqlite, mysql or postgres
+  driver: sqlite
+  sqlite:
+    # The file, on the volume of "persistence".
+    file: /data/kube-res-foresight.db
+  # mysql and postgres
+  host: ""
+  port: 0 # 0 means 3306 for mysql and 5432 for postgres
+  name: kube-res-foresight
+  username: kube-res-foresight
+  # postgres only: disable, require, verify-ca or verify-full
+  sslMode: disable
+  # mysql only
+  maxOpenConnection: "100"
+  maxIdleConnection: "50"
+
+# Credentials. Give an existing Secret, or let the chart make one.
+secrets:
+  # An existing Secret with the keys below; when set, nothing in this block is created.
+  existingSecret: ""
+  keys:
+    jwtSecret: jwt-secret # signs the API tokens: the same in every replica
+    secretKey: secret-key # at least 32 characters: encrypts the keys and passwords the platform stores (LLM keys, SMTP password...)
+    databasePassword: database-password
+  # Used when the chart makes the Secret. Empty jwtSecret and secretKey are generated once and kept on upgrade; keep them: a changed
+  # secretKey makes the stored secrets unreadable.
+  jwtSecret: ""
+  secretKey: ""
+  databasePassword: ""
+
+# The schema is created and updated by "server --migration" before the platform starts.
+migration:
+  enabled: true
+  # job: a hook Job before install/upgrade (right for mysql and postgres, and for more than one replica);
+  # initContainer: every Pod migrates before it starts (right for sqlite, where the volume is not there for a hook);
+  # auto: initContainer for sqlite, job otherwise.
+  mode: auto
+  # The migration Job, the init container and the test Pod are small.
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+persistence:
+  # The volume of the sqlite file. Without it the file is lost with the Pod.
+  enabled: true
+  existingClaim: ""
+  storageClass: ""
+  accessModes: [ReadWriteOnce]
+  size: 5Gi
+  annotations: {}
+
+service:
+  type: ClusterIP
+  port: 80
+  annotations: {}
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: kube-res-foresight.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# /metrics, /healthz and /readyz (metrics.listen). The probes use them.
+metrics:
+  port: 9100
+  serviceMonitor:
+    # Needs the Prometheus Operator CRDs.
+    enabled: false
+    interval: 30s
+    labels: {}
+  prometheusRule:
+    # Alerts on the platform and the operator metrics. Needs the Prometheus Operator CRDs.
+    enabled: false
+    labels: {}
+  # The Grafana dashboard as a ConfigMap, for the Grafana sidecar that loads dashboards by label (kube-prometheus-stack does).
+  grafanaDashboard:
+    enabled: false
+    labelKey: grafana_dashboard
+    labelValue: "1"
+    # The namespace of the ConfigMap; empty is the release namespace.
+    namespace: ""
+    annotations: {}
+    labels: {}
+
+# Extra settings merged into config.yaml (for example loggers); the database, server and metrics blocks are made from the values above.
+extraConfig: {}
+extraEnv: []
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 256Mi
+  limits:
+    cpu: "2"
+    memory: 1Gi
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: [ALL]
+
+podDisruptionBudget:
+  # Only made when there is more than one replica.
+  enabled: true
+  minAvailable: 1
+
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+priorityClassName: ""

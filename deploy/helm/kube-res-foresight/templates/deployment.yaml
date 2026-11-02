@@ -1,0 +1,140 @@
+{{- $driver := include "kube-res-foresight.driver" . }}
+{{- $migration := include "kube-res-foresight.migrationMode" . }}
+{{- $volume := and (eq $driver "sqlite") .Values.persistence.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kube-res-foresight.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kube-res-foresight.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- if $volume }}
+  # a volume that one Pod writes: the old Pod stops before the new one starts
+  strategy:
+    type: Recreate
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "kube-res-foresight.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include "kube-res-foresight.config" . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "kube-res-foresight.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "kube-res-foresight.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- if and .Values.migration.enabled (eq $migration "initContainer") }}
+      initContainers:
+        - name: migrate
+          image: {{ include "kube-res-foresight.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["server", "--migration", "-c", "/etc/kube-res-foresight/config.yaml", "--sql-driver", {{ $driver | quote }}]
+          env:
+            {{- include "kube-res-foresight.env" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.migration.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/kube-res-foresight
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+            {{- if eq $driver "sqlite" }}
+            - name: data
+              mountPath: /data
+            {{- end }}
+      {{- end }}
+      containers:
+        - name: kube-res-foresight
+          image: {{ include "kube-res-foresight.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["all", "-c", "/etc/kube-res-foresight/config.yaml", "--sql-driver", {{ $driver | quote }}]
+          env:
+            {{- include "kube-res-foresight.env" . | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.server.port }}
+              protocol: TCP
+            - name: metrics
+              containerPort: {{ .Values.metrics.port }}
+              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            periodSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            periodSeconds: 20
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: metrics
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/kube-res-foresight
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+            {{- if eq $driver "sqlite" }}
+            - name: data
+              mountPath: /data
+            {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "kube-res-foresight.fullname" . }}
+        - name: tmp
+          emptyDir: {}
+        {{- if eq $driver "sqlite" }}
+        - name: data
+          {{- if $volume }}
+          persistentVolumeClaim:
+            claimName: {{ default (include "kube-res-foresight.fullname" .) .Values.persistence.existingClaim }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

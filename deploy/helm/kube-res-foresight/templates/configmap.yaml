@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kube-res-foresight.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kube-res-foresight.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    {{- include "kube-res-foresight.config" . | nindent 4 }}
+{{- if and .Values.migration.enabled (eq (include "kube-res-foresight.migrationMode" .) "job") }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kube-res-foresight.fullname" . }}-migrate
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kube-res-foresight.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+data:
+  config.yaml: |
+    {{- include "kube-res-foresight.config" . | nindent 4 }}
+{{- end }}

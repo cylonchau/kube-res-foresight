@@ -1,0 +1,86 @@
+{{- if .Values.metrics.prometheusRule.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "kube-res-foresight.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kube-res-foresight.labels" . | nindent 4 }}
+    {{- with .Values.metrics.prometheusRule.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: kube-res-foresight
+      rules:
+        - alert: KubeResForesightDown
+          expr: up{job=~".*kube-res-foresight", job!~".*operator.*"} == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: The kube-res-foresight platform cannot be scraped.
+        - alert: KubeResForesightForecastMetricsError
+          expr: kube_res_foresight_forecast_metrics_error == 1
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: The platform could not read its forecasting state for the metrics.
+        - alert: KubeResForesightDatasourceDown
+          expr: kube_res_foresight_datasource_up == 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: The datasource {{ "{{ $labels.datasource }}" }} does not answer its probe.
+        - alert: KubeResForesightStaleRecommendation
+          expr: kube_res_foresight_module_enabled == 1 and on (module) kube_res_foresight_recommendation_valid == 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: The recommendation of the module {{ "{{ $labels.module }}" }} has expired and no new one was made.
+        - alert: KubeResForesightModuleFailing
+          expr: kube_res_foresight_consecutive_failures >= 3
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: The forecast cycle of the module {{ "{{ $labels.module }}" }} failed {{ "{{ $value }}" }} times in a row.
+        - alert: KubeResForesightCollectionStopped
+          expr: kube_res_foresight_series_latest_sample_age_seconds > 1800
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: No new {{ "{{ $labels.metric }}" }} sample of the module {{ "{{ $labels.module }}" }} for over 30 minutes.
+        - alert: KubeResForesightJobsFailing
+          expr: sum by (type) (kube_res_foresight_jobs{status="failed"}) > 5
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: Jobs of type {{ "{{ $labels.type }}" }} failed more than 5 times in the last day.
+        - alert: KubeResForesightOperatorCannotReachPlatform
+          expr: sum(increase(kube_res_foresight_operator_platform_requests_total{result="error"}[10m])) > 5 and sum(increase(kube_res_foresight_operator_platform_requests_total{result="ok"}[10m])) == 0
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: The operator has had no answer from the platform for 10 minutes; it keeps the replicas and, in time, falls back to its safe settings.
+        - alert: KubeResForesightOperatorDecisionExpired
+          expr: kube_res_foresight_operator_decision_valid == 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: The operator has no valid decision for the module {{ "{{ $labels.module }}" }}.
+        - alert: KubeResForesightReplicasNotReady
+          expr: kube_res_foresight_operator_ready_replicas < kube_res_foresight_operator_desired_replicas
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: The module {{ "{{ $labels.module }}" }} has fewer ready replicas than the operator wants.
+{{- end }}

@@ -665,3 +665,12 @@ all ten management pages and the shared product title. Screenshots were inspecte
 - 验证：`go test -p 2 ./pkg/... ./cmd/... ./scripts/check-algorithm-docs`、`go build ./cmd/...`、`go vet ./pkg/... ./cmd/...` 通过，CLI help 显示新名称；前端类型检查、21 项单测与生产构建通过；69 页官网与算法参数检查、技能同步检查通过。Windows 文件保留原换行方式，diff 检查允许 CRLF。
 - 提交按改名拆分：原有和并行产生的业务修改保留在工作区，前后端只暂存名称变更；未提交的平台 Helm/Grafana 工作没有纳入本次提交。未操作集群，未推送。
 - GitHub 远端仍为 cylonchau/hermes：当前连接器无仓库重命名工具，本机无可用非交互凭据，未能执行云端改名，保留可用 remote 与官网实际仓库链接；管理员改名与后续 remote 更新步骤写入 docs/renaming.md。
+
+2026-11-02：聊天窗口可调大小与放大、邮件参数补全与测试邮件、Grafana 看板与指标补充、平台 Helm Chart
+- **聊天窗口**：右上角窗口可以拖左边、下边或左下角改大小（最小 360×360，记在浏览器里），标题栏「放大／还原」在占满右侧（从顶栏下到页底）和原来的小窗口之间切换，放大状态也记住；窄屏不变（占满宽度）。
+- **邮件参数**：`notify.email.*` 八项一直在系统参数里，但分散在多页里不好找。现在：搜索 `notify.email` 一页看全；安全方式是下拉（STARTTLS／TLS／不加密）；端口是数字框；密码是掩码；列表上方新增「发送测试邮件」（`POST /configs/notify-email/test`），用刚保存的参数给指定地址发一封，失败时原样显示邮件服务器的回答（保存后最多 10 秒生效）。
+- **指标补充**：平台新增 `scaling_actions_24h`（模块、动作、结果）、`scaling_last_report_age_seconds`、`scaling_degrade_state`（降级状态）、`jobs`（任务中心近 24 小时按类型和状态）。
+- **Grafana**：`deploy/grafana/kube-res-foresight-dashboard.json`，33 个面板：总览、历史与趋势（每个预测指标一个面板：采集值与预测峰值）、算法排行（得分、WAPE、峰值低估、使用中的算法、回测）、算法运行（预测／采集／回测次数与耗时、任务中心）、扩缩容记录与 operator 状态（期望／当前／就绪副本、动作、24 小时记录、降级状态、决策年龄、对平台的请求）。说明见 `deploy/grafana/README.md`。
+- **Helm**：`deploy/helm/kube-res-foresight`（平台：Deployment、配置、密钥（自动生成并在升级时保留）、迁移（钩子 Job 或 init 容器）、Service、Ingress、PVC、ServiceMonitor、10 条告警、Grafana 看板 ConfigMap、`helm test`），文档在该目录 README（参数、安装、升级、卸载）。
+- **验证**：`go vet`、`go test ./pkg/...` 通过（新增：抓取里的扩缩容记录与任务计数、测试邮件接口对本地假 SMTP）、`vue-tsc`、语言包测试；临时库真浏览器 16 项（拖动改大小、放大／还原与记忆、八项邮件参数同页、安全下拉、测试邮件成功与失败）；Prometheus 2.55 + Grafana 11.3 容器里 33 个面板的全部查询都能执行，有数据的面板能画出来；Helm 3.16 在本机 Docker Desktop 集群真实安装：PostgreSQL（钩子 Job 迁移）和 sqlite（init 容器、PVC、重启保留数据）都跑通，`helm test`、`helm upgrade`（密钥保持不变）、`helm uninstall`、集群自带的 Prometheus 抓到了 ServiceMonitor、告警规则过 `promtool`；用仓库自己的 Dockerfile 构建了镜像。
+- **没验证**：MySQL 只渲染未安装；多个副本；真实 Ingress 控制器；公共镜像仓库（没有）；告警阈值和排行条的颜色没有在真实负载下看过；Grafana 里「备份、回测、回退、冲突、发件箱、决策来源」这类只在事件发生时才有数据的面板只验证了查询能执行。

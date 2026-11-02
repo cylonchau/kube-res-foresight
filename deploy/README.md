@@ -9,6 +9,8 @@ cluster: verify each step in a test cluster first (see "What is verified" below)
 |---|---|---|
 | Platform (`kube-res-foresight server`, or `all`) | one or more replicas | database, Prometheus-compatible datasources |
 | Job engine (`kube-res-foresight job`, or inside `all`) | one process per database | same database; runs `forecast.run`, `forecast.backtest`, `forecast.evaluate`, `ldap.sync` |
+| Platform chart | Helm chart `deploy/helm/kube-res-foresight` (Deployment, config, secrets, migration, Service, Ingress, ServiceMonitor, alerts, Grafana dashboard) | an image, and a database for anything but a trial; see its README |
+| Grafana dashboard | `deploy/grafana/kube-res-foresight-dashboard.json` (also in the chart) | Prometheus scraping the platform and the operator; see `deploy/grafana/README.md` |
 | kube-res-foresight-operator (image target `operator`) | Helm chart `deploy/helm/kube-res-foresight-operator` (RBAC, Deployment, metrics) or the plain `deploy/operator/` manifests | cluster access only; reads decisions from the platform over HTTPS |
 | Kyverno policy | `deploy/kyverno/kube-res-foresight-requests.yaml` | Kyverno; **reference draft, not verified** |
 

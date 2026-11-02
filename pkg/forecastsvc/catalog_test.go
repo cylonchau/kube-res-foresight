@@ -169,6 +169,7 @@ func TestCatalogMetricsAndQueryAgree(t *testing.T) {
 		"kube_res_foresight_datasource_up": true, "kube_res_foresight_datasource_latency_seconds": true,
 		"kube_res_foresight_algorithm_score": true, "kube_res_foresight_algorithm_selected": true, "kube_res_foresight_effective_max_replicas": true,
 		"kube_res_foresight_hard_max_replicas": true, "kube_res_foresight_consecutive_failures": true,
+		"kube_res_foresight_scaling_actions_24h": true, "kube_res_foresight_scaling_last_report_age_seconds": true, "kube_res_foresight_scaling_degrade_state": true, "kube_res_foresight_jobs": true,
 	}
 	declared := map[string]bool{}
 	for _, def := range Catalog() {
@@ -182,7 +183,7 @@ func TestCatalogMetricsAndQueryAgree(t *testing.T) {
 	for _, mf := range families {
 		for _, m := range mf.GetMetric() {
 			for _, l := range m.GetLabel() {
-				assert.Contains(t, []string{"module", "instance", "mode", "resource", "source", "metric", "algorithm", "state", "datasource"}, l.GetName(), "no unbounded label on %s", mf.GetName())
+				assert.Contains(t, []string{"module", "instance", "mode", "resource", "source", "metric", "algorithm", "state", "datasource", "action", "result", "type", "status"}, l.GetName(), "no unbounded label on %s", mf.GetName())
 			}
 		}
 	}

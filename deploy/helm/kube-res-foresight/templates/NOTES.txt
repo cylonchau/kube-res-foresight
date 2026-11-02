@@ -1,0 +1,28 @@
+kube-res-foresight {{ .Chart.AppVersion }} is installed as {{ include "kube-res-foresight.fullname" . }}.
+
+Console:
+{{- if .Values.ingress.enabled }}
+{{- range .Values.ingress.hosts }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}
+{{- end }}
+{{- else }}
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "kube-res-foresight.fullname" . }} 8080:{{ .Values.service.port }}
+  then open http://127.0.0.1:8080
+{{- end }}
+
+The first sign-in is admin / 123456: change the password at once.
+
+Next:
+  1. Create the developer credential for the operator in the console (Authorization > Developer credentials), with only
+     "Operator Decisions (read, report)".
+  2. Install the operator (deploy/helm/kube-res-foresight-operator) with platform.url set to
+     http://{{ include "kube-res-foresight.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.port }} and that credential.
+{{- if not .Values.secrets.existingSecret }}
+
+The keys of the platform are in the Secret {{ include "kube-res-foresight.fullname" . }} (kept when the release is removed). Back up
+{{ .Values.secrets.keys.secretKey }}: without it the stored LLM keys and passwords cannot be read.
+{{- end }}
+{{- if eq (include "kube-res-foresight.driver" .) "sqlite" }}
+
+sqlite keeps the data in one file on a volume: fine for a trial, not for production. Use mysql or postgres there.
+{{- end }}

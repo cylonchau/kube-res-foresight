@@ -1,0 +1,10 @@
+apiVersion: v2
+name: kube-res-foresight
+description: The kube-res-foresight platform (API, web console, forecasting and the job engine) with its metrics, alerts and Grafana dashboard.
+type: application
+version: 0.1.0
+appVersion: "dev"
+keywords:
+  - autoscaling
+  - prediction
+  - kube-res-foresight
