@@ -9,7 +9,10 @@ LDFLAGS := -s -w -X github.com/cylonchau/kube-res-foresight/pkg/version.Version=
 # the compiled console of the frontend repository's releases (2026.11.03.1 style versions); empty WEB_VERSION means the latest
 WEB_REPO ?= cylonchau/kube-res-foresight-web
 WEB_VERSION ?=
-.PHONY: all modules kube-res-foresight kube-res-foresight-release operator build build-web package-web fetch-web compile-platform test lint clean help
+IMAGE_REPO ?= kube-res-foresight
+IMAGE_TAG ?= $(VERSION)
+DOCKER ?= docker
+.PHONY: docker docker-operator docker-release docker-operator-release all modules kube-res-foresight kube-res-foresight-release operator build build-web package-web fetch-web compile-platform test lint clean help
 all: modules
 modules: kube-res-foresight operator
 build: modules
@@ -33,6 +36,14 @@ compile-platform:
 operator:
 	mkdir -p $(BIN_DIR)
 	CGO_ENABLED=$(CGO_ENABLED) GOOS=$(GOOS) GOARCH=$(GOARCH) $(GOCMD) build -trimpath -ldflags="$(LDFLAGS)" -o $(BIN_DIR)/kube-res-foresight-operator ./cmd/operator
+# images: the console is built in the image (node inside the build)
+docker:
+	$(DOCKER) build -f deploy/docker/Dockerfile --target kube-res-foresight --build-arg VERSION=$(VERSION) -t $(IMAGE_REPO):$(IMAGE_TAG) .
+docker-operator:
+	$(DOCKER) build -f deploy/docker/Dockerfile --target operator --build-arg VERSION=$(VERSION) -t $(IMAGE_REPO)-operator:$(IMAGE_TAG) .
+# the platform image with the console of a frontend release, no node (make docker-release WEB_VERSION=2026.11.03.1)
+docker-release: fetch-web
+	$(DOCKER) build -f deploy/docker/Dockerfile --target kube-res-foresight --build-arg VERSION=$(VERSION) 		--build-arg CONSOLE_FROM=console --build-context console=pkg/app/router/dist -t $(IMAGE_REPO):$(IMAGE_TAG) .
 test:
 	$(GOCMD) test ./...
 lint:
@@ -40,4 +51,4 @@ lint:
 clean:
 	rm -rf target coverage.out coverage.html
 help:
-	@echo "kube-res-foresight: make modules (kube-res-foresight, operator) | build-web | package-web | fetch-web | kube-res-foresight-release [WEB_VERSION=] | test | lint"
+	@echo "kube-res-foresight: make modules (kube-res-foresight, operator) | build-web | package-web | fetch-web | docker | docker-operator | docker-release | kube-res-foresight-release [WEB_VERSION=] | test | lint"

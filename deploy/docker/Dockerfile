@@ -1,18 +1,23 @@
 # syntax=docker/dockerfile:1.7
 ARG NODE_VERSION=22
 ARG GO_VERSION=1.27
+ARG CONSOLE_FROM=admin-dist
 FROM node:${NODE_VERSION}-alpine AS admin-builder
 WORKDIR /src/web
 RUN corepack enable && corepack prepare pnpm@10.5.2 --activate
 COPY web/ ./
 RUN pnpm install --frozen-lockfile --ignore-scripts && pnpm build
+# the console is built here, or taken as it is from a build context named "console" (make docker-release: a frontend release, no node)
+FROM scratch AS admin-dist
+COPY --from=admin-builder /src/web/dist/ /
 FROM golang:${GO_VERSION}-alpine AS builder
+ARG CONSOLE_FROM
 WORKDIR /src
 RUN apk add --no-cache git ca-certificates
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-COPY --from=admin-builder /src/web/dist/ ./pkg/app/router/dist/
+COPY --from=${CONSOLE_FROM} / ./pkg/app/router/dist/
 ARG VERSION=dev
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/cylonchau/kube-res-foresight/pkg/version.Version=${VERSION}" -o /out/kube-res-foresight ./cmd && \
     CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/cylonchau/kube-res-foresight/pkg/version.Version=${VERSION}" -o /out/kube-res-foresight-operator ./cmd/operator
