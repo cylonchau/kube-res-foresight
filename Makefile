@@ -28,7 +28,19 @@ package-web: build-web
 	cp -r web/dist/. pkg/app/router/dist/
 # download the compiled console from a release of the frontend repository instead of building it (no node or pnpm needed)
 fetch-web:
-	@set -e; 	version="$(WEB_VERSION)"; 	auth=""; if [ -n "$$GITHUB_TOKEN" ]; then auth="Authorization: Bearer $$GITHUB_TOKEN"; fi; 	if [ -z "$$version" ]; then 		version=$$(curl -fsSL -H "$$auth" https://api.github.com/repos/$(WEB_REPO)/releases/latest | grep -m1 '"tag_name"' | cut -d'"' -f4); 	fi; 	test -n "$$version" || { echo "no release of $(WEB_REPO) found"; exit 1; }; 	echo "console $$version"; 	mkdir -p target/web && curl -fsSL -H "$$auth" -o target/web/web.tar.gz 		https://github.com/$(WEB_REPO)/releases/download/$$version/kube-res-foresight-web_$$version.tar.gz; 	rm -rf pkg/app/router/dist && mkdir -p pkg/app/router/dist; 	tar -xzf target/web/web.tar.gz -C pkg/app/router/dist; 	test -s pkg/app/router/dist/index.html
+	@set -e; \
+	version="$(WEB_VERSION)"; \
+	auth=""; if [ -n "$$GITHUB_TOKEN" ]; then auth="Authorization: Bearer $$GITHUB_TOKEN"; fi; \
+	if [ -z "$$version" ]; then \
+		version=$$(curl -fsSL -H "$$auth" https://api.github.com/repos/$(WEB_REPO)/releases/latest | grep -m1 '"tag_name"' | cut -d'"' -f4); \
+	fi; \
+	test -n "$$version" || { echo "no release of $(WEB_REPO) found"; exit 1; }; \
+	echo "console $$version"; \
+	mkdir -p target/web && curl -fsSL -H "$$auth" -o target/web/web.tar.gz \
+		https://github.com/$(WEB_REPO)/releases/download/$$version/kube-res-foresight-web_$$version.tar.gz; \
+	rm -rf pkg/app/router/dist && mkdir -p pkg/app/router/dist; \
+	tar -xzf target/web/web.tar.gz -C pkg/app/router/dist; \
+	test -s pkg/app/router/dist/index.html
 # the platform: API, admin UI, metrics and the job engine in one binary
 kube-res-foresight: package-web compile-platform
 # the same platform built with a released console (make kube-res-foresight-release WEB_VERSION=2026.11.03.1)
@@ -47,7 +59,8 @@ docker-operator:
 	$(DOCKER) build -f deploy/docker/Dockerfile --target operator --build-arg VERSION=$(VERSION) -t $(OPERATOR_IMAGE_REPO):$(IMAGE_TAG) .
 # the platform image with the console of a frontend release, no node (make docker-release WEB_VERSION=2026.11.03.1)
 docker-release: fetch-web
-	$(DOCKER) build -f deploy/docker/Dockerfile --target kube-res-foresight --build-arg VERSION=$(VERSION) 		--build-arg CONSOLE_FROM=console --build-context console=pkg/app/router/dist -t $(IMAGE_REPO):$(IMAGE_TAG) .
+	$(DOCKER) build -f deploy/docker/Dockerfile --target kube-res-foresight --build-arg VERSION=$(VERSION) \
+		--build-arg CONSOLE_FROM=webdist --build-context webdist=pkg/app/router/dist -t $(IMAGE_REPO):$(IMAGE_TAG) .
 # push what the docker targets built, for the REGISTRY chosen (docker login first)
 docker-push:
 	$(DOCKER) push $(IMAGE_REPO):$(IMAGE_TAG)

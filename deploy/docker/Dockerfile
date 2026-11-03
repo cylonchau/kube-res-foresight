@@ -7,7 +7,7 @@ WORKDIR /src/web
 RUN corepack enable && corepack prepare pnpm@10.5.2 --activate
 COPY web/ ./
 RUN pnpm install --frozen-lockfile --ignore-scripts && pnpm build
-# the console is built here, or taken as it is from a build context named "console" (make docker-release: a frontend release, no node)
+# the console is built here, or taken as it is from a build context named "webdist" (make docker-release: a frontend release, no node)
 FROM scratch AS admin-dist
 COPY --from=admin-builder /src/web/dist/ /
 FROM golang:${GO_VERSION}-alpine AS go-base
@@ -20,9 +20,9 @@ ARG VERSION=dev
 # the operator is a separate binary with no console: its image never needs the frontend, built or downloaded
 FROM go-base AS operator-builder
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/cylonchau/kube-res-foresight/pkg/version.Version=${VERSION}" -o /out/kube-res-foresight-operator ./cmd/operator
+FROM ${CONSOLE_FROM} AS console-src
 FROM go-base AS builder
-ARG CONSOLE_FROM
-COPY --from=${CONSOLE_FROM} / ./pkg/app/router/dist/
+COPY --from=console-src / ./pkg/app/router/dist/
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/cylonchau/kube-res-foresight/pkg/version.Version=${VERSION}" -o /out/kube-res-foresight ./cmd
 FROM alpine:3.22 AS runtime-base
 RUN apk add --no-cache ca-certificates tzdata && addgroup -S -g 10001 kube-res-foresight && adduser -S -u 10001 -G kube-res-foresight kube-res-foresight
