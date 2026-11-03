@@ -266,12 +266,22 @@ func (h *AuthRouter) GetInfo(c *gin.Context) {
 		"phone":       user.Phone,
 		"contacts":    userDTO(user).Contacts,
 		"otpEnabled":  user.OtpEnabled,
+		"source":      userSource(user),
 		"language":    user.Language,
 		"roles":       roles,
 		"buttons":     permissions, // mapped to buttons inside Soybean models
 		"lastLoginAt": lastLoginAt,
 		"lastLoginIp": lastLoginIP,
 	})
+}
+
+// userSource is where the account is authenticated: ldap for a directory account, local for everything else
+// (including rows from before the column existed, whose value is empty).
+func userSource(u *model.User) string {
+	if u.Source == model.UserSourceLDAP {
+		return model.UserSourceLDAP
+	}
+	return model.UserSourceLocal
 }
 
 // SessionStatus is a deliberately trivial "am I still logged in" endpoint.

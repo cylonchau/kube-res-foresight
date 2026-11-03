@@ -108,6 +108,13 @@ func newLDAPAPI(t *testing.T) *ldapAPI {
 		c.Next()
 	})
 	asLena.PUT("/password", auth.UpdatePassword)
+	asLena.GET("/info", auth.GetInfo)
+	asAdmin := r.Group("/as-admin")
+	asAdmin.Use(func(c *gin.Context) {
+		c.Set("username", "admin")
+		c.Next()
+	})
+	asAdmin.GET("/info", auth.GetInfo)
 	return &ldapAPI{router: r, db: db, dir: dir}
 }
 
@@ -182,6 +189,19 @@ func TestDirectoryUsersLogInAndGetTheirMappedRoles(t *testing.T) {
 
 	assert.Equal(t, http.StatusUnauthorized, performJSON(t, a.router, http.MethodPost, "/auth/login", "", map[string]any{"username": "lena", "password": "wrong", "force": true}).Code)
 	assert.Equal(t, http.StatusUnauthorized, performJSON(t, a.router, http.MethodPost, "/auth/login", "", map[string]any{"username": "stranger", "password": "x"}).Code)
+}
+
+func TestProfileSaysWhereTheAccountIsAuthenticated(t *testing.T) {
+	a := newLDAPAPI(t)
+	require.Equal(t, http.StatusOK, performJSON(t, a.router, http.MethodPut, "/ldap/settings", "", validSettings()).Code)
+	require.Equal(t, http.StatusOK, performJSON(t, a.router, http.MethodPost, "/auth/login", "", map[string]any{"username": "lena", "password": "lena-pw"}).Code)
+
+	rec := performJSON(t, a.router, http.MethodGet, "/as-lena/info", "", nil)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Equal(t, "ldap", responseData(t, rec.Body.Bytes())["source"])
+	rec = performJSON(t, a.router, http.MethodGet, "/as-admin/info", "", nil)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Equal(t, "local", responseData(t, rec.Body.Bytes())["source"], "a local account is never taken for a directory one")
 }
 
 func TestTheLocalAdminStillLogsInWhenLDAPIsEnabledAndDown(t *testing.T) {
