@@ -13,6 +13,7 @@ WEB_VERSION ?=
 REGISTRY ?=
 IMAGE_PREFIX := $(if $(REGISTRY),$(patsubst %/,%,$(REGISTRY))/,)
 IMAGE_REPO ?= $(IMAGE_PREFIX)kube-res-foresight
+OPERATOR_IMAGE_REPO ?= $(IMAGE_REPO)-operator
 IMAGE_TAG ?= $(VERSION)
 DOCKER ?= docker
 .PHONY: docker-push docker-push-operator docker docker-operator docker-release docker-operator-release all modules kube-res-foresight kube-res-foresight-release operator build build-web package-web fetch-web compile-platform test lint clean help
@@ -43,7 +44,7 @@ operator:
 docker:
 	$(DOCKER) build -f deploy/docker/Dockerfile --target kube-res-foresight --build-arg VERSION=$(VERSION) -t $(IMAGE_REPO):$(IMAGE_TAG) .
 docker-operator:
-	$(DOCKER) build -f deploy/docker/Dockerfile --target operator --build-arg VERSION=$(VERSION) -t $(IMAGE_REPO)-operator:$(IMAGE_TAG) .
+	$(DOCKER) build -f deploy/docker/Dockerfile --target operator --build-arg VERSION=$(VERSION) -t $(OPERATOR_IMAGE_REPO):$(IMAGE_TAG) .
 # the platform image with the console of a frontend release, no node (make docker-release WEB_VERSION=2026.11.03.1)
 docker-release: fetch-web
 	$(DOCKER) build -f deploy/docker/Dockerfile --target kube-res-foresight --build-arg VERSION=$(VERSION) 		--build-arg CONSOLE_FROM=console --build-context console=pkg/app/router/dist -t $(IMAGE_REPO):$(IMAGE_TAG) .
@@ -51,7 +52,7 @@ docker-release: fetch-web
 docker-push:
 	$(DOCKER) push $(IMAGE_REPO):$(IMAGE_TAG)
 docker-push-operator:
-	$(DOCKER) push $(IMAGE_REPO)-operator:$(IMAGE_TAG)
+	$(DOCKER) push $(OPERATOR_IMAGE_REPO):$(IMAGE_TAG)
 test:
 	$(GOCMD) test ./...
 lint:

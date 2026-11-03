@@ -10,17 +10,20 @@ RUN pnpm install --frozen-lockfile --ignore-scripts && pnpm build
 # the console is built here, or taken as it is from a build context named "console" (make docker-release: a frontend release, no node)
 FROM scratch AS admin-dist
 COPY --from=admin-builder /src/web/dist/ /
-FROM golang:${GO_VERSION}-alpine AS builder
-ARG CONSOLE_FROM
+FROM golang:${GO_VERSION}-alpine AS go-base
 WORKDIR /src
 RUN apk add --no-cache git ca-certificates
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-COPY --from=${CONSOLE_FROM} / ./pkg/app/router/dist/
 ARG VERSION=dev
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/cylonchau/kube-res-foresight/pkg/version.Version=${VERSION}" -o /out/kube-res-foresight ./cmd && \
-    CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/cylonchau/kube-res-foresight/pkg/version.Version=${VERSION}" -o /out/kube-res-foresight-operator ./cmd/operator
+# the operator is a separate binary with no console: its image never needs the frontend, built or downloaded
+FROM go-base AS operator-builder
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/cylonchau/kube-res-foresight/pkg/version.Version=${VERSION}" -o /out/kube-res-foresight-operator ./cmd/operator
+FROM go-base AS builder
+ARG CONSOLE_FROM
+COPY --from=${CONSOLE_FROM} / ./pkg/app/router/dist/
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/cylonchau/kube-res-foresight/pkg/version.Version=${VERSION}" -o /out/kube-res-foresight ./cmd
 FROM alpine:3.22 AS runtime-base
 RUN apk add --no-cache ca-certificates tzdata && addgroup -S -g 10001 kube-res-foresight && adduser -S -u 10001 -G kube-res-foresight kube-res-foresight
 WORKDIR /app
@@ -30,5 +33,5 @@ FROM runtime-base AS kube-res-foresight
 COPY --from=builder /out/kube-res-foresight /usr/local/bin/kube-res-foresight
 ENTRYPOINT ["kube-res-foresight"]
 FROM runtime-base AS operator
-COPY --from=builder /out/kube-res-foresight-operator /usr/local/bin/kube-res-foresight-operator
+COPY --from=operator-builder /out/kube-res-foresight-operator /usr/local/bin/kube-res-foresight-operator
 ENTRYPOINT ["kube-res-foresight-operator"]
