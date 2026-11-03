@@ -9,10 +9,13 @@ LDFLAGS := -s -w -X github.com/cylonchau/kube-res-foresight/pkg/version.Version=
 # the compiled console of the frontend repository's releases (2026.11.03.1 style versions); empty WEB_VERSION means the latest
 WEB_REPO ?= cylonchau/kube-res-foresight-web
 WEB_VERSION ?=
-IMAGE_REPO ?= kube-res-foresight
+# REGISTRY is the registry (and path) to name the images under, e.g. REGISTRY=registry.example.com/team; empty keeps them local
+REGISTRY ?=
+IMAGE_PREFIX := $(if $(REGISTRY),$(patsubst %/,%,$(REGISTRY))/,)
+IMAGE_REPO ?= $(IMAGE_PREFIX)kube-res-foresight
 IMAGE_TAG ?= $(VERSION)
 DOCKER ?= docker
-.PHONY: docker docker-operator docker-release docker-operator-release all modules kube-res-foresight kube-res-foresight-release operator build build-web package-web fetch-web compile-platform test lint clean help
+.PHONY: docker-push docker-push-operator docker docker-operator docker-release docker-operator-release all modules kube-res-foresight kube-res-foresight-release operator build build-web package-web fetch-web compile-platform test lint clean help
 all: modules
 modules: kube-res-foresight operator
 build: modules
@@ -44,6 +47,11 @@ docker-operator:
 # the platform image with the console of a frontend release, no node (make docker-release WEB_VERSION=2026.11.03.1)
 docker-release: fetch-web
 	$(DOCKER) build -f deploy/docker/Dockerfile --target kube-res-foresight --build-arg VERSION=$(VERSION) 		--build-arg CONSOLE_FROM=console --build-context console=pkg/app/router/dist -t $(IMAGE_REPO):$(IMAGE_TAG) .
+# push what the docker targets built, for the REGISTRY chosen (docker login first)
+docker-push:
+	$(DOCKER) push $(IMAGE_REPO):$(IMAGE_TAG)
+docker-push-operator:
+	$(DOCKER) push $(IMAGE_REPO)-operator:$(IMAGE_TAG)
 test:
 	$(GOCMD) test ./...
 lint:
@@ -51,4 +59,4 @@ lint:
 clean:
 	rm -rf target coverage.out coverage.html
 help:
-	@echo "kube-res-foresight: make modules (kube-res-foresight, operator) | build-web | package-web | fetch-web | docker | docker-operator | docker-release | kube-res-foresight-release [WEB_VERSION=] | test | lint"
+	@echo "kube-res-foresight: make modules (kube-res-foresight, operator) | build-web | package-web | fetch-web | docker | docker-operator | docker-release | docker-push | docker-push-operator (REGISTRY=host/path) | kube-res-foresight-release [WEB_VERSION=] | test | lint"
