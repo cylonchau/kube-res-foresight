@@ -97,6 +97,22 @@ ingress:
           pathType: Prefix
   tls: []
 
+# Gateway API: an HTTPRoute that attaches to a Gateway that already exists (the Gateway, its listeners and its TLS belong to the cluster).
+gateway:
+  enabled: false
+  # The Gateways the route attaches to; sectionName picks one listener.
+  parentRefs: []
+  #  - name: public-gateway
+  #    namespace: gateway-system
+  #    sectionName: https
+  hostnames: []
+  #  - kube-res-foresight.example.com
+  path: /
+  pathType: PathPrefix # PathPrefix or Exact
+  # For example {request: 60s}; empty leaves the Gateway's default. The assistant's chat is a long answer: do not set it too short.
+  timeouts: {}
+  annotations: {}
+
 # /metrics, /healthz and /readyz (metrics.listen). The probes use them.
 metrics:
   port: 9100

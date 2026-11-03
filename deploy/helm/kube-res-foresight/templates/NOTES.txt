@@ -5,6 +5,10 @@ Console:
 {{- range .Values.ingress.hosts }}
   http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}
 {{- end }}
+{{- else if .Values.gateway.enabled }}
+{{- range .Values.gateway.hostnames }}
+  http(s)://{{ . }}
+{{- end }}
 {{- else }}
   kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "kube-res-foresight.fullname" . }} 8080:{{ .Values.service.port }}
   then open http://127.0.0.1:8080
