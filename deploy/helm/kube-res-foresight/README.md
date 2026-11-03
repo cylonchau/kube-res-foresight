@@ -77,6 +77,8 @@ helm upgrade kube-res-foresight deploy/helm/kube-res-foresight -n kube-res-fores
 |---|---|---|
 | `image.repository` / `tag` / `pullPolicy` | `""` / chart appVersion / `IfNotPresent` | The platform image (required). |
 | `replicaCount` | `1` | Every replica runs the API and the job engine; sqlite allows only 1. |
+| `mode` | `all` | `all`: one Deployment, every Pod runs the API and the job engine. `split`: two Deployments, the platform (`platform`: API, console, metrics, `replicaCount`) and the job engine (`job`, named `<release>-job`, scaled by `job.replicaCount`); needs mysql or postgres. Switching from `all` to `split` on a running release only adds the job Deployment and changes the platform Pods' command. |
+| `job.*` | | `split` only: `replicaCount`, `maxWorkers` (parallel jobs per Pod), `pollInterval`, `resources`, `nodeSelector`, `tolerations`, `affinity` (empty ones follow the platform's). The job Pods serve no port, so they have no probes and the Service does not select them. |
 | `timezone` | `""` | Time zone of the times shown (`KUBE_RES_FORESIGHT_TIMEZONE`); empty is UTC+8. |
 | `server.port` | `10000` | Port of the API and console in the Pod. |
 | `server.corsAllowedOrigins` | `[]` | Origins allowed to call the API from another site. |

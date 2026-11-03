@@ -1,0 +1,88 @@
+{{- if eq .Values.mode "split" }}
+{{- $driver := include "kube-res-foresight.driver" . }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kube-res-foresight.jobName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kube-res-foresight.labels" . | nindent 4 }}
+    app.kubernetes.io/component: job
+spec:
+  replicas: {{ .Values.job.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "kube-res-foresight.jobSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include "kube-res-foresight.config" . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "kube-res-foresight.jobSelectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: job
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "kube-res-foresight.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: job
+          image: {{ include "kube-res-foresight.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - job
+            - --config
+            - /etc/kube-res-foresight/config.yaml
+            - --sql-driver
+            - {{ $driver | quote }}
+            - --max-workers
+            - {{ .Values.job.maxWorkers | quote }}
+            {{- with .Values.job.pollInterval }}
+            - --poll-interval
+            - {{ . | quote }}
+            {{- end }}
+          env:
+            {{- include "kube-res-foresight.env" . | nindent 12 }}
+          # the engine serves no port: there is no probe, a Pod that exits is restarted
+          resources:
+            {{- toYaml (default .Values.resources .Values.job.resources) | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/kube-res-foresight
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "kube-res-foresight.fullname" . }}
+        - name: tmp
+          emptyDir: {}
+      {{- with (default .Values.nodeSelector .Values.job.nodeSelector) }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with (default .Values.affinity .Values.job.affinity) }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with (default .Values.tolerations .Values.job.tolerations) }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

@@ -16,6 +16,20 @@ fullnameOverride: ""
 # (sqlite is one file on one volume: the chart refuses more than one replica with it).
 replicaCount: 1
 
+# all: one Deployment runs the API and the job engine in every Pod (default).
+# split: the platform (API, console, metrics: "platform") and the job engine ("job") are two Deployments, scaled on their own;
+#        needs mysql or postgres. replicaCount above is then the platform's.
+mode: all
+job:
+  # split only
+  replicaCount: 1
+  maxWorkers: 10 # parallel jobs in one Pod
+  pollInterval: "" # how often the Pod looks for pending jobs, for example 100ms; empty keeps the engine's default (10ms)
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
 # The time zone times are shown in (KUBE_RES_FORESIGHT_TIMEZONE); empty keeps the platform default, UTC+8.
 timezone: ""
 

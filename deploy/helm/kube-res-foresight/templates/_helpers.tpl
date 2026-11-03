@@ -51,6 +51,12 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- if and (eq $d "sqlite") (gt (int .Values.replicaCount) 1) -}}
 {{- fail "sqlite is one file on one volume: use replicaCount 1, or mysql or postgres for more replicas" -}}
 {{- end -}}
+{{- if not (has .Values.mode (list "all" "split")) -}}
+{{- fail (printf "mode must be all or split, not %q" .Values.mode) -}}
+{{- end -}}
+{{- if and (eq .Values.mode "split") (eq $d "sqlite") -}}
+{{- fail "mode split runs the platform and the job engine in separate Pods: sqlite is one file on one volume, use mysql or postgres" -}}
+{{- end -}}
 {{- $d -}}
 {{- end -}}
 
@@ -121,4 +127,14 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- with .Values.extraEnv }}
 {{ toYaml . }}
 {{- end }}
+{{- end -}}
+
+{{/* the job engine Pods of mode split: another name, so the Service and the PodDisruptionBudget of the platform do not select them */}}
+{{- define "kube-res-foresight.jobName" -}}
+{{- printf "%s-job" (include "kube-res-foresight.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{- define "kube-res-foresight.jobSelectorLabels" -}}
+app.kubernetes.io/name: {{ printf "%s-job" (include "kube-res-foresight.name" .) | trunc 63 | trimSuffix "-" }}
+app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}

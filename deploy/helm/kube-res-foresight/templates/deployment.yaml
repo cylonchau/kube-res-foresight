@@ -69,7 +69,7 @@ spec:
         - name: kube-res-foresight
           image: {{ include "kube-res-foresight.image" . | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          args: ["all", "-c", "/etc/kube-res-foresight/config.yaml", "--sql-driver", {{ $driver | quote }}]
+          args: [{{ ternary "platform" "all" (eq .Values.mode "split") | quote }}, "-c", "/etc/kube-res-foresight/config.yaml", "--sql-driver", {{ $driver | quote }}]
           env:
             {{- include "kube-res-foresight.env" . | nindent 12 }}
           ports:
