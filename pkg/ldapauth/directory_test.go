@@ -142,7 +142,7 @@ func TestSettingsValidation(t *testing.T) {
 }
 
 func TestMemberOfGivesTheGroupsAsDNAndAsName(t *testing.T) {
-	e := ldap.NewEntry("cn=sasuke,dc=example,dc=org", map[string][]string{"memberOf": {"cn=ops,ou=groups,dc=example,dc=org", "CN=Dev Team,OU=g,DC=example,DC=org"}})
+	e := ldap.NewEntry("cn=alice,dc=example,dc=org", map[string][]string{"memberOf": {"cn=ops,ou=groups,dc=example,dc=org", "CN=Dev Team,OU=g,DC=example,DC=org"}})
 	assert.Equal(t, []string{"cn=ops,ou=groups,dc=example,dc=org", "ops", "CN=Dev Team,OU=g,DC=example,DC=org", "Dev Team"}, memberOfGroups(e, "memberOf"))
 	assert.Empty(t, memberOfGroups(e, ""), "nothing is read when the attribute is not set")
 	assert.Empty(t, memberOfGroups(e, "isMemberOf"), "an attribute the entry does not have")

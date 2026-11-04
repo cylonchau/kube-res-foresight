@@ -1,0 +1,65 @@
+<h2 id="how">登录怎么判断本地还是目录用户</h2>
+<p>登录页没有“来源”选项，平台按用户名在本地库里的情况决定：</p>
+<table><thead><tr><th>情况</th><th>处理</th></tr></thead><tbody>
+<tr><td>本地库有这个用户名，来源是本地</td><td>只校验本地密码，不访问目录。<code>admin</code> 因此在目录不可用时仍能登录。</td></tr>
+<tr><td>本地库有，来源是 LDAP</td><td>只向目录校验密码。</td></tr>
+<tr><td>本地库没有，LDAP 已启用</td><td>向目录认证；通过后按角色映射得出角色，并自动创建 LDAP 用户。</td></tr>
+<tr><td>本地库没有，LDAP 未启用</td><td>登录失败。</td></tr></tbody></table>
+<p>目录里与本地账号同名的用户不会接管本地账号。LDAP 用户在本地的密码是随机值，无法用于本地登录，也不能在个人中心修改密码，请在目录中修改。用户列表和个人中心会显示账号来源。</p>
+<h2 id="params">参数</h2>
+<p>在“系统管理 → 系统参数”的 LDAP 分类里逐项设置，每项单独保存。</p>
+<table><thead><tr><th>参数</th><th>含义</th></tr></thead><tbody>
+<tr><td><code>ldap.url</code></td><td>目录地址，如 <code>ldaps://ldap.example.com:636</code>。使用 <code>ldap://</code> 时必须开启 StartTLS。</td></tr>
+<tr><td><code>ldap.start_tls</code> / <code>ldap.skip_verify</code></td><td>StartTLS；是否跳过证书校验。能提供 CA 时不要跳过。</td></tr>
+<tr><td><code>ldap.ca_cert</code></td><td>自签名证书的 CA（PEM）。保存后只显示掩码。</td></tr>
+<tr><td><code>ldap.bind_dn</code> / <code>ldap.bind_password</code></td><td>用于查询用户的服务账号。密码加密保存，必须先设置 bind DN。</td></tr>
+<tr><td><code>ldap.user_base_dn</code></td><td>搜索用户的起点，如 <code>dc=example,dc=com</code>。</td></tr>
+<tr><td><code>ldap.user_filter</code></td><td>查找用户的过滤器，必须恰好含一个 <code>%s</code>（登录名），如 <code>(cn=%s)</code> 或 <code>(&amp;(objectClass=person)(uid=%s))</code>。</td></tr>
+<tr><td><code>ldap.display_name_attr</code> / <code>email_attr</code> / <code>phone_attr</code></td><td>显示名、邮箱、电话对应的属性，每次登录刷新。</td></tr>
+<tr><td><code>ldap.member_of_attr</code></td><td>用户条目上列出所属组 DN 的属性，通常是 <code>memberOf</code>。设置后直接读取它取组。</td></tr>
+<tr><td><code>ldap.group_base_dn</code> / <code>ldap.group_filter</code></td><td>不使用 memberOf 时，到组条目里查成员：过滤器里 <code>%s</code> 是用户 DN，<code>%u</code> 是登录名，如 <code>(member=%s)</code>。两项要一起有或一起空：设置其中一项而另一项为空时会自动补上常用值，清空其中一项会一起清空。</td></tr>
+<tr><td><code>ldap.group_name_attr</code></td><td>组条目里作为组名的属性，默认 <code>cn</code>。</td></tr>
+<tr><td><code>ldap.group_role_mappings</code></td><td>组到角色的映射，见下节。</td></tr>
+<tr><td><code>ldap.default_role_code</code></td><td>不在任何映射组里的用户使用的角色。留空则这些用户无法登录。</td></tr>
+<tr><td><code>ldap.timeout_seconds</code></td><td>连接和查询超时，1 到 120 秒。</td></tr>
+<tr><td><code>ldap.enabled</code></td><td>是否启用目录登录。</td></tr></tbody></table>
+<p>启用时平台会校验整套配置并连接目录检查一次，不通过就拒绝启用并说明原因，所以请把 <code>ldap.enabled</code> 放在最后设置。</p>
+<h2 id="groups">取组的两种方式</h2>
+<p>二选一，也可以同时使用，结果合并。</p>
+<ul>
+<li><strong>读用户的 memberOf</strong>：设置 <code>ldap.member_of_attr</code>，不需要组基础 DN 和过滤器。每个值（组的 DN）既可以按完整 DN 匹配，也可以按 DN 第一段的值匹配（<code>cn=ops,ou=groups,…</code> 对应 <code>ops</code>）。</li>
+<li><strong>到组条目里查成员</strong>：设置 <code>ldap.group_base_dn</code>、<code>ldap.group_filter</code>，用 <code>ldap.group_name_attr</code> 取组名。常见写法：OpenLDAP 的 groupOfNames 用 <code>(member=%s)</code>；posixGroup 用 <code>(memberUid=%u)</code>；AD 需要包含嵌套组时用 <code>(member:1.2.840.113556.1.4.1941:=%s)</code>。</li></ul>
+<h2 id="mapping">角色映射</h2>
+<p><code>ldap.group_role_mappings</code> 每行一条，格式为 <code>组=角色编码</code>：</p>
+<pre><code>ops=ADMIN
+dev=VIEWER
+ou=sre,ou=平台组,dc=example,dc=com=ADMIN</code></pre>
+<ul>
+<li>左边是组名（<code>cn</code>）或完整 DN，不区分大小写；完整 DN 里的空格要与目录返回的一致。</li>
+<li>右边是角色的<strong>编码</strong>，在“授权管理 → 角色”里查看。角色必须存在并已启用。</li>
+<li>程序按最后一个 <code>=</code> 切分，所以完整 DN 的写法可以直接用。一个组可以写多行授予多个角色。用户属于多个组时取角色的并集。</li>
+<li>以 <code>#</code> 开头的行是注释，空行忽略。格式不对或重复的行在保存时被拒绝。</li></ul>
+<p>用户不在任何映射组里时使用 <code>ldap.default_role_code</code>；两者都没有就拒绝登录。已存在的 LDAP 用户如果失去所有角色，会被停用并结束其会话。</p>
+<h2 id="reuse">沿用已有的 LDAP 配置</h2>
+<p>公司里其他系统（Wiki、代码仓库、监控、CI 等）通常已经接入了同一个目录，它们的 LDAP 设置里已有这里需要的信息。照下表把已有的值填到对应参数即可：</p>
+<table><thead><tr><th>已有的信息</th><th>填到</th></tr></thead><tbody>
+<tr><td>服务器地址、端口、是否 SSL</td><td><code>ldap.url</code>，SSL 写成 <code>ldaps://地址:端口</code></td></tr>
+<tr><td>是否 StartTLS、是否跳过证书校验</td><td><code>ldap.start_tls</code>、<code>ldap.skip_verify</code></td></tr>
+<tr><td>查询用的账号（Bind DN）和密码</td><td><code>ldap.bind_dn</code>、<code>ldap.bind_password</code></td></tr>
+<tr><td>用户搜索范围（Base DN）</td><td><code>ldap.user_base_dn</code></td></tr>
+<tr><td>用户搜索过滤器，其中登录名的占位符</td><td><code>ldap.user_filter</code>，占位符统一写成 <code>%s</code>。例如 <code>(cn=${username})</code>、<code>(uid={0})</code>、<code>(sAMAccountName=%(user)s)</code> 都写成 <code>(cn=%s)</code> 这类形式</td></tr>
+<tr><td>姓名、邮箱的属性名</td><td><code>ldap.display_name_attr</code>、<code>ldap.email_attr</code></td></tr>
+<tr><td>用户条目里记录所属组的属性（常叫 memberOf）</td><td><code>ldap.member_of_attr</code></td></tr>
+<tr><td>组的搜索范围和成员过滤器（没有 memberOf 时）</td><td><code>ldap.group_base_dn</code>、<code>ldap.group_filter</code></td></tr>
+<tr><td>“组的 DN → 角色/权限”的对应表</td><td><code>ldap.group_role_mappings</code>，每条写成 <code>组 DN=本平台的角色编码</code></td></tr></tbody></table>
+<p>其他系统里的角色（管理员、编辑、只读等）和本平台的角色没有固定对应，请改用你在“授权管理 → 角色”里建好的角色编码。平台自带的管理员角色编码是 <code>ADMIN</code>，拥有全部权限，授予整个组之前先确认。</p>
+<h2 id="sync">同步与停用</h2>
+<p>目录里被删除、被禁用或不再属于任何映射组的用户，会在同步时被停用并结束会话；目录重新启用的用户会恢复，被管理员手动停用的除外。目录不可达时不会改动任何账号，避免一次故障把所有人锁在外面。</p>
+<h2 id="troubleshoot">排查</h2>
+<table><thead><tr><th>现象</th><th>检查</th></tr></thead><tbody>
+<tr><td>无法启用，提示目录检查失败</td><td>地址和端口、证书（自签名需要 CA 或暂时跳过校验）、服务账号和密码、网络是否通。</td></tr>
+<tr><td>登录失败，页面只显示用户名或密码错误</td><td>看平台日志中的 <code>ldap login refused</code>，<code>reason</code> 写明具体原因。</td></tr>
+<tr><td><code>the user belongs to no group mapped to a role</code></td><td>认证已通过，但没有角色。括号里的 <code>groups found</code> 是目录返回的组：为空说明取组方式或过滤器不对；有组名则补映射或设置默认角色。</td></tr>
+<tr><td><code>a local account with this name exists</code></td><td>本地已有同名账号，目录不会接管它；改用本地密码，或让管理员处理这个账号。</td></tr>
+<tr><td>某一项保存被拒绝</td><td>启用状态下每次修改都会校验整套配置。必填项（地址、用户基础 DN、用户过滤器）不能留空；bind DN 与密码要成对。</td></tr></tbody></table>
+<p>本地账号始终可以用本地密码登录，目录不可用不影响它们。</p>

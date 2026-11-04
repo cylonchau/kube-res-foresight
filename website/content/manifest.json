@@ -5,7 +5,7 @@
     {"id": "algorithm-reference", "zh": "算法参数手册", "en": "Algorithm reference", "pages": ["algorithm-naive", "algorithm-seasonal_naive", "algorithm-ewma", "algorithm-hist_percentile", "algorithm-random_forest", "algorithm-knn", "algorithm-holt_winters", "algorithm-model_service", "algorithm-theta", "algorithm-mstl", "algorithm-seasonal_profile", "algorithm-peak_envelope", "algorithm-combination", "algorithm-ridge_ar", "algorithm-gbdt"]},
     {"id": "guides", "zh": "使用指南", "en": "User guides", "pages": ["evaluation", "recommendations", "scaling", "safety"]},
     {"id": "ai", "zh": "AI 助手", "en": "AI assistant", "pages": ["assistant", "llm-configuration", "ai-tasks"]},
-    {"id": "operations", "zh": "运维与管理", "en": "Operations", "pages": ["dashboard", "monitoring", "administration", "faq"]}
+    {"id": "operations", "zh": "运维与管理", "en": "Operations", "pages": ["dashboard", "monitoring", "administration", "ldap", "faq"]}
   ],
   "pages": {
     "getting-started": {"zh": ["快速开始", "接入第一个工作负载，走通预测与推荐流程。"], "en": ["Quick start", "Connect a workload and follow your first recommendation."]},
@@ -19,6 +19,7 @@
     "safety": {"zh": ["安全边界与故障回退", "配置固定周期、兜底、旁路和保护策略，控制自动行为。"], "en": ["Safety and fallback", "Manage schedules, fallback, bypass, and safeguards for automatic actions."]},
     "monitoring": {"zh": ["监控与问题排查", "从数据源、算法运行到实际副本，定位流程中的异常。"], "en": ["Monitoring and troubleshooting", "Trace issues from data sources and model runs to actual replica readiness."]},
     "administration": {"zh": ["平台管理", "维护权限、任务、审计和时区，支持日常运行与复盘。"], "en": ["Administration", "Manage access, scheduled tasks, audit, and time settings."]},
+    "ldap": {"zh": ["LDAP 登录配置", "配置目录登录、取组方式和角色映射，并沿用其他系统已有的 LDAP 设置。"], "en": ["LDAP sign-in", "Set up directory login, how groups are read, and role mapping, and reuse the LDAP settings other systems already have."]},
     "faq": {"zh": ["常见问题", "查找接入、算法选择、执行模式和资源更新的常见答案。"], "en": ["Common questions", "Find answers about setup, model choice, operating modes, and resource updates."]},
     "algorithm-naive": {"zh": ["Naive · 持续值", "将最后一个观测值延续到整个预测范围，作为所有候选的基本对照。适合检查数据与预测链路，不能提前识别周期或突增。"], "en": ["Naive", "Repeats the latest observation across the horizon. Use it as a basic comparison and to check the data workflow; it cannot anticipate cycles or sudden changes."]},
     "algorithm-seasonal_naive": {"zh": ["Seasonal Naive · 季节持续", "重复前一个周期对应位置的值，用于规律重复的负载，也是周期模型的比较基线。前一周期的异常会被重复。"], "en": ["Seasonal Naive", "Repeats the corresponding observations from the preceding cycle. A seasonal baseline for repeating demand; anomalies in that cycle are repeated too."]},
