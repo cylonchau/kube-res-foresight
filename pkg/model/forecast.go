@@ -338,8 +338,9 @@ func (m *ForecastModule) Validate() error {
 			return fmt.Errorf("run_interval_minutes (%d) is shorter than one step (%ds): there would be no new data between two runs", m.RunIntervalMinutes, m.StepSeconds)
 		}
 	}
-	if m.MaxFillSteps < 0 || m.MaxFillSteps > 60 {
-		return fmt.Errorf("max_fill_steps must be between 0 and 60")
+	// the limit is in steps, so the time it covers follows the step: 10000 steps are about 3.5 days at 30 seconds
+	if m.MaxFillSteps < 0 || m.MaxFillSteps > 10000 {
+		return fmt.Errorf("max_fill_steps must be between 0 and 10000")
 	}
 	if m.FallbackMinHistoryRatio == 0 {
 		m.FallbackMinHistoryRatio = 0.8
