@@ -192,7 +192,9 @@ func (s *Service) Login(ctx context.Context, username, password string) (*model.
 				return nil, err
 			}
 		}
-		return nil, ErrNoRole
+		// the administrator reads this in the log: what the directory said, and what it was compared with
+		return nil, fmt.Errorf("%w (groups found for %s: %q; group base DN %q, filter %q; %d groups mapped; default role %q)",
+			ErrNoRole, id.DN, id.Groups, row.GroupBaseDN, row.GroupFilter, len(m.roleCodesByGroup), m.defaultRole)
 	}
 	return s.upsert(ctx, found, &existing, username, id, roles)
 }
