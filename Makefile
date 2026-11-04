@@ -59,8 +59,8 @@ docker-operator:
 	$(DOCKER) build -f deploy/docker/Dockerfile --target operator --build-arg VERSION=$(VERSION) -t $(OPERATOR_IMAGE_REPO):$(IMAGE_TAG) .
 # the platform image with the console of a frontend release, no node (make docker-release WEB_VERSION=2026.11.03.1)
 docker-release: fetch-web
-	$(DOCKER) build -f deploy/docker/Dockerfile --target kube-res-foresight --build-arg VERSION=$(VERSION) \
-		--build-arg CONSOLE_FROM=webdist --build-context webdist=pkg/app/router/dist -t $(IMAGE_REPO):$(IMAGE_TAG) .
+	rm -rf console-release && mkdir -p console-release && cp -r pkg/app/router/dist/. console-release/
+	$(DOCKER) build -f deploy/docker/Dockerfile --target kube-res-foresight-release --build-arg VERSION=$(VERSION) -t $(IMAGE_REPO):$(IMAGE_TAG) .
 # push what the docker targets built, for the REGISTRY chosen (docker login first)
 docker-push:
 	$(DOCKER) push $(IMAGE_REPO):$(IMAGE_TAG)
