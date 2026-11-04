@@ -33,7 +33,8 @@ type inputBundle struct {
 
 // checkQuality refuses a history that is too sparse to train on. The ratios are measured on the observed span
 // (first to last sample), so a young module with a short history is not penalised for the days it has not lived.
-func checkQuality(m *model.AlgorithmRun, metric string, present, usable, spanSteps int) error {
+// A refused coverage carries detail (see runDetail), so the run that was found and what ends it can be read from the reason.
+func checkQuality(m *model.AlgorithmRun, metric string, present, usable, spanSteps int, detail func() string) error {
 	if spanSteps <= 0 || present <= 0 {
 		return nil
 	}
@@ -43,9 +44,29 @@ func checkQuality(m *model.AlgorithmRun, metric string, present, usable, spanSte
 	}
 	coverage := float64(usable) / float64(spanSteps)
 	if m.FallbackMinHistoryRatio > 0 && coverage < m.FallbackMinHistoryRatio-1e-9 {
-		return fmt.Errorf("%w: only %.0f%% of the observed %s history is one contiguous usable run (minimum %.0f%%)", ErrInsufficientData, coverage*100, metric, m.FallbackMinHistoryRatio*100)
+		return fmt.Errorf("%w: only %.0f%% of the observed %s history is one contiguous usable run (minimum %.0f%%)%s", ErrInsufficientData, coverage*100, metric, m.FallbackMinHistoryRatio*100, detail())
 	}
 	return nil
+}
+
+// runDetail says what the usable run is and what ends it, as the tail of a refusal: how long the observed span is, how long the run
+// is and when it starts, and the gap before it, in steps and against the fill limit. The gap is what the administrator can act on: fill more
+// steps, or find why Prometheus has no samples there.
+func runDetail(samples []model.MetricSample, in forecast.Input, stepSeconds, maxFill int) string {
+	if len(samples) == 0 || len(in.Values) == 0 || stepSeconds <= 0 {
+		return ""
+	}
+	start := in.TimeAt(0).UTC()
+	observed := float64(samples[len(samples)-1].TS-samples[0].TS) / 3600
+	run := float64(len(in.Values)) * float64(stepSeconds) / 3600
+	head := fmt.Sprintf("; observed %.1fh, the run is %.1fh from %s", observed, run, start.Format(time.RFC3339))
+	for i := len(samples) - 1; i >= 0; i-- {
+		if samples[i].TS < start.Unix() {
+			gap := int((start.Unix()-samples[i].TS)/int64(stepSeconds)) - 1
+			return fmt.Sprintf("%s, the gap before it is %d steps (fill limit %d)", head, gap, maxFill)
+		}
+	}
+	return head + ", nothing is stored before it"
 }
 
 // loadTarget reads the stored history of a source as a gap-free grid ending at the newest sample, over the instance
@@ -86,7 +107,8 @@ func (s *Service) loadTarget(ctx context.Context, m *model.AlgorithmRun, metric 
 	}
 	if len(samples) > 1 {
 		span := int((samples[len(samples)-1].TS-samples[0].TS)/int64(series.StepSeconds)) + 1
-		if err := checkQuality(m, metric, len(samples), len(in.Values), span); err != nil {
+		detail := func() string { return runDetail(samples, in, series.StepSeconds, m.MaxFillSteps) }
+		if err := checkQuality(m, metric, len(samples), len(in.Values), span, detail); err != nil {
 			return forecast.Input{}, series, err
 		}
 	}
