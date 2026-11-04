@@ -320,9 +320,23 @@ func (s *Service) Compare(ctx context.Context, moduleID uint, o CompareOptions) 
 		out.Algorithms = append(out.Algorithms, alg)
 	}
 	if runsErr == nil {
+		// a metric that is not forecast has no algorithm curves, and the page says why instead of "no run recorded"
+		note := ""
+		if src := m.Source(o.Metric); src != nil {
+			switch {
+			case !src.Enabled:
+				note = "this metric's source is disabled, so no algorithm runs on it"
+			case src.Basis != model.BasisForecast:
+				note = "this metric is read as measured history, not forecast, so no algorithm runs on it"
+			}
+		}
 		for _, inst := range runs {
 			_, has := by[inst.Key()]
-			out.Statuses = append(out.Statuses, s.AlgorithmStatus(ctx, moduleID, o.Metric, inst.Key(), has, noForecastsInRange(o.From, o.To)))
+			st := s.AlgorithmStatus(ctx, moduleID, o.Metric, inst.Key(), has, noForecastsInRange(o.From, o.To))
+			if note != "" && !has {
+				st.Status, st.Reason = StatusNotRun, note
+			}
+			out.Statuses = append(out.Statuses, st)
 		}
 	}
 	return out, nil
