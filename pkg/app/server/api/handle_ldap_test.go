@@ -299,6 +299,15 @@ func TestLDAPParametersAreEditedLikeAnyOtherSystemParameter(t *testing.T) {
 	a.dir.down = false
 	assert.Equal(t, http.StatusOK, set("ldap.enabled", "true").Code)
 	assert.Equal(t, "true", value("ldap.enabled"))
+
+	// while enabled, the group base DN and the group filter are still set and cleared one at a time
+	require.Equal(t, http.StatusOK, set("ldap.group_base_dn", "ou=groups,dc=example,dc=org").Code)
+	assert.Equal(t, ldapauth.DefaultGroupFilter, value("ldap.group_filter"), "the filter that goes with the base DN")
+	require.Equal(t, http.StatusOK, set("ldap.group_filter", "(&(objectClass=groupOfNames)(member=%s))").Code)
+	require.Equal(t, http.StatusOK, set("ldap.group_base_dn", "").Code)
+	assert.Empty(t, value("ldap.group_filter"), "clearing one clears both")
+	require.Equal(t, http.StatusOK, set("ldap.group_filter", "(member=%s)").Code)
+	assert.Equal(t, "ou=people,dc=example,dc=org", value("ldap.group_base_dn"), "the user base DN stands in for a missing group base DN")
 }
 
 func TestTestEndpointReportsTheConnectionAndTheRolesAUserWouldGet(t *testing.T) {

@@ -41,6 +41,9 @@ const (
 	KeyGroupMappings = "ldap.group_role_mappings"
 )
 
+// DefaultGroupFilter finds the groups that list the user's DN as a member; %s is the user DN.
+const DefaultGroupFilter = "(member=%s)"
+
 // Mapping is one directory group granting one role.
 type Mapping struct {
 	Group string `json:"group_name"`
@@ -199,6 +202,16 @@ func WithValue(row *model.LDAPSetting, key, value string) (*model.LDAPSetting, e
 	}
 	m[key] = value
 	out := fromValues(m)
+	// The group base DN and the group filter only work together, and a parameter is saved on its own: setting one fills the
+	// other with its usual value when it is empty, and clearing one clears both, so neither order of editing is refused.
+	switch {
+	case (key == keyGroupBaseDN || key == keyGroupFilter) && value == "":
+		out.GroupBaseDN, out.GroupFilter = "", ""
+	case key == keyGroupBaseDN && out.GroupFilter == "" && out.GroupBaseDN != "":
+		out.GroupFilter = DefaultGroupFilter
+	case key == keyGroupFilter && out.GroupBaseDN == "" && out.GroupFilter != "":
+		out.GroupBaseDN = out.UserBaseDN
+	}
 	if out.BindDN == "" {
 		out.BindPassword = ""
 	}
