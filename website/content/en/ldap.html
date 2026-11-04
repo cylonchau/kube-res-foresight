@@ -1,0 +1,63 @@
+<h2 id="how">How a login is told apart</h2>
+<p>The sign-in page has no source option. The platform decides from the user name and the local database:</p>
+<table><thead><tr><th>Case</th><th>Result</th></tr></thead><tbody>
+<tr><td>The name exists locally and is a local account</td><td>Only the local password is checked; the directory is not contacted. <code>admin</code> keeps working when the directory is down.</td></tr>
+<tr><td>The name exists locally and is an LDAP account</td><td>The password is checked against the directory only.</td></tr>
+<tr><td>The name is unknown and LDAP is enabled</td><td>The directory authenticates. On success the roles come from the role mappings and the LDAP user is created.</td></tr>
+<tr><td>The name is unknown and LDAP is disabled</td><td>The login fails.</td></tr></tbody></table>
+<p>A directory user with the same name as a local account never takes it over. An LDAP user's local password is random and unusable, and the password cannot be changed in the user center; change it in the directory. The user list and the user center show the account source.</p>
+<h2 id="params">Parameters</h2>
+<p>Set them one by one under System → System parameters, in the LDAP category. Each is saved on its own.</p>
+<table><thead><tr><th>Parameter</th><th>Meaning</th></tr></thead><tbody>
+<tr><td><code>ldap.url</code></td><td>Directory address, such as <code>ldaps://ldap.example.com:636</code>. <code>ldap://</code> requires StartTLS.</td></tr>
+<tr><td><code>ldap.start_tls</code> / <code>ldap.skip_verify</code></td><td>StartTLS; whether to skip certificate verification. Do not skip it when you can provide the CA.</td></tr>
+<tr><td><code>ldap.ca_cert</code></td><td>CA (PEM) for a self-signed certificate. Shown masked after saving.</td></tr>
+<tr><td><code>ldap.bind_dn</code> / <code>ldap.bind_password</code></td><td>Service account used to look users up. The password is stored encrypted; set the bind DN first.</td></tr>
+<tr><td><code>ldap.user_base_dn</code></td><td>Where the user search starts, such as <code>dc=example,dc=com</code>.</td></tr>
+<tr><td><code>ldap.user_filter</code></td><td>Filter that finds the user. It must contain exactly one <code>%s</code> (the login name), for example <code>(cn=%s)</code> or <code>(&amp;(objectClass=person)(uid=%s))</code>.</td></tr>
+<tr><td><code>ldap.display_name_attr</code> / <code>email_attr</code> / <code>phone_attr</code></td><td>Attributes for display name, email and phone, refreshed at each login.</td></tr>
+<tr><td><code>ldap.member_of_attr</code></td><td>Attribute of the user entry that lists the DNs of its groups, usually <code>memberOf</code>. When set, the groups are read from it.</td></tr>
+<tr><td><code>ldap.group_base_dn</code> / <code>ldap.group_filter</code></td><td>Without memberOf, look the user up in the group entries: in the filter <code>%s</code> is the user DN and <code>%u</code> the login name, such as <code>(member=%s)</code>. Both are set or both are empty: setting one while the other is empty fills in a usual value, and clearing one clears both.</td></tr>
+<tr><td><code>ldap.group_name_attr</code></td><td>Attribute of a group entry used as its name, <code>cn</code> by default.</td></tr>
+<tr><td><code>ldap.group_role_mappings</code></td><td>Group-to-role mappings, below.</td></tr>
+<tr><td><code>ldap.default_role_code</code></td><td>Role of users in no mapped group. Empty means those users cannot sign in.</td></tr>
+<tr><td><code>ldap.timeout_seconds</code></td><td>Connection and query timeout, 1 to 120 seconds.</td></tr>
+<tr><td><code>ldap.enabled</code></td><td>Whether directory login is on.</td></tr></tbody></table>
+<p>Enabling validates the whole configuration and connects to the directory once. If that fails, LDAP is not enabled and the reason is shown, so set <code>ldap.enabled</code> last.</p>
+<h2 id="groups">Two ways to get the groups</h2>
+<p>Use either, or both: the results are merged.</p>
+<ul>
+<li><strong>Read memberOf of the user</strong>: set <code>ldap.member_of_attr</code>; no group base DN or filter is needed. Each value (a group DN) matches either as the full DN or as the value of its first RDN (<code>cn=ops,ou=groups,…</code> matches <code>ops</code>).</li>
+<li><strong>Search the group entries</strong>: set <code>ldap.group_base_dn</code> and <code>ldap.group_filter</code>, and take the name from <code>ldap.group_name_attr</code>. Usual filters: <code>(member=%s)</code> for OpenLDAP groupOfNames, <code>(memberUid=%u)</code> for posixGroup, and <code>(member:1.2.840.113556.1.4.1941:=%s)</code> for AD when nested groups count.</li></ul>
+<h2 id="mapping">Role mapping</h2>
+<p><code>ldap.group_role_mappings</code> takes one <code>group=role code</code> per line:</p>
+<pre><code>ops=ADMIN
+dev=VIEWER
+ou=sre,ou=platform,dc=example,dc=com=ADMIN</code></pre>
+<ul>
+<li>The left side is a group name (<code>cn</code>) or a full DN, case-insensitive; spaces inside a full DN must match what the directory returns.</li>
+<li>The right side is the role <strong>code</strong>, listed under Authorization → Roles. The role must exist and be enabled.</li>
+<li>The line is split at the last <code>=</code>, so full DNs work as they are. A group may appear on several lines to grant several roles; a user in several groups gets the union.</li>
+<li>Lines starting with <code>#</code> are comments and blank lines are ignored. A malformed or repeated line is rejected on save.</li></ul>
+<p>A user in no mapped group gets <code>ldap.default_role_code</code>; with neither, the login is refused. An existing LDAP user who loses every role is disabled and their sessions end.</p>
+<h2 id="grafana">Moving from the ldap.toml of Grafana</h2>
+<table><thead><tr><th>Grafana</th><th>This platform</th></tr></thead><tbody>
+<tr><td><code>host</code>, <code>port</code>, <code>use_ssl</code></td><td><code>ldap.url</code> (<code>ldaps://host:port</code>)</td></tr>
+<tr><td><code>start_tls</code>, <code>ssl_skip_verify</code></td><td><code>ldap.start_tls</code>, <code>ldap.skip_verify</code></td></tr>
+<tr><td><code>bind_dn</code>, <code>bind_password</code></td><td><code>ldap.bind_dn</code>, <code>ldap.bind_password</code></td></tr>
+<tr><td><code>search_base_dns</code></td><td><code>ldap.user_base_dn</code></td></tr>
+<tr><td><code>search_filter</code></td><td><code>ldap.user_filter</code>, copied as it is, such as <code>(cn=%s)</code></td></tr>
+<tr><td><code>attributes.name</code> / <code>email</code></td><td><code>ldap.display_name_attr</code> / <code>ldap.email_attr</code></td></tr>
+<tr><td><code>attributes.member_of</code></td><td><code>ldap.member_of_attr</code></td></tr>
+<tr><td><code>group_dn</code> and <code>org_role</code> of a <code>group_mappings</code> block</td><td>One line of <code>ldap.group_role_mappings</code>: <code>group_dn=platform role code</code>. <code>org_id</code> is not needed.</td></tr></tbody></table>
+<p>The <code>org_role</code> of Grafana (Admin, Editor, Viewer) has no fixed counterpart here: use your own role codes. The built-in administrator role is <code>ADMIN</code> and has every permission, so check before granting it to a whole group.</p>
+<h2 id="sync">Synchronization and disabling</h2>
+<p>Users who were deleted or disabled in the directory, or who no longer belong to a mapped group, are disabled by the synchronization and lose their sessions; users the directory enabled again are restored, except those an administrator disabled. When the directory cannot be reached no account is changed, so an outage does not lock everyone out.</p>
+<h2 id="troubleshoot">Troubleshooting</h2>
+<table><thead><tr><th>Symptom</th><th>Check</th></tr></thead><tbody>
+<tr><td>Cannot enable; the directory check failed</td><td>Address and port, the certificate (a self-signed one needs the CA or, for now, skipped verification), the service account and password, and the network.</td></tr>
+<tr><td>Sign-in fails and the page only says invalid credentials</td><td>Read <code>ldap login refused</code> in the platform log; its <code>reason</code> says why.</td></tr>
+<tr><td><code>the user belongs to no group mapped to a role</code></td><td>Authentication passed but no role resulted. <code>groups found</code> in the parentheses is what the directory returned: empty means the way of getting groups or the filter is wrong; with names, add a mapping or set a default role.</td></tr>
+<tr><td><code>a local account with this name exists</code></td><td>A local account has the name and the directory never takes it over. Use the local password, or let an administrator deal with the account.</td></tr>
+<tr><td>One setting is refused on save</td><td>While enabled, every change validates the whole configuration. The address, user base DN and user filter cannot be empty, and the bind DN and password go together.</td></tr></tbody></table>
+<p>Local accounts always sign in with their local password; the directory being down does not affect them.</p>

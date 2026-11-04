@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-CN" data-site-root="../" data-page-path="docs/ldap.html"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#245fd4"><meta name="description" content="配置目录登录、取组方式和角色映射，并从 Grafana 配置迁移。"><meta property="og:title" content="LDAP 登录配置 | kube-res-foresight"><meta property="og:description" content="配置目录登录、取组方式和角色映射，并从 Grafana 配置迁移。"><meta property="og:type" content="website"><title>LDAP 登录配置 | kube-res-foresight</title>
+<script src="../assets/locale.js"></script><link rel="alternate" hreflang="zh-CN" href="ldap.html"><link rel="alternate" hreflang="en" href="../en/docs/ldap.html"><link rel="icon" type="image/svg+xml" href="../assets/favicon.svg"><link rel="stylesheet" href="../assets/style.css"><link rel="stylesheet" href="../assets/adaptive.css"><link id="light-theme" rel="stylesheet" href="../assets/light.css" media="(prefers-color-scheme: light)"><script src="../assets/theme.js"></script><script src="../assets/config.js" defer></script><script src="../assets/main.js" defer></script></head>
+<body class="documentation-page"><a class="skip-link" href="#main">跳到主要内容</a><header class="site-header"><div class="header-inner">
+<a class="brand" href="../index.html" aria-label="kube-res-foresight 首页"><img src="../assets/favicon.svg" width="30" height="30" alt=""><span>kube-res-foresight</span></a>
+<nav id="site-nav" aria-label="主导航"><a href="../index.html">首页</a><a href="index.html" aria-current="page">文档</a><a href="getting-started.html">快速开始</a><a href="https://github.com/cylonchau/kube-res-foresight" data-repo>GitHub ↗</a></nav>
+<div class="header-tools"><button class="search-trigger" type="button" data-search-open aria-label="搜索文档"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></svg><span>搜索文档</span><kbd>⌘ K</kbd></button>
+<div class="language-switch" role="group" aria-label="选择语言"><a href="ldap.html?lang=zh" data-language="zh" lang="zh-CN" aria-current="true">中文</a><a href="../en/docs/ldap.html?lang=en" data-language="en" lang="en">EN</a></div>
+<div class="theme-control"><button type="button" class="theme-toggle" id="theme-toggle" aria-expanded="false" aria-controls="theme-menu" aria-label="切换外观"><span aria-hidden="true">◐</span></button><div id="theme-menu" class="theme-menu" role="group" aria-label="外观" hidden><button type="button" data-theme-mode="auto" aria-pressed="true"><span aria-hidden="true">◐</span>跟随系统</button><button type="button" data-theme-mode="light" aria-pressed="false"><span aria-hidden="true">☀</span>浅色</button><button type="button" data-theme-mode="dark" aria-pressed="false"><span aria-hidden="true">☾</span>深色</button></div></div>
+<button type="button" class="menu-toggle" aria-label="展开导航" aria-expanded="false" aria-controls="site-nav"><span aria-hidden="true">☰</span></button></div></div></header><div class="docs-mobilebar"><button type="button" class="docs-nav-toggle" aria-expanded="false" aria-controls="docs-sidebar">☰ 文档目录</button><button type="button" data-search-open><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></svg>搜索</button></div><button class="sidebar-backdrop" type="button" aria-label="关闭目录" hidden></button><div class="docs-layout"><aside id="docs-sidebar" class="docs-sidebar" aria-label="文档导航"><a class="sidebar-title" href="index.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h6a3 3 0 0 1 2 1 3 3 0 0 1 2-1h6v15h-6a3 3 0 0 0-2 1 3 3 0 0 0-2-1H4Zm8 1v15"/></svg>项目文档</a><details class="nav-group" open><summary>开始使用</summary><div><a href="getting-started.html">快速开始</a><a href="installation.html">安装与部署</a></div></details><details class="nav-group" open><summary>核心概念</summary><div><a href="architecture.html">系统架构</a><a href="runtime.html">运行逻辑与反馈循环</a><a href="concepts.html">功能架构与核心概念</a><a href="metrics.html">指标接入与数据质量</a><a href="algorithms.html">算法与模型管理</a></div></details><details class="nav-group" open><summary>算法参数手册</summary><div><a href="algorithm-naive.html">Naive · 持续值</a><a href="algorithm-seasonal_naive.html">Seasonal Naive · 季节持续</a><a href="algorithm-ewma.html">EWMA · 指数平滑</a><a href="algorithm-hist_percentile.html">Histogram Percentile · 历史分位数</a><a href="algorithm-random_forest.html">Random Forest · 随机森林</a><a href="algorithm-knn.html">KNN · 历史相似窗口</a><a href="algorithm-holt_winters.html">Holt-Winters · 趋势与季节</a><a href="algorithm-model_service.html">模型服务 · 预测与微调</a><a href="algorithm-theta.html">Theta · 平滑与漂移</a><a href="algorithm-mstl.html">MSTL · 多重季节分解</a><a href="algorithm-seasonal_profile.html">Seasonal Profile · 周期画像</a><a href="algorithm-peak_envelope.html">Peak Envelope · 峰值包络</a><a href="algorithm-combination.html">Combination · 组合预测</a><a href="algorithm-ridge_ar.html">Ridge AR · 岭回归自回归</a><a href="algorithm-gbdt.html">GBDT · 梯度提升树</a></div></details><details class="nav-group" open><summary>使用指南</summary><div><a href="evaluation.html">回测与效果评估</a><a href="recommendations.html">资源推荐与前瞻决策</a><a href="scaling.html">资源准入与弹性伸缩</a><a href="safety.html">安全边界与故障回退</a></div></details><details class="nav-group" open><summary>AI 助手</summary><div><a href="assistant.html">AI 助手与 Skill</a><a href="llm-configuration.html">LLM 连接配置</a><a href="ai-tasks.html">AI 定时任务与邮件</a></div></details><details class="nav-group" open><summary>运维与管理</summary><div><a href="dashboard.html">首页与运行概览</a><a href="monitoring.html">监控与问题排查</a><a href="administration.html">平台管理</a><a href="ldap.html" aria-current="page" class="current">LDAP 登录配置</a><a href="faq.html">常见问题</a></div></details></aside><main id="main" class="docs-content"><nav class="breadcrumbs" aria-label="当前位置"><a href="index.html">文档</a><span aria-hidden="true">/</span><span>运维与管理</span></nav><div class="article-heading"><p class="eyebrow">使用指南</p><h1>LDAP 登录配置</h1><p>配置目录登录、取组方式和角色映射，并从 Grafana 配置迁移。</p></div><article class="article-body"><h2 id="how">登录怎么判断本地还是目录用户</h2>
+<p>登录页没有“来源”选项，平台按用户名在本地库里的情况决定：</p>
+<div class="table-wrap"><table><thead><tr><th>情况</th><th>处理</th></tr></thead><tbody>
+<tr><td>本地库有这个用户名，来源是本地</td><td>只校验本地密码，不访问目录。<code>admin</code> 因此在目录不可用时仍能登录。</td></tr>
+<tr><td>本地库有，来源是 LDAP</td><td>只向目录校验密码。</td></tr>
+<tr><td>本地库没有，LDAP 已启用</td><td>向目录认证；通过后按角色映射得出角色，并自动创建 LDAP 用户。</td></tr>
+<tr><td>本地库没有，LDAP 未启用</td><td>登录失败。</td></tr></tbody></table></div>
+<p>目录里与本地账号同名的用户不会接管本地账号。LDAP 用户在本地的密码是随机值，无法用于本地登录，也不能在个人中心修改密码，请在目录中修改。用户列表和个人中心会显示账号来源。</p>
+<h2 id="params">参数</h2>
+<p>在“系统管理 → 系统参数”的 LDAP 分类里逐项设置，每项单独保存。</p>
+<div class="table-wrap"><table><thead><tr><th>参数</th><th>含义</th></tr></thead><tbody>
+<tr><td><code>ldap.url</code></td><td>目录地址，如 <code>ldaps://ldap.example.com:636</code>。使用 <code>ldap://</code> 时必须开启 StartTLS。</td></tr>
+<tr><td><code>ldap.start_tls</code> / <code>ldap.skip_verify</code></td><td>StartTLS；是否跳过证书校验。能提供 CA 时不要跳过。</td></tr>
+<tr><td><code>ldap.ca_cert</code></td><td>自签名证书的 CA（PEM）。保存后只显示掩码。</td></tr>
+<tr><td><code>ldap.bind_dn</code> / <code>ldap.bind_password</code></td><td>用于查询用户的服务账号。密码加密保存，必须先设置 bind DN。</td></tr>
+<tr><td><code>ldap.user_base_dn</code></td><td>搜索用户的起点，如 <code>dc=example,dc=com</code>。</td></tr>
+<tr><td><code>ldap.user_filter</code></td><td>查找用户的过滤器，必须恰好含一个 <code>%s</code>（登录名），如 <code>(cn=%s)</code> 或 <code>(&amp;(objectClass=person)(uid=%s))</code>。</td></tr>
+<tr><td><code>ldap.display_name_attr</code> / <code>email_attr</code> / <code>phone_attr</code></td><td>显示名、邮箱、电话对应的属性，每次登录刷新。</td></tr>
+<tr><td><code>ldap.member_of_attr</code></td><td>用户条目上列出所属组 DN 的属性，通常是 <code>memberOf</code>。设置后直接读取它取组。</td></tr>
+<tr><td><code>ldap.group_base_dn</code> / <code>ldap.group_filter</code></td><td>不使用 memberOf 时，到组条目里查成员：过滤器里 <code>%s</code> 是用户 DN，<code>%u</code> 是登录名，如 <code>(member=%s)</code>。两项要一起有或一起空：设置其中一项而另一项为空时会自动补上常用值，清空其中一项会一起清空。</td></tr>
+<tr><td><code>ldap.group_name_attr</code></td><td>组条目里作为组名的属性，默认 <code>cn</code>。</td></tr>
+<tr><td><code>ldap.group_role_mappings</code></td><td>组到角色的映射，见下节。</td></tr>
+<tr><td><code>ldap.default_role_code</code></td><td>不在任何映射组里的用户使用的角色。留空则这些用户无法登录。</td></tr>
+<tr><td><code>ldap.timeout_seconds</code></td><td>连接和查询超时，1 到 120 秒。</td></tr>
+<tr><td><code>ldap.enabled</code></td><td>是否启用目录登录。</td></tr></tbody></table></div>
+<p>启用时平台会校验整套配置并连接目录检查一次，不通过就拒绝启用并说明原因，所以请把 <code>ldap.enabled</code> 放在最后设置。</p>
+<h2 id="groups">取组的两种方式</h2>
+<p>二选一，也可以同时使用，结果合并。</p>
+<ul>
+<li><strong>读用户的 memberOf</strong>：设置 <code>ldap.member_of_attr</code>，不需要组基础 DN 和过滤器。每个值（组的 DN）既可以按完整 DN 匹配，也可以按 DN 第一段的值匹配（<code>cn=ops,ou=groups,…</code> 对应 <code>ops</code>）。</li>
+<li><strong>到组条目里查成员</strong>：设置 <code>ldap.group_base_dn</code>、<code>ldap.group_filter</code>，用 <code>ldap.group_name_attr</code> 取组名。常见写法：OpenLDAP 的 groupOfNames 用 <code>(member=%s)</code>；posixGroup 用 <code>(memberUid=%u)</code>；AD 需要包含嵌套组时用 <code>(member:1.2.840.113556.1.4.1941:=%s)</code>。</li></ul>
+<h2 id="mapping">角色映射</h2>
+<p><code>ldap.group_role_mappings</code> 每行一条，格式为 <code>组=角色编码</code>：</p>
+<pre><code>ops=ADMIN
+dev=VIEWER
+ou=sre,ou=平台组,dc=example,dc=com=ADMIN</code></pre>
+<ul>
+<li>左边是组名（<code>cn</code>）或完整 DN，不区分大小写；完整 DN 里的空格要与目录返回的一致。</li>
+<li>右边是角色的<strong>编码</strong>，在“授权管理 → 角色”里查看。角色必须存在并已启用。</li>
+<li>程序按最后一个 <code>=</code> 切分，所以完整 DN 的写法可以直接用。一个组可以写多行授予多个角色。用户属于多个组时取角色的并集。</li>
+<li>以 <code>#</code> 开头的行是注释，空行忽略。格式不对或重复的行在保存时被拒绝。</li></ul>
+<p>用户不在任何映射组里时使用 <code>ldap.default_role_code</code>；两者都没有就拒绝登录。已存在的 LDAP 用户如果失去所有角色，会被停用并结束其会话。</p>
+<h2 id="grafana">从 Grafana 的 ldap.toml 迁移</h2>
+<div class="table-wrap"><table><thead><tr><th>Grafana</th><th>本平台</th></tr></thead><tbody>
+<tr><td><code>host</code>、<code>port</code>、<code>use_ssl</code></td><td><code>ldap.url</code>（<code>ldaps://host:port</code>）</td></tr>
+<tr><td><code>start_tls</code>、<code>ssl_skip_verify</code></td><td><code>ldap.start_tls</code>、<code>ldap.skip_verify</code></td></tr>
+<tr><td><code>bind_dn</code>、<code>bind_password</code></td><td><code>ldap.bind_dn</code>、<code>ldap.bind_password</code></td></tr>
+<tr><td><code>search_base_dns</code></td><td><code>ldap.user_base_dn</code></td></tr>
+<tr><td><code>search_filter</code></td><td><code>ldap.user_filter</code>（原样照抄，如 <code>(cn=%s)</code>）</td></tr>
+<tr><td><code>attributes.name</code> / <code>email</code></td><td><code>ldap.display_name_attr</code> / <code>ldap.email_attr</code></td></tr>
+<tr><td><code>attributes.member_of</code></td><td><code>ldap.member_of_attr</code></td></tr>
+<tr><td><code>group_mappings</code> 的 <code>group_dn</code> 和 <code>org_role</code></td><td><code>ldap.group_role_mappings</code> 中的一行：<code>group_dn=平台角色编码</code>。<code>org_id</code> 不需要。</td></tr></tbody></table></div>
+<p>Grafana 的 <code>org_role</code>（Admin、Editor、Viewer）在平台里没有固定对应，请用你自己的角色编码；平台自带的管理员角色编码是 <code>ADMIN</code>，拥有全部权限，授予整组人之前先确认。</p>
+<h2 id="sync">同步与停用</h2>
+<p>目录里被删除、被禁用或不再属于任何映射组的用户，会在同步时被停用并结束会话；目录重新启用的用户会恢复，被管理员手动停用的除外。目录不可达时不会改动任何账号，避免一次故障把所有人锁在外面。</p>
+<h2 id="troubleshoot">排查</h2>
+<div class="table-wrap"><table><thead><tr><th>现象</th><th>检查</th></tr></thead><tbody>
+<tr><td>无法启用，提示目录检查失败</td><td>地址和端口、证书（自签名需要 CA 或暂时跳过校验）、服务账号和密码、网络是否通。</td></tr>
+<tr><td>登录失败，页面只显示用户名或密码错误</td><td>看平台日志中的 <code>ldap login refused</code>，<code>reason</code> 写明具体原因。</td></tr>
+<tr><td><code>the user belongs to no group mapped to a role</code></td><td>认证已通过，但没有角色。括号里的 <code>groups found</code> 是目录返回的组：为空说明取组方式或过滤器不对；有组名则补映射或设置默认角色。</td></tr>
+<tr><td><code>a local account with this name exists</code></td><td>本地已有同名账号，目录不会接管它；改用本地密码，或让管理员处理这个账号。</td></tr>
+<tr><td>某一项保存被拒绝</td><td>启用状态下每次修改都会校验整套配置。必填项（地址、用户基础 DN、用户过滤器）不能留空；bind DN 与密码要成对。</td></tr></tbody></table></div>
+<p>本地账号始终可以用本地密码登录，目录不可用不影响它们。</p>
+</article><a class="edit-page" data-source="website/content/zh/ldap.html" href="https://github.com/cylonchau/kube-res-foresight">在 GitHub 上编辑此页 ↗</a><nav class="article-pager" aria-label="相邻文章"><a href="administration.html" class="previous"><small>上一篇</small><span>← 平台管理</span></a><a href="faq.html" class="next"><small>下一篇</small><span>常见问题 →</span></a></nav></main><aside class="page-toc" aria-label="本页目录"><strong>本页内容</strong><nav><a href="#how">登录怎么判断本地还是目录用户</a><a href="#params">参数</a><a href="#groups">取组的两种方式</a><a href="#mapping">角色映射</a><a href="#grafana">从 Grafana 的 ldap.toml 迁移</a><a href="#sync">同步与停用</a><a href="#troubleshoot">排查</a></nav><a class="back-top" href="#main">返回顶部 ↑</a></aside></div><footer class="site-footer"><div class="container footer-grid"><div><a class="brand" href="../index.html"><img src="../assets/favicon.svg" alt="" width="28" height="28"><span>kube-res-foresight</span></a><p>预测需求，合理配置资源。</p></div><div><strong>了解项目</strong><a href="concepts.html">核心概念</a><a href="algorithms.html">算法管理</a></div><div><strong>开始使用</strong><a href="getting-started.html">快速开始</a><a href="installation.html">安装与部署</a></div><div><strong>参与项目</strong><a data-repo href="https://github.com/cylonchau/kube-res-foresight">GitHub ↗</a><a data-issues href="https://github.com/cylonchau/kube-res-foresight/issues">问题反馈 ↗</a></div></div><div class="container footer-bottom"><span>© 2026 kube-res-foresight</span><span>面向 Kubernetes 的资源预测与弹性调度</span></div></footer><dialog id="search-dialog" aria-labelledby="search-title"><div class="search-dialog-head"><span id="search-title">搜索文档</span><button type="button" data-search-close aria-label="关闭搜索">Esc</button></div><div class="search-input-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></svg><input id="doc-search" type="search" autocomplete="off" placeholder="搜索功能、配置或使用问题…" aria-label="搜索关键词" aria-describedby="search-status"></div><p id="search-status" role="status"></p><ul id="search-results" aria-label="搜索结果"></ul><div class="search-help">↑ ↓ 选择 · Enter 打开 · Esc 关闭</div></dialog></body></html>
