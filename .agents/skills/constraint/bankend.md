@@ -32,3 +32,5 @@ SQLite 连接池只有 1 个连接（`pkg/store`）：开启事务后不要再�
 
 - **请求体必须是 UTF-8**：`UTF8BodyMiddleware` 拒绝非 UTF-8 的 JSON / 表单，避免中文被替换成 U+FFFD 后入库；截断字符串一律在字符边界（`truncate`、`trimTo`）。操作日志每条有 `request_id`（响应头 `X-Request-Id`）与 `client_type`（page / api / cli / operator）、`client_name`。
 - 模块的回看小时数和训练窗口只是用户想花的数据量，不得让启用的算法饿死：采集、训练、回测、评分一律按 `max(模块设置, 算法最少步数×1.5)` 取范围和窗口（`forecastsvc.lookbackFor`/`windowFor`，上限 30 天）；新增算法的 `MinSamples` 必须如实，不得靠让用户改模块配置来满足。
+
+"""相同内容的提交不要分开多个"""
