@@ -35,7 +35,7 @@ func ldapSettingDTO(row *model.LDAPSetting) apis.LDAPSettingDTO {
 		Enabled: row.Enabled, URL: row.URL, StartTLS: row.StartTLS, SkipVerify: row.SkipVerify, HasCACert: row.CACert != "",
 		BindDN: row.BindDN, HasBindPassword: row.BindPassword != "", UserBaseDN: row.UserBaseDN, UserFilter: row.UserFilter,
 		DisplayNameAttr: row.DisplayNameAttr, EmailAttr: row.EmailAttr, PhoneAttr: row.PhoneAttr, GroupBaseDN: row.GroupBaseDN,
-		GroupFilter: row.GroupFilter, GroupNameAttr: row.GroupNameAttr, TimeoutSeconds: row.TimeoutSeconds, DefaultRoleCode: row.DefaultRoleCode,
+		GroupFilter: row.GroupFilter, GroupNameAttr: row.GroupNameAttr, MemberOfAttr: row.MemberOfAttr, TimeoutSeconds: row.TimeoutSeconds, DefaultRoleCode: row.DefaultRoleCode,
 		GroupRoleMappings: row.GroupRoleMappings,
 	}
 }
@@ -69,6 +69,7 @@ func (r *LDAPRouter) UpdateSettings(c *gin.Context) {
 	row.BindDN, row.UserBaseDN, row.UserFilter = strings.TrimSpace(req.BindDN), strings.TrimSpace(req.UserBaseDN), strings.TrimSpace(req.UserFilter)
 	row.DisplayNameAttr, row.EmailAttr, row.PhoneAttr = strings.TrimSpace(req.DisplayNameAttr), strings.TrimSpace(req.EmailAttr), strings.TrimSpace(req.PhoneAttr)
 	row.GroupBaseDN, row.GroupFilter, row.GroupNameAttr = strings.TrimSpace(req.GroupBaseDN), strings.TrimSpace(req.GroupFilter), strings.TrimSpace(req.GroupNameAttr)
+	row.MemberOfAttr = strings.TrimSpace(req.MemberOfAttr)
 	row.DefaultRoleCode = strings.TrimSpace(req.DefaultRoleCode)
 	row.GroupRoleMappings = strings.TrimSpace(req.GroupRoleMappings)
 	row.TimeoutSeconds = req.TimeoutSeconds

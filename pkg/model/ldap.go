@@ -22,6 +22,8 @@ type LDAPSetting struct {
 	GroupBaseDN   string `json:"group_base_dn"`
 	GroupFilter   string `json:"group_filter"` // %s = the escaped user DN, %u = the escaped login name
 	GroupNameAttr string `json:"group_name_attr"`
+	// MemberOfAttr is the attribute of the user entry that lists the DNs of its groups (memberOf); empty = only the group search above.
+	MemberOfAttr string `json:"member_of_attr"`
 
 	TimeoutSeconds  int    `json:"timeout_seconds"`
 	DefaultRoleCode string `json:"default_role_code"` // role of users in no mapped group; empty = deny them

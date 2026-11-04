@@ -35,6 +35,7 @@ const (
 	keyGroupBaseDN     = "ldap.group_base_dn"
 	keyGroupFilter     = "ldap.group_filter"
 	keyGroupNameAttr   = "ldap.group_name_attr"
+	keyMemberOfAttr    = "ldap.member_of_attr"
 	keyTimeout         = "ldap.timeout_seconds"
 	keyDefaultRole     = "ldap.default_role_code"
 	// KeyGroupMappings holds one "directory group=role code" per line.
@@ -86,7 +87,7 @@ func configNames() map[string]string {
 		keyCACert: "LDAP CA Certificate", keyBindDN: "LDAP Bind DN", keyBindPassword: "LDAP Bind Password",
 		keyUserBaseDN: "LDAP User Base DN", keyUserFilter: "LDAP User Filter", keyDisplayNameAttr: "LDAP Display Name Attribute",
 		keyEmailAttr: "LDAP Email Attribute", keyPhoneAttr: "LDAP Phone Attribute", keyGroupBaseDN: "LDAP Group Base DN",
-		keyGroupFilter: "LDAP Group Filter", keyGroupNameAttr: "LDAP Group Name Attribute", keyTimeout: "LDAP Timeout Seconds",
+		keyGroupFilter: "LDAP Group Filter", keyGroupNameAttr: "LDAP Group Name Attribute", keyMemberOfAttr: "LDAP Member-Of Attribute", keyTimeout: "LDAP Timeout Seconds",
 		keyDefaultRole: "LDAP Default Role", KeyGroupMappings: "LDAP Group Role Mappings",
 	}
 }
@@ -96,7 +97,7 @@ func values(row *model.LDAPSetting) map[string]string {
 		keyEnabled: b(row.Enabled), keyURL: row.URL, keyStartTLS: b(row.StartTLS), keySkipVerify: b(row.SkipVerify), keyCACert: row.CACert,
 		keyBindDN: row.BindDN, keyBindPassword: row.BindPassword, keyUserBaseDN: row.UserBaseDN, keyUserFilter: row.UserFilter,
 		keyDisplayNameAttr: row.DisplayNameAttr, keyEmailAttr: row.EmailAttr, keyPhoneAttr: row.PhoneAttr,
-		keyGroupBaseDN: row.GroupBaseDN, keyGroupFilter: row.GroupFilter, keyGroupNameAttr: row.GroupNameAttr,
+		keyGroupBaseDN: row.GroupBaseDN, keyGroupFilter: row.GroupFilter, keyGroupNameAttr: row.GroupNameAttr, keyMemberOfAttr: row.MemberOfAttr,
 		keyTimeout: strconv.Itoa(row.TimeoutSeconds), keyDefaultRole: row.DefaultRoleCode, KeyGroupMappings: row.GroupRoleMappings,
 	}
 }
@@ -108,7 +109,7 @@ func fromValues(m map[string]string) *model.LDAPSetting {
 		Enabled: truthy(keyEnabled), URL: m[keyURL], StartTLS: truthy(keyStartTLS), SkipVerify: truthy(keySkipVerify), CACert: m[keyCACert],
 		BindDN: m[keyBindDN], BindPassword: m[keyBindPassword], UserBaseDN: m[keyUserBaseDN], UserFilter: m[keyUserFilter],
 		DisplayNameAttr: m[keyDisplayNameAttr], EmailAttr: m[keyEmailAttr], PhoneAttr: m[keyPhoneAttr],
-		GroupBaseDN: m[keyGroupBaseDN], GroupFilter: m[keyGroupFilter], GroupNameAttr: m[keyGroupNameAttr],
+		GroupBaseDN: m[keyGroupBaseDN], GroupFilter: m[keyGroupFilter], GroupNameAttr: m[keyGroupNameAttr], MemberOfAttr: m[keyMemberOfAttr],
 		TimeoutSeconds: timeout, DefaultRoleCode: m[keyDefaultRole], GroupRoleMappings: m[KeyGroupMappings],
 	}
 }
@@ -167,7 +168,7 @@ func DefaultConfigs() []model.SysConfig {
 }
 
 var orderedKeys = []string{keyEnabled, keyURL, keyStartTLS, keySkipVerify, keyCACert, keyBindDN, keyBindPassword, keyUserBaseDN, keyUserFilter,
-	keyDisplayNameAttr, keyEmailAttr, keyPhoneAttr, keyGroupBaseDN, keyGroupFilter, keyGroupNameAttr, keyTimeout, keyDefaultRole, KeyGroupMappings}
+	keyDisplayNameAttr, keyEmailAttr, keyPhoneAttr, keyGroupBaseDN, keyGroupFilter, keyGroupNameAttr, keyMemberOfAttr, keyTimeout, keyDefaultRole, KeyGroupMappings}
 
 // WithValue returns a copy of the stored configuration with one parameter changed. The bind password is encrypted;
 // an unknown key, a non-boolean switch or a non-number timeout is refused.

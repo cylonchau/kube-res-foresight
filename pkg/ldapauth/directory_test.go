@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-ldap/ldap/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -138,4 +139,11 @@ func TestSettingsValidation(t *testing.T) {
 	starttls := good
 	starttls.URL, starttls.StartTLS = "ldap://ldap.example.org", true
 	assert.NoError(t, starttls.Validate())
+}
+
+func TestMemberOfGivesTheGroupsAsDNAndAsName(t *testing.T) {
+	e := ldap.NewEntry("cn=sasuke,dc=example,dc=org", map[string][]string{"memberOf": {"cn=ops,ou=groups,dc=example,dc=org", "CN=Dev Team,OU=g,DC=example,DC=org"}})
+	assert.Equal(t, []string{"cn=ops,ou=groups,dc=example,dc=org", "ops", "CN=Dev Team,OU=g,DC=example,DC=org", "Dev Team"}, memberOfGroups(e, "memberOf"))
+	assert.Empty(t, memberOfGroups(e, ""), "nothing is read when the attribute is not set")
+	assert.Empty(t, memberOfGroups(e, "isMemberOf"), "an attribute the entry does not have")
 }

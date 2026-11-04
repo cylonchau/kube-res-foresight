@@ -53,7 +53,7 @@ func RuntimeSettings(row *model.LDAPSetting) (Settings, error) {
 	s := Settings{
 		URL: row.URL, StartTLS: row.StartTLS, SkipVerify: row.SkipVerify, CACertPEM: row.CACert, BindDN: row.BindDN,
 		UserBaseDN: row.UserBaseDN, UserFilter: row.UserFilter, DisplayNameAttr: row.DisplayNameAttr, EmailAttr: row.EmailAttr, PhoneAttr: row.PhoneAttr,
-		GroupBaseDN: row.GroupBaseDN, GroupFilter: row.GroupFilter, GroupNameAttr: row.GroupNameAttr,
+		GroupBaseDN: row.GroupBaseDN, GroupFilter: row.GroupFilter, GroupNameAttr: row.GroupNameAttr, MemberOfAttr: row.MemberOfAttr,
 		Timeout: time.Duration(row.TimeoutSeconds) * time.Second,
 	}
 	if row.BindPassword != "" {

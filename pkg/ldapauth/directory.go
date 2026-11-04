@@ -42,6 +42,7 @@ type Settings struct {
 	GroupBaseDN   string
 	GroupFilter   string // %s = escaped user DN, %u = escaped login name
 	GroupNameAttr string
+	MemberOfAttr  string // attribute of the user entry listing its group DNs, for example memberOf
 
 	Timeout time.Duration
 }
@@ -223,7 +224,7 @@ func isDisabled(e *ldap.Entry) bool {
 
 func (c Client) findUser(conn *ldap.Conn, s Settings, username string) (*ldap.Entry, error) {
 	filter := strings.ReplaceAll(s.UserFilter, "%s", ldap.EscapeFilter(username))
-	attrs := append(nonEmpty(s.DisplayNameAttr, s.EmailAttr, s.PhoneAttr), disabledAttrs...)
+	attrs := append(nonEmpty(s.DisplayNameAttr, s.EmailAttr, s.PhoneAttr, s.MemberOfAttr), disabledAttrs...)
 	req := ldap.NewSearchRequest(s.UserBaseDN, ldap.ScopeWholeSubtree, ldap.NeverDerefAliases, 2, int(s.timeout().Seconds()), false, filter, attrs, nil)
 	res, err := conn.Search(req)
 	if err != nil {
@@ -241,9 +242,11 @@ func (c Client) findUser(conn *ldap.Conn, s Settings, username string) (*ldap.En
 	return nil, ErrAmbiguousUser
 }
 
-func (c Client) groups(conn *ldap.Conn, s Settings, userDN, username string) ([]string, error) {
+func (c Client) groups(conn *ldap.Conn, s Settings, e *ldap.Entry, username string) ([]string, error) {
+	userDN := e.DN
+	names := memberOfGroups(e, s.MemberOfAttr)
 	if s.GroupBaseDN == "" || s.GroupFilter == "" {
-		return nil, nil
+		return names, nil
 	}
 	attr := s.GroupNameAttr
 	if attr == "" {
@@ -255,15 +258,14 @@ func (c Client) groups(conn *ldap.Conn, s Settings, userDN, username string) ([]
 	if err != nil {
 		return nil, fmt.Errorf("search groups: %w", err)
 	}
-	var names []string
-	for _, e := range res.Entries {
-		names = append(names, e.GetAttributeValues(attr)...)
+	for _, ge := range res.Entries {
+		names = append(names, ge.GetAttributeValues(attr)...)
 	}
 	return names, nil
 }
 
 func (c Client) identity(conn *ldap.Conn, s Settings, e *ldap.Entry, username string) (*Identity, error) {
-	groups, err := c.groups(conn, s, e.DN, username)
+	groups, err := c.groups(conn, s, e, username)
 	if err != nil {
 		return nil, err
 	}
@@ -352,4 +354,20 @@ func (c Client) Check(ctx context.Context, s Settings) error {
 		return fmt.Errorf("search user base: %w", err)
 	}
 	return nil
+}
+
+// memberOfGroups reads the group DNs the user entry lists in attr (memberOf). Each group is returned twice, as its full DN and as the
+// value of its first RDN (cn=ops,ou=groups,... gives "ops"), so a mapping may name either.
+func memberOfGroups(e *ldap.Entry, attr string) []string {
+	if attr == "" {
+		return nil
+	}
+	var out []string
+	for _, dn := range e.GetAttributeValues(attr) {
+		out = append(out, dn)
+		if parsed, err := ldap.ParseDN(dn); err == nil && len(parsed.RDNs) > 0 && len(parsed.RDNs[0].Attributes) > 0 {
+			out = append(out, parsed.RDNs[0].Attributes[0].Value)
+		}
+	}
+	return out
 }

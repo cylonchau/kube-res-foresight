@@ -18,6 +18,7 @@ type LDAPSettingDTO struct {
 	GroupBaseDN     string `json:"group_base_dn"`
 	GroupFilter     string `json:"group_filter"`
 	GroupNameAttr   string `json:"group_name_attr"`
+	MemberOfAttr    string `json:"member_of_attr"`
 	TimeoutSeconds  int    `json:"timeout_seconds"`
 	DefaultRoleCode string `json:"default_role_code"`
 	// GroupRoleMappings is one "directory group=role code" per line.
@@ -43,6 +44,7 @@ type LDAPSettingReq struct {
 	GroupBaseDN       string `json:"group_base_dn"`
 	GroupFilter       string `json:"group_filter"`
 	GroupNameAttr     string `json:"group_name_attr"`
+	MemberOfAttr      string `json:"member_of_attr"`
 	TimeoutSeconds    int    `json:"timeout_seconds"`
 	DefaultRoleCode   string `json:"default_role_code"`
 	GroupRoleMappings string `json:"group_role_mappings"`
