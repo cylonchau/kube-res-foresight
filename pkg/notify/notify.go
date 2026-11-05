@@ -20,6 +20,9 @@ import (
 type Message struct {
 	Title   string
 	Content string
+	// HTML is the same message as an HTML document, for a channel that can show one (e-mail sends both, the client picks). Empty for a
+	// plain-text message; Content is then the whole message.
+	HTML    string
 	Buttons []template.Button
 }
 

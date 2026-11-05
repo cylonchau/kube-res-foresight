@@ -145,17 +145,38 @@ func ValidAddress(raw string) (string, error) {
 
 func header(s string) string { return strings.NewReplacer("\r", " ", "\n", " ").Replace(s) }
 
-// message builds the mail: UTF-8 text in base64, the subject encoded, no header taken from the content.
-func message(from *mail.Address, to string, msg notify.Message) []byte {
-	var id [12]byte
-	_, _ = rand.Read(id[:])
-	body := base64.StdEncoding.EncodeToString([]byte(msg.Content))
+// base64Lines is the text as base64 in lines of 76 characters.
+func base64Lines(text string) string {
+	body := base64.StdEncoding.EncodeToString([]byte(text))
 	var wrapped strings.Builder
 	for len(body) > 76 {
 		wrapped.WriteString(body[:76] + "\r\n")
 		body = body[76:]
 	}
 	wrapped.WriteString(body + "\r\n")
+	return wrapped.String()
+}
+
+// message builds the mail: UTF-8 text in base64, the subject encoded, no header taken from the content. A message that has an HTML
+// form goes out as multipart/alternative, the plain text first and the HTML after it, so the client shows the HTML (headings, tables,
+// colours) and a reader that cannot still has the text.
+func message(from *mail.Address, to string, msg notify.Message) []byte {
+	var id [12]byte
+	_, _ = rand.Read(id[:])
+	contentType := "text/plain; charset=UTF-8"
+	var payload string
+	if msg.HTML != "" {
+		var boundary [12]byte
+		_, _ = rand.Read(boundary[:])
+		b := "krf-" + hex.EncodeToString(boundary[:])
+		contentType = `multipart/alternative; boundary="` + b + `"`
+		part := func(kind, text string) string {
+			return "--" + b + "\r\nContent-Type: " + kind + "; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n" + base64Lines(text)
+		}
+		payload = part("text/plain", msg.Content) + part("text/html", msg.HTML) + "--" + b + "--\r\n"
+	} else {
+		payload = base64Lines(msg.Content)
+	}
 	domain := "localhost"
 	if at := strings.LastIndex(from.Address, "@"); at >= 0 {
 		domain = from.Address[at+1:]
@@ -167,10 +188,12 @@ func message(from *mail.Address, to string, msg notify.Message) []byte {
 		"Date: " + time.Now().Format(time.RFC1123Z),
 		"Message-ID: <" + hex.EncodeToString(id[:]) + "@" + header(domain) + ">",
 		"MIME-Version: 1.0",
-		"Content-Type: text/plain; charset=UTF-8",
-		"Content-Transfer-Encoding: base64",
+		"Content-Type: " + contentType,
 	}
-	return []byte(strings.Join(headers, "\r\n") + "\r\n\r\n" + wrapped.String())
+	if msg.HTML == "" {
+		headers = append(headers, "Content-Transfer-Encoding: base64")
+	}
+	return []byte(strings.Join(headers, "\r\n") + "\r\n\r\n" + payload)
 }
 
 // Send delivers msg to one address.

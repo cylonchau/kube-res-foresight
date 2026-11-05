@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"sort"
 	"strings"
 	"time"
@@ -334,8 +335,23 @@ func (s *Service) deliver(ctx context.Context, t *model.AssistantTask, run *mode
 		return errors.New("the e-mail channel is not available in this process")
 	}
 	zone := timezone.Location()
-	footer := fmt.Sprintf("\n\n--\n%s · %s · kube-res-foresight", t.Name, run.StartedAt.In(zone).Format("2006-01-02 15:04 MST"))
-	return ch.Send(ctx, to, notify.Message{Title: "[kube-res-foresight] " + t.Name, Content: run.Output + footer})
+	line := fmt.Sprintf("%s · %s · kube-res-foresight", t.Name, run.StartedAt.In(zone).Format("2006-01-02 15:04 MST"))
+	msg := notify.Message{Title: "[kube-res-foresight] " + t.Name, Content: run.Output + "\n\n--\n" + line}
+	// a report the model wrote as an HTML page is mailed as one (with its text beside it), not as the text of its tags
+	if page := notify.HTMLBody(run.Output); page != "" {
+		footer := `<p style="color:#888;font-size:12px;border-top:1px solid #ddd;padding-top:8px">` + html.EscapeString(line) + "</p>"
+		msg.Content = notify.HTMLText(page) + "\n\n--\n" + line
+		msg.HTML = injectBeforeBodyEnd(page, footer)
+	}
+	return ch.Send(ctx, to, msg)
+}
+
+// injectBeforeBodyEnd puts the footer at the end of the body of an HTML page, or at the end of a fragment that has no body tag.
+func injectBeforeBodyEnd(page, footer string) string {
+	if at := strings.LastIndex(strings.ToLower(page), "</body>"); at >= 0 {
+		return page[:at] + footer + page[at:]
+	}
+	return page + footer
 }
 
 // ---- the tools of a question that has a signed-in user: make, list and delete the tasks of that user

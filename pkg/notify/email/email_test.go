@@ -12,6 +12,7 @@ import (
 	"encoding/base64"
 	"math/big"
 	"net"
+	"net/mail"
 	"strconv"
 	"strings"
 	"sync"
@@ -234,4 +235,19 @@ func TestTheSeededParametersFitTheColumns(t *testing.T) {
 		assert.LessOrEqual(t, len([]rune(c.ConfigName)), 255, c.ConfigKey)
 		assert.LessOrEqual(t, len([]rune(c.ConfigValue)), 255, c.ConfigKey)
 	}
+}
+
+func TestAMessageWithAnHTMLFormGoesOutAsAlternatives(t *testing.T) {
+	from := &mail.Address{Name: "krf", Address: "krf@example.com"}
+	raw := string(message(from, "a@example.com", notify.Message{Title: "Report", Content: "plain text", HTML: "<h1>Usage</h1>"}))
+	assert.Contains(t, raw, "Content-Type: multipart/alternative; boundary=")
+	assert.Equal(t, 1, strings.Count(raw, "Content-Type: text/plain; charset=UTF-8"))
+	assert.Equal(t, 1, strings.Count(raw, "Content-Type: text/html; charset=UTF-8"))
+	assert.Less(t, strings.Index(raw, "text/plain"), strings.Index(raw, "text/html"), "the plain text comes first, the client shows the last it can")
+	assert.Contains(t, raw, base64.StdEncoding.EncodeToString([]byte("<h1>Usage</h1>")))
+
+	plain := string(message(from, "a@example.com", notify.Message{Title: "Report", Content: "plain text"}))
+	assert.Contains(t, plain, "Content-Type: text/plain; charset=UTF-8")
+	assert.Contains(t, plain, "Content-Transfer-Encoding: base64")
+	assert.NotContains(t, plain, "multipart")
 }
