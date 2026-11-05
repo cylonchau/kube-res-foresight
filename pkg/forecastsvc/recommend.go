@@ -193,8 +193,9 @@ func (st *instanceState) weight() float64 {
 
 // evalInstance checks what an instance offers for each of its forecast-basis sources. A forecast is usable when the
 // instance is a baseline or its latest backtest on that source was promoted for the same parameters and version, and
-// its newest forecast is still fresh (made within the TTL) and covers a step in the future.
-func (s *Service) evalInstance(ctx context.Context, inst *model.AlgorithmRun, now time.Time, ttl time.Duration) (*instanceState, []Considered, error) {
+// its newest forecast is still fresh (made within the TTL) and covers a step in the future. The algorithm a module is fixed to (fixed) is
+// the administrator's choice: it needs no promoting backtest, and its forecast may be FixedGraceFactor times as old before it is stale.
+func (s *Service) evalInstance(ctx context.Context, inst *model.AlgorithmRun, now time.Time, ttl time.Duration, fixed bool) (*instanceState, []Considered, error) {
 	st := &instanceState{inst: inst, forecast: map[string]sourceForecast{}}
 	var considered []Considered
 	bm, err := bind(inst)
@@ -210,7 +211,7 @@ func (s *Service) evalInstance(ctx context.Context, inst *model.AlgorithmRun, no
 			considered = append(considered, c)
 			st.forecast[key] = sourceForecast{reason: reason}
 		}
-		if !bm.def.Baseline {
+		if !bm.def.Baseline && !fixed {
 			run, err := s.Predictions.LatestBacktest(ctx, inst.ID, key, inst.Key())
 			if err != nil {
 				return nil, nil, err
@@ -236,8 +237,12 @@ func (s *Service) evalInstance(ctx context.Context, inst *model.AlgorithmRun, no
 			continue
 		}
 		c.PredictionTime = rows[0].PredictionTime
-		if age := now.Sub(rows[0].PredictionTime); age > ttl {
-			fail(fmt.Sprintf("stale prediction made %s ago (ttl %s)", age.Round(time.Second), ttl))
+		limit := ttl
+		if fixed {
+			limit = ttl * model.FixedGraceFactor
+		}
+		if age := now.Sub(rows[0].PredictionTime); age > limit {
+			fail(fmt.Sprintf("stale prediction made %s ago (ttl %s)", age.Round(time.Second), limit))
 			continue
 		}
 		peak, any := math.Inf(-1), false
@@ -282,6 +287,14 @@ func (s *Service) historyValues(ctx context.Context, inst *model.AlgorithmRun, s
 		out[i] = r.Value
 	}
 	return out, ""
+}
+
+// fixedKey is the algorithm a module is fixed to, or "" when it is not.
+func fixedKey(m *model.ForecastModule) string {
+	if m.PredictMode == model.PredictFixed {
+		return m.PredictAlgorithm
+	}
+	return ""
 }
 
 // rankInstances orders the eligible instances by score x weight and applies the switching rule: the instance in use
@@ -406,7 +419,7 @@ func (s *Service) recommend(ctx context.Context, moduleID uint, failed map[strin
 	}
 	var states []*instanceState
 	for _, b := range bs {
-		st, considered, err := s.evalInstance(ctx, b, now, ttl)
+		st, considered, err := s.evalInstance(ctx, b, now, ttl, m.PredictMode == model.PredictFixed && b.Key() == m.PredictAlgorithm)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -418,6 +431,9 @@ func (s *Service) recommend(ctx context.Context, moduleID uint, failed map[strin
 		switch {
 		case st.bm == nil:
 			// reason already set
+		case !m.AlgorithmDecides(b.Key()):
+			// the module is fixed to another algorithm: this one forecasts, is scored and drawn, and is never followed
+			st.reason = fmt.Sprintf("the module is fixed to %s: this algorithm is scored and drawn for comparison, only %s decides", m.PredictAlgorithm, m.PredictAlgorithm)
 		case st.hasUsableForecast():
 			st.eligible, st.reason = true, "eligible"
 			switch {
@@ -443,7 +459,7 @@ func (s *Service) recommend(ctx context.Context, moduleID uint, failed map[strin
 		states = append(states, st)
 	}
 	// an algorithm whose forecasts have just missed the load by far is not the one to follow, whatever its score says
-	dropLagging(states)
+	dropLagging(states, fixedKey(m))
 	ordered, selected, challenger, cycles := rankInstances(m, states, run)
 	rank := map[string]int{}
 	for i, st := range ordered {
@@ -639,6 +655,14 @@ func (s *Service) recommend(ctx context.Context, moduleID uint, failed map[strin
 		}
 	}
 
+	// a module fixed to one algorithm does not fall back to the default the moment that algorithm has nothing usable: the last result of the
+	// algorithm is held for a while (see holdFixedResult)
+	prevRec, err := s.Predictions.LatestRecommendation(ctx, m.ID)
+	if err != nil {
+		return nil, nil, err
+	}
+	heldNotes := s.holdFixedResult(m, now, ttl, detail, prevRec, &rec, expected)
+
 	// the Pod resource spec is decided apart from the replica count: rounded, and kept while the forecast has not moved enough
 	spec, _, err := s.pinResources(ctx, m, now, in.Policy.Bounds, &rec)
 	if err != nil {
@@ -660,6 +684,9 @@ func (s *Service) recommend(ctx context.Context, moduleID uint, failed map[strin
 		}
 		code, note := s.fieldDegradeCode(ctx, bs, field, detail, failed, run, states)
 		detail.Degraded[field], detail.DegradeNotes[field] = code, note
+	}
+	for field, note := range heldNotes {
+		detail.Degraded[field], detail.DegradeNotes[field] = DegradeHeldLast, note
 	}
 	detail.CPU, detail.Memory, detail.Replicas, detail.GPU = rec.CPUMilli, rec.MemoryBytes, rec.Replicas, rec.GPU
 	detail.Policy = map[string]any{"headroom_ratio": m.HeadroomRatio, "pod_capacity_rps": m.PodCapacityRPS, "ttl_seconds": m.TTLSeconds,
@@ -685,10 +712,7 @@ func (s *Service) recommend(ctx context.Context, moduleID uint, failed map[strin
 	if row.OOMFloor {
 		s.Telemetry.recordFallback("oom_floor", "memory")
 	}
-	prev, err := s.Predictions.LatestRecommendation(ctx, m.ID)
-	if err != nil {
-		return nil, nil, err
-	}
+	prev := prevRec
 	last, err := s.Predictions.LastSnapshotAt(ctx, m.ID)
 	if err != nil {
 		return nil, nil, err
@@ -902,4 +926,47 @@ func (s *Service) sourceDetails(ctx context.Context, m *model.ForecastModule) []
 		out = append(out, d)
 	}
 	return out
+}
+
+// holdFixedResult keeps the last result of the algorithm a module is fixed to when that algorithm has nothing usable for a field right now
+// (a failed cycle, a gap in the data), instead of sending the field to the default configuration at once and back a cycle later: the
+// replicas and requests of the workload would jump twice for a pause that may last a minute. The result is held while the algorithm's own
+// newest forecast is no older than FixedGraceFactor times the TTL; after that the fallback chain takes over, as before. Only a field the
+// previous recommendation took from an algorithm is held, and the note says what is being held and until when. It returns the
+// notes by field; the caller marks them as degraded (code held_last), because the field is not from a fresh forecast.
+func (s *Service) holdFixedResult(m *model.ForecastModule, now time.Time, ttl time.Duration, detail *RecommendDetail, prev *model.Recommendation,
+	rec *decision.Recommendation, expected map[string]bool) map[string]string {
+	notes := map[string]string{}
+	if m.PredictMode != model.PredictFixed || prev == nil || ttl <= 0 {
+		return notes
+	}
+	var newest time.Time
+	for _, c := range detail.Considered {
+		if c.AlgorithmID == m.PredictAlgorithm && c.PredictionTime.After(newest) {
+			newest = c.PredictionTime
+		}
+	}
+	if newest.IsZero() {
+		return notes
+	}
+	until := newest.Add(model.FixedGraceFactor * ttl)
+	if now.After(until) {
+		return notes
+	}
+	hold := func(field string, f *decision.Field, set bool, value int64, source string) {
+		fallsBack := f.Source == decision.SourceFallback || f.Source == decision.SourceOriginal
+		if !expected[field] || !fallsBack || !set || source != string(decision.SourceAlgorithm) {
+			return
+		}
+		why := f.Reason
+		*f = decision.Field{Set: true, Value: value, Source: decision.SourceAlgorithm, Detail: prev.Algorithm,
+			Reason: fmt.Sprintf("held: the last result of %s, because it has no usable forecast right now (%s)", m.PredictAlgorithm, why)}
+		notes[field] = fmt.Sprintf("%s has no usable forecast right now: its last result is held until %s (%d x the TTL after its newest forecast), then the default applies",
+			m.PredictAlgorithm, until.UTC().Format("15:04:05 UTC"), model.FixedGraceFactor)
+	}
+	hold("cpu", &rec.CPUMilli, prev.CPUSet, prev.CPUMilli, prev.CPUSource)
+	hold("memory", &rec.MemoryBytes, prev.MemorySet, prev.MemoryBytes, prev.MemorySource)
+	hold("replicas", &rec.Replicas, prev.ReplicasSet, int64(prev.Replicas), prev.ReplicasSource)
+	hold("gpu", &rec.GPU, prev.GPUSet, int64(prev.GPU), prev.GPUSource)
+	return notes
 }

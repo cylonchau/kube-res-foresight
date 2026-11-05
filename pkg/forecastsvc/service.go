@@ -131,17 +131,25 @@ func (s *Service) runsOf(ctx context.Context, m *model.ForecastModule) ([]*model
 	if err := s.EnsureAlgorithms(ctx); err != nil {
 		return nil, err
 	}
-	var configs []*model.AlgorithmConfig
-	var err error
+	configs, err := s.Algorithms.Enabled(ctx)
+	if err != nil {
+		return nil, err
+	}
 	if m.PredictMode == model.PredictFixed {
-		// the module names its algorithm: only that one runs, whether or not the platform page enables it for the other modules
+		// The module names its algorithm, and that one runs whether or not the platform page enables it for the other modules. The
+		// enabled ones run too: they are forecast, scored and drawn beside it, so what the named one is worth can be read against them.
+		// Only the named one decides (see ForecastModule.AlgorithmDecides); the others are never followed.
 		c, err := s.Algorithms.Get(ctx, m.PredictAlgorithm)
 		if err != nil {
 			return nil, fmt.Errorf("%w: the algorithm %q of the fixed prediction mode: %v", ErrNotConfigured, m.PredictAlgorithm, err)
 		}
-		configs = []*model.AlgorithmConfig{c}
-	} else if configs, err = s.Algorithms.Enabled(ctx); err != nil {
-		return nil, err
+		named := false
+		for _, other := range configs {
+			named = named || other.AlgorithmID == c.AlgorithmID
+		}
+		if !named {
+			configs = append(configs, c)
+		}
 	}
 	runs := make([]*model.AlgorithmRun, 0, len(configs))
 	for _, c := range configs {

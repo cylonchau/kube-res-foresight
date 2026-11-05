@@ -94,7 +94,7 @@ func (s *Service) trackInstance(ctx context.Context, st *instanceState, now time
 // dropLagging takes out of the running the algorithms whose recent forecasts are far off, as long as another one is not: the
 // algorithm in use is not kept because its replay score is high. When every algorithm lags there is nothing better to switch to,
 // and the order is left as the scores give it. It returns how many were taken out.
-func dropLagging(states []*instanceState) int {
+func dropLagging(states []*instanceState, keep string) int {
 	var following int
 	for _, st := range states {
 		if st.eligible && !st.tracking.Lagging() {
@@ -106,7 +106,8 @@ func dropLagging(states []*instanceState) int {
 	}
 	dropped := 0
 	for _, st := range states {
-		if !st.eligible || !st.tracking.Lagging() {
+		// the algorithm a module is fixed to (keep) is the administrator's choice: it is never taken out for lagging
+		if !st.eligible || !st.tracking.Lagging() || (keep != "" && st.inst.Key() == keep) {
 			continue
 		}
 		st.eligible, st.lagging = false, true

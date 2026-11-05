@@ -3,6 +3,7 @@ package forecastsvc
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/cylonchau/kube-res-foresight/pkg/model"
 	"github.com/stretchr/testify/assert"
@@ -63,8 +64,9 @@ func TestAModuleWithThePredictionOffOrInModeNoneRunsNoAlgorithmAndUsesTheDefault
 	}
 }
 
-// Fixed mode runs the one algorithm the module names and no other, and does not hold it to the score the dynamic mode asks for.
-func TestAFixedModuleRunsOnlyItsOwnAlgorithmEvenWhenThePlatformEnablesOthers(t *testing.T) {
+// Fixed mode: the named algorithm decides, whatever its score and whether or not a backtest promoted it. The enabled algorithms still
+// forecast and are scored beside it (so what it is worth can be read against them) but are never followed.
+func TestAFixedModuleIsFollowedWhileTheOtherAlgorithmsStillForecast(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 	f.bind(t, "cpu", "naive", nil, 0)
@@ -80,14 +82,14 @@ func TestAFixedModuleRunsOnlyItsOwnAlgorithmEvenWhenThePlatformEnablesOthers(t *
 	f.setPredict(t, true, model.PredictFixed, "ewma")
 	outcomes, err = f.predict(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, map[string]bool{"ewma": true}, algorithmsPredicted(outcomes))
+	assert.Equal(t, map[string]bool{"naive": true, "ewma": true}, algorithmsPredicted(outcomes), "fixed: the others forecast too")
 
-	// an algorithm the platform has switched off is still the module's own choice
+	// an algorithm the platform has switched off is still the module's own choice, and runs beside the enabled ones
 	require.NoError(t, f.db.Model(&model.AlgorithmConfig{}).Where("algorithm_id = ?", "theta").Update("enabled", false).Error)
 	f.setPredict(t, true, model.PredictFixed, "theta")
 	outcomes, err = f.predict(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, map[string]bool{"theta": true}, algorithmsPredicted(outcomes))
+	assert.Equal(t, map[string]bool{"naive": true, "ewma": true, "theta": true}, algorithmsPredicted(outcomes))
 
 	// a minimum score does not keep the named algorithm out: it was never scored against others
 	f.module.MinScore = 90
@@ -101,16 +103,60 @@ func TestAFixedModuleRunsOnlyItsOwnAlgorithmEvenWhenThePlatformEnablesOthers(t *
 	assert.Equal(t, "algorithm", rec.CPUSource)
 	require.NotNil(t, detail.Predict)
 	assert.Equal(t, model.PredictFixed, detail.Predict.Mode)
-	assert.Len(t, detail.Selection, 1, "only the named algorithm is in the running")
+	chosen := 0
+	for _, row := range detail.Selection {
+		if row.Chosen {
+			chosen++
+			assert.Equal(t, "naive", row.Algorithm)
+		} else {
+			assert.False(t, row.Eligible, "%s is drawn for comparison, it does not decide", row.Algorithm)
+			assert.Contains(t, row.Reason, "the module is fixed to naive")
+		}
+	}
+	assert.Equal(t, 1, chosen)
+	assert.Greater(t, len(detail.Selection), 1, "the others are listed beside the named one")
 
-	// the promotion rule still holds: an algorithm that is not a baseline is followed only after a backtest promoted it
+	// the administrator's choice needs no promoting backtest: an algorithm that is not a baseline is followed all the same
 	f.setPredict(t, true, model.PredictFixed, "ewma")
 	_, err = f.predict(ctx)
 	require.NoError(t, err)
 	rec, detail, err = f.svc.Recommend(ctx, f.module.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "fallback", rec.CPUSource)
-	assert.Contains(t, detail.Selection[0].Reason, "never backtested")
+	assert.Equal(t, "ewma", rec.Algorithm)
+	assert.Equal(t, "algorithm", rec.CPUSource)
+	assert.Empty(t, detail.Degraded)
+}
+
+// A fixed module does not fall back to the default the moment its algorithm has nothing usable: the last result is held while the
+// algorithm's newest forecast is within FixedGraceFactor x the TTL, then the default applies.
+func TestAFixedModuleHoldsTheLastResultOfItsAlgorithmForAWhile(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	f.bind(t, "cpu", "naive", nil, 0)
+	_, err := f.collect(ctx)
+	require.NoError(t, err)
+	f.setPredict(t, true, model.PredictFixed, "naive")
+	_, err = f.predict(ctx)
+	require.NoError(t, err)
+	first, _, err := f.svc.Recommend(ctx, f.module.ID)
+	require.NoError(t, err)
+	require.Equal(t, "algorithm", first.CPUSource)
+
+	// the forecast is now older than the TTL and its horizon is over: nothing usable, but within the grace
+	*f.clock = f.clock.Add(20 * time.Minute)
+	held, detail, err := f.svc.Recommend(ctx, f.module.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "algorithm", held.CPUSource, "the last result is held, not the default")
+	assert.Equal(t, first.CPUMilli, held.CPUMilli)
+	assert.Equal(t, DegradeHeldLast, detail.Degraded["cpu"])
+	assert.Contains(t, detail.DegradeNotes["cpu"], "held until")
+
+	// past the grace the default configuration applies
+	*f.clock = f.clock.Add(time.Hour)
+	late, detail, err := f.svc.Recommend(ctx, f.module.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "fallback", late.CPUSource)
+	assert.NotEqual(t, DegradeHeldLast, detail.Degraded["cpu"])
 }
 
 func TestTheFixedModeNeedsAnAlgorithmThatExists(t *testing.T) {

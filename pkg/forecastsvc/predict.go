@@ -334,7 +334,7 @@ func predictDetailOf(m *model.ForecastModule) *PredictDetail {
 	case m.PredictMode == model.PredictNone:
 		d.Note = "prediction mode none: the fixed default configuration applies"
 	case m.PredictMode == model.PredictFixed:
-		d.Note = "prediction mode fixed: only " + m.PredictAlgorithm + " forecasts for the module, whatever its score"
+		d.Note = "prediction mode fixed: " + m.PredictAlgorithm + " decides for the module, whatever its score; the enabled algorithms still forecast and are scored beside it, and are never followed"
 	default:
 		d.Note = "prediction mode dynamic: every enabled algorithm forecasts and they are followed by their scores"
 	}

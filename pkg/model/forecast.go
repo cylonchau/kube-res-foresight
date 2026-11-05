@@ -38,6 +38,16 @@ const (
 // PredictModes lists the prediction modes.
 var PredictModes = []string{PredictNone, PredictFixed, PredictDynamic}
 
+// AlgorithmDecides says whether the algorithm may decide the recommendation of the module: every one may in dynamic mode (by score),
+// only the named one in fixed mode. The others still forecast, are scored and drawn; they are never followed.
+func (m *ForecastModule) AlgorithmDecides(key string) bool {
+	return m.PredictMode != PredictFixed || key == m.PredictAlgorithm
+}
+
+// FixedGraceFactor is how many times the TTL the forecast of the algorithm a module is fixed to may be old before it counts as stale:
+// the administrator named it, so one failed cycle or a short gap in the data does not send the module back to the default.
+const FixedGraceFactor = 3
+
 // DefaultTimezone is the zone the weekly fixed periods of a module are read in when it names none: UTC+8, the zone of the platform.
 const DefaultTimezone = "Asia/Shanghai"
 

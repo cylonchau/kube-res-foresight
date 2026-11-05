@@ -357,7 +357,7 @@ func TestTrackingMeasuresTheMissAsAShareOfTheLoadAndItsDirection(t *testing.T) {
 
 	one := &instanceState{eligible: true, tracking: Tracking{Points: 10, WAPE: 2, Bias: -2}}
 	two := &instanceState{eligible: true, tracking: Tracking{Points: 10, WAPE: 0.1}}
-	assert.Equal(t, 1, dropLagging([]*instanceState{one, two}))
+	assert.Equal(t, 1, dropLagging([]*instanceState{one, two}, ""))
 	assert.True(t, one.lagging)
 	assert.Contains(t, one.reason, "below", "an algorithm under the load says so")
 	assert.False(t, two.lagging)

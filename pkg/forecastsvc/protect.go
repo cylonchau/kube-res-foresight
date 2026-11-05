@@ -25,6 +25,7 @@ const (
 	DegradeRecovering      = "recovering"           // healthy again, held back until RecoverCycles good cycles in a row
 	DegradeLowScore        = "low_score"            // every usable algorithm scored below the module minimum (or has no score yet)
 	DegradePredictTimeout  = "predict_timeout"      // the forecast did not finish in time
+	DegradeHeldLast        = "held_last"            // a fixed algorithm has nothing usable now: its last result is held for a while
 )
 
 // OOMFloor is what the OOM protection decided for a module.
