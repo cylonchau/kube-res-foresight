@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/cylonchau/kube-res-foresight/pkg/decision"
@@ -40,6 +41,11 @@ type NeedField struct {
 	Advice     string `json:"advice,omitempty"`
 	SuggestMin int64  `json:"suggest_min,omitempty"`
 	SuggestMax int64  `json:"suggest_max,omitempty"`
+	// Held is "ratio" or "hold" when the Pod spec in force was kept instead of the value computed (CPU and memory only): "ratio" = the computed
+	// value is within the change ratio of it, "hold" = it is a decrease that waits out the hold time. HeldLimit is that ratio (percent) or
+	// hold (hours). Then Recommended is what was kept, which can be far from Needed.
+	Held      string `json:"held,omitempty"`
+	HeldLimit int    `json:"held_limit,omitempty"`
 }
 
 // NeedTotals is the whole workload: the replicas times the CPU and the memory of one Pod, for the need, the recommendation and what runs.
@@ -138,9 +144,35 @@ func partsOf(plan *decision.ReplicaPlan, live *LiveDetail, algorithm, conservati
 		Algorithm: algorithm, Conservatism: conservatism}
 	parts.Margin = NeedMargin{Factor: 1 + best.Uncertainty, Source: best.UncertaintySource, Replicas: max(0, best.Needed-alone)}
 	if live != nil && live.OK {
-		parts.Current = &NeedPart{Resource: live.Resource, Unit: unitOfResource(live.Resource), Value: live.Value, Replicas: live.Need, At: live.At, Note: live.Note}
+		// The load now is read for the resource the forecast part is about: a memory figure beside a CPU forecast says nothing about either.
+		// Without a measurement of that resource, the one that needs the most replicas is shown and the note says so.
+		cur := &NeedPart{Resource: live.Resource, Unit: unitOfResource(live.Resource), Value: live.Value, Replicas: live.Need, At: live.At, Note: live.Note}
+		for _, r := range live.Resources {
+			if r.Resource == best.Metric {
+				cur = &NeedPart{Resource: r.Resource, Unit: unitOfResource(r.Resource), Value: r.Value, Replicas: r.Need, At: r.At}
+				break
+			}
+		}
+		if cur.Resource != best.Metric {
+			cur.Note = "other_resource"
+		}
+		parts.Current = cur
 	}
 	return parts
+}
+
+// heldOf tells whether the Pod spec of a field was kept (see pinOne) and by what: the change ratio, or the hold of a decrease.
+func heldOf(spec *ResourceSpecDetail, field string) (string, int) {
+	if spec == nil {
+		return "", 0
+	}
+	switch reason := spec.Reasons[field]; {
+	case strings.HasPrefix(reason, "kept: a decrease"):
+		return "hold", spec.HoldHours
+	case strings.HasPrefix(reason, "kept:"):
+		return "ratio", spec.ChangePercent
+	}
+	return "", 0
 }
 
 // bounded tells which bound moved a needed value to the recommended one.
@@ -179,6 +211,8 @@ func (s *Service) needOf(ctx context.Context, m *model.ForecastModule, bs boundS
 		Min: m.MinCPUMilli, Max: m.MaxCPUMilli}
 	n.Memory = NeedField{Needed: forecastNeed(free.MemoryBytes), Recommended: rec.MemoryBytes.Value, Current: m.PodMemoryRequestBytes,
 		Min: m.MinMemoryBytes, Max: m.MaxMemoryBytes}
+	n.CPU.Held, n.CPU.HeldLimit = heldOf(detail.ResourceSpec, "cpu")
+	n.Memory.Held, n.Memory.HeldLimit = heldOf(detail.ResourceSpec, "memory")
 	n.CPU.Bound = bounded(n.CPU.Needed, n.CPU.Recommended, n.CPU.Min, n.CPU.Max)
 	n.Memory.Bound = bounded(n.Memory.Needed, n.Memory.Recommended, n.Memory.Min, n.Memory.Max)
 

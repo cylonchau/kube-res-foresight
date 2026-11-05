@@ -109,6 +109,17 @@ type LiveDetail struct {
 	Value    float64    `json:"value,omitempty"`
 	At       *time.Time `json:"at,omitempty"`
 	Note     string     `json:"note,omitempty"`
+	// Resources is the same measurement for every resource that has one: Resource, Value, Need and At above are the one that needs the most
+	// replicas, but the load to read against a forecast is the one of the same resource.
+	Resources []LiveResource `json:"resources,omitempty"`
+}
+
+// LiveResource is the load of one resource measured now and the replicas it alone needs.
+type LiveResource struct {
+	Resource string     `json:"resource"`
+	Value    float64    `json:"value"`
+	Need     int        `json:"need"`
+	At       *time.Time `json:"at,omitempty"`
 }
 
 // OutcomeSummary counts the finished scale-ups the lead was learned from.
@@ -425,8 +436,9 @@ func (s *Service) liveNeed(ctx context.Context, step time.Duration, bs boundSet,
 		if need < 1 {
 			need = 1
 		}
+		at := time.Unix(last.TS, 0).UTC()
+		d.Resources = append(d.Resources, LiveResource{Resource: src.resource, Value: v, Need: need, At: &at})
 		if !d.OK || need > d.Need {
-			at := time.Unix(last.TS, 0).UTC()
 			d.OK, d.Need, d.Resource, d.Value, d.At = true, need, src.resource, v, &at
 		}
 	}

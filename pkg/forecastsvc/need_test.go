@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/cylonchau/kube-res-foresight/pkg/decision"
 	"github.com/cylonchau/kube-res-foresight/pkg/model"
 )
 
@@ -163,4 +164,52 @@ func TestAWorkloadTotalIsSpreadOverThePodsForTheirRequests(t *testing.T) {
 	require.NotNil(t, detail.Need)
 	assert.Less(t, detail.Need.CPU.Needed, int64(8000), "the need of one Pod is a share of the total as well")
 	assert.Empty(t, detail.Need.CPU.Bound, "so no maximum is what holds it")
+}
+
+// The load measured now is shown for the resource the forecast part is about: a memory figure beside a CPU forecast compares nothing.
+func TestTheLoadNowIsOfTheSameResourceAsTheForecast(t *testing.T) {
+	plan := &decision.ReplicaPlan{Constraints: []decision.ConstraintResult{
+		{Name: decision.ConstraintCPU, Metric: "cpu", Needed: 20, PeakDemand: 39, UnitCapacity: 2.8, Uncertainty: 0.4, UncertaintySource: decision.UncertaintyMeasured},
+		{Name: decision.ConstraintMemory, Metric: "memory", Needed: 12, PeakDemand: 5e10, UnitCapacity: 4.5e9},
+	}}
+	cpuAt := time.Now()
+	live := &LiveDetail{OK: true, Need: 12, Resource: "memory", Value: 5e10, Resources: []LiveResource{
+		{Resource: "memory", Value: 5e10, Need: 12},
+		{Resource: "cpu", Value: 25, Need: 9, At: &cpuAt},
+	}}
+
+	parts := partsOf(plan, live, "seasonal_profile", "")
+	require.NotNil(t, parts)
+	assert.Equal(t, "cpu", parts.Forecast.Resource)
+	require.NotNil(t, parts.Current)
+	assert.Equal(t, "cpu", parts.Current.Resource, "the load now is the CPU one, like the forecast")
+	assert.Equal(t, "cores", parts.Current.Unit)
+	assert.Equal(t, 9, parts.Current.Replicas)
+	assert.Empty(t, parts.Current.Note)
+
+	// with no measurement of that resource the one that is there is shown, and it says it is another resource
+	live.Resources = live.Resources[:1]
+	parts = partsOf(plan, live, "seasonal_profile", "")
+	require.NotNil(t, parts.Current)
+	assert.Equal(t, "memory", parts.Current.Resource)
+	assert.Equal(t, "other_resource", parts.Current.Note)
+}
+
+// A Pod spec that was kept (the forecast is within the change ratio, or a decrease waits out the hold) is told, so a recommendation far above
+// what the forecast needs is not read as a wrong value.
+func TestAKeptPodSpecIsToldInTheNeed(t *testing.T) {
+	spec := &ResourceSpecDetail{HoldHours: 24, ChangePercent: 20, Reasons: map[string]string{
+		"cpu":    "kept: a decrease of 61.0% waits out the 24h0m0s hold",
+		"memory": "kept: the forecast moved 5.0%, within 20%",
+	}}
+	held, limit := heldOf(spec, "cpu")
+	assert.Equal(t, "hold", held)
+	assert.Equal(t, 24, limit)
+	held, limit = heldOf(spec, "memory")
+	assert.Equal(t, "ratio", held)
+	assert.Equal(t, 20, limit)
+	held, _ = heldOf(&ResourceSpecDetail{Reasons: map[string]string{"cpu": "taken: the forecast moved 90.0%, more than 20%"}}, "cpu")
+	assert.Empty(t, held)
+	held, _ = heldOf(nil, "cpu")
+	assert.Empty(t, held)
 }
