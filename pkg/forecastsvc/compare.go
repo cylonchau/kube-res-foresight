@@ -357,25 +357,36 @@ func (s *Service) Compare(ctx context.Context, moduleID uint, o CompareOptions) 
 	return out, nil
 }
 
-// replicaCapacity returns how many Pods a forecast of the metric needs, from the module's own capacity statement: only
-// a CPU forecast of a module with a stated Pod CPU request and target utilization has one. The text says how it is
-// derived, or why it is not.
+// replicaCapacity returns how many Pods a forecast of the metric needs, from the module's own capacity statement: a CPU forecast of a
+// module with a stated Pod CPU request, or a memory forecast of one with a stated Pod memory request, and the target utilization. The text
+// says how it is derived, or why it is not. The forecast is the workload total, so the Pods are the total over what one Pod carries.
 func replicaCapacity(m *model.ForecastModule, metric string) (func(float64) int, string) {
-	if !strings.HasPrefix(metric, "cpu") {
-		return nil, "only a CPU forecast has a replica count"
-	}
-	if m.ReplicaMode != model.ReplicaModeDynamic || m.PodCPURequestMilli <= 0 {
-		return nil, "the module does not state the CPU capacity of one Pod (dynamic replicas with a Pod CPU request)"
-	}
+	var perPod float64
+	var what string
 	target := m.TargetUtilization
 	if target <= 0 || target > 1 {
 		target = 0.7
+	}
+	switch {
+	case strings.HasPrefix(metric, "cpu"):
+		if m.ReplicaMode != model.ReplicaModeDynamic || m.PodCPURequestMilli <= 0 {
+			return nil, "the module does not state the CPU capacity of one Pod (dynamic replicas with a Pod CPU request)"
+		}
+		perPod = float64(m.PodCPURequestMilli) / 1000 * target
+		what = fmt.Sprintf("Pod CPU request %dm", m.PodCPURequestMilli)
+	case strings.HasPrefix(metric, "memory"):
+		if m.ReplicaMode != model.ReplicaModeDynamic || m.PodMemoryRequestBytes <= 0 {
+			return nil, "the module does not state the memory capacity of one Pod (dynamic replicas with a Pod memory request)"
+		}
+		perPod = float64(m.PodMemoryRequestBytes) * target
+		what = fmt.Sprintf("Pod memory request %d bytes", m.PodMemoryRequestBytes)
+	default:
+		return nil, "only a CPU or memory forecast has a replica count"
 	}
 	headroom := m.HeadroomRatio
 	if headroom <= 0 {
 		headroom = 1
 	}
-	perPod := float64(m.PodCPURequestMilli) / 1000 * target
 	return func(v float64) int {
 			n := int(math.Ceil(v * headroom / perPod))
 			if n < m.MinReplicas {
@@ -388,6 +399,6 @@ func replicaCapacity(m *model.ForecastModule, metric string) (func(float64) int,
 				n = 1
 			}
 			return n
-		}, fmt.Sprintf("ceil(forecast x headroom %.2f / (Pod CPU request %dm x target utilization %.0f%%)), kept within the module replica bounds",
-			headroom, m.PodCPURequestMilli, target*100)
+		}, fmt.Sprintf("ceil(forecast x headroom %.2f / (%s x target utilization %.0f%%)), kept within the module replica bounds",
+			headroom, what, target*100)
 }
