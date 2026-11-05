@@ -704,3 +704,13 @@ all ten management pages and the shared product title. Screenshots were inspecte
 - 新增 .github/workflows/release.yml，v* 标签自动拉取独立前端仓库并执行类型检查、单元测试和生产编译；前端产物一次构建，供平台各目标统一嵌入。输出独立前端 tar.gz，以及 Linux/macOS/Windows × amd64/arm64 的平台与 Operator 包，汇总 SHA256SUMS 发布到 GitHub Release。
 - 手动分支运行仅上传 Actions Artifacts，标签运行发布对应 Release；前端提交可由输入或 FRONTEND_REF 指定，私有仓库使用只读 FRONTEND_READ_TOKEN，build-info.json 保留实际前后端提交。仅发布任务具有 contents:write。README 增加使用与独立前端部署说明。
 - 验证：actionlint、工作流 YAML/依赖/权限/六目标与 shell 语法检查通过；前端类型检查、21 项单元测试与生产构建通过；真实前端归档及版本信息验证通过；Linux amd64 平台与 Operator 编译通过，并确认平台二进制嵌入首页和版本信息。云端矩阵与实际 GitHub Release 上传尚未运行；未推送或创建标签。
+
+2026-11-05：固定算法、评分看上升窗口、需求对比与估算（A1–A4、B1–B4）、HTML 邮件
+- **A1 固定算法**：模块固定到某个算法时，所有已启用的算法加上指定的那个都运行、评分、出图，只有指定的决定推荐（`ForecastModule.AlgorithmDecides`；其他在选择表里不可选，原因写“模块固定为 X”）。指定的算法不再要求回测晋升，也不因「落后」被剔除，不套最低综合分。
+- **A2 不立刻回退**：固定算法暂时没有可用预测时，沿用上一次由算法给出的值（降级码 `held_last`，说明写到几点），期限是它自己最新预测之后 3 倍 TTL（`FixedGraceFactor`），之后才走兜底；预测过期的判定对它也放宽到 3 倍 TTL。只沿用上一次由算法给出的字段，不沿用固定时段、兜底或旁路的值。
+- **A3/A4 评分**：评分除了最近 6 个窗口，再从历史里选至多 6 个「峰值比前一个窗口高出至少 15%」的窗口回放评分（`eventWindows`，`DefaultEventWindows`、`EventMinRise`），评分明细标 `event`/`rise`，评分页显示其中几个是上升窗口。目的是让能预见日高峰的算法不被平稳时段里「沿用最后值」的 Naive 压住。合成日高峰负载的单测：只看最近窗口时 Naive 不输，加上上升窗口后季节算法胜。
+- **B1–B4 需求**：推荐详情带 `need`：副本数、单 Pod CPU、单 Pod 内存各有算法需求（套模块上下限之前）/推荐/当前/上下限，总 CPU、总内存，被下限抬高或被上限压低时给出 `lower_min`/`raise_max` 建议，近 24 小时 CPU 预测反推的建议上下限；前端 `need-compare.vue`，建议的上下限可一键写回模块。`GET /modules/:id/need`（`Service.Estimate`）只读、不存推荐，模块停用或只观察也能答，模块列表有「需求」按钮，所以配置前就能看需求。
+- **D1 HTML 邮件**：AI 任务的报告如果是 HTML 页面（含被 Markdown 代码块包着的），按 multipart/alternative 发出：纯文本在前、HTML 在后，保留标题、表格、颜色；`<script>`、`<iframe>` 等被丢掉。
+- **顺带**：删除指标时一并删除按它的 key 存放的预测、评估、回测、训练记录（key 会被下一个同类型指标重用，以前新指标会继承旧指标的预测）；折线图请求等待上限从 60 秒放宽到 6 分钟；推荐详情里的降级原因译成中文；历史页说明没有算法曲线的原因，副本数曲线缺失也给出原因。
+- **验证**：`go test ./pkg/...` 全部通过（新增：固定模式跟随与沿用上次结果、事件窗口选择与 Naive/季节算法对比、需求在上下限之前读取与观察模式估算、邮件 multipart 与 HTML 转换、删除指标清理）；前端 `vue-tsc`、lint 通过。**没有在浏览器里看过**需求对比表、模块「需求」按钮和评分页的新文字；没有用真实负载验证新评分是否改变你的 Naive 排名；没有真实发过 HTML 邮件。
+- **没做**：C1–C3 多集群（模块名全局唯一、没有集群维度，Operator 按命名空间加工作负载找模块，要改数据库和 Operator，需先定集群是一个标签还是独立记录）；需求里的建议上下限只有动态副本且写了 Pod CPU 请求的模块才有，且只按 CPU 预测反推（不含内存和吞吐约束）；评分的上升窗口权重与普通窗口相同，切换裕度未改；这些提交都没有推送，需要重新构建并部署。
