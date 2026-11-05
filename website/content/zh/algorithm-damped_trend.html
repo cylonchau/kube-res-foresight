@@ -1,0 +1,29 @@
+<p><a href="algorithms.html#parameter-reference">← 算法与模型总览</a></p>
+<h2 id="when-to-use">用途与适用负载</h2>
+<p>从最近一小段历史估计一个已经开始的缓慢爬升会走到哪里：水平取 EWMA，斜率取最近几步里各点两两斜率的中位数，斜率只延续越来越少的步数（阻尼），预测向一个上限收敛而不是无限外推。适合缓慢爬升、夹杂突然下降（重启、垃圾回收）的负载，例如内存和缓存；不需要周期，几十个样本就能开始工作。</p>
+<p>它看不到上涨开始之前的突发，也不认识日周期：没有先兆的突发要靠预留容量，周期性的高峰要看季节类算法（它们需要足够多个周期的历史才能参与决策）。它是候选算法，要在回测里胜过基线才会被采用。</p>
+<h2 id="history">历史数据与运行条件</h2>
+<p>至少 window_steps 个点（默认 12，最少 3）。</p>
+<p>输入应是等间隔、无缺口且数值有限的序列。输出保留输入指标单位，例如 CPU 核、内存字节或每秒请求数；采样步长决定步数对应的真实时间。最低样本数仅表示可运行，不代表预测可靠。</p>
+<p>此方法不使用协变量；分别预测各目标指标。</p>
+<h2 id="parameters">参数说明</h2>
+<p><small>窄屏可左右滑动参数表，查看完整说明。</small></p>
+<div class="parameter-reference"><table><thead><tr><th>参数 / 类型</th><th>默认值 / 范围 / 单位</th><th>含义与使用</th></tr></thead><tbody><tr><td><code>alpha</code><br><small>float</small></td><td>0.3<br><small>≥ 0.001; ≤ 1</small></td><td>水平的 EWMA 系数，越大越贴近最新值；取值 (0,1]。</td></tr><tr><td><code>window_steps</code><br><small>int</small></td><td>12<br><small>≥ 3; ≤ 1000; steps</small></td><td>斜率取自最近多少步。越短越快反映刚开始的上涨，也越容易受噪声影响；按采样步长换算成时间，例如 30 秒步长的 12 步是 6 分钟。也是算法的最少样本数。</td></tr><tr><td><code>damping</code><br><small>float</small></td><td>0.9<br><small>≥ 0.01; ≤ 1</small></td><td>阻尼系数 φ：斜率每往前一步乘一次 φ，预测最远走到水平 + 斜率·φ/(1−φ)。1 表示不阻尼（按直线外推，会一直上涨）；越小越快收敛。</td></tr><tr><td><code>down_share</code><br><small>float</small></td><td>0<br><small>≥ 0; ≤ 1</small></td><td>下降的斜率跟随多少：0 = 不跟随（预测按水平平推，给出容量要慢），1 = 完全跟随。何时降下来是决策的事，这里默认不催它。</td></tr><tr><td><code>cap_ratio</code><br><small>float</small></td><td>1.5<br><small>≥ 1; ≤ 10</small></td><td>预测不超过最近窗口最高值的这个倍数，防止很陡的短斜率被外推到很远。</td></tr></tbody></table></div>
+<h2 id="example">配置示例</h2>
+<p>在“算法管理”编辑参数。以下仅为参数对象，不是 config.yaml 全文；窗口按 30 秒采样，需按实际步长调整。未列出的可选参数使用上表默认值。</p>
+<pre data-language="JSON"><code>{
+  &quot;alpha&quot;: 0.3,
+  &quot;window_steps&quot;: 12,
+  &quot;damping&quot;: 0.9,
+  &quot;down_share&quot;: 0,
+  &quot;cap_ratio&quot;: 1.5
+}</code></pre>
+<h2 id="tuning">调参与取舍</h2>
+<p>窗口越短，越快跟上刚开始的上涨，也越容易被噪声带偏；中位数斜率对一两个孤立的尖峰或骤降不敏感，但窗口里大部分点都在波动时斜率就不可靠。阻尼越小预测收敛得越近，保守地低估持续上涨；阻尼接近 1 会走得很远，由 cap_ratio 兜住。down_share 保持 0 时，预测在负载下降时只是平推，什么时候缩容由决策里的保持时间和冷却决定。</p>
+<h2 id="shared-parameters">通用参数：变化重置与分位校准</h2>
+<div class="parameter-reference"><table><thead><tr><th>参数 / 类型</th><th>默认值 / 范围 / 单位</th><th>含义与使用</th></tr></thead><tbody><tr><td><code>reset_on_change</code><br><small>bool</small></td><td>false<br><small>无额外范围限制</small></td><td>水平突变后重置：检测历史里最后一次水平突变（发布、扩缩容、流量切换），只用突变之后的历史预测。关闭时用全部历史（现状）。突变之后至少要有 6 步才会被确认；突变后的历史不够算法所需时，取算法所需的最新一段。</td></tr><tr><td><code>change_threshold</code><br><small>float</small></td><td>8<br><small>≥ 3; ≤ 50</small></td><td>突变阈值：突变幅度（扣除前一段趋势后）超过噪声的多少倍才算，越大越不容易误报，噪声由相邻步变化的稳健标准差估计。仅 reset_on_change=true 时使用。</td></tr><tr><td><code>change_min_shift</code><br><small>float</small></td><td>0.2<br><small>≥ 0; ≤ 5</small></td><td>最小突变幅度：突变至少是水平的这个比例（0.2 = 20%），很干净的序列上的微小跳变不算。仅 reset_on_change=true 时使用。</td></tr><tr><td><code>quantile_level</code><br><small>float</small></td><td>0<br><small>≥ 0; ≤ 0.99</small></td><td>推荐分位数：0 = 点预测（现状）；0.9 等 = 预测「实际值有约 90% 的把握不超过」的线（保形预测：用本算法在这个负载最近几个窗口里的真实误差校准，需要更多历史和时间）。必须大于 0.5。</td></tr><tr><td><code>calibration_windows</code><br><small>int</small></td><td>8<br><small>≥ 3; ≤ 50</small></td><td>校准窗口数：用最近多少个历史窗口测本算法的误差；越多越稳，也越慢（每个窗口多跑一次预测）。仅推荐分位数大于 0 时使用。</td></tr></tbody></table></div>
+<p>quantile_level 是 0～1 的分位点，percentile 是 1～100 的百分数，二者不是同一参数。分位校准会额外运行历史预测；增加校准窗口前检查历史与运行预算，覆盖率是评估目标而非保证。</p>
+<h2 id="apply">在模块中使用</h2>
+<ol><li>保存参数，检查历史窗口、采样步长和预测范围。</li><li>打开模块的“启用预测”；固定算法与其他已启用的算法一起运行，只有指定的决定推荐，动态算法使用平台已启用的方法。</li><li>先运行滚动回测，通过版本晋升后才会采用；修改影响模型版本的参数后重新回测。</li><li>在仅观察或仅推荐下检查误差、峰值低估、耗时与采用原因，再分别授权准入和副本执行。</li></ol>
+<p>历史不足、参数不合法、运行超时或输出无效时，检查算法运行原因；没有合格预测时按模块的固定周期、兜底与保护规则处理。</p>
+<p><a href="evaluation.html">回测与效果评估</a> · <a href="recommendations.html">推荐与前瞻决策</a></p>

@@ -113,6 +113,13 @@ var builtinDefinitions = []Definition{
 		{OmitWhenDefault: true, Name: "span", Type: "int", Default: 0, Min: num(0), Max: num(100000), Unit: "steps", Description: "用跨度表示平滑：alpha = 2/(span+1)。0 表示不使用，改用 alpha；两者不能同时给出。"},
 		{OmitWhenDefault: true, Name: "bias_correction", Type: "bool", Default: false, Description: "偏差修正：按 (1-alpha)^龄 加权后除以权重和，而不是以第一个观测值起算，短历史上更不受首个值影响。"},
 	}},
+	{ID: "damped_trend", Category: "statistical", Description: "短窗口趋势加阻尼：水平取 EWMA，斜率取最近一小段里各点两两斜率的中位数（对孤立的尖峰和突然的下降不敏感），斜率只延续越来越少的步数（阻尼），预测向一个上限收敛而不是无限外推；下降的斜率默认不跟随，预测不超过最近窗口最高值的 cap_ratio 倍。适合缓慢爬升、夹杂突然下降的负载（内存、缓存）；不识别周期，也预见不了上涨开始之前的突发。", Params: []ParamSpec{
+		{Name: "alpha", Type: "float", Default: 0.3, Min: num(0.001), Max: num(1), Description: "水平的 EWMA 系数，越大越贴近最新值；取值 (0,1]。"},
+		{Name: "window_steps", Type: "int", Default: 12, Min: num(3), Max: num(1000), Unit: "steps", Description: "斜率取自最近多少步。越短越快反映刚开始的上涨，也越容易受噪声影响；按采样步长换算成时间，例如 30 秒步长的 12 步是 6 分钟。也是算法的最少样本数。"},
+		{Name: "damping", Type: "float", Default: 0.9, Min: num(0.01), Max: num(1), Description: "阻尼系数 φ：斜率每往前一步乘一次 φ，预测最远走到水平 + 斜率·φ/(1−φ)。1 表示不阻尼（按直线外推，会一直上涨）；越小越快收敛。"},
+		{Name: "down_share", Type: "float", Default: 0.0, Min: num(0), Max: num(1), Description: "下降的斜率跟随多少：0 = 不跟随（预测按水平平推，给出容量要慢），1 = 完全跟随。何时降下来是决策的事，这里默认不催它。"},
+		{Name: "cap_ratio", Type: "float", Default: 1.5, Min: num(1), Max: num(10), Description: "预测不超过最近窗口最高值的这个倍数，防止很陡的短斜率被外推到很远。"},
+	}},
 	{ID: "hist_percentile", Category: "statistical", Description: "衰减直方图百分位（Kubernetes VPA / Google Autopilot 的推荐器）：把历史按指数衰减加权，取加权百分位作为平推预测；不建模未来，对内存与 OOM 保护最稳妥。", Params: []ParamSpec{
 		{Name: "percentile", Type: "float", Default: 95.0, Min: num(1), Max: num(100), Description: "取第几百分位，如 95、99；越大越保守。"},
 		{Name: "half_life_hours", Type: "float", Default: 24.0, Min: num(0), Max: num(24 * 180), Unit: "hours", Description: "半衰期：这么久之前的样本只算一半权重；0 表示不衰减。CPU 常取 12–24 小时，内存常取 48 小时。"},
@@ -225,6 +232,7 @@ var notes = map[string][2]string{
 	"naive":            {"O(h) per forecast, no training", "1 observation"},
 	"seasonal_naive":   {"O(h) per forecast, no training", "season_length_steps observations (one full season)"},
 	"ewma":             {"O(n) per forecast, no training", "2 observations"},
+	"damped_trend":     {"O(n + window^2) per forecast, no training", "window_steps observations (at least 3)"},
 	"holt_winters":     {"O(n) per smoothing pass, a small grid search when coefficients are automatic", "2 x season_length_steps with a seasonal term, else 4 observations"},
 	"model_service":    {"one HTTP request per forecast (about 0.1 s on CPU for Chronos-2); a fine-tune is a background request of tens of seconds", "30 observations (the service has its own limit)"},
 	"theta":            {"O(n) per forecast (a small grid for the smoothing coefficient), no training", "2 x season_length_steps with a seasonal term, else 4 observations"},

@@ -16,6 +16,10 @@ var builtinBuilders = map[string]Builder{
 	"ewma": func(p map[string]any) (Model, error) {
 		return EWMA{Alpha: pFloat(p, "alpha"), Span: pInt(p, "span"), BiasCorrection: pBool(p, "bias_correction")}, nil
 	},
+	"damped_trend": func(p map[string]any) (Model, error) {
+		return DampedTrend{Alpha: pFloat(p, "alpha"), Window: pInt(p, "window_steps"), Damping: pFloat(p, "damping"),
+			DownShare: pFloat(p, "down_share"), CapRatio: pFloat(p, "cap_ratio")}, nil
+	},
 	"holt_winters": func(p map[string]any) (Model, error) {
 		return HoltWinters{Season: pInt(p, "season_length_steps"), Trend: pBool(p, "trend"), Damped: pBool(p, "damped"),
 			Alpha: pFloat(p, "alpha"), Beta: pFloat(p, "beta"), Gamma: pFloat(p, "gamma"),
