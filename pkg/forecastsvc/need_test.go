@@ -213,3 +213,25 @@ func TestAKeptPodSpecIsToldInTheNeed(t *testing.T) {
 	held, _ = heldOf(nil, "cpu")
 	assert.Empty(t, held)
 }
+
+// With a target utilization the Pod is sized for the load level the replica count assumed: its request is its share of the load divided by the
+// utilization. Without that the Pods came out smaller than the ones the replicas were counted for (a total of 46 cores shown as "2.89 cores per
+// Pod" beside "4 cores now", while the replicas were counted for 4 core Pods at 70%), which reads as "scale in" next to a scale out.
+func TestAPodIsSizedForTheTargetUtilizationOfTheReplicaCount(t *testing.T) {
+	in := decision.Inputs{}
+	in.Policy.HeadroomRatio = 1.2
+	in.CPUCores = []decision.Candidate{{Algorithm: "a", Peak: 40}}
+	in.MemoryBytes = []decision.Candidate{{Algorithm: "a", Peak: 8e10}}
+
+	plain := perPodInputs(in, true, true, 16, 0)
+	assert.InDelta(t, 40.0/16, plain.CPUCores[0].Peak, 1e-9)
+	assert.Equal(t, 1.2, plain.Policy.HeadroomRatio, "no target utilization: the headroom ratio stays")
+
+	sized := perPodInputs(in, true, false, 16, 0.7)
+	assert.InDelta(t, 40.0/(16*0.7), sized.CPUCores[0].Peak, 1e-9, "40 cores over 16 Pods that are meant to run at 70%")
+	assert.Equal(t, 1.0, sized.Policy.HeadroomRatio, "the utilization replaces the headroom ratio: one margin, not two")
+	assert.Equal(t, in.MemoryBytes[0].Peak, sized.MemoryBytes[0].Peak, "a resource that is not a workload total is left alone")
+	assert.Equal(t, 40.0, in.CPUCores[0].Peak, "the input given is not changed")
+
+	assert.Equal(t, 1.2, perPodInputs(in, true, true, 16, 1).Policy.HeadroomRatio, "a utilization of 1 sizes nothing")
+}

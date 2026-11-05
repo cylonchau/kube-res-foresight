@@ -620,6 +620,7 @@ func (s *Service) decide(ctx context.Context, moduleID uint, failed map[string]s
 	free.Policy.Bounds = decision.Bounds{}
 	recFree := decision.Decide(free)
 	var plan0 *decision.ReplicaPlan
+	var podUtil float64 // the target utilization the replica count was solved with (0 = none)
 
 	if m.HasReplicas() && m.ReplicaMode == model.ReplicaModeDynamic && top != nil && !held["replicas"] {
 		cache := uncertaintyCache{}
@@ -629,6 +630,7 @@ func (s *Service) decide(ctx context.Context, moduleID uint, failed map[string]s
 			return nil, nil, err
 		}
 		detail.Replica = replica
+		podUtil = solverCfg.TargetUtilization
 		if len(plans) > 0 {
 			first := plans[0]
 			plan0 = &first
@@ -718,7 +720,7 @@ func (s *Service) decide(ctx context.Context, moduleID uint, failed map[string]s
 			pods = int(rec.Replicas.Value)
 		}
 		if pods > 0 {
-			again := decision.Decide(perPodInputs(in, cpuTotal, memTotal, pods))
+			again := decision.Decide(perPodInputs(in, cpuTotal, memTotal, pods, podUtil))
 			if cpuTotal {
 				rec.CPUMilli = again.CPUMilli
 			}
@@ -730,7 +732,7 @@ func (s *Service) decide(ctx context.Context, moduleID uint, failed map[string]s
 			neededPods = pods
 		}
 		if neededPods > 0 {
-			againFree := decision.Decide(perPodInputs(free, cpuTotal, memTotal, neededPods))
+			againFree := decision.Decide(perPodInputs(free, cpuTotal, memTotal, neededPods, podUtil))
 			if cpuTotal {
 				recFree.CPUMilli = againFree.CPUMilli
 			}
@@ -1080,17 +1082,27 @@ func (s *Service) resourceIsWorkloadTotal(ctx context.Context, bs boundSet, reso
 }
 
 // perPodInputs is the decision input with the CPU and the memory of the sources that are workload totals spread over pods Pods: the value
-// of one Pod. The candidates are copied; the input given is not changed.
-func perPodInputs(in decision.Inputs, cpuTotal, memTotal bool, pods int) decision.Inputs {
+// of one Pod. When the replicas were solved with a target utilization (0 < util < 1) the Pod is sized for that load level, the same one the
+// replica count assumed: its request is its share of the load divided by util, and that replaces the headroom ratio (two margins on one figure
+// would size the Pod twice). Without it the headroom ratio applies as before. The candidates are copied; the input given is not changed.
+func perPodInputs(in decision.Inputs, cpuTotal, memTotal bool, pods int, util float64) decision.Inputs {
+	divisor := float64(pods)
+	sized := util > 0 && util < 1
+	if sized {
+		divisor *= util
+	}
 	share := func(list []decision.Candidate) []decision.Candidate {
 		out := make([]decision.Candidate, len(list))
 		for i, c := range list {
-			c.Peak /= float64(pods)
+			c.Peak /= divisor
 			out[i] = c
 		}
 		return out
 	}
 	out := in
+	if sized && (cpuTotal || memTotal) {
+		out.Policy.HeadroomRatio = 1
+	}
 	if cpuTotal {
 		out.CPUCores = share(in.CPUCores)
 	}

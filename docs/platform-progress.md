@@ -741,3 +741,10 @@ all ten management pages and the shared product title. Screenshots were inspecte
 - **做了**：① 时间段加 `replica_mode`：`fixed`（原行为）、`min`（至少）、`max`（至多），后两种让算法照常算，只是把副本数抬高/压低到时间段的数（`decision.ApplyReplicaWindows`，在上限处理之后、模块上下限之前；多个至少取最大、多个至多取最小、至少高于至多以至少为准；定值时间段和旁路不被改）。② 模块加 `fixed_replicas`（>0 时副本固定为它，来源 `fixed_count`，不由算法决定，度量压力不抬高；定值时间段更优先，至少/至多时间段仍在它之上生效）。③ 前端时间段编辑器重写：每周重复（选星期 + 每天起止时间）或一次，每段选方式、副本数、CPU、内存；模块表单加「固定副本数」；决策说明的时间段表带方式；`reason.ts` 翻译新原因，并能翻译用「; 」连起来的复合原因里的已知句子。新增列 `module_period.replica_mode`、`forecast_module.fixed_replicas` 由 AutoMigrate 补。
 - **验证**：`go test ./pkg/...` 全部通过，新增 `pkg/decision/replica_windows_test.go`（至少/至多/定值/跨午夜/多时间段/模块上下限/固定副本数优先级）和 `forecastsvc/replica_windows_test.go`（算法、时间段、固定副本数一起用的整条推荐）；前端 `vue-tsc` 只剩一个 node_modules 的已有错误，没有在浏览器里看，没有跑构建。
 - **没做/注意**：已有的每周重复时间段在页面上之前是「只列出」，现在可以编辑，保存会按页面上的值整条覆盖；页面上的「一次」用浏览器时区、「每周重复」用模块时区；时间段的 min/max 目前不影响 operator 的冷却和步长限制（那是执行层，还是按 `scale_up_max_step`）；预览（`preview.go`）和评分回放没有套用时间段。
+
+2026-11-06 续：单 Pod 的 CPU/内存按目标利用率定大小，OOM 保护写进需求表
+- **Bug**：副本数是按「模块填的 Pod 规格 × 目标利用率（如 4 核 × 0.7）」算的，可单 Pod 的 CPU/内存却是「总量 ÷ 副本数」，没有除利用率，所以出现「单 Pod 2.89 核、总 CPU 46 核，都比现在（4 核、48 核）小」却「副本 12→16 扩容」，读起来像该缩容。两个数用的不是同一个假设。
+- **修复**：副本数是动态求解的（目标利用率在 0~1 之间）时，每个 workload 总量来源的单 Pod 值 = 它分到的负载 ÷ 目标利用率，并取代余量系数（一个值不叠两层余量）；没有目标利用率或不是动态副本时仍按余量系数。`perPodInputs` 多了 `util` 参数。按这个口径，40 核总量、16 个副本、利用率 0.7 的单 Pod 约 3.6 核，与副本数是按 4 核 Pod 算的一致。
+- **需求表**：内存被 OOM 保护抬高时，推荐列带「OOM 保护」标签（`NeedField.Floored`）。上一版加的「规格保持」标签也在同一列。
+- **没查清**：截图里推荐 6 核 / 6442Mi（都是模块上限）、需求 2.89 核 / 3774Mi。原因要么是规格保持（降低要等规格稳定 24 小时），要么是内存的 OOM 保护；没有这次推荐的详情我无法确定，部署带标签的版本后需求表会直接写出来。
+- **验证**：`go test ./pkg/forecastsvc` 通过（新增 `TestAPodIsSizedForTheTargetUtilizationOfTheReplicaCount`）；没有在真实数据上看新的单 Pod 值；前端 `vue-tsc` 只剩 node_modules 的已有错误，没有在浏览器里看。

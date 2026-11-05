@@ -46,6 +46,8 @@ type NeedField struct {
 	// hold (hours). Then Recommended is what was kept, which can be far from Needed.
 	Held      string `json:"held,omitempty"`
 	HeldLimit int    `json:"held_limit,omitempty"`
+	// Floored is true when the OOM protection raised the value (memory only): a recent OOM kill sets a floor the memory is not given less than.
+	Floored bool `json:"floored,omitempty"`
 }
 
 // NeedTotals is the whole workload: the replicas times the CPU and the memory of one Pod, for the need, the recommendation and what runs.
@@ -211,6 +213,7 @@ func (s *Service) needOf(ctx context.Context, m *model.ForecastModule, bs boundS
 		Min: m.MinCPUMilli, Max: m.MaxCPUMilli}
 	n.Memory = NeedField{Needed: forecastNeed(free.MemoryBytes), Recommended: rec.MemoryBytes.Value, Current: m.PodMemoryRequestBytes,
 		Min: m.MinMemoryBytes, Max: m.MaxMemoryBytes}
+	n.Memory.Floored = rec.MemoryBytes.Floored
 	n.CPU.Held, n.CPU.HeldLimit = heldOf(detail.ResourceSpec, "cpu")
 	n.Memory.Held, n.Memory.HeldLimit = heldOf(detail.ResourceSpec, "memory")
 	n.CPU.Bound = bounded(n.CPU.Needed, n.CPU.Recommended, n.CPU.Min, n.CPU.Max)
