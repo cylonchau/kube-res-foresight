@@ -215,10 +215,16 @@ func (s *Service) scoreInstance(ctx context.Context, m *model.ForecastModule, in
 	}
 	horizon := time.Duration(inst.CoverMinutes()) * time.Minute // the stretch the algorithm forecasts is the stretch it is graded on
 
-	type windowSpec struct{ start, end time.Time }
 	var specs []windowSpec
 	for k := model.DefaultScoreWindows; k >= 1; k-- {
 		specs = append(specs, windowSpec{start: end.Add(-time.Duration(k) * horizon), end: end.Add(-time.Duration(k-1) * horizon)})
+	}
+	recent := len(specs)
+	// The newest windows are the calm of the last hour or two, where "the load stays as it is" is right and every algorithm looks alike. The
+	// windows in which the load rose most in the history are graded with them: whether an algorithm saw a peak coming is what its score is for.
+	if ref, ok := grids[referenceSource(sources)]; ok {
+		notBefore := ref.TimeAt(0).Add(time.Duration(stepsNeeded(inst, ref.Step)) * ref.Step)
+		specs = append(specs, eventWindows(ref, end, horizon, recent, model.DefaultEventWindows, model.EventMinRise, notBefore)...)
 	}
 
 	// actual: what the measured values of a window required
@@ -327,7 +333,7 @@ func (s *Service) scoreInstance(ctx context.Context, m *model.ForecastModule, in
 		}
 		res := multimetric.Compute(cfg, calcInputs(inst, predicted, why))
 		wins = append(wins, scoring.Window{Start: w.start, End: w.end, Predicted: outcomeOf(m, res, currentReplicas(w.start)),
-			Actual: actuals[i].outcome, OOM: actuals[i].oom, Complete: actuals[i].complete && !missing})
+			Actual: actuals[i].outcome, OOM: actuals[i].oom, Complete: actuals[i].complete && !missing, Event: w.event, Rise: w.rise})
 	}
 	result := scoring.Score(wins, scoring.WeightsWithOOM(m.OOMScoreWeight()))
 	// which sources each resource was read from: the basis a person checks the figures against
@@ -343,7 +349,7 @@ func (s *Service) scoreInstance(ctx context.Context, m *model.ForecastModule, in
 		return nil, fmt.Errorf("%w: no window of the recent history could be replayed with %s", ErrNothingToScore, inst.Key())
 	}
 	return &model.AlgorithmScore{ModuleID: m.ID, Algorithm: inst.Key(), AlgorithmID: inst.AlgorithmID, Score: result.Score,
-		Windows: result.Windows, Detail: marshal(result), WindowStart: specs[0].start, WindowEnd: specs[len(specs)-1].end}, nil
+		Windows: result.Windows, Detail: marshal(result), WindowStart: specs[0].start, WindowEnd: specs[recent-1].end}, nil
 }
 
 // replayForecast forecasts the window [start, end] of a source with the instance from the data before start.

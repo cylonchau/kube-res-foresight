@@ -108,6 +108,10 @@ var WorkloadKinds = []string{KindDeployment, KindStatefulSet, KindDaemonSet}
 // replaces the instance in use.
 const (
 	DefaultScoreWindows = 6
+	// DefaultEventWindows is how many of the windows in which the load rose most are graded besides the newest ones, and EventMinRise the
+	// rise (0.15 = the peak of the window is 15% above the peak of the one before) below which a window is not an event.
+	DefaultEventWindows = 6
+	EventMinRise        = 0.15
 	DefaultSwitchMargin = 2.0
 	DefaultSwitchCycles = 2
 )

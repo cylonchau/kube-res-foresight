@@ -37,6 +37,10 @@ type Window struct {
 	OOM int
 	// Complete is false when the window lacked data and the comparison is partial.
 	Complete bool
+	// Event marks a window picked because the load rose in it (Rise is by how much: 0.3 = the peak is 30% above the one before), not
+	// because it is one of the newest. It counts like any other window; the grade says how many of each there were.
+	Event bool
+	Rise  float64
 }
 
 // Weights set how much each part counts. A part with no data in any window is left out and the rest renormalised.
@@ -104,6 +108,9 @@ type WindowDetail struct {
 	Under    bool    `json:"under_provisioned"`
 	OOM      int     `json:"oom"`
 	Complete bool    `json:"complete"`
+	// Event and Rise say the window was picked for a rise of the load (see Window), not for being recent.
+	Event bool    `json:"event,omitempty"`
+	Rise  float64 `json:"rise,omitempty"`
 }
 
 // Figures holds a value per resource; a nil resource has no data in the window.
@@ -234,7 +241,7 @@ func Score(ws []Window, wt Weights) Result {
 			oom = w.OOM // an OOM kill is a memory event: a window short of CPU or replicas does not own it
 		}
 		res.Details = append(res.Details, WindowDetail{Start: w.Start, End: w.End, Predicted: figuresOf(w.Predicted), Actual: figuresOf(w.Actual),
-			Error: errorFigures(w.Predicted, w.Actual, wt.Under), Under: under, OOM: oom, Complete: w.Complete})
+			Error: errorFigures(w.Predicted, w.Actual, wt.Under), Under: under, OOM: oom, Complete: w.Complete, Event: w.Event, Rise: w.Rise})
 		replicaSum += replicaAccuracy(w.Predicted.Replicas, w.Actual.Replicas, wt.Under)
 		if w.Predicted.Replicas == w.Actual.Replicas {
 			res.ReplicaExact++
