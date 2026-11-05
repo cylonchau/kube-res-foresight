@@ -186,6 +186,8 @@ type Compare struct {
 	To            time.Time `json:"to"`
 	// ActualError is why the actual values are missing when Prometheus could not be read; the forecasts are still served.
 	ActualError string `json:"actual_error,omitempty"`
+	// ActualReplicasError is why there is no actual replica curve: the module has no replica metric, or it could not be read.
+	ActualReplicasError string `json:"actual_replicas_error,omitempty"`
 }
 
 // CompareOptions selects what Compare returns.
@@ -217,8 +219,17 @@ func (s *Service) Compare(ctx context.Context, moduleID uint, o CompareOptions) 
 	default:
 		out.ActualError = aerr.Error()
 	}
-	if rs := m.FirstOfKind("replicas"); rs != nil && rs.Key != o.Metric {
-		if live, err := s.LiveHistory(ctx, moduleID, rs.Key, o.From, o.To, o.MaxPoints); err == nil {
+	if rs := m.FirstOfKind("replicas"); rs == nil {
+		out.ActualReplicasError = "the module has no enabled replicas metric, so there is no actual replica count to draw"
+	} else if rs.Key != o.Metric {
+		live, err := s.LiveHistory(ctx, moduleID, rs.Key, o.From, o.To, o.MaxPoints)
+		switch {
+		case err != nil:
+			// the curve is left out, and the page says why instead of silently dropping it
+			out.ActualReplicasError = err.Error()
+		case live.Missing:
+			out.ActualReplicasError = "Prometheus returned no replica sample in the range"
+		default:
 			out.ActualReplicas = live
 			if out.BucketSeconds == 0 {
 				out.BucketSeconds = live.BucketSeconds
