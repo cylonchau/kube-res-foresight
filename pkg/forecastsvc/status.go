@@ -23,6 +23,9 @@ type AlgorithmStatus struct {
 	Status      string     `json:"status"`
 	Reason      string     `json:"reason"`
 	LastRunAt   *time.Time `json:"last_run_at,omitempty"`
+	// Conservatism is "" for an algorithm that forecasts the expected load and, for one whose forecast is deliberately high ("P90",
+	// "peak envelope"), what that is: its curve is a level that is enough most of the time, not what is expected to be used next.
+	Conservatism string `json:"conservatism,omitempty"`
 }
 
 // AlgorithmStatus explains the latest recorded run of an algorithm for a module metric. has says whether results exist

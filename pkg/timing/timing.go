@@ -70,6 +70,11 @@ var (
 		Remark: "With dynamic replica calculation, the forecast peak is raised by how far the algorithm fell short of the real peak lately; this is the percentile of those shortfalls that is used. A higher one keeps more capacity in reserve (1-99)."}
 )
 
+// MinSeasons is a count, not a time, kept with the limits because it is read and bounded the same way (see Service.Count).
+var MinSeasons = Param{Key: "forecast.min_seasons", Default: 3, Min: 1, Max: 30,
+	Name:   "Seasons of History An Algorithm That Learns A Cycle Needs",
+	Remark: "A seasonal algorithm (seasonal naive, seasonal profile, MSTL, Holt-Winters or Theta with a season) learns the shape of a day or a week from the history. It may decide only when the history holds at least this many repeats of the longest cycle it learns (3 = three days for a daily cycle, three weeks for a weekly one): a shape learned from one day is that day, and a peak it foresees may be nothing but that day's incident. An algorithm a module is fixed to is exempt (1-30)."}
+
 // Operator limits (read by the operator from the platform).
 var (
 	OperatorRequestTimeout = Param{Key: "operator.request_timeout_seconds", Default: 10, Min: 1, Max: 120,
@@ -110,7 +115,7 @@ var NotifyEmailTimeout = Param{Key: "notify.email.timeout_seconds", Default: 30,
 func All() []Param {
 	return []Param{DecisionRefreshWait, DecisionForecastMaxAge, CapacitySLOTarget, RefreshBudget, PipelineTimeout, PreviewBudget, FineTuneBudget, TrainBudget,
 		OperatorRequestTimeout, OperatorSyncInterval, OperatorDecisionCacheTTL, OperatorModuleCacheTTL, OperatorRecoverAnswers, OperatorSettingsRefresh,
-		OperatorDegradeHold, OperatorDegradeCooldown, OperatorRecoverStable, NotifyEmailTimeout, LeadPercentile, JudgePercentile, UncertaintyPercentile}
+		OperatorDegradeHold, OperatorDegradeCooldown, OperatorRecoverStable, NotifyEmailTimeout, LeadPercentile, JudgePercentile, UncertaintyPercentile, MinSeasons}
 }
 
 // Clamp brings a number into the range of the limit.

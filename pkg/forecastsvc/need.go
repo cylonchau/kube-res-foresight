@@ -2,10 +2,12 @@ package forecastsvc
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"time"
 
 	"github.com/cylonchau/kube-res-foresight/pkg/decision"
+	"github.com/cylonchau/kube-res-foresight/pkg/forecast"
 	"github.com/cylonchau/kube-res-foresight/pkg/model"
 )
 
@@ -63,6 +65,82 @@ type NeedDetail struct {
 	Total    NeedTotals `json:"total"`
 	// RangeNote says how the suggested bounds were found, or why there are none.
 	RangeNote string `json:"range_note,omitempty"`
+	// Parts takes the replica need apart into the load measured now, the load forecast and the margin put on it, which are three different
+	// things and are never shown as one number. Nil when the replicas were not solved from a forecast.
+	Parts *NeedParts `json:"parts,omitempty"`
+}
+
+// NeedPart is a load figure: what it is in (Unit), its value and the replicas it alone would need.
+type NeedPart struct {
+	Resource string     `json:"resource"`
+	Unit     string     `json:"unit"`
+	Value    float64    `json:"value"`
+	Replicas int        `json:"replicas"`
+	At       *time.Time `json:"at,omitempty"`
+	Note     string     `json:"note,omitempty"`
+}
+
+// NeedForecast is the forecast part: the peak of the forecast and what the figure is. Conservatism is "" for an expected load and, for an
+// algorithm whose forecast is deliberately high ("P90", "peak envelope"), what that is: it is a level that is enough most of the time, not
+// "what will be used next", and a high percentile does not make a memory limit safe either.
+type NeedForecast struct {
+	NeedPart
+	Algorithm    string `json:"algorithm"`
+	Conservatism string `json:"conservatism,omitempty"`
+}
+
+// NeedMargin is what is added on top of the forecast: the factor (1 + the expected shortfall of the forecast at its peak) and where that
+// came from, and the replicas it adds.
+type NeedMargin struct {
+	Factor   float64 `json:"factor"`
+	Source   string  `json:"source"`
+	Replicas int     `json:"replicas"`
+}
+
+// NeedParts is the replica need in three parts. PerPod is what one Pod carries of the resource, at the target utilization.
+type NeedParts struct {
+	// Current is the load measured now (the newest samples), nil when there is none recent enough.
+	Current  *NeedPart    `json:"current,omitempty"`
+	Forecast NeedForecast `json:"forecast"`
+	Margin   NeedMargin   `json:"margin"`
+	PerPod   float64      `json:"per_pod"`
+}
+
+// unitOfResource is what the load of a resource is measured in.
+func unitOfResource(resource string) string {
+	switch resource {
+	case "cpu":
+		return "cores"
+	case "memory":
+		return "bytes"
+	}
+	return "rps"
+}
+
+// partsOf takes the replica plan apart: the constraint that decided gives the peak of the forecast, the capacity of one Pod and the margin;
+// the live load is the measured one. The margin is what the factor adds over the forecast peak alone.
+func partsOf(plan *decision.ReplicaPlan, live *LiveDetail, algorithm, conservatism string) *NeedParts {
+	if plan == nil || len(plan.Constraints) == 0 {
+		return nil
+	}
+	best := plan.Constraints[0]
+	for _, c := range plan.Constraints[1:] {
+		if c.Needed > best.Needed {
+			best = c
+		}
+	}
+	if best.UnitCapacity <= 0 || best.PeakDemand <= 0 {
+		return nil // the pressure and heap constraints are not a forecast load over a capacity
+	}
+	alone := int(math.Max(1, math.Ceil(best.PeakDemand/best.UnitCapacity)))
+	parts := &NeedParts{PerPod: best.UnitCapacity}
+	parts.Forecast = NeedForecast{NeedPart: NeedPart{Resource: best.Metric, Unit: unitOfResource(best.Metric), Value: best.PeakDemand, Replicas: alone},
+		Algorithm: algorithm, Conservatism: conservatism}
+	parts.Margin = NeedMargin{Factor: 1 + best.Uncertainty, Source: best.UncertaintySource, Replicas: max(0, best.Needed-alone)}
+	if live != nil && live.OK {
+		parts.Current = &NeedPart{Resource: live.Resource, Unit: unitOfResource(live.Resource), Value: live.Value, Replicas: live.Need, At: live.At, Note: live.Note}
+	}
+	return parts
 }
 
 // bounded tells which bound moved a needed value to the recommended one.
@@ -90,8 +168,13 @@ func forecastNeed(f decision.Field) int64 {
 // maximum of the module; plan is the replica plan of the algorithm that decided (nil when the replicas were not solved); current is the
 // replica count that runs now (0 = unknown) and maxReplicas the ceiling in force.
 func (s *Service) needOf(ctx context.Context, m *model.ForecastModule, bs boundSet, detail *RecommendDetail, rec, free decision.Recommendation,
-	plan *decision.ReplicaPlan, current, maxReplicas int, now time.Time) *NeedDetail {
+	plan *decision.ReplicaPlan, current, maxReplicas int, conservatism string, now time.Time) *NeedDetail {
 	n := &NeedDetail{Algorithm: detail.Algorithm, Basis: "forecast"}
+	var live *LiveDetail
+	if detail.Ahead != nil {
+		live = &detail.Ahead.Live
+	}
+	n.Parts = partsOf(plan, live, detail.Algorithm, conservatism)
 	n.CPU = NeedField{Needed: forecastNeed(free.CPUMilli), Recommended: rec.CPUMilli.Value, Current: m.PodCPURequestMilli,
 		Min: m.MinCPUMilli, Max: m.MaxCPUMilli}
 	n.Memory = NeedField{Needed: forecastNeed(free.MemoryBytes), Recommended: rec.MemoryBytes.Value, Current: m.PodMemoryRequestBytes,
@@ -176,4 +259,37 @@ func (s *Service) replicaRange(ctx context.Context, m *model.ForecastModule, bs 
 		lo, hi = min(lo, n), max(hi, n)
 	}
 	return int64(lo), int64(hi), "the fewest and the most Pods the CPU forecasts of " + algorithm + " needed over the last 24 hours, at the Pod CPU request and the target utilization of the module"
+}
+
+// seasonCoverage is "" when the history holds enough repeats of the cycle the algorithm learns (or it learns none), else why it may not
+// decide yet: how much history there is, in repeats, against what is asked (timing.MinSeasons). The history is the stored span of the
+// source, cut to the training window of the module when it sets one, because the algorithm sees no more than that.
+func (s *Service) seasonCoverage(ctx context.Context, inst *model.AlgorithmRun, bm *boundModel, key string, minSeasons int) string {
+	if minSeasons <= 0 {
+		return ""
+	}
+	series, err := s.Samples.Series(ctx, inst.ID, key)
+	if err != nil {
+		return ""
+	}
+	step := time.Duration(series.StepSeconds) * time.Second
+	span := forecast.SeasonSpanOf(bm.model, step)
+	if span <= 0 {
+		return ""
+	}
+	first, ok1, err1 := s.Samples.Earliest(ctx, series.ID)
+	last, ok2, err2 := s.Samples.Latest(ctx, series.ID)
+	if err1 != nil || err2 != nil || !ok1 || !ok2 {
+		return ""
+	}
+	have := last.Sub(first)
+	if inst.WindowSteps > 0 && time.Duration(inst.WindowSteps)*step < have {
+		have = time.Duration(inst.WindowSteps) * step
+	}
+	need := time.Duration(minSeasons) * span
+	if have >= need {
+		return ""
+	}
+	return fmt.Sprintf("not eligible: its cycle is %s and the history holds %.1f of them (%s), %d are needed (%s) before it may decide",
+		span.Round(time.Minute), float64(have)/float64(span), have.Round(time.Minute), minSeasons, need.Round(time.Minute))
 }

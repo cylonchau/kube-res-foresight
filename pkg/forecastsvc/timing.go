@@ -35,6 +35,18 @@ func (s *Service) Percentile(ctx context.Context, p timing.Param) float64 {
 	return float64(p.Parse(raw)) / 100
 }
 
+// Count is a count parameter (see timing.MinSeasons): the default when it is missing or unreadable, else the number kept in its range.
+func (s *Service) Count(ctx context.Context, p timing.Param) int {
+	if s.Config == nil {
+		return p.Default
+	}
+	raw, err := s.Config.GetValueOrDefault(ctx, p.Key, "")
+	if err != nil {
+		return p.Default
+	}
+	return p.Parse(raw)
+}
+
 // RefreshWait is how long a request of the operator waits for a refresh of the recommendation. It is the parameter, but always shorter
 // than the time the operator waits for its own request (the platform asks the same parameters the operator is given): an answer that
 // would come after the operator hung up is worth nothing.

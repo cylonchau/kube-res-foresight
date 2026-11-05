@@ -79,3 +79,47 @@ func TestTheNeedOfAModuleInObserveModeIsAnsweredAndNothingIsStored(t *testing.T)
 	require.NoError(t, f.db.Model(&model.Recommendation{}).Count(&after).Error)
 	assert.Equal(t, before, after)
 }
+
+// The need is told in three parts that are not one number: the load measured now, the load forecast, and the margin put on the forecast. A
+// forecast that is deliberately high (a percentile) says so, because it is a level that is enough most of the time, not what is expected.
+func TestTheNeedIsToldAsTheLoadNowTheForecastAndTheMargin(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	f.bind(t, "rps", "naive", nil, 0)
+	_, err := f.collect(ctx)
+	require.NoError(t, err)
+	_, err = f.predict(ctx)
+	require.NoError(t, err)
+	f.dynamic(t, func(m *model.ForecastModule) { m.MinReplicas, m.MaxReplicas = 1, 30 })
+
+	_, detail, err := f.svc.Recommend(ctx, f.module.ID)
+	require.NoError(t, err)
+	parts := detail.Need.Parts
+	require.NotNil(t, parts)
+	assert.Equal(t, "rps", parts.Forecast.Resource)
+	assert.Equal(t, "rps", parts.Forecast.Unit)
+	assert.Greater(t, parts.Forecast.Value, 0.0)
+	assert.Greater(t, parts.PerPod, 0.0)
+	assert.GreaterOrEqual(t, parts.Margin.Factor, 1.0)
+	assert.EqualValues(t, parts.Forecast.Replicas+parts.Margin.Replicas, detail.Need.Replicas.Needed, "the forecast alone plus the margin is the need")
+	assert.Empty(t, parts.Forecast.Conservatism, "naive forecasts the last value: it is the expected load")
+	if parts.Current != nil {
+		assert.Greater(t, parts.Current.Replicas, 0)
+	}
+}
+
+func TestAPercentileForecastIsSaidToBeConservative(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	f.bind(t, "rps", "hist_percentile", nil, 0)
+	_, err := f.collect(ctx)
+	require.NoError(t, err)
+	f.setPredict(t, true, model.PredictFixed, "hist_percentile") // not a baseline: only the administrator's choice decides without a promoting backtest
+	_, err = f.predict(ctx)
+	require.NoError(t, err)
+	f.dynamic(t, func(m *model.ForecastModule) { m.MinReplicas, m.MaxReplicas = 1, 30 })
+	_, detail, err := f.svc.Recommend(ctx, f.module.ID)
+	require.NoError(t, err)
+	require.NotNil(t, detail.Need.Parts)
+	assert.Regexp(t, `^P\d`, detail.Need.Parts.Forecast.Conservatism)
+}

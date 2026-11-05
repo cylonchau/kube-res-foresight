@@ -9,8 +9,10 @@ import (
 	"time"
 
 	"github.com/cylonchau/kube-res-foresight/pkg/decision"
+	"github.com/cylonchau/kube-res-foresight/pkg/forecast"
 	"github.com/cylonchau/kube-res-foresight/pkg/model"
 	"github.com/cylonchau/kube-res-foresight/pkg/multimetric"
+	"github.com/cylonchau/kube-res-foresight/pkg/timing"
 )
 
 // Considered records what happened to one algorithm instance on one source while a decision was made, eligible or not.
@@ -197,7 +199,7 @@ func (st *instanceState) weight() float64 {
 // instance is a baseline or its latest backtest on that source was promoted for the same parameters and version, and
 // its newest forecast is still fresh (made within the TTL) and covers a step in the future. The algorithm a module is fixed to (fixed) is
 // the administrator's choice: it needs no promoting backtest, and its forecast may be FixedGraceFactor times as old before it is stale.
-func (s *Service) evalInstance(ctx context.Context, inst *model.AlgorithmRun, now time.Time, ttl time.Duration, fixed bool) (*instanceState, []Considered, error) {
+func (s *Service) evalInstance(ctx context.Context, inst *model.AlgorithmRun, now time.Time, ttl time.Duration, fixed bool, minSeasons int) (*instanceState, []Considered, error) {
 	st := &instanceState{inst: inst, forecast: map[string]sourceForecast{}}
 	var considered []Considered
 	bm, err := bind(inst)
@@ -212,6 +214,13 @@ func (s *Service) evalInstance(ctx context.Context, inst *model.AlgorithmRun, no
 			c.Reason = reason
 			considered = append(considered, c)
 			st.forecast[key] = sourceForecast{reason: reason}
+		}
+		// an algorithm that learns a cycle decides only on a history that holds enough repeats of it (the administrator's own choice is exempt)
+		if !fixed {
+			if why := s.seasonCoverage(ctx, inst, bm, key, minSeasons); why != "" {
+				fail(why)
+				continue
+			}
 		}
 		if !bm.def.Baseline && !fixed {
 			run, err := s.Predictions.LatestBacktest(ctx, inst.ID, key, inst.Key())
@@ -432,9 +441,10 @@ func (s *Service) decide(ctx context.Context, moduleID uint, failed map[string]s
 	if err != nil {
 		return nil, nil, err
 	}
+	minSeasons := s.Count(ctx, timing.MinSeasons)
 	var states []*instanceState
 	for _, b := range bs {
-		st, considered, err := s.evalInstance(ctx, b, now, ttl, m.PredictMode == model.PredictFixed && b.Key() == m.PredictAlgorithm)
+		st, considered, err := s.evalInstance(ctx, b, now, ttl, m.PredictMode == model.PredictFixed && b.Key() == m.PredictAlgorithm, minSeasons)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -713,7 +723,11 @@ func (s *Service) decide(ctx context.Context, moduleID uint, failed map[string]s
 		detail.Degraded[field], detail.DegradeNotes[field] = DegradeHeldLast, note
 	}
 	detail.CPU, detail.Memory, detail.Replicas, detail.GPU = rec.CPUMilli, rec.MemoryBytes, rec.Replicas, rec.GPU
-	detail.Need = s.needOf(ctx, m, bs, detail, rec, recFree, plan0, current, effectiveMax, now)
+	conservatism := ""
+	if top != nil && top.st.bm != nil {
+		conservatism = forecast.ConservatismOf(top.st.bm.model)
+	}
+	detail.Need = s.needOf(ctx, m, bs, detail, rec, recFree, plan0, current, effectiveMax, conservatism, now)
 	detail.Policy = map[string]any{"headroom_ratio": m.HeadroomRatio, "pod_capacity_rps": m.PodCapacityRPS, "ttl_seconds": m.TTLSeconds,
 		"timezone": m.Timezone, "min_score": m.MinScore}
 

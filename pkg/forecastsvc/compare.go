@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/cylonchau/kube-res-foresight/pkg/collector"
+	"github.com/cylonchau/kube-res-foresight/pkg/forecast"
 	"github.com/cylonchau/kube-res-foresight/pkg/model"
 )
 
@@ -344,6 +345,9 @@ func (s *Service) Compare(ctx context.Context, moduleID uint, o CompareOptions) 
 		for _, inst := range runs {
 			_, has := by[inst.Key()]
 			st := s.AlgorithmStatus(ctx, moduleID, o.Metric, inst.Key(), has, noForecastsInRange(o.From, o.To))
+			if bm, err := bind(inst); err == nil {
+				st.Conservatism = forecast.ConservatismOf(bm.model)
+			}
 			if note != "" && !has {
 				st.Status, st.Reason = StatusNotRun, note
 			}
