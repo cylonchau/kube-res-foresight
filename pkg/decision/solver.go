@@ -101,7 +101,10 @@ type ReplicaPlan struct {
 	Algorithm string `json:"algorithm"`
 	Replicas  int    `json:"replicas"`
 	// Binding is the constraint that decided: the largest of the constraints, or bounds / hold.
-	Binding        string             `json:"binding"`
+	Binding string `json:"binding"`
+	// Needed is what the constraints ask for before the module's minimum and maximum are applied (and before a decline is held at the current
+	// count): Replicas is what the plan recommends after them.
+	Needed         int                `json:"needed"`
 	Constraints    []ConstraintResult `json:"constraints"`
 	Skipped        []string           `json:"skipped,omitempty"`
 	CapacitySource string             `json:"capacity_source"`
@@ -268,7 +271,7 @@ func solveFor(cfg SolverConfig, in ReplicaInputs, algo string) (ReplicaPlan, boo
 			best = jvm
 		}
 	}
-	plan.Replicas, plan.Binding = best.Needed, best.Name
+	plan.Replicas, plan.Binding, plan.Needed = best.Needed, best.Name, best.Needed
 	plan.Reason = fmt.Sprintf("%s constraint decides: %s = %d", best.Name, best.Formula, best.Needed)
 	if lo := cfg.Bounds.MinReplicas; lo > 0 && plan.Replicas < lo {
 		plan.Replicas, plan.Binding, plan.Clamped = lo, ConstraintBounds, true

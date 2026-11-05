@@ -189,6 +189,7 @@ func RegisteredRouter(e *gin.Engine) {
 	moduleGroup.PUT("/:id/overrides/:pid", forecastHandler.UpdatePeriod)
 	moduleGroup.DELETE("/:id/overrides/:pid", forecastHandler.DeletePeriod)
 	moduleGroup.POST("/:id/recommend", forecastHandler.Recommend)
+	moduleGroup.GET("/:id/need", forecastHandler.ModuleNeed)
 	moduleGroup.POST("/:id/score", centerHandler.RunScore)
 	moduleGroup.GET("/:id/ranking", centerHandler.Ranking)
 	moduleGroup.GET("/:id/leaderboard", forecastHandler.Leaderboard)

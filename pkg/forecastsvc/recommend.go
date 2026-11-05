@@ -124,6 +124,8 @@ type RecommendDetail struct {
 	DegradeNotes map[string]string `json:"degrade_notes,omitempty"`
 	// ResourceSpec says how the Pod CPU and memory of the snapshot were decided: rounded, and kept or changed.
 	ResourceSpec *ResourceSpecDetail `json:"resource_spec,omitempty"`
+	// Need is what the forecast asks for before the module's bounds, next to what was recommended and what runs now.
+	Need *NeedDetail `json:"need,omitempty"`
 	// OOM and Heap say what the OOM protection and the JVM heap rule saw, whether or not they acted.
 	OOM  *OOMFloor     `json:"oom,omitempty"`
 	Heap *HeapPressure `json:"heap,omitempty"`
@@ -351,14 +353,27 @@ func (s *Service) Recommend(ctx context.Context, moduleID uint) (*model.Recommen
 // this cycle to why, so the fallback reason is the real one rather than "no forecast". advance records the choice
 // of the algorithm in the run state (the scheduled pipeline does; a manual request only looks).
 func (s *Service) recommend(ctx context.Context, moduleID uint, failed map[string]string, advance bool) (*model.Recommendation, *RecommendDetail, error) {
+	return s.decide(ctx, moduleID, failed, advance, false)
+}
+
+// Estimate is what the forecasts say the module needs now, without anything being stored or applied: the same decision as Recommend,
+// read-only, and for a module that is not allowed to produce recommendations yet (disabled, or in observe mode), so the need of a module can
+// be read before it is configured to act. The row is not stored (it has no ID or version).
+func (s *Service) Estimate(ctx context.Context, moduleID uint) (*model.Recommendation, *RecommendDetail, error) {
+	return s.decide(ctx, moduleID, nil, false, true)
+}
+
+// decide is the decision behind a recommendation. dry reads without storing: no recommendation is saved, no state is advanced, and a
+// disabled module or one in observe mode is answered too (see Estimate).
+func (s *Service) decide(ctx context.Context, moduleID uint, failed map[string]string, advance, dry bool) (*model.Recommendation, *RecommendDetail, error) {
 	m, err := s.Modules.Get(ctx, moduleID)
 	if err != nil {
 		return nil, nil, err
 	}
-	if !m.Enabled {
+	if !dry && !m.Enabled {
 		return nil, nil, fmt.Errorf("%w: module is disabled", ErrNotConfigured)
 	}
-	if m.Mode == model.ModeObserve {
+	if !dry && m.Mode == model.ModeObserve {
 		return nil, nil, ErrObserveOnly
 	}
 	now := s.now()
@@ -586,6 +601,11 @@ func (s *Service) recommend(ctx context.Context, moduleID uint, failed map[strin
 	}
 	detail.Heap = &heap
 	rec := decision.Decide(in)
+	// the same decision without the module's minimum and maximum: what the forecast asks for, to read next to what was recommended
+	free := in
+	free.Policy.Bounds = decision.Bounds{}
+	recFree := decision.Decide(free)
+	var plan0 *decision.ReplicaPlan
 
 	if m.HasReplicas() && m.ReplicaMode == model.ReplicaModeDynamic && top != nil && !held["replicas"] {
 		cache := uncertaintyCache{}
@@ -595,6 +615,10 @@ func (s *Service) recommend(ctx context.Context, moduleID uint, failed map[strin
 			return nil, nil, err
 		}
 		detail.Replica = replica
+		if len(plans) > 0 {
+			first := plans[0]
+			plan0 = &first
+		}
 		// bypass and an administrator's fixed period outrank any computed value
 		if len(plans) > 0 && rec.Replicas.Source != decision.SourceBypass && rec.Replicas.Source != decision.SourceFixedPeriod {
 			plan := plans[0]
@@ -689,6 +713,7 @@ func (s *Service) recommend(ctx context.Context, moduleID uint, failed map[strin
 		detail.Degraded[field], detail.DegradeNotes[field] = DegradeHeldLast, note
 	}
 	detail.CPU, detail.Memory, detail.Replicas, detail.GPU = rec.CPUMilli, rec.MemoryBytes, rec.Replicas, rec.GPU
+	detail.Need = s.needOf(ctx, m, bs, detail, rec, recFree, plan0, current, effectiveMax, now)
 	detail.Policy = map[string]any{"headroom_ratio": m.HeadroomRatio, "pod_capacity_rps": m.PodCapacityRPS, "ttl_seconds": m.TTLSeconds,
 		"timezone": m.Timezone, "min_score": m.MinScore}
 
@@ -704,6 +729,9 @@ func (s *Service) recommend(ctx context.Context, moduleID uint, failed map[strin
 	}
 	if len(detail.Degraded) > 0 {
 		row.DegradeReasons = marshal(detail.Degraded)
+	}
+	if dry {
+		return row, detail, nil
 	}
 	s.Telemetry.recordRecommend(row.Degraded, row.OOMFloor)
 	for field, code := range detail.Degraded {

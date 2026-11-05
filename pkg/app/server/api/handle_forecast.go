@@ -466,6 +466,25 @@ func (r *ForecastRouter) Recommend(c *gin.Context) {
 	query.SuccessResponse(c, nil, gin.H{"recommendation": rec, "detail": detail})
 }
 
+// ModuleNeed answers what the forecasts say a module needs (replicas, and the CPU and memory of one Pod, with the totals) next to what it is
+// set to and what runs now. It reads only: nothing is stored or applied, and a module that is disabled or in observe mode is answered too, so
+// the need can be read before the module is configured to act.
+func (r *ForecastRouter) ModuleNeed(c *gin.Context) {
+	id, ok := parseUintParam(c, "id")
+	if !ok {
+		return
+	}
+	ctx, cancel := r.stepCtx(c)
+	defer cancel()
+	rec, detail, err := r.Service.Estimate(ctx, id)
+	if err != nil {
+		r.writeError(c, err)
+		return
+	}
+	query.SuccessResponse(c, nil, gin.H{"need": detail.Need, "algorithm": detail.Algorithm, "score": detail.Score, "degraded": detail.Degraded,
+		"degrade_notes": detail.DegradeNotes, "predict": detail.Predict, "valid_until": rec.ValidUntil})
+}
+
 func recommendationFilter(c *gin.Context) rdb.RecommendationFilter {
 	moduleID, _ := strconv.ParseUint(c.Query("module_id"), 10, 64)
 	version, _ := strconv.Atoi(c.Query("version"))
