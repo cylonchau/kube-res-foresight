@@ -3,6 +3,7 @@ package rdb
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
@@ -69,6 +70,32 @@ func TestModuleSourcesGetTheirOwnKeysAndAreLoadedWithTheModule(t *testing.T) {
 	// a source of another module cannot be deleted or changed through this one
 	assert.ErrorIs(t, dao.DeleteSource(ctx, b.ID, second.ID), gorm.ErrRecordNotFound)
 	require.NoError(t, dao.DeleteSource(ctx, a.ID, second.ID))
+}
+
+func TestDeletingASourceTakesWhatWasMadeFromItsKeyWithIt(t *testing.T) {
+	ctx := context.Background()
+	db := moduleTestDB(t)
+	dao := NewModuleDAO(db)
+	m := newModule(t, dao, "rekeyed")
+	src := &model.MetricSource{ModuleID: m.ID, Name: "cpu", Kind: "cpu", Resource: "cpu", MappingID: 1, Weight: 1, Stat: "p95", Enabled: true}
+	require.NoError(t, src.Validate())
+	require.NoError(t, dao.SaveSource(ctx, src))
+	now := time.Now().UTC()
+	require.NoError(t, db.Create(&model.Prediction{ModuleID: m.ID, Metric: "cpu", AlgorithmID: "naive", PredictionTime: now, TargetTime: now.Add(time.Minute), Value: 1}).Error)
+	require.NoError(t, db.Create(&model.TrainingRun{ModuleID: m.ID, Metric: "cpu", AlgorithmID: "naive", Status: "ok", PredictionTime: now}).Error)
+	// the forecasts of another metric of the same module are not touched
+	require.NoError(t, db.Create(&model.Prediction{ModuleID: m.ID, Metric: "memory", AlgorithmID: "naive", PredictionTime: now, TargetTime: now.Add(time.Minute), Value: 1}).Error)
+
+	require.NoError(t, dao.DeleteSource(ctx, m.ID, src.ID))
+
+	for _, row := range []any{&model.Prediction{}, &model.TrainingRun{}} {
+		var n int64
+		require.NoError(t, db.Model(row).Where("module_id = ? AND metric = ?", m.ID, "cpu").Count(&n).Error)
+		assert.Zero(t, n, "what was made from the removed source is gone, so the next source of the kind does not inherit it")
+	}
+	var kept int64
+	require.NoError(t, db.Model(&model.Prediction{}).Where("module_id = ? AND metric = ?", m.ID, "memory").Count(&kept).Error)
+	assert.EqualValues(t, 1, kept)
 }
 
 func TestDeletingAModuleTakesItsSourcesAndHistoryWithIt(t *testing.T) {

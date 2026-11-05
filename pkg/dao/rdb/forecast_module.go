@@ -314,7 +314,7 @@ func (dao *ModuleDAO) SaveSource(ctx context.Context, s *model.MetricSource) err
 	})
 }
 
-// DeleteSource removes a source and the history stored for it.
+// DeleteSource removes a source and everything stored for it: its history, and the forecasts, evaluations, backtests and training records filed under its key.
 func (dao *ModuleDAO) DeleteSource(ctx context.Context, moduleID, id uint) error {
 	return dao.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var s model.MetricSource
@@ -330,6 +330,14 @@ func (dao *ModuleDAO) DeleteSource(ctx context.Context, moduleID, id uint) error
 				return err
 			}
 			if err := tx.Where("id IN ?", series).Delete(&model.MetricSeries{}).Error; err != nil {
+				return err
+			}
+		}
+		// What was made from the source is filed under its key (forecasts, their evaluations, backtests, training records). The key is
+		// free again once the source is gone, and the next source of the same kind takes it: without this it would show the forecasts
+		// and training records of the source that was removed as its own.
+		for _, row := range []any{&model.Prediction{}, &model.PredictionEvaluation{}, &model.BacktestRun{}, &model.TrainingRun{}} {
+			if err := tx.Where("module_id = ? AND metric = ?", moduleID, s.Key).Delete(row).Error; err != nil {
 				return err
 			}
 		}

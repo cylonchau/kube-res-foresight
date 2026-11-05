@@ -292,7 +292,7 @@ func (r *ForecastRouter) UpdateSource(c *gin.Context) {
 	query.SuccessResponse(c, nil, s)
 }
 
-// DeleteSource removes a source and the history stored for it.
+// DeleteSource removes a source and everything stored for it: its history, and the forecasts, evaluations, backtests and training records filed under its key.
 func (r *ForecastRouter) DeleteSource(c *gin.Context) {
 	id, ok := parseUintParam(c, "id")
 	if !ok {
