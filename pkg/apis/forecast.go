@@ -56,6 +56,7 @@ type ModuleCreateReq struct {
 	FallbackCPUMilli    int64 `json:"fallback_cpu_milli"`
 	FallbackMemoryBytes int64 `json:"fallback_memory_bytes"`
 	FallbackReplicas    int   `json:"fallback_replicas"`
+	FixedReplicas       int   `json:"fixed_replicas"`
 	// GPU bounds (whole cards) and the fallback.
 	MinGPU      int `json:"min_gpu"`
 	MaxGPU      int `json:"max_gpu"`
@@ -134,6 +135,7 @@ type ModuleUpdateReq struct {
 	FallbackCPUMilli    *int64 `json:"fallback_cpu_milli"`
 	FallbackMemoryBytes *int64 `json:"fallback_memory_bytes"`
 	FallbackReplicas    *int   `json:"fallback_replicas"`
+	FixedReplicas       *int   `json:"fixed_replicas"`
 	MinGPU              *int   `json:"min_gpu"`
 	MaxGPU              *int   `json:"max_gpu"`
 	FallbackGPU         *int   `json:"fallback_gpu"`
@@ -262,7 +264,9 @@ type PeriodReq struct {
 	CPUMilli    int64      `json:"cpu_milli"`
 	MemoryBytes int64      `json:"memory_bytes"`
 	Replicas    int        `json:"replicas"`
-	Remark      string     `json:"remark"`
+	// ReplicaMode is fixed (the count is Replicas; the default), min (at least Replicas) or max (at most Replicas).
+	ReplicaMode string `json:"replica_mode"`
+	Remark      string `json:"remark"`
 }
 
 // BacktestReq asks for a rolling backtest of one metric source.

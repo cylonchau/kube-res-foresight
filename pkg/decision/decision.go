@@ -16,6 +16,7 @@ type Source string
 const (
 	SourceBypass      Source = "bypass"       // global/module bypass: the user's original value is kept
 	SourceFixedPeriod Source = "fixed_period" // administrator override window
+	SourceFixedCount  Source = "fixed_count"  // the module keeps a fixed replica count, no algorithm decides it
 	SourceAlgorithm   Source = "algorithm"    // an eligible model that passed the safety checks
 	SourceFallback    Source = "fallback"     // the module's fixed default
 	SourceOriginal    Source = "original"     // nothing usable: keep the user's original value
@@ -78,6 +79,9 @@ type Policy struct {
 	// value that would otherwise be kept as the original is replaced by it.
 	OOMFloorBytes  int64
 	OOMFloorReason string
+	// FixedReplicas, when positive, is a replica count the module keeps whatever the forecast says: a period fixing the replicas still wins, and the
+	// floors and caps of periods still apply on top (see ApplyReplicaWindows). Metric pressure does not raise it.
+	FixedReplicas int
 }
 
 // FixedPeriod is an administrator override. A weekly period repeats on Weekdays between StartMinute and
@@ -94,6 +98,8 @@ type FixedPeriod struct {
 	CPUMilli    int64
 	MemoryBytes int64
 	Replicas    int
+	// ReplicaMode says how Replicas acts: "fixed" (or empty) pins the count, "min" is a floor and "max" a cap (see ApplyReplicaWindows).
+	ReplicaMode string
 }
 
 // Candidate is a model result in metric units: the maximum predicted value over the horizon. Candidates are
@@ -158,6 +164,12 @@ func ValidatePeriod(p FixedPeriod) error {
 	}
 	if p.CPUMilli == 0 && p.MemoryBytes == 0 && p.Replicas == 0 {
 		return fmt.Errorf("period must set at least one of cpu, memory or replicas")
+	}
+	if !ValidReplicaWindow(p.ReplicaMode) {
+		return fmt.Errorf("replica_mode of a period must be fixed, min or max")
+	}
+	if (p.ReplicaMode == ReplicaWindowMin || p.ReplicaMode == ReplicaWindowMax) && p.Replicas == 0 {
+		return fmt.Errorf("a period that is a floor or a cap of the replicas needs the replicas")
 	}
 	if p.AbsStart != nil || p.AbsEnd != nil {
 		if p.AbsStart == nil || p.AbsEnd == nil || !p.AbsEnd.After(*p.AbsStart) {
@@ -233,7 +245,12 @@ func Decide(in Inputs) Recommendation {
 	capacity := in.Policy.PodCapacityRPS
 	rec.Replicas = decideField(fieldSpec{
 		name: "replicas", lo: int64(b.MinReplicas), hi: int64(b.MaxReplicas), fallback: int64(in.Policy.Replicas),
-		period: func(p FixedPeriod) int64 { return int64(p.Replicas) },
+		period: func(p FixedPeriod) int64 {
+			if !p.overridesReplicas() {
+				return 0
+			}
+			return int64(p.Replicas)
+		},
 		convert: func(c Candidate) (int64, string) {
 			if !positive(capacity) {
 				return 0, "pod capacity is not configured"
@@ -246,6 +263,9 @@ func Decide(in Inputs) Recommendation {
 		},
 		candidates: in.RPS,
 	}, periods)
+	if n := in.Policy.FixedReplicas; n > 0 && rec.Replicas.Source != SourceFixedPeriod {
+		rec.Replicas = fixedCount(n, int64(b.MinReplicas), int64(b.MaxReplicas))
+	}
 	if in.PressureReplicas > 0 {
 		rec.Replicas = applyPressure(rec.Replicas, in.PressureReplicas, in.PressureReason, b.MinReplicas, b.MaxReplicas)
 	}
@@ -255,7 +275,7 @@ func Decide(in Inputs) Recommendation {
 // applyPressure raises the replica field to what the metric pressure asks for. A fixed period or a bypass is the
 // administrator's word and stays; a lower pressure never lowers a value that came from the throughput formula.
 func applyPressure(f Field, want int, why string, lo, hi int) Field {
-	if f.Source == SourceBypass || f.Source == SourceFixedPeriod {
+	if f.Source == SourceBypass || f.Source == SourceFixedPeriod || f.Source == SourceFixedCount {
 		return f
 	}
 	if f.Set && f.Source == SourceAlgorithm && f.Value >= int64(want) {

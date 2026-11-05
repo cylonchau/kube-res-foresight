@@ -30,3 +30,5 @@ description: 用于 kube-res-foresight Pod 资源准入、固定周期、默认�
 - 决策优先级（bypass > 固定周期 > 算法建议 > 模块 fallback > 原值）、硬边界裁剪、TTL 与 UTC/IANA 周期在 pkg/decision，推荐快照 recommendation.detail 保存每个字段的来源/原因。
 
 **资源规格与副本分开（R10）**：Pod 的 CPU/内存 requests 是准入阶段的事，副本数是扩缩容阶段的事。规格生效后保持不变（预测与它相差不超过 forecast.resource_change_ratio 不改，降低要等 forecast.resource_hold_hours；增加、固定周期、旁路、OOM 保护立即生效），取整成可执行的规格（CPU 10m/50m，内存 Mi 级 10Mi/64Mi），带规格版本；准入接口回的就是这个生效规格，所以扩容产生的新 Pod 与旧 Pod 一致。算法预测以副本数为主要输出。详见 [算法框架规格](../requirements/references/algorithm-framework-spec.md) 第 16 节。
+
+**副本数的三种来源与时间段（R24）**：副本数可以由算法、模块的「固定副本数」（`fixed_replicas` > 0，来源 `fixed_count`，不由算法决定，度量压力也不抬高）、时间段三种方式给出，可以一起用。时间段（`module_period`）有 `replica_mode`：`fixed`（默认，原来的固定周期，定值盖过一切算法）、`min`（至少，算法照常算，不低于它）、`max`（至多，不高于它）。每周重复（星期 + 每天起止分钟，结束早于开始跨午夜，按模块时区）和一次性（绝对起止）两种都在页面上编辑。优先级：bypass > 定值时间段 > 模块固定副本数 > 算法 > 降级默认；`min`/`max` 时间段在算法或固定副本数之上用 `decision.ApplyReplicaWindows` 抬高或压低，最后才是模块的上下限（模块的下限、上限是最后一句）；多个 `min` 取最大、多个 `max` 取最小、至少高于至多时以至少为准。CPU、内存的时间段值仍是固定值，与 `replica_mode` 无关。

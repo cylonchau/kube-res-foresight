@@ -143,7 +143,7 @@ func (r *ForecastRouter) CreateModule(c *gin.Context) {
 		TTLSeconds: req.TTLSeconds, MinScore: req.MinScore,
 		MinCPUMilli: req.MinCPUMilli, MaxCPUMilli: req.MaxCPUMilli, MinMemoryBytes: req.MinMemoryBytes, MaxMemoryBytes: req.MaxMemoryBytes,
 		MinReplicas: req.MinReplicas, MaxReplicas: req.MaxReplicas,
-		FallbackCPUMilli: req.FallbackCPUMilli, FallbackMemoryBytes: req.FallbackMemoryBytes, FallbackReplicas: req.FallbackReplicas,
+		FallbackCPUMilli: req.FallbackCPUMilli, FallbackMemoryBytes: req.FallbackMemoryBytes, FallbackReplicas: req.FallbackReplicas, FixedReplicas: req.FixedReplicas,
 		MinGPU: req.MinGPU, MaxGPU: req.MaxGPU, FallbackGPU: req.FallbackGPU,
 		HeadroomRatio: req.HeadroomRatio, PodCapacityRPS: req.PodCapacityRPS, Timezone: req.Timezone,
 		ReplicaMode: req.ReplicaMode, CapacityMode: req.CapacityMode,
@@ -246,7 +246,7 @@ func applyModuleUpdate(m *model.ForecastModule, req *apis.ModuleUpdateReq) {
 	for dst, src := range map[*int]*int{
 		&m.LookbackHours: req.LookbackHours, &m.HorizonMinutes: req.HorizonMinutes, &m.MaxFillSteps: req.MaxFillSteps,
 		&m.StepSeconds: req.StepSeconds, &m.MinPoints: req.MinPoints, &m.WindowSteps: req.WindowSteps, &m.RunIntervalMinutes: req.RunIntervalMinutes,
-		&m.TTLSeconds: req.TTLSeconds, &m.MinReplicas: req.MinReplicas, &m.MaxReplicas: req.MaxReplicas, &m.FallbackReplicas: req.FallbackReplicas,
+		&m.TTLSeconds: req.TTLSeconds, &m.MinReplicas: req.MinReplicas, &m.MaxReplicas: req.MaxReplicas, &m.FallbackReplicas: req.FallbackReplicas, &m.FixedReplicas: req.FixedReplicas,
 		&m.HardMaxReplicas: req.HardMaxReplicas, &m.MinGPU: req.MinGPU, &m.MaxGPU: req.MaxGPU, &m.FallbackGPU: req.FallbackGPU,
 		&m.OOMLookbackDays: req.OOMLookbackDays, &m.RecoverCycles: req.RecoverCycles,
 		&m.ScaleUpMaxStep: req.ScaleUpMaxStep, &m.ScaleDownMaxStep: req.ScaleDownMaxStep,
@@ -370,14 +370,17 @@ func periodFromReq(moduleID uint, req *apis.PeriodReq) (*model.ModulePeriod, err
 	p := &model.ModulePeriod{
 		ModuleID: moduleID, Name: strings.TrimSpace(req.Name), Enabled: req.Enabled == nil || *req.Enabled, Priority: req.Priority,
 		Weekdays: req.Weekdays, StartMinute: req.StartMinute, EndMinute: req.EndMinute, AbsStart: req.AbsStart, AbsEnd: req.AbsEnd,
-		CPUMilli: req.CPUMilli, MemoryBytes: req.MemoryBytes, Replicas: req.Replicas, Remark: req.Remark,
+		CPUMilli: req.CPUMilli, MemoryBytes: req.MemoryBytes, Replicas: req.Replicas, ReplicaMode: req.ReplicaMode, Remark: req.Remark,
+	}
+	if p.ReplicaMode == "" {
+		p.ReplicaMode = decision.ReplicaWindowFixed
 	}
 	if p.Weekdays < 0 || p.Weekdays > 127 {
 		return nil, fmt.Errorf("weekdays must be a bit mask between 0 and 127")
 	}
 	err := decision.ValidatePeriod(decision.FixedPeriod{
 		Name: p.Name, Weekdays: uint8(p.Weekdays), StartMinute: p.StartMinute, EndMinute: p.EndMinute, AbsStart: p.AbsStart, AbsEnd: p.AbsEnd,
-		CPUMilli: p.CPUMilli, MemoryBytes: p.MemoryBytes, Replicas: p.Replicas,
+		CPUMilli: p.CPUMilli, MemoryBytes: p.MemoryBytes, Replicas: p.Replicas, ReplicaMode: p.ReplicaMode,
 	})
 	return p, err
 }

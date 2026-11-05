@@ -225,9 +225,11 @@ type ForecastModule struct {
 	FallbackCPUMilli    int64 `gorm:"not null;default:0" json:"fallback_cpu_milli" column_setting:"false"`
 	FallbackMemoryBytes int64 `gorm:"not null;default:0" json:"fallback_memory_bytes" column_setting:"false"`
 	FallbackReplicas    int   `gorm:"not null;default:0" json:"fallback_replicas" column_setting:"false"`
-	MinGPU              int   `gorm:"not null;default:0" json:"min_gpu" column_setting:"false"`
-	MaxGPU              int   `gorm:"not null;default:0" json:"max_gpu" column_setting:"false"`
-	FallbackGPU         int   `gorm:"not null;default:0" json:"fallback_gpu" column_setting:"false"`
+	// FixedReplicas, when positive, keeps the module at that many replicas whatever the forecast says (periods can still fix, raise or cap it).
+	FixedReplicas int `gorm:"not null;default:0" json:"fixed_replicas" column_setting:"false"`
+	MinGPU        int `gorm:"not null;default:0" json:"min_gpu" column_setting:"false"`
+	MaxGPU        int `gorm:"not null;default:0" json:"max_gpu" column_setting:"false"`
+	FallbackGPU   int `gorm:"not null;default:0" json:"fallback_gpu" column_setting:"false"`
 
 	// HeadroomRatio >= 1 multiplies the predicted peak; PodCapacityRPS is the verified safe load of one pod.
 	HeadroomRatio  float64 `gorm:"not null;default:1" json:"headroom_ratio" column_setting:"false"`
@@ -480,7 +482,7 @@ func (m *ForecastModule) Validate() error {
 	for name, v := range map[string]int64{
 		"min_cpu_milli": m.MinCPUMilli, "max_cpu_milli": m.MaxCPUMilli, "min_memory_bytes": m.MinMemoryBytes,
 		"max_memory_bytes": m.MaxMemoryBytes, "fallback_cpu_milli": m.FallbackCPUMilli, "fallback_memory_bytes": m.FallbackMemoryBytes,
-		"min_replicas": int64(m.MinReplicas), "max_replicas": int64(m.MaxReplicas), "fallback_replicas": int64(m.FallbackReplicas),
+		"min_replicas": int64(m.MinReplicas), "max_replicas": int64(m.MaxReplicas), "fallback_replicas": int64(m.FallbackReplicas), "fixed_replicas": int64(m.FixedReplicas),
 	} {
 		if v < 0 {
 			return fmt.Errorf("%s must not be negative", name)
@@ -516,7 +518,9 @@ type ModulePeriod struct {
 	CPUMilli    int64      `gorm:"not null;default:0" json:"cpu_milli" column_setting:"true"`
 	MemoryBytes int64      `gorm:"not null;default:0" json:"memory_bytes" column_setting:"true"`
 	Replicas    int        `gorm:"not null;default:0" json:"replicas" column_setting:"true"`
-	Remark      string     `gorm:"type:varchar(255)" json:"remark" column_setting:"false"`
+	// ReplicaMode is how Replicas acts: fixed (the count is that number), min (at least that number) or max (at most that number).
+	ReplicaMode string `gorm:"type:varchar(8);not null;default:'fixed'" json:"replica_mode" column_setting:"true"`
+	Remark      string `gorm:"type:varchar(255)" json:"remark" column_setting:"false"`
 }
 
 func (ModulePeriod) TableName() string { return "module_period" }

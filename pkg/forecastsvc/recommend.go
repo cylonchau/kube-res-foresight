@@ -70,6 +70,7 @@ type PeriodDetail struct {
 	Start       *time.Time `json:"start,omitempty"`
 	End         *time.Time `json:"end,omitempty"`
 	Replicas    int        `json:"replicas"`
+	ReplicaMode string     `json:"replica_mode,omitempty"`
 	CPUMilli    int64      `json:"cpu_milli"`
 	MemoryBytes int64      `json:"memory_bytes"`
 }
@@ -102,6 +103,8 @@ type RecommendDetail struct {
 	GPU           decision.Field `json:"gpu"`
 	Considered    []Considered   `json:"considered"`
 	ActivePeriods []string       `json:"active_periods"`
+	// ReplicaWindow is true when a floor or a cap of a period moved the replica count (the reason says which).
+	ReplicaWindow bool `json:"replica_window,omitempty"`
 	// Periods lists every fixed period of the module with whether it applied; Sources the metrics the figures come from.
 	Periods []PeriodDetail                  `json:"periods,omitempty"`
 	Sources []SourceDetail                  `json:"sources,omitempty"`
@@ -139,7 +142,7 @@ var ErrObserveOnly = errors.New("module is in observe mode and produces no recom
 func toPeriod(p *model.ModulePeriod) decision.FixedPeriod {
 	return decision.FixedPeriod{
 		Name: p.Name, Priority: p.Priority, Weekdays: uint8(p.Weekdays), StartMinute: p.StartMinute, EndMinute: p.EndMinute,
-		AbsStart: p.AbsStart, AbsEnd: p.AbsEnd, CPUMilli: p.CPUMilli, MemoryBytes: p.MemoryBytes, Replicas: p.Replicas,
+		AbsStart: p.AbsStart, AbsEnd: p.AbsEnd, CPUMilli: p.CPUMilli, MemoryBytes: p.MemoryBytes, Replicas: p.Replicas, ReplicaMode: p.ReplicaMode,
 	}
 }
 
@@ -402,6 +405,7 @@ func (s *Service) decide(ctx context.Context, moduleID uint, failed map[string]s
 				MaxMemoryBytes: m.MaxMemoryBytes, MinReplicas: m.MinReplicas, MaxReplicas: ceiling, MinGPU: m.MinGPU, MaxGPU: m.MaxGPU},
 			Fallback:      decision.Fallback{CPUMilli: m.FallbackCPUMilli, MemoryBytes: m.FallbackMemoryBytes, Replicas: m.FallbackReplicas, GPU: m.FallbackGPU},
 			HeadroomRatio: m.HeadroomRatio, PodCapacityRPS: m.PodCapacityRPS, Location: loc, TTL: ttl,
+			FixedReplicas: m.FixedReplicas,
 		},
 	}
 	periods, err := s.Modules.Periods(ctx, m.ID)
@@ -413,7 +417,7 @@ func (s *Service) decide(ctx context.Context, moduleID uint, failed map[string]s
 	for _, p := range periods {
 		fp := toPeriod(p)
 		pd := PeriodDetail{Name: p.Name, Enabled: p.Enabled, Priority: p.Priority, Weekly: p.AbsStart == nil && p.AbsEnd == nil,
-			Start: p.AbsStart, End: p.AbsEnd, Replicas: p.Replicas, CPUMilli: p.CPUMilli, MemoryBytes: p.MemoryBytes}
+			Start: p.AbsStart, End: p.AbsEnd, Replicas: p.Replicas, ReplicaMode: p.ReplicaMode, CPUMilli: p.CPUMilli, MemoryBytes: p.MemoryBytes}
 		if p.Enabled {
 			in.Periods = append(in.Periods, fp)
 			if decision.ValidatePeriod(fp) == nil && fp.Active(now, loc) {
@@ -630,7 +634,8 @@ func (s *Service) decide(ctx context.Context, moduleID uint, failed map[string]s
 			plan0 = &first
 		}
 		// bypass and an administrator's fixed period outrank any computed value
-		if len(plans) > 0 && rec.Replicas.Source != decision.SourceBypass && rec.Replicas.Source != decision.SourceFixedPeriod {
+		if len(plans) > 0 && rec.Replicas.Source != decision.SourceBypass && rec.Replicas.Source != decision.SourceFixedPeriod &&
+			rec.Replicas.Source != decision.SourceFixedCount {
 			plan := plans[0]
 			rec.Replicas = decision.Field{Set: true, Value: int64(plan.Replicas), Source: decision.SourceAlgorithm, Detail: plan.Algorithm,
 				Reason: plan.Reason, Clamped: plan.Clamped}
@@ -677,9 +682,17 @@ func (s *Service) decide(ctx context.Context, moduleID uint, failed map[string]s
 			detail.Expansion = &ExpansionDetail{Mode: m.MaxReplicasMode, Base: m.MaxReplicas, Hard: m.HardMaxReplicas, Effective: m.MaxReplicas,
 				Reason: "no forecast-based replica count to expand for"}
 			if rec.Replicas.Set && rec.Replicas.Source != decision.SourceBypass && rec.Replicas.Source != decision.SourceFixedPeriod &&
-				m.MaxReplicas > 0 && rec.Replicas.Value > int64(m.MaxReplicas) {
+				rec.Replicas.Source != decision.SourceFixedCount && m.MaxReplicas > 0 && rec.Replicas.Value > int64(m.MaxReplicas) {
 				rec.Replicas.Value, rec.Replicas.Clamped = int64(m.MaxReplicas), true
 			}
+		}
+	}
+	// the floors and caps of the periods keep the count, whoever decided it, within the bounds of the module
+	if m.HasReplicas() && (rec.Replicas.Set || len(in.Periods) > 0) {
+		before := rec.Replicas
+		rec.Replicas = decision.ApplyReplicaWindows(rec.Replicas, decision.ActivePeriods(in), int64(m.MinReplicas), int64(effectiveMax))
+		if rec.Replicas != before {
+			detail.ReplicaWindow = true
 		}
 	}
 	if advance {
