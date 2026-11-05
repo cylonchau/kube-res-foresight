@@ -339,6 +339,7 @@ func TestPredictThenBacktestThenRecommendEndToEnd(t *testing.T) {
 	assert.False(t, byAlgo["ewma"].Promoted)
 	assert.Contains(t, byAlgo["ewma"].Reason, "does not beat baseline")
 
+	f.perPodLevel(t) // the CPU values of this test are one Pod's: the request is the peak x headroom
 	rec, detail, err := f.svc.Recommend(ctx, f.module.ID)
 	require.NoError(t, err)
 	assert.Equal(t, 1, rec.Version)

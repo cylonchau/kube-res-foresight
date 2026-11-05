@@ -2,7 +2,9 @@ package forecastsvc
 
 import (
 	"context"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -122,4 +124,43 @@ func TestAPercentileForecastIsSaidToBeConservative(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, detail.Need.Parts)
 	assert.Regexp(t, `^P\d`, detail.Need.Parts.Forecast.Conservatism)
+}
+
+// perPodLevel makes every metric of the fixture return the value of one container instead of the workload total.
+func (f *fixture) perPodLevel(t *testing.T) {
+	t.Helper()
+	require.NoError(t, f.db.Model(&model.MetricMapping{}).Where("1 = 1").Update("level", "container").Error)
+}
+
+// A metric that returns the workload total (all the Pods added up) gives the CPU of one Pod only when it is spread over the Pods: the total
+// read as one Pod's value was cut to the largest a Pod may have, and the need showed "53 cores per Pod" for a workload of 53 cores in all.
+func TestAWorkloadTotalIsSpreadOverThePodsForTheirRequests(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	f.bind(t, "cpu", "naive", nil, 0)
+	f.bind(t, "rps", "naive", nil, 1)
+	f.querier.value = func(query string, _ time.Time) float64 {
+		if strings.Contains(query, "cpu{") {
+			return 24 // 24 cores in all
+		}
+		return 400
+	}
+	_, err := f.collect(ctx)
+	require.NoError(t, err)
+	_, err = f.predict(ctx)
+	require.NoError(t, err)
+	f.dynamic(t, func(m *model.ForecastModule) {
+		m.MinReplicas, m.MaxReplicas, m.MaxCPUMilli, m.PodCPURequestMilli, m.TargetUtilization, m.HeadroomRatio = 1, 40, 8000, 2000, 1, 1
+	})
+
+	rec, detail, err := f.svc.Recommend(ctx, f.module.ID)
+	require.NoError(t, err)
+	require.Greater(t, rec.Replicas, 1)
+	// the workload needs about 24 cores in all: a Pod's share of it, not the 24 (which the 8 core maximum would cut to 8)
+	perPod := float64(rec.CPUMilli) / 1000
+	assert.InDelta(t, 24/float64(rec.Replicas), perPod, 24/float64(rec.Replicas)*0.35+0.3, "the total over the replicas, rounded up to a readable step")
+	assert.Less(t, perPod, 8.0, "not the total cut to the largest a Pod may have")
+	require.NotNil(t, detail.Need)
+	assert.Less(t, detail.Need.CPU.Needed, int64(8000), "the need of one Pod is a share of the total as well")
+	assert.Empty(t, detail.Need.CPU.Bound, "so no maximum is what holds it")
 }

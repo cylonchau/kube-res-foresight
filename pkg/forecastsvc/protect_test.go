@@ -249,6 +249,7 @@ func TestOOMFloorRaisesTheMemoryRecommendation(t *testing.T) {
 			return 0
 		},
 	})
+	f.perPodLevel(t) // the memory values are one Pod's
 	res := f.cycle(t)
 	require.NotNil(t, res.Recommend, "%v", res.Errors)
 	rec := res.Recommend

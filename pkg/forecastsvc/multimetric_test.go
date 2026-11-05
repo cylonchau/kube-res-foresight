@@ -54,6 +54,7 @@ func TestSourcesOfOneResourceAreCombinedByWeight(t *testing.T) {
 	require.Equal(t, "cpu_2", second.Key, "a second source of a kind gets its own series key")
 	f.querier.value = constant(map[string]float64{"cpub_series": 3, "cpu{": 1}, func(ts time.Time) float64 { return daily(300, 100, ts) })
 	f.setModule(t, func(m *model.ForecastModule) { m.HeadroomRatio = 1 })
+	f.perPodLevel(t) // the values are one Pod's (a workload total is spread over the Pods, see TestAWorkloadTotalIsSpreadOverThePodsForTheirRequests)
 
 	_, err := f.collect(ctx)
 	require.NoError(t, err)

@@ -689,6 +689,44 @@ func (s *Service) decide(ctx context.Context, moduleID uint, failed map[string]s
 		}
 	}
 
+	// A source that returns the workload total (all the Pods added up) gives the CPU and memory of a Pod only when it is divided by the Pods it
+	// is spread over: the replicas just decided, else the ones that run. The decision above read the total as one Pod's value, which the bounds
+	// then cut to the largest a Pod may have.
+	cpuTotal, memTotal := s.resourceIsWorkloadTotal(ctx, bs, model.ResourceCPU), s.resourceIsWorkloadTotal(ctx, bs, model.ResourceMemory)
+	neededPods := 0
+	if plan0 != nil {
+		neededPods = plan0.Needed
+	} else if recFree.Replicas.Set && recFree.Replicas.Source == decision.SourceAlgorithm {
+		neededPods = int(recFree.Replicas.Value)
+	}
+	if cpuTotal || memTotal {
+		pods := current
+		if rec.Replicas.Set && rec.Replicas.Value > 0 {
+			pods = int(rec.Replicas.Value)
+		}
+		if pods > 0 {
+			again := decision.Decide(perPodInputs(in, cpuTotal, memTotal, pods))
+			if cpuTotal {
+				rec.CPUMilli = again.CPUMilli
+			}
+			if memTotal {
+				rec.MemoryBytes = again.MemoryBytes
+			}
+		}
+		if neededPods <= 0 {
+			neededPods = pods
+		}
+		if neededPods > 0 {
+			againFree := decision.Decide(perPodInputs(free, cpuTotal, memTotal, neededPods))
+			if cpuTotal {
+				recFree.CPUMilli = againFree.CPUMilli
+			}
+			if memTotal {
+				recFree.MemoryBytes = againFree.MemoryBytes
+			}
+		}
+	}
+
 	// a module fixed to one algorithm does not fall back to the default the moment that algorithm has nothing usable: the last result of the
 	// algorithm is held for a while (see holdFixedResult)
 	prevRec, err := s.Predictions.LatestRecommendation(ctx, m.ID)
@@ -1011,4 +1049,40 @@ func (s *Service) holdFixedResult(m *model.ForecastModule, now time.Time, ttl ti
 	hold("replicas", &rec.Replicas, prev.ReplicasSet, int64(prev.Replicas), prev.ReplicasSource)
 	hold("gpu", &rec.GPU, prev.GPUSet, int64(prev.GPU), prev.GPUSource)
 	return notes
+}
+
+// resourceIsWorkloadTotal says every forecast source of a resource returns the workload total (all the Pods added up), so a value of it is
+// not the value of one Pod. A resource with no forecast source, or with one that is per Pod or per container, is not.
+func (s *Service) resourceIsWorkloadTotal(ctx context.Context, bs boundSet, resource string) bool {
+	refs := bs.forecastOfResource(resource)
+	if len(refs) == 0 {
+		return false
+	}
+	for _, ref := range refs {
+		if !s.workloadLevel(ctx, ref.Inst, ref.Src.Key) {
+			return false
+		}
+	}
+	return true
+}
+
+// perPodInputs is the decision input with the CPU and the memory of the sources that are workload totals spread over pods Pods: the value
+// of one Pod. The candidates are copied; the input given is not changed.
+func perPodInputs(in decision.Inputs, cpuTotal, memTotal bool, pods int) decision.Inputs {
+	share := func(list []decision.Candidate) []decision.Candidate {
+		out := make([]decision.Candidate, len(list))
+		for i, c := range list {
+			c.Peak /= float64(pods)
+			out[i] = c
+		}
+		return out
+	}
+	out := in
+	if cpuTotal {
+		out.CPUCores = share(in.CPUCores)
+	}
+	if memTotal {
+		out.MemoryBytes = share(in.MemoryBytes)
+	}
+	return out
 }
