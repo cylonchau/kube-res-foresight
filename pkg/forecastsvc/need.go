@@ -46,6 +46,8 @@ type NeedField struct {
 	// hold (hours). Then Recommended is what was kept, which can be far from Needed.
 	Held      string `json:"held,omitempty"`
 	HeldLimit int    `json:"held_limit,omitempty"`
+	// HeldSince is when the spec in force last changed: a decrease that waits out the hold counts from it.
+	HeldSince *time.Time `json:"held_since,omitempty"`
 	// Floored is true when the OOM protection raised the value (memory only): a recent OOM kill sets a floor the memory is not given less than.
 	Floored bool `json:"floored,omitempty"`
 }
@@ -227,6 +229,14 @@ func (s *Service) needOf(ctx context.Context, m *model.ForecastModule, bs boundS
 	n.Memory.Floored = rec.MemoryBytes.Floored
 	n.CPU.Held, n.CPU.HeldLimit = heldOf(detail.ResourceSpec, "cpu")
 	n.Memory.Held, n.Memory.HeldLimit = heldOf(detail.ResourceSpec, "memory")
+	if detail.ResourceSpec != nil {
+		if n.CPU.Held == "hold" {
+			n.CPU.HeldSince = detail.ResourceSpec.ChangedAt
+		}
+		if n.Memory.Held == "hold" {
+			n.Memory.HeldSince = detail.ResourceSpec.ChangedAt
+		}
+	}
 	n.CPU.Bound = bounded(n.CPU.Needed, n.CPU.Recommended, n.CPU.Min, n.CPU.Max)
 	n.Memory.Bound = bounded(n.Memory.Needed, n.Memory.Recommended, n.Memory.Min, n.Memory.Max)
 
