@@ -112,6 +112,10 @@ type NeedParts struct {
 	Forecast NeedForecast `json:"forecast"`
 	Margin   NeedMargin   `json:"margin"`
 	PerPod   float64      `json:"per_pod"`
+	// TargetUtil is the utilization one Pod is counted at (PerPod is its capacity times this). CurrentUtil is how full the Pods that run are now, for
+	// the resource of the forecast part: the load now over what the running replicas have at 100%; 0 when it is not known.
+	TargetUtil  float64 `json:"target_util"`
+	CurrentUtil float64 `json:"current_util,omitempty"`
 }
 
 // unitOfResource is what the load of a resource is measured in.
@@ -127,7 +131,7 @@ func unitOfResource(resource string) string {
 
 // partsOf takes the replica plan apart: the constraint that decided gives the peak of the forecast, the capacity of one Pod and the margin;
 // the live load is the measured one. The margin is what the factor adds over the forecast peak alone.
-func partsOf(plan *decision.ReplicaPlan, live *LiveDetail, algorithm, conservatism string) *NeedParts {
+func partsOf(plan *decision.ReplicaPlan, live *LiveDetail, algorithm, conservatism string, util float64, running int) *NeedParts {
 	if plan == nil || len(plan.Constraints) == 0 {
 		return nil
 	}
@@ -141,7 +145,7 @@ func partsOf(plan *decision.ReplicaPlan, live *LiveDetail, algorithm, conservati
 		return nil // the pressure and heap constraints are not a forecast load over a capacity
 	}
 	alone := int(math.Max(1, math.Ceil(best.PeakDemand/best.UnitCapacity)))
-	parts := &NeedParts{PerPod: best.UnitCapacity}
+	parts := &NeedParts{PerPod: best.UnitCapacity, TargetUtil: util}
 	parts.Forecast = NeedForecast{NeedPart: NeedPart{Resource: best.Metric, Unit: unitOfResource(best.Metric), Value: best.PeakDemand, Replicas: alone},
 		Algorithm: algorithm, Conservatism: conservatism}
 	parts.Margin = NeedMargin{Factor: 1 + best.Uncertainty, Source: best.UncertaintySource, Replicas: max(0, best.Needed-alone)}
@@ -159,6 +163,9 @@ func partsOf(plan *decision.ReplicaPlan, live *LiveDetail, algorithm, conservati
 			cur.Note = "other_resource"
 		}
 		parts.Current = cur
+		if cur.Resource == best.Metric && running > 0 && util > 0 && best.UnitCapacity > 0 {
+			parts.CurrentUtil = cur.Value / (float64(running) * best.UnitCapacity / util)
+		}
 	}
 	return parts
 }
@@ -208,7 +215,11 @@ func (s *Service) needOf(ctx context.Context, m *model.ForecastModule, bs boundS
 	if detail.Ahead != nil {
 		live = &detail.Ahead.Live
 	}
-	n.Parts = partsOf(plan, live, detail.Algorithm, conservatism)
+	target := m.TargetUtilization
+	if target <= 0 || target > 1 {
+		target = 1
+	}
+	n.Parts = partsOf(plan, live, detail.Algorithm, conservatism, target, current)
 	n.CPU = NeedField{Needed: forecastNeed(free.CPUMilli), Recommended: rec.CPUMilli.Value, Current: m.PodCPURequestMilli,
 		Min: m.MinCPUMilli, Max: m.MaxCPUMilli}
 	n.Memory = NeedField{Needed: forecastNeed(free.MemoryBytes), Recommended: rec.MemoryBytes.Value, Current: m.PodMemoryRequestBytes,
@@ -261,7 +272,7 @@ func unboundedReplicas(m *model.ForecastModule) (func(float64) int, bool) {
 	}
 	target := m.TargetUtilization
 	if target <= 0 || target > 1 {
-		target = 0.7
+		target = 1 // the same default as the replica solver: an unset utilization counts a Pod at 100%
 	}
 	headroom := m.HeadroomRatio
 	if headroom <= 0 {

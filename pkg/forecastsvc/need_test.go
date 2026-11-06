@@ -178,7 +178,7 @@ func TestTheLoadNowIsOfTheSameResourceAsTheForecast(t *testing.T) {
 		{Resource: "cpu", Value: 25, Need: 9, At: &cpuAt},
 	}}
 
-	parts := partsOf(plan, live, "seasonal_profile", "")
+	parts := partsOf(plan, live, "seasonal_profile", "", 0.7, 12)
 	require.NotNil(t, parts)
 	assert.Equal(t, "cpu", parts.Forecast.Resource)
 	require.NotNil(t, parts.Current)
@@ -186,13 +186,16 @@ func TestTheLoadNowIsOfTheSameResourceAsTheForecast(t *testing.T) {
 	assert.Equal(t, "cores", parts.Current.Unit)
 	assert.Equal(t, 9, parts.Current.Replicas)
 	assert.Empty(t, parts.Current.Note)
+	assert.InDelta(t, 0.7, parts.TargetUtil, 1e-9)
+	assert.InDelta(t, 25.0/48, parts.CurrentUtil, 1e-9, "25 cores on 12 Pods of 4 cores (2.8 at 70%) is 52% full")
 
 	// with no measurement of that resource the one that is there is shown, and it says it is another resource
 	live.Resources = live.Resources[:1]
-	parts = partsOf(plan, live, "seasonal_profile", "")
+	parts = partsOf(plan, live, "seasonal_profile", "", 0.7, 12)
 	require.NotNil(t, parts.Current)
 	assert.Equal(t, "memory", parts.Current.Resource)
 	assert.Equal(t, "other_resource", parts.Current.Note)
+	assert.Zero(t, parts.CurrentUtil, "a load of another resource says nothing about how full the Pods are")
 }
 
 // A Pod spec that was kept (the forecast is within the change ratio, or a decrease waits out the hold) is told, so a recommendation far above

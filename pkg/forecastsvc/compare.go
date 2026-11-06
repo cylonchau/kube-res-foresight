@@ -365,7 +365,7 @@ func replicaCapacity(m *model.ForecastModule, metric string) (func(float64) int,
 	var what string
 	target := m.TargetUtilization
 	if target <= 0 || target > 1 {
-		target = 0.7
+		target = 1 // the same default as the replica solver: an unset utilization counts a Pod at 100%
 	}
 	switch {
 	case strings.HasPrefix(metric, "cpu"):
