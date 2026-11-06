@@ -126,3 +126,18 @@ func TestScalingDecisionsDoNotRewriteThePodResources(t *testing.T) {
 	assert.False(t, third.ResourceHeld)
 	assert.NotNil(t, third.ResourceChangedAt)
 }
+
+// In recommend mode nothing is applied, so an earlier recommendation above what runs is not kept: a workload that runs 4 cores and needs 2.5
+// was recommended 6 (kept from an older, wrong recommendation) beside "needs 2.55".
+func TestARecommendationNeverKeepsAValueAboveWhatRuns(t *testing.T) {
+	assert.EqualValues(t, 4000, inForce(6000, 4000), "6 cores recommended before, 4 run: 4 is the spec in force")
+	assert.EqualValues(t, 3000, inForce(3000, 4000), "a lower earlier value stays")
+	assert.EqualValues(t, 6000, inForce(6000, 0), "what runs is not known: nothing to cap with")
+	assert.EqualValues(t, 0, inForce(0, 4000))
+
+	now := time.Date(2026, 11, 6, 12, 0, 0, 0, time.UTC)
+	changed := now.Add(-2 * time.Hour)
+	f, held, _ := pinOne(algorithmField(3000), inForce(6000, 4000), true, 3000, 6000, now, &changed, 0.2, 24*time.Hour)
+	assert.True(t, held)
+	assert.EqualValues(t, 4000, f.Value, "a decrease from 4 to 3 waits out the hold, and the held value is the 4 that runs, not the 6")
+}

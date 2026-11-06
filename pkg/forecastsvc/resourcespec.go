@@ -182,6 +182,11 @@ func (s *Service) pinResources(ctx context.Context, m *model.ForecastModule, now
 		}
 		changedAt = prev.ResourceChangedAt
 	}
+	// In recommend mode nothing is applied: the spec in force is what the module says runs, not what an earlier recommendation said. A kept
+	// value above it would recommend an increase while the forecast asks for a decrease (a recommendation of 6 cores to a workload that runs 4 and needs 2.5).
+	if m.Mode == model.ModeRecommend {
+		prevCPU, prevMem = inForce(prevCPU, m.PodCPURequestMilli), inForce(prevMem, m.PodMemoryRequestBytes)
+	}
 	var heldCPU, heldMem bool
 	rec.CPUMilli, heldCPU, detail.Reasons["cpu"] = pinOne(rec.CPUMilli, prevCPU, prevCPUAlgo, bounds.MinCPUMilli, bounds.MaxCPUMilli, now, changedAt, ratio, hold)
 	rec.MemoryBytes, heldMem, detail.Reasons["memory"] = pinOne(rec.MemoryBytes, prevMem, prevMemAlgo, bounds.MinMemoryBytes, bounds.MaxMemoryBytes, now, changedAt, ratio, hold)
@@ -212,4 +217,12 @@ func (s *Service) pinResources(ctx context.Context, m *model.ForecastModule, now
 		}
 	}
 	return detail, prev, nil
+}
+
+// inForce is the value kept when nothing was applied: the earlier recommendation, but never above what runs (actual, 0 = not known).
+func inForce(prev, actual int64) int64 {
+	if prev > 0 && actual > 0 && prev > actual {
+		return actual
+	}
+	return prev
 }
