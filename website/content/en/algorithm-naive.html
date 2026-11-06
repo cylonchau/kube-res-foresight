@@ -5,13 +5,32 @@
 <p>At least one valid observation.</p>
 <p>Inputs must be regularly sampled, gap-free, and finite. Outputs retain the metric unit, such as CPU cores, memory bytes, or requests per second. The sample interval determines the duration of a step. Minimum history permits execution; it does not establish forecast quality.</p>
 <p>This method does not use covariates; target metrics are forecast separately.</p>
+<h2 id="principle">How it works and the formula</h2>
+<p>The naive forecast (also called the random-walk forecast) does one thing: it takes the last observed value as the forecast for every future step.</p>
+<pre data-language="Formula"><code>ŷ(T+h) = y(T)        h = 1, 2, …, H</code></pre>
+<p><code>y(T)</code> is the newest value of the history, <code>H</code> the number of steps to forecast and <code>h</code> the step ahead. There are no parameters and nothing is trained.</p>
+<p><strong>Why it is done this way:</strong> over minutes to tens of minutes a resource load is usually sticky: the likeliest next value is the current one, so this simplest forecast is often hard to beat over a short range. The platform uses it as the baseline: any more complex algorithm has to beat it in the backtest before it may be adopted. It also checks the collection and forecast chain (its curve should hug the actual values, one step late).</p>
+<p><strong>What it cannot do:</strong> it sees no cycle and no coming rise or fall. When the load changes, it follows one forecast cycle late.</p>
 <h2 id="parameters">Parameter reference</h2>
 <p>No method-specific parameters; the parameter object is <code>{}</code>.</p>
 <h2 id="example">Configuration example</h2>
 <p>Edit parameters in Algorithm management. This is a parameter object, not a complete config.yaml. Seasonal examples assume five-minute sampling; adjust for your actual interval. Omitted optional values use the defaults above.</p>
 <pre data-language="JSON"><code>{}</code></pre>
+<h2 id="worked-example">Worked example: data, parameters and substitution</h2>
+<p>Suppose the last 4 samples (one every 5 minutes) of the CPU usage of a service are as follows, in cores. We forecast the next 3 steps (15 minutes).</p>
+<pre data-language="Data"><code>y = [0.8, 1.0, 1.2, 1.1]      (the newest is the last one, 1.1)</code></pre>
+<p>Substituting into the formula:</p>
+<pre data-language="Calculation"><code>ŷ(T+1) = y(T) = 1.1
+ŷ(T+2) = y(T) = 1.1
+ŷ(T+3) = y(T) = 1.1</code></pre>
+<p>The result is <code>[1.1, 1.1, 1.1]</code>: a horizontal line at the last observed value. The earlier 0.8, 1.0 and 1.2 play no part.</p>
+<p>These numbers are computed by the real code in <code>pkg/forecast/docs_examples_test.go</code> and checked on every test run: if the algorithm changes and no longer matches this page, the test fails.</p>
 <h2 id="tuning">Tuning and tradeoffs</h2>
 <p>There are no algorithm parameters. Compare EWMA, Theta, or Seasonal Naive when trend or seasonality matters.</p>
+<h2 id="references">Sources and references</h2>
+<ul>
+<li>Hyndman, R.J. &amp; Athanasopoulos, G. <em>Forecasting: Principles and Practice</em> (3rd ed., OTexts, 2021), section 5.2 "Some simple forecasting methods", the Naïve method: <a href="https://otexts.com/fpp3/simple-methods.html">https://otexts.com/fpp3/simple-methods.html</a>.</li>
+<li>Using it as the baseline of every candidate is the general practice in forecast evaluation: a new method means something only when it beats the naïve forecast (same book, section 5.8 on evaluating forecast accuracy).</li></ul>
 <h2 id="apply">Use in a module</h2>
 <ol><li>Save parameters and check history, sample interval, and horizon.</li><li>Enable module prediction. Fixed mode runs the selected method; dynamic mode uses centrally enabled methods.</li><li>This baseline does not need backtest promotion, but actual performance still needs review.</li><li>Review error, peak underestimation, runtime, and adoption reasons in Observe or Recommend before separately authorizing admission and replica actions.</li></ol>
 <p>For insufficient history, invalid settings, timeouts, or invalid output, inspect run reasons. Without eligible forecasts, the module follows its schedules, fallback, and protection rules.</p>

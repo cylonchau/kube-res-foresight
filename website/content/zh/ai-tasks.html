@@ -11,7 +11,7 @@
 <h2 id="email">配置邮件渠道</h2>
 <p>在“系统管理 → 系统参数”的通知分类配置 SMTP。任务使用平台通知渠道发送，必须先配置可用的发件服务器。</p>
 <table><thead><tr><th>参数</th><th>含义</th></tr></thead><tbody><tr><td><code>notify.email.host</code> / <code>port</code></td><td>SMTP 服务器与端口。</td></tr><tr><td><code>notify.email.security</code></td><td><code>starttls</code>、<code>tls</code> 或 <code>none</code>，与邮件服务要求一致。</td></tr><tr><td><code>notify.email.username</code> / <code>password</code></td><td>登录账户与密码，密码加密保存并遮盖显示。</td></tr><tr><td><code>notify.email.from</code></td><td>发件地址。</td></tr><tr><td><code>notify.email.skip_verify</code></td><td>是否跳过服务端证书验证。</td></tr><tr><td><code>notify.email.timeout_seconds</code></td><td>邮件连接与发送的超时。</td></tr></tbody></table>
-<p>带密码的认证只在加密连接或本机连接上发送。当前邮件为纯文本，Markdown 按文本保留。</p>
+<p>带密码的认证只在加密连接或本机连接上发送。任务回答是 HTML（在提示词里要求模型输出 HTML 邮件）时，邮件同时带 HTML 与纯文本两个版本；否则是纯文本，Markdown 按文本保留。发信服务器的填法、加密方式和常见错误见 <a href="smtp.html">邮件（SMTP）配置</a>。</p>
 <h2 id="runs">运行记录与重试</h2>
 <p>运行进入任务中心，可查看回答、模型读取的工具、收件人与发送结果。失败可重试；已有回答会复用，不重复询问模型，已经发送成功的收件人不会因同次作业重试再次收到邮件。</p>
 <p>没有收到邮件时，依次检查：任务启用与下次时间、默认或指定模型、任务中心运行错误、SMTP 配置和收件地址。没有配置模型或邮件渠道时，查看明确错误后先完成配置。</p>

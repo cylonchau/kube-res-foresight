@@ -5,6 +5,28 @@
 <p>At least two complete cycles with seasonality, or four observations without it.</p>
 <p>Inputs must be regularly sampled, gap-free, and finite. Outputs retain the metric unit, such as CPU cores, memory bytes, or requests per second. The sample interval determines the duration of a step. Minimum history permits execution; it does not establish forecast quality.</p>
 <p>This method does not use covariates; target metrics are forecast separately.</p>
+<h2 id="principle">How it works and the formula</h2>
+<p>Holt-Winters belongs to the exponential smoothing (ETS) family: it splits a series into a "level" ℓ, an optional "trend" b and an optional "season" s. With every new observation the three parts are updated with smoothing coefficients, and a forecast puts them back together.</p>
+<pre data-language="Formula"><code>let base(t) = ℓ(t−1) + φ·b(t−1)                      (φ = damping factor; φ = 1 without damping)
+
+no season:             ŷ(t) = base(t)
+additive season:       ŷ(t) = base(t) + s(t mod m)
+multiplicative season: ŷ(t) = base(t) × s(t mod m)
+
+updates (y is the observation):
+  level   ℓ(t) = α·(y(t) − s) + (1−α)·base(t)              y(t)/s instead of y(t)−s when multiplicative
+  trend   b(t) = β·(ℓ(t) − ℓ(t−1)) + (1−β)·φ·b(t−1)        (when trend is on)
+  season  s(t mod m) = γ·(y(t) − ℓ(t)) + (1−γ)·s(t mod m)  γ·y(t)/ℓ(t) when multiplicative
+
+h steps ahead:  ŷ(T+h) = ℓ(T) + (φ + φ² + … + φʰ)·b(T)    plus (or times) the season term of that position</code></pre>
+<p>How the parameters enter the formula:</p>
+<ul>
+<li><code>alpha</code>, <code>beta</code>, <code>gamma</code>: the smoothing coefficients of level, trend and season, 0 to 1, the larger the faster they follow new data. <strong>0 means choose automatically</strong>: a small grid is tried (alpha ∈ {0.1, 0.3, 0.5, 0.7, 0.9}, beta ∈ {0.01, 0.1, 0.3}, gamma ∈ {0.1, 0.3, 0.5}) and the combination with the smallest in-sample one-step squared error wins.</li>
+<li><code>trend</code>: whether there is a trend term b. <code>damped</code> and <code>damping_phi</code>: whether the trend is damped, φ defaults to 0.98; a damped trend is multiplied by φ for each step ahead, so the forecast does not shoot up without end.</li>
+<li><code>season_length_steps</code> (m) and <code>seasonal_mode</code>: the season length in steps and additive / multiplicative. m = 0 means no season; with a season at least 2m points are needed. Multiplicative seasonality needs a history strictly above 0: a zero is refused, not quietly changed.</li>
+<li><code>non_negative</code>: a forecast below 0 is cut to 0.</li></ul>
+<p><strong>Why it is done this way:</strong> level, trend and season are updated with coefficients of their own, so the model follows a "slow rise" and a "daily swing" at once, in a single pass with no training. Multiplicative seasonality suits a resource whose daily swing grows with the load; additive suits one whose swing stays about the same.</p>
+<p><strong>Initialisation:</strong> with a season the level is the mean of the first cycle, the trend is the difference of the means of the first two cycles divided by m, and the season terms are the differences (or ratios) of the first cycle's points to its mean; without a season the level is the first value and the trend is the least-squares slope of the first 10 points (all of them when fewer), so one noisy point does not set the starting trend.</p>
 <h2 id="parameters">Parameter reference</h2>
 <p><small>On narrow screens, swipe the parameter table horizontally to read all columns.</small></p>
 <div class="parameter-reference"><table><thead><tr><th>Parameter / type</th><th>Default / range / unit</th><th>Meaning and use</th></tr></thead><tbody><tr><td><code>season_length_steps</code><br><small>int</small></td><td>0<br><small>≥ 0; steps</small></td><td>Season length in sample steps; zero disables seasonality where allowed. Seasonal Naive requires an explicit cycle.</td></tr><tr><td><code>trend</code><br><small>bool</small></td><td>true<br><small>No additional range</small></td><td>Include a trend component.</td></tr><tr><td><code>damped</code><br><small>bool</small></td><td>false<br><small>No additional range</small></td><td>Damp the trend using damping_phi.</td></tr><tr><td><code>alpha</code><br><small>float</small></td><td>0<br><small>≥ 0; ≤ 1</small></td><td>Level smoothing coefficient. Zero selects it automatically for Holt-Winters and Theta; larger values react faster.</td></tr><tr><td><code>beta</code><br><small>float</small></td><td>0<br><small>≥ 0; ≤ 1</small></td><td>Trend smoothing coefficient; zero selects it automatically.</td></tr><tr><td><code>gamma</code><br><small>float</small></td><td>0<br><small>≥ 0; ≤ 1</small></td><td>Seasonal smoothing coefficient; zero selects it automatically.</td></tr><tr><td><code>seasonal_mode</code><br><small>string</small></td><td>&quot;additive&quot;<br><small>additive / multiplicative</small></td><td>Additive seasonality or multiplicative scaling. Multiplicative needs strictly positive data and a season of at least two steps.</td></tr><tr><td><code>damping_phi</code><br><small>float</small></td><td>0.98<br><small>≥ 0.8; ≤ 1</small></td><td>Trend damping factor when damped=true; smaller values decay faster, one disables damping.</td></tr><tr><td><code>non_negative</code><br><small>bool</small></td><td>true<br><small>No additional range</small></td><td>Clamp forecasts to zero or above.</td></tr></tbody></table></div>
@@ -17,8 +39,40 @@
   &quot;seasonal_mode&quot;: &quot;additive&quot;,
   &quot;damping_phi&quot;: 0.98
 }</code></pre>
+<h2 id="worked-example">Worked example: data, parameters and substitution</h2>
+<p>To see the updates clearly we use the simplest form: no season, a trend only, and the coefficients set by hand (so there is no grid search). Parameters:</p>
+<pre data-language="JSON"><code>{
+  "trend": true,
+  "alpha": 0.5,
+  "beta": 0.3
+}</code></pre>
+<pre data-language="Data"><code>y = [10, 11, 12.5, 13, 14.5, 15]        one point every 5 minutes</code></pre>
+<p><strong>Initialisation:</strong> level ℓ = y(1) = 10; trend b = the least-squares slope of the 6 points = <strong>1.0286</strong>. No damping, φ = 1.</p>
+<p><strong>Point by point:</strong> first predict the point from the old state with <code>base = ℓ + b</code>, then update with the actual value:</p>
+<div class="parameter-reference"><table><thead><tr><th>t</th><th>y</th><th>base = ℓ+b (prediction)</th><th>error y−base</th><th>new level ℓ = 0.5·y + 0.5·base</th><th>new trend b = 0.3·(ℓ−old ℓ) + 0.7·old b</th></tr></thead><tbody>
+<tr><td>1</td><td>10</td><td>11.0286</td><td>−1.0286</td><td>10.5143</td><td>0.8743</td></tr>
+<tr><td>2</td><td>11</td><td>11.3886</td><td>−0.3886</td><td>11.1943</td><td>0.8160</td></tr>
+<tr><td>3</td><td>12.5</td><td>12.0103</td><td>0.4897</td><td>12.2551</td><td>0.8895</td></tr>
+<tr><td>4</td><td>13</td><td>13.1446</td><td>−0.1446</td><td>13.0723</td><td>0.8678</td></tr>
+<tr><td>5</td><td>14.5</td><td>13.9401</td><td>0.5599</td><td>14.2200</td><td>0.9518</td></tr>
+<tr><td>6</td><td>15</td><td>15.1718</td><td>−0.1718</td><td>15.0859</td><td>0.9260</td></tr></tbody></table></div>
+<p>Row 1 as an example: <code>base = 10 + 1.0286 = 11.0286</code>; <code>ℓ = 0.5×10 + 0.5×11.0286 = 10.5143</code>; <code>b = 0.3×(10.5143 − 10) + 0.7×1.0286 = 0.8743</code>.</p>
+<p><strong>Forecast:</strong> the final state is ℓ = 15.0859, b = 0.9260; no damping, so</p>
+<pre data-language="Calculation"><code>ŷ(T+1) = 15.0859 + 1×0.9260 = 16.0119
+ŷ(T+2) = 15.0859 + 2×0.9260 = 16.9379
+ŷ(T+3) = 15.0859 + 3×0.9260 = 17.8639</code></pre>
+<p>The result <code>[16.0119, 16.9379, 17.8639]</code> follows the latest trend, about 0.93 more per step. With <code>damped</code> on (φ=0.98) the increment becomes 0.926×(0.98 + 0.98² + 0.98³): growth slows step by step and a long forecast range does not shoot up.</p>
+<p>These numbers are computed by the real code in <code>pkg/forecast/docs_examples_test.go</code> and checked on every test run.</p>
 <h2 id="tuning">Tuning and tradeoffs</h2>
 <p>Start with automatic smoothing coefficients (0). Enable damped to limit distant trend growth. Multiplicative mode needs a season of at least two steps and strictly positive history; use additive for zeros.</p>
+<h2 id="references">Sources and references</h2>
+<ul>
+<li>Holt, C.C. "Forecasting seasonals and trends by exponentially weighted moving averages", <em>International Journal of Forecasting</em> 20(1), 2004, 5–10 (a reprint of the 1957 ONR research memorandum): the trend term.</li>
+<li>Winters, P.R. "Forecasting sales by exponentially weighted moving averages", <em>Management Science</em> 6(3), 1960, 324–342: the seasonal term (additive and multiplicative).</li>
+<li>Gardner, E.S. &amp; McKenzie, E. "Forecasting trends in time series", <em>Management Science</em> 31(10), 1985, 1237–1246: the damped trend.</li>
+<li>Hyndman, R.J., Koehler, A.B., Ord, J.K., Snyder, R.D. <em>Forecasting with Exponential Smoothing: The State Space Approach</em>, Springer, 2008.</li>
+<li>Hyndman, R.J. &amp; Athanasopoulos, G. <em>Forecasting: Principles and Practice</em> (3rd ed.), section 8.2 (methods with trend, damped trend) and section 8.3 (Holt-Winters' seasonal method): <a href="https://otexts.com/fpp3/holt-winters.html">https://otexts.com/fpp3/holt-winters.html</a>.</li>
+<li>Difference from the textbook: the coefficients are chosen from a small grid by the in-sample one-step squared error, not by numerical optimisation; it is a little slower and steadier, and cannot fail because an optimiser did not converge.</li></ul>
 <h2 id="shared-parameters">Shared parameters: shifts and quantiles</h2>
 <div class="parameter-reference"><table><thead><tr><th>Parameter / type</th><th>Default / range / unit</th><th>Meaning and use</th></tr></thead><tbody><tr><td><code>reset_on_change</code><br><small>bool</small></td><td>false<br><small>No additional range</small></td><td>Use history after a detected level shift, preserving enough points for the underlying method.</td></tr><tr><td><code>change_threshold</code><br><small>float</small></td><td>8<br><small>≥ 3; ≤ 50</small></td><td>Minimum shift relative to robust noise; used only with reset_on_change.</td></tr><tr><td><code>change_min_shift</code><br><small>float</small></td><td>0.2<br><small>≥ 0; ≤ 5</small></td><td>Minimum relative level shift; 0.2 means 20%. Used only with reset_on_change.</td></tr><tr><td><code>quantile_level</code><br><small>float</small></td><td>0<br><small>≥ 0; ≤ 0.99</small></td><td>Zero disables conformal calibration; otherwise must be above 0.5 and at most 0.99. Calibrates an upper forecast using earlier forecast errors.</td></tr><tr><td><code>calibration_windows</code><br><small>int</small></td><td>8<br><small>≥ 3; ≤ 50</small></td><td>Historical windows for conformal calibration; more windows add forecast calls and history requirements.</td></tr></tbody></table></div>
 <p>quantile_level uses a 0–1 scale; percentile uses 1–100. Calibration runs extra historical forecasts. Check history and runtime budgets before increasing windows; coverage is an evaluation target, not a guarantee.</p>

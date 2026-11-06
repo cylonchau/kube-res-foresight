@@ -5,6 +5,13 @@
 <p>At least season_length_steps observations: one full cycle.</p>
 <p>Inputs must be regularly sampled, gap-free, and finite. Outputs retain the metric unit, such as CPU cores, memory bytes, or requests per second. The sample interval determines the duration of a step. Minimum history permits execution; it does not establish forecast quality.</p>
 <p>This method does not use covariates; target metrics are forecast separately.</p>
+<h2 id="principle">How it works and the formula</h2>
+<p>The seasonal naive forecast takes the value at the same position one cycle earlier as the forecast. The cycle length <code>m</code> is in steps, given by <code>season_length_steps</code>; the algorithm never guesses the cycle.</p>
+<pre data-language="Formula"><code>ŷ(T+h) = y(T + h − m·(k+1)),  where k = ⌊(h−1)/m⌋</code></pre>
+<p>In plain words: forecast step 1 is step 1 of the latest cycle, step 2 is step 2, and so on. When the forecast range is longer than a cycle, the latest cycle is repeated as a whole. In the code this is <code>out[h] = values[n − m + (h mod m)]</code> (<code>h</code> from 0).</p>
+<p>You convert <code>season_length_steps</code> yourself: the length of the cycle ÷ the sampling step. A daily cycle at 5-minute samples = 24×60÷5 = <strong>288</strong> steps; a weekly cycle = 7×288 = <strong>2016</strong> steps. The history needs at least <code>m</code> points.</p>
+<p><strong>Why it is done this way:</strong> many business loads have a strong daily or weekly cycle (a morning peak, a Monday batch). For such a load "what was it at this time yesterday" is often more accurate than "what is it now", and it takes almost no computation. It is the baseline of the seasonal algorithms.</p>
+<p><strong>Its weakness:</strong> it looks at one cycle only. If that cycle happened to hold an incident or an odd peak, it copies the oddity into the future as if it were normal; it sees no trend either. That is why the platform lets it decide only when the history holds several full cycles (system parameter <code>forecast.min_seasons</code>, default 3), and why it should be compared with other algorithms.</p>
 <h2 id="parameters">Parameter reference</h2>
 <p><small>On narrow screens, swipe the parameter table horizontally to read all columns.</small></p>
 <div class="parameter-reference"><table><thead><tr><th>Parameter / type</th><th>Default / range / unit</th><th>Meaning and use</th></tr></thead><tbody><tr><td><code>season_length_steps</code><br><small>int</small></td><td>Required; no default<br><small>≥ 2; steps</small></td><td>Season length in sample steps; zero disables seasonality where allowed. Seasonal Naive requires an explicit cycle.</td></tr></tbody></table></div>
@@ -13,8 +20,29 @@
 <pre data-language="JSON"><code>{
   &quot;season_length_steps&quot;: 288
 }</code></pre>
+<h2 id="worked-example">Worked example: data, parameters and substitution</h2>
+<p>To keep it readable we use a "mini cycle" of 4 steps (in real use it is 288 or 2016). Samples are every 5 minutes and the history holds two full cycles:</p>
+<pre data-language="JSON"><code>{
+  "season_length_steps": 4
+}</code></pre>
+<pre data-language="Data"><code>y = [1.0, 2.0, 3.0, 2.0,   1.2, 2.2, 3.2, 2.1]
+     └─ 1st cycle ─┘         └─ 2nd cycle (latest) ─┘     n = 8, m = 4</code></pre>
+<p>We forecast the next 6 steps. Take the latest cycle <code>[1.2, 2.2, 3.2, 2.1]</code> and apply <code>values[n − m + (h mod m)]</code>:</p>
+<div class="parameter-reference"><table><thead><tr><th>h (from 0)</th><th>h mod 4</th><th>index n−m+(h mod m)</th><th>value taken</th></tr></thead><tbody>
+<tr><td>0</td><td>0</td><td>8−4+0 = 4</td><td>1.2</td></tr>
+<tr><td>1</td><td>1</td><td>5</td><td>2.2</td></tr>
+<tr><td>2</td><td>2</td><td>6</td><td>3.2</td></tr>
+<tr><td>3</td><td>3</td><td>7</td><td>2.1</td></tr>
+<tr><td>4</td><td>0</td><td>4</td><td>1.2</td></tr>
+<tr><td>5</td><td>1</td><td>5</td><td>2.2</td></tr></tbody></table></div>
+<p>The result is <code>[1.2, 2.2, 3.2, 2.1, 1.2, 2.2]</code>: the latest cycle copied as it is. The values of the first cycle (1.0, 2.0, 3.0, 2.0) play no part, which is what "looks at one cycle only" means.</p>
+<p>These numbers are computed by the real code in <code>pkg/forecast/docs_examples_test.go</code> and checked on every test run.</p>
 <h2 id="tuning">Tuning and tradeoffs</h2>
 <p>Convert the business cycle into sample steps. A day is 288 steps at five-minute sampling or 1440 at one-minute sampling; 24 is not automatically a day.</p>
+<h2 id="references">Sources and references</h2>
+<ul>
+<li>Hyndman, R.J. &amp; Athanasopoulos, G. <em>Forecasting: Principles and Practice</em> (3rd ed., OTexts, 2021), section 5.2, the Seasonal naïve method: <a href="https://otexts.com/fpp3/simple-methods.html">https://otexts.com/fpp3/simple-methods.html</a>.</li>
+<li>The platform rule that a seasonal algorithm may decide only with several cycles of history exists so that one odd cycle is not taken for a pattern; see the system parameter <code>forecast.min_seasons</code>.</li></ul>
 <h2 id="apply">Use in a module</h2>
 <ol><li>Save parameters and check history, sample interval, and horizon.</li><li>Enable module prediction. Fixed mode runs the selected method; dynamic mode uses centrally enabled methods.</li><li>This baseline does not need backtest promotion, but actual performance still needs review.</li><li>Review error, peak underestimation, runtime, and adoption reasons in Observe or Recommend before separately authorizing admission and replica actions.</li></ol>
 <p>For insufficient history, invalid settings, timeouts, or invalid output, inspect run reasons. Without eligible forecasts, the module follows its schedules, fallback, and protection rules.</p>

@@ -5,6 +5,28 @@
 <p>At least lags + 4×min_samples_leaf + 1 observations; the training window must retain enough samples.</p>
 <p>Inputs must be regularly sampled, gap-free, and finite. Outputs retain the metric unit, such as CPU cores, memory bytes, or requests per second. The sample interval determines the duration of a step. Minimum history permits execution; it does not establish forecast quality.</p>
 <p>Supports covariates on the same sample grid, using only observations before the forecast origin. Future covariates carry the last observed value; future business demand is not assumed known.</p>
+<h2 id="principle">How it works and the formula</h2>
+<p>A random forest is the average of many regression trees. Each tree sees a random sample of the training rows and a random subset of the features, so no tree is perfect, but they make different mistakes and their average is steadier than one tree. The features are the previous values, optional calendar features and covariates; the forecast rolls forward recursively.</p>
+<pre data-language="Formula"><code>features:  x(t) = [ y(t−1), …, y(t−L) ] (+ calendar sin/cos, + covariate lags)            L = lags
+for each tree b = 1 … B (B = n_estimators):
+  1) draw sample_ratio × the number of rows from the training rows, with replacement (bootstrap)
+  2) draw feature_ratio × the number of features at random; this tree may split only on them
+  3) split recursively on the drawn rows: bin each feature into 32 bins and pick the (feature, bin edge) with the largest "variance reduction",
+       gain = (ΣL)²/nL + (ΣR)²/nR − (Σ)²/n          Σ is the sum of the targets on that side, n the number of rows
+     until the depth reaches max_depth or a side has fewer than min_samples_leaf rows; a leaf's value = the mean of the targets in it
+forecast:  ŷ(t) = (1/B) · Σ tree_b( x(t) )
+several steps: the forecast is used as the lag of the next step, rolling forward recursively</code></pre>
+<p>How the parameters enter the formula:</p>
+<ul>
+<li><code>lags</code> (L): how many previous steps are features; required.</li>
+<li><code>n_estimators</code> (B): the number of trees. More is steadier and slower (default 50).</li>
+<li><code>max_depth</code>: the maximum depth of a tree (default 6). Deeper fits more complex relations and memorises noise more easily.</li>
+<li><code>min_samples_leaf</code>: the fewest rows in a leaf (default 5). Larger is smoother. The least history = lags + 4×min_samples_leaf + 1.</li>
+<li><code>feature_ratio</code>, <code>sample_ratio</code>: the share of the features and the share of the rows (with replacement) each tree uses. Smaller shares make the trees more different.</li>
+<li><code>seed</code>: the random seed. With a fixed seed the same history and parameters always give the same forecast (reproducible).</li>
+<li><code>calendar_features</code>, <code>covariate_lags</code>, <code>training_window_steps</code>: as in <a href="algorithm-ridge_ar.html">ridge autoregression</a>.</li></ul>
+<p><strong>Why it is done this way:</strong> trees can fit non-linear relations (for example "when the previous step is below some value the next one recovers") with no linearity assumption, and do not mind features of different scales. Averaging many trees offsets the overfitting of a single one.</p>
+<p><strong>The key limit: a tree model cannot extrapolate.</strong> A leaf's value is the mean of training targets, so a forecast always lies inside the range of the training targets. When the load keeps rising to a height the history has never shown, it does not forecast higher. That is why the platform requires it to beat the baseline in the backtest before it is adopted, and why it suits a load that swings within a range better than one that is growing.</p>
 <h2 id="parameters">Parameter reference</h2>
 <p><small>On narrow screens, swipe the parameter table horizontally to read all columns.</small></p>
 <div class="parameter-reference"><table><thead><tr><th>Parameter / type</th><th>Default / range / unit</th><th>Meaning and use</th></tr></thead><tbody><tr><td><code>lags</code><br><small>int</small></td><td>Required; no default<br><small>≥ 1; ≤ 2000; steps</small></td><td>Number of preceding target observations used as features.</td></tr><tr><td><code>calendar_features</code><br><small>bool</small></td><td>false<br><small>No additional range</small></td><td>Include UTC daily and weekly sine/cosine features.</td></tr><tr><td><code>n_estimators</code><br><small>int</small></td><td>50<br><small>≥ 1; ≤ 500</small></td><td>Number of trees; more trees increase fitting cost.</td></tr><tr><td><code>max_depth</code><br><small>int</small></td><td>6<br><small>≥ 1; ≤ 12</small></td><td>Maximum tree depth; deeper trees can overfit.</td></tr><tr><td><code>min_samples_leaf</code><br><small>int</small></td><td>5<br><small>≥ 1</small></td><td>Minimum observations per leaf.</td></tr><tr><td><code>feature_ratio</code><br><small>float</small></td><td>0.6<br><small>≥ 0.05; ≤ 1</small></td><td>Fraction of features selected for each tree.</td></tr><tr><td><code>sample_ratio</code><br><small>float</small></td><td>0.8<br><small>≥ 0.05; ≤ 1</small></td><td>Training sample fraction for bootstrap sampling.</td></tr><tr><td><code>training_window_steps</code><br><small>int</small></td><td>0<br><small>≥ 0; steps</small></td><td>Use only this many recent observations for training; zero uses all available history.</td></tr><tr><td><code>covariate_lags</code><br><small>int</small></td><td>3<br><small>≥ 1; ≤ 48; steps</small></td><td>Lag count per covariate. Future steps carry forward the last observed covariate; ignored without covariates.</td></tr><tr><td><code>seed</code><br><small>int</small></td><td>42<br><small>≥ 0; ≤ 1000000</small></td><td>Random seed for reproducible forest fitting.</td></tr></tbody></table></div>
@@ -18,8 +40,35 @@
   &quot;training_window_steps&quot;: 2000,
   &quot;seed&quot;: 42
 }</code></pre>
+<h2 id="worked-example">Worked example: data, parameters and substitution</h2>
+<p>To see "cannot extrapolate", take the simplest "always rising" series: one point every 5 minutes, from 10 up to 29 (adding 1 per step), 20 points.</p>
+<pre data-language="JSON"><code>{
+  "lags": 2,
+  "n_estimators": 20,
+  "max_depth": 3,
+  "min_samples_leaf": 2,
+  "feature_ratio": 1,
+  "sample_ratio": 1,
+  "seed": 42
+}</code></pre>
+<pre data-language="Data"><code>y = [10, 11, 12, …, 28, 29]        n = 20; training rows: features [y(t−1), y(t−2)], target y(t), 18 rows, the targets range over 12 … 29</code></pre>
+<p>"Adding 1 per step", everyone knows the next values should be 30, 31, 32. The random forest gives:</p>
+<pre data-language="Result"><code>ŷ = [27.9125, 27.9125, 27.9125]</code></pre>
+<p>All three forecasts are below the largest value of the history, 29, and they form a flat line. Why:</p>
+<ul>
+<li>For step 1 the features [29, 28] fall into the leaf on the "largest feature value" side of each tree; the value of that leaf is the mean of its training targets, and the largest training target is 29, so the forecast cannot be above 29.</li>
+<li>That forecast of 27.9 is then used as the lag of the next step, falls into the same leaf, and the later steps stay at 27.9.</li></ul>
+<p>For comparison, a linear model (<a href="algorithm-ridge_ar.html">ridge autoregression</a>) on the same data (with its default parameters) forecasts about 29.95, 30.92 and 31.88, going on up. So <strong>on a growing load, mind that a tree model comes out low</strong>; it wins when the load swings around a range and the relation is non-linear.</p>
+<p>How one split inside the forest is chosen is shown step by step (base value, residuals, the gain of the split, the leaf values) in <a href="algorithm-gbdt.html#worked-example">the example of the GBDT page</a>; the trees of a random forest use the same splitting rule, fitted to the targets themselves instead of residuals, and every tree splits only on its sampled rows and features.</p>
+<p>These numbers are computed by the real code in <code>pkg/forecast/docs_examples_test.go</code> and checked on every test run (the random seed is fixed at 42, so the result is reproducible).</p>
 <h2 id="tuning">Tuning and tradeoffs</h2>
 <p>Start with bounded tree count, depth, and training window. More trees cost more; deeper trees can fit noise. Keep the seed fixed for reproducible comparisons against Ridge AR and baselines.</p>
+<h2 id="references">Sources and references</h2>
+<ul>
+<li>Breiman, L. "Random Forests", <em>Machine Learning</em> 45(1), 2001, 5–32: the original paper.</li>
+<li>Breiman, L. "Bagging predictors", <em>Machine Learning</em> 24(2), 1996, 123–140: bootstrap sampling and averaging (bagging).</li>
+<li>Breiman, L., Friedman, J.H., Olshen, R.A., Stone, C.J. <em>Classification and Regression Trees</em> (Wadsworth, 1984): regression trees and the variance-reduction split criterion.</li>
+<li>Using lags as features and forecasting recursively is the common way to forecast a time series with a regression model; the limit that a tree model cannot extrapolate is shown with real numbers in the example above.</li></ul>
 <h2 id="shared-parameters">Shared parameters: shifts and quantiles</h2>
 <div class="parameter-reference"><table><thead><tr><th>Parameter / type</th><th>Default / range / unit</th><th>Meaning and use</th></tr></thead><tbody><tr><td><code>reset_on_change</code><br><small>bool</small></td><td>false<br><small>No additional range</small></td><td>Use history after a detected level shift, preserving enough points for the underlying method.</td></tr><tr><td><code>change_threshold</code><br><small>float</small></td><td>8<br><small>≥ 3; ≤ 50</small></td><td>Minimum shift relative to robust noise; used only with reset_on_change.</td></tr><tr><td><code>change_min_shift</code><br><small>float</small></td><td>0.2<br><small>≥ 0; ≤ 5</small></td><td>Minimum relative level shift; 0.2 means 20%. Used only with reset_on_change.</td></tr><tr><td><code>quantile_level</code><br><small>float</small></td><td>0<br><small>≥ 0; ≤ 0.99</small></td><td>Zero disables conformal calibration; otherwise must be above 0.5 and at most 0.99. Calibrates an upper forecast using earlier forecast errors.</td></tr><tr><td><code>calibration_windows</code><br><small>int</small></td><td>8<br><small>≥ 3; ≤ 50</small></td><td>Historical windows for conformal calibration; more windows add forecast calls and history requirements.</td></tr></tbody></table></div>
 <p>quantile_level uses a 0–1 scale; percentile uses 1–100. Calibration runs extra historical forecasts. Check history and runtime budgets before increasing windows; coverage is an evaluation target, not a guarantee.</p>

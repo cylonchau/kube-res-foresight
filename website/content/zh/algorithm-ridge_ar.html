@@ -5,6 +5,28 @@
 <p>至少 lags + 2×特征宽度 + 1 点；日历特征增加 4 维，有协变量时还要计入协变量维度。direct 模式额外需要 horizon−1 点。</p>
 <p>输入应是等间隔、无缺口且数值有限的序列。输出保留输入指标单位，例如 CPU 核、内存字节或每秒请求数；采样步长决定步数对应的真实时间。最低样本数仅表示可运行，不代表预测可靠。</p>
 <p>支持协变量：使用同一时间网格上的其他指标，特征仅取预测起点之前的值；未来协变量沿用最后观测值，不是假设已知未来业务量。</p>
+<h2 id="principle">原理与公式</h2>
+<p>岭回归自回归（ridge_ar）用“前几步的值”线性地预测“下一步的值”，系数用岭回归拟合。岭回归在普通最小二乘上加一个惩罚项，防止特征彼此相关（相邻的滞后值几乎总是相关的）时系数大幅摇摆。</p>
+<pre data-language="公式"><code>特征：  x(t) = [ y(t−1), y(t−2), …, y(t−L) ]            L = lags
+        可选：日、周的 sin/cos 共 4 个日历特征；可选：协变量的最近 covariate_lags 个值
+标准化： z(j) = (x(j) − mean(j)) / std(j)                 目标也先减去均值 ȳ
+岭回归：  β = argmin Σ ( y − ȳ − zᵀβ )² + λ · n · ‖β‖²     λ = l2_lambda，n = 训练行数
+          （解法：(ZᵀZ + λ·n·I) β = Zᵀ(y − ȳ)，用 Cholesky 分解）
+预测：    ŷ(t) = ȳ + Σ β(j) · z(j)
+
+多步：    recursive（默认）：每一步的预测当作下一步的滞后值继续用
+          direct：为向前 h 步各训练一个模型，只用观测值作特征，不累积误差；步数多时只为 direct_anchors 个锚点步训练，之间线性插值</code></pre>
+<p>参数怎样进入公式：</p>
+<ul>
+<li><code>lags</code>（L）：用前几步作特征。必须选；步长 5 分钟时 12 就是看前 1 小时。</li>
+<li><code>calendar_features</code>：加入日、周的 sin/cos，让线性模型也能表达日周期（这些特征只取决于时间戳，未来每一步都已知）。</li>
+<li><code>l2_lambda</code>：惩罚强度。特征和目标都已标准化，所以不依赖数据的量纲；越大系数越小、越稳，也越容易欠拟合。</li>
+<li><code>training_window_steps</code>：只用最近多少步做训练样本，0 = 全部历史。</li>
+<li><code>covariate_lags</code>：每个协变量取最近多少个值作特征，只用目标步之前的值，不会读到未来。</li>
+<li><code>multi_step</code>、<code>direct_anchors</code>：递归或直接预测，及直接预测时有几个锚点步。</li>
+<li>最少样本数 = lags + 2×特征数 + 1，直接预测时再加预测步数 − 1。</li></ul>
+<p><strong>为什么这样做：</strong>线性自回归是最便宜的“学习型”预测：能表达趋势、短期惯性，加上日历特征还能表达周期，而且线性模型能<strong>外推</strong>（预测值可以超出训练范围），这一点树模型做不到。岭惩罚和标准化让它在样本不多、特征高度相关时依然稳定。</p>
+<p><strong>递归预测的代价：</strong>每一步的误差会被喂给后面每一步，预测范围很长时会向均值漂移；direct 为每个锚点步单独训练，没有这种累积，代价是训练次数多。</p>
 <h2 id="parameters">参数说明</h2>
 <p><small>窄屏可左右滑动参数表，查看完整说明。</small></p>
 <div class="parameter-reference"><table><thead><tr><th>参数 / 类型</th><th>默认值 / 范围 / 单位</th><th>含义与使用</th></tr></thead><tbody><tr><td><code>lags</code><br><small>int</small></td><td>必填，无默认值<br><small>≥ 1; ≤ 2000; steps</small></td><td>滞后步数，仅使用目标步之前的值。</td></tr><tr><td><code>calendar_features</code><br><small>bool</small></td><td>false<br><small>无额外范围限制</small></td><td>是否加入 UTC 日/周周期的正余弦特征（时间戳已知，不泄漏未来）。</td></tr><tr><td><code>l2_lambda</code><br><small>float</small></td><td>0.01<br><small>≥ 0</small></td><td>L2 正则强度，相对样本数缩放。</td></tr><tr><td><code>training_window_steps</code><br><small>int</small></td><td>0<br><small>≥ 0; steps</small></td><td>只用最近多少个样本训练；0 = 全部历史。</td></tr><tr><td><code>covariate_lags</code><br><small>int</small></td><td>3<br><small>≥ 1; ≤ 48; steps</small></td><td>输入指标集里每个协变量取最近多少步的值作为特征（仅用目标步之前的值；未来步沿用最后观测值）。没有协变量时忽略。</td></tr><tr><td><code>multi_step</code><br><small>string</small></td><td>&quot;recursive&quot;<br><small>recursive / direct</small></td><td>多步预测方式：recursive = 一个模型逐步往前滚，把上一步的预测当下一步的输入（误差会累积，视野越长越向均值收敛）；direct = 每个锚点步长各训练一个模型，直接预测那一步，只用已观测的值，不累积误差，但训练成本约为锚点数倍。</td></tr><tr><td><code>direct_anchors</code><br><small>int</small></td><td>8<br><small>≥ 2; ≤ 60</small></td><td>直接多步时有多少个步长拥有自己的模型（从第 1 步到最后一步均匀取点，中间的步长线性插值）；视野不超过它时每一步都有自己的模型。仅 multi_step=direct 时使用。</td></tr></tbody></table></div>
@@ -18,8 +40,36 @@
   &quot;multi_step&quot;: &quot;direct&quot;,
   &quot;direct_anchors&quot;: 8
 }</code></pre>
+<h2 id="worked-example">计算示例：数据、参数与代入过程</h2>
+<p>用 2 个滞后值、不带日历特征，历史只有 10 个点（每 5 分钟一个），便于看清拟合过程。</p>
+<pre data-language="JSON"><code>{
+  "lags": 2,
+  "calendar_features": false,
+  "l2_lambda": 0.1,
+  "multi_step": "recursive"
+}</code></pre>
+<pre data-language="数据"><code>y = [10, 12, 13, 15, 14, 16, 18, 17, 19, 21]</code></pre>
+<p><strong>第 1 步，构造训练样本。</strong>每个目标值 y(t) 配上它前两个值，共 8 行：</p>
+<div class="parameter-reference"><table><thead><tr><th>特征 y(t−1)</th><th>特征 y(t−2)</th><th>目标 y(t)</th></tr></thead><tbody>
+<tr><td>12</td><td>10</td><td>13</td></tr><tr><td>13</td><td>12</td><td>15</td></tr><tr><td>15</td><td>13</td><td>14</td></tr><tr><td>14</td><td>15</td><td>16</td></tr>
+<tr><td>16</td><td>14</td><td>18</td></tr><tr><td>18</td><td>16</td><td>17</td></tr><tr><td>17</td><td>18</td><td>19</td></tr><tr><td>19</td><td>17</td><td>21</td></tr></tbody></table></div>
+<p><strong>第 2 步，标准化并拟合。</strong>两个特征的均值分别是 15.5 和 14.375，标准差 2.2913 和 2.4969，目标均值 ȳ = 16.625。带 λ = 0.1 的岭回归得到标准化后的系数：</p>
+<pre data-language="结果"><code>β(y(t−1)) = 1.0902        β(y(t−2)) = 1.1073</code></pre>
+<p><strong>第 3 步，预测第 1 步。</strong>要预测的是下一个点，它的特征是最后两个值：y(t−1) = 21，y(t−2) = 19：</p>
+<pre data-language="计算"><code>z1 = (21 − 15.5)   / 2.2913 = 2.4004
+z2 = (19 − 14.375) / 2.4969 = 1.8523
+ŷ(T+1) = 16.625 + 1.0902 × 2.4004 + 1.1073 × 1.8523 = 21.2931</code></pre>
+<p><strong>第 4 步，递归预测第 2 步。</strong>把 21.2931 当作新的“最近一个值”：特征变成 y(t−1) = 21.2931，y(t−2) = 21，再代入同一个公式，得到 <strong>22.3195</strong>。</p>
+<p>结果 <code>[21.2931, 22.3195]</code>。可以看到：历史最后一个值是 21，预测继续往上走到 22.3，已经超出了训练目标的范围（10 到 21）。线性模型能外推，这是它与树模型（见 <a href="algorithm-random_forest.html">随机森林</a>、<a href="algorithm-gbdt.html">GBDT</a>）的不同。也要小心：外推在上升段是优点，在拐点处会冲过头，所以它要在回测里胜过基线才会被采用。</p>
+<p>这些数字由 <code>pkg/forecast/docs_examples_test.go</code> 用真实代码算出并持续校验。</p>
 <h2 id="tuning">调参与取舍</h2>
 <p>先选适度的 lags。l2_lambda 增大可抑制过拟合，但会压平变化。direct 减少递归误差积累，同时增加历史与训练开销；training_window_steps 不能小于模型所需历史。</p>
+<h2 id="references">来源与引用</h2>
+<ul>
+<li>Hoerl, A.E. &amp; Kennard, R.W. “Ridge regression: biased estimation for nonorthogonal problems”，<em>Technometrics</em> 12(1)，1970，55–67：岭回归。</li>
+<li>Box, G.E.P.、Jenkins, G.M.、Reinsel, G.C. <em>Time Series Analysis: Forecasting and Control</em>（第 4 版，Wiley，2008）：自回归（AR）模型。</li>
+<li>Taieb, S.B.、Bontempi, G.、Atiya, A.F.、Sorjamaa, A. “A review and comparison of strategies for multi-step ahead time series forecasting based on the NN5 forecasting competition”，<em>Expert Systems with Applications</em> 39(8)，2012，7067–7083：递归与直接多步策略的比较。</li>
+<li>日历特征用日、周的 sin/cos 表示周期，是时间序列回归里的常见做法（傅里叶项），见 Hyndman &amp; Athanasopoulos <em>Forecasting: Principles and Practice</em>（第 3 版）第 7.4 节：<a href="https://otexts.com/fpp3/useful-predictors.html">https://otexts.com/fpp3/useful-predictors.html</a>。</li></ul>
 <h2 id="shared-parameters">通用参数：变化重置与分位校准</h2>
 <div class="parameter-reference"><table><thead><tr><th>参数 / 类型</th><th>默认值 / 范围 / 单位</th><th>含义与使用</th></tr></thead><tbody><tr><td><code>reset_on_change</code><br><small>bool</small></td><td>false<br><small>无额外范围限制</small></td><td>水平突变后重置：检测历史里最后一次水平突变（发布、扩缩容、流量切换），只用突变之后的历史预测。关闭时用全部历史（现状）。突变之后至少要有 6 步才会被确认；突变后的历史不够算法所需时，取算法所需的最新一段。</td></tr><tr><td><code>change_threshold</code><br><small>float</small></td><td>8<br><small>≥ 3; ≤ 50</small></td><td>突变阈值：突变幅度（扣除前一段趋势后）超过噪声的多少倍才算，越大越不容易误报，噪声由相邻步变化的稳健标准差估计。仅 reset_on_change=true 时使用。</td></tr><tr><td><code>change_min_shift</code><br><small>float</small></td><td>0.2<br><small>≥ 0; ≤ 5</small></td><td>最小突变幅度：突变至少是水平的这个比例（0.2 = 20%），很干净的序列上的微小跳变不算。仅 reset_on_change=true 时使用。</td></tr><tr><td><code>quantile_level</code><br><small>float</small></td><td>0<br><small>≥ 0; ≤ 0.99</small></td><td>推荐分位数：0 = 点预测（现状）；0.9 等 = 预测「实际值有约 90% 的把握不超过」的线（保形预测：用本算法在这个负载最近几个窗口里的真实误差校准，需要更多历史和时间）。必须大于 0.5。</td></tr><tr><td><code>calibration_windows</code><br><small>int</small></td><td>8<br><small>≥ 3; ≤ 50</small></td><td>校准窗口数：用最近多少个历史窗口测本算法的误差；越多越稳，也越慢（每个窗口多跑一次预测）。仅推荐分位数大于 0 时使用。</td></tr></tbody></table></div>
 <p>quantile_level 是 0～1 的分位点，percentile 是 1～100 的百分数，二者不是同一参数。分位校准会额外运行历史预测；增加校准窗口前检查历史与运行预算，覆盖率是评估目标而非保证。</p>

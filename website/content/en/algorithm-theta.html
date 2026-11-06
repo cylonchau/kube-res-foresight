@@ -5,6 +5,21 @@
 <p>Four observations without seasonality, or two full cycles with it.</p>
 <p>Inputs must be regularly sampled, gap-free, and finite. Outputs retain the metric unit, such as CPU cores, memory bytes, or requests per second. The sample interval determines the duration of a step. Minimum history permits execution; it does not establish forecast quality.</p>
 <p>This method does not use covariates; target metrics are forecast separately.</p>
+<h2 id="principle">How it works and the formula</h2>
+<p>The Theta method won the M3 forecasting competition. Its simple form (Hyndman and Billah) amounts to this: smooth the series with simple exponential smoothing to get a "level", then add a "drift" equal to <strong>half</strong> the slope of the linear trend. The level follows the recent past and the trend is trusted by half, which is why it is hard to beat on short, noisy series.</p>
+<pre data-language="Formula"><code>x = the seasonally adjusted series (the series itself without a season)
+ℓ  = the last level of simple exponential smoothing of x (coefficient α)
+b  = the least-squares slope of x over time (per step)
+n  = the length of the series
+
+ŷ(T+h) = ℓ + (b/2) · ( (h−1) + 1/α − (1−α)ⁿ / α )        h = 1 … H
+finally the season term is put back and a forecast below 0 is cut to 0</code></pre>
+<p>In the bracket <code>(h−1)</code> means the drift runs one more step for every step ahead; <code>1/α − (1−α)ⁿ/α</code> is a fixed offset between the smoothed level and the trend line.</p>
+<p>How the parameters enter the formula:</p>
+<ul>
+<li><code>alpha</code>: the smoothing coefficient of the level. <strong>0 means choose automatically</strong>: 0.05, 0.10 … 1.00 are tried and the α with the smallest in-sample one-step squared error wins.</li>
+<li><code>season_length_steps</code> (m): the season length in steps. 0 or 1 means no season; with a season at least 2m points are needed. With a season the classical decomposition (a centred moving average) first gives a seasonal index for every position: multiplicative (the series divided by the index) when the history is all positive, additive (the index subtracted) otherwise; the index is put back after the forecast.</li></ul>
+<p><strong>Why it is done this way:</strong> looking at the level alone lags a rising trend, extrapolating the whole trend tends to overshoot. Taking half the slope is the compromise: it follows a slow change without being led astray by a few points. No training and few parameters to tune.</p>
 <h2 id="parameters">Parameter reference</h2>
 <p><small>On narrow screens, swipe the parameter table horizontally to read all columns.</small></p>
 <div class="parameter-reference"><table><thead><tr><th>Parameter / type</th><th>Default / range / unit</th><th>Meaning and use</th></tr></thead><tbody><tr><td><code>season_length_steps</code><br><small>int</small></td><td>0<br><small>≥ 0; steps</small></td><td>Season length in sample steps; zero disables seasonality where allowed. Seasonal Naive requires an explicit cycle.</td></tr><tr><td><code>alpha</code><br><small>float</small></td><td>0<br><small>≥ 0; ≤ 1</small></td><td>Level smoothing coefficient. Zero selects it automatically for Holt-Winters and Theta; larger values react faster.</td></tr></tbody></table></div>
@@ -14,8 +29,28 @@
   &quot;season_length_steps&quot;: 288,
   &quot;alpha&quot;: 0
 }</code></pre>
+<h2 id="worked-example">Worked example: data, parameters and substitution</h2>
+<p>No season, α set by hand (so there is no automatic choice). One point every 5 minutes.</p>
+<pre data-language="JSON"><code>{
+  "alpha": 0.5
+}</code></pre>
+<pre data-language="Data"><code>y = [10, 12, 11, 13, 14, 16]        n = 6</code></pre>
+<p><strong>Step 1, the level ℓ by simple exponential smoothing</strong> (ℓ(1) = 10, then ℓ ← 0.5·y + 0.5·ℓ): 10 → 11 → 11 → 12 → 13 → <strong>14.5</strong>.</p>
+<p><strong>Step 2, the least-squares slope b:</strong> a line through (0,10), (1,12), (2,11), (3,13), (4,14), (5,16) has the slope <strong>1.0857</strong> per step.</p>
+<p><strong>Step 3, substitute.</strong> (1−α)ⁿ = 0.5⁶ = 0.015625, so 1/α − (1−α)ⁿ/α = 2 − 0.03125 = 1.96875, and b/2 = 0.54285:</p>
+<pre data-language="Calculation"><code>ŷ(T+1) = 14.5 + 0.54285 × ( 0 + 1.96875) = 15.5687
+ŷ(T+2) = 14.5 + 0.54285 × ( 1 + 1.96875) = 16.1116
+ŷ(T+3) = 14.5 + 0.54285 × ( 2 + 1.96875) = 16.6545</code></pre>
+<p>The result is <code>[15.5687, 16.1116, 16.6545]</code>. For comparison, extrapolating the whole trend (the slope 1.0857 instead of half) would add 1.09 per step; Theta adds only 0.54, which is "the trend trusted by half".</p>
+<p>These numbers are computed by the real code in <code>pkg/forecast/docs_examples_test.go</code> and checked on every test run.</p>
 <h2 id="tuning">Tuning and tradeoffs</h2>
 <p>alpha=0 selects smoothing automatically. Compare the nonseasonal form first; add a season only when it is clear and sufficient history exists.</p>
+<h2 id="references">Sources and references</h2>
+<ul>
+<li>Assimakopoulos, V. &amp; Nikolopoulos, K. "The theta model: a decomposition approach to forecasting", <em>International Journal of Forecasting</em> 16(4), 2000, 521–530: the original paper.</li>
+<li>Hyndman, R.J. &amp; Billah, B. "Unmasking the Theta method", <em>International Journal of Forecasting</em> 19(2), 2003, 287–290: shows it equals simple exponential smoothing with drift (the form implemented here).</li>
+<li>Makridakis, S. &amp; Hibon, M. "The M3-Competition: results, conclusions and implications", <em>International Journal of Forecasting</em> 16(4), 2000, 451–476: where Theta won.</li>
+<li>Classical seasonal decomposition (seasonal indices from a centred moving average) is described in Hyndman &amp; Athanasopoulos, <em>Forecasting: Principles and Practice</em> (3rd ed.), section 3.4: <a href="https://otexts.com/fpp3/classical-decomposition.html">https://otexts.com/fpp3/classical-decomposition.html</a>.</li></ul>
 <h2 id="shared-parameters">Shared parameters: shifts and quantiles</h2>
 <div class="parameter-reference"><table><thead><tr><th>Parameter / type</th><th>Default / range / unit</th><th>Meaning and use</th></tr></thead><tbody><tr><td><code>reset_on_change</code><br><small>bool</small></td><td>false<br><small>No additional range</small></td><td>Use history after a detected level shift, preserving enough points for the underlying method.</td></tr><tr><td><code>change_threshold</code><br><small>float</small></td><td>8<br><small>≥ 3; ≤ 50</small></td><td>Minimum shift relative to robust noise; used only with reset_on_change.</td></tr><tr><td><code>change_min_shift</code><br><small>float</small></td><td>0.2<br><small>≥ 0; ≤ 5</small></td><td>Minimum relative level shift; 0.2 means 20%. Used only with reset_on_change.</td></tr><tr><td><code>quantile_level</code><br><small>float</small></td><td>0<br><small>≥ 0; ≤ 0.99</small></td><td>Zero disables conformal calibration; otherwise must be above 0.5 and at most 0.99. Calibrates an upper forecast using earlier forecast errors.</td></tr><tr><td><code>calibration_windows</code><br><small>int</small></td><td>8<br><small>≥ 3; ≤ 50</small></td><td>Historical windows for conformal calibration; more windows add forecast calls and history requirements.</td></tr></tbody></table></div>
 <p>quantile_level uses a 0–1 scale; percentile uses 1–100. Calibration runs extra historical forecasts. Check history and runtime budgets before increasing windows; coverage is an evaluation target, not a guarantee.</p>

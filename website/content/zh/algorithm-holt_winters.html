@@ -5,6 +5,28 @@
 <p>有季节项时至少两个完整周期；没有季节项时至少 4 个点。</p>
 <p>输入应是等间隔、无缺口且数值有限的序列。输出保留输入指标单位，例如 CPU 核、内存字节或每秒请求数；采样步长决定步数对应的真实时间。最低样本数仅表示可运行，不代表预测可靠。</p>
 <p>此方法不使用协变量；分别预测各目标指标。</p>
+<h2 id="principle">原理与公式</h2>
+<p>Holt-Winters 是指数平滑（ETS）家族：把序列拆成“水平 ℓ”、可选的“趋势 b”和可选的“季节 s”三部分，每来一个新观测，就用平滑系数更新这三部分，预测时再把它们合起来。</p>
+<pre data-language="公式"><code>令 base(t) = ℓ(t−1) + φ·b(t−1)                       （φ = 阻尼系数；不阻尼时 φ = 1）
+
+无季节：   ŷ(t) = base(t)
+加性季节： ŷ(t) = base(t) + s(t mod m)
+乘性季节： ŷ(t) = base(t) × s(t mod m)
+
+更新（e 为观测值）：
+  水平  ℓ(t) = α·(y(t) − s) + (1−α)·base(t)              乘性时 y(t)/s 代替 y(t)−s
+  趋势  b(t) = β·(ℓ(t) − ℓ(t−1)) + (1−β)·φ·b(t−1)       （开启 trend 时）
+  季节  s(t mod m) = γ·(y(t) − ℓ(t)) + (1−γ)·s(t mod m)  乘性时 γ·y(t)/ℓ(t)
+
+向前 h 步：  ŷ(T+h) = ℓ(T) + (φ + φ² + … + φʰ)·b(T)    再加上（或乘上）对应位置的季节项</code></pre>
+<p>参数怎样进入公式：</p>
+<ul>
+<li><code>alpha</code>、<code>beta</code>、<code>gamma</code>：水平、趋势、季节的平滑系数，0 到 1，越大越快跟随新数据。<strong>填 0 表示自动选择</strong>：在一个小网格上试（alpha ∈ {0.1, 0.3, 0.5, 0.7, 0.9}，beta ∈ {0.01, 0.1, 0.3}，gamma ∈ {0.1, 0.3, 0.5}），取历史上一步预测误差平方和最小的组合。</li>
+<li><code>trend</code>：是否带趋势项 b。<code>damped</code> 与 <code>damping_phi</code>：趋势是否阻尼，φ 默认 0.98；阻尼后趋势每向前一步乘一次 φ，预测不会无限上冲。</li>
+<li><code>season_length_steps</code>（m）与 <code>seasonal_mode</code>：季节长度（步数）和加性/乘性。m 为 0 表示不带季节；带季节时至少要有 2m 个点。乘性季节要求历史全部大于 0，碰到 0 会拒绝，而不是悄悄改数据。</li>
+<li><code>non_negative</code>：预测小于 0 时截为 0。</li></ul>
+<p><strong>为什么这样做：</strong>水平、趋势、季节分别用自己的系数更新，所以能同时跟上“缓慢抬升”和“每天的起伏”，而且一遍扫描就能算完，没有训练。乘性季节适合“负载越高、日内波动越大”的资源；加性季节适合波动幅度基本固定的。</p>
+<p><strong>初始化：</strong>带季节时，水平取第一个周期的平均，趋势取前两个周期平均的差除以 m，季节项取第一个周期各点相对平均的差（或比）；不带季节时，水平取第一个值，趋势取最前 10 个点（不足 10 个就用全部）的最小二乘斜率，避免一个噪声点决定起始趋势。</p>
 <h2 id="parameters">参数说明</h2>
 <p><small>窄屏可左右滑动参数表，查看完整说明。</small></p>
 <div class="parameter-reference"><table><thead><tr><th>参数 / 类型</th><th>默认值 / 范围 / 单位</th><th>含义与使用</th></tr></thead><tbody><tr><td><code>season_length_steps</code><br><small>int</small></td><td>0<br><small>≥ 0; steps</small></td><td>周期长度（步数）；0 表示不含季节项，启用季节项需要至少两个完整周期。</td></tr><tr><td><code>trend</code><br><small>bool</small></td><td>true<br><small>无额外范围限制</small></td><td>是否包含趋势项。</td></tr><tr><td><code>damped</code><br><small>bool</small></td><td>false<br><small>无额外范围限制</small></td><td>趋势是否阻尼，避免长 horizon 无限外推。</td></tr><tr><td><code>alpha</code><br><small>float</small></td><td>0<br><small>≥ 0; ≤ 1</small></td><td>水平平滑系数；0 = 自动选择。</td></tr><tr><td><code>beta</code><br><small>float</small></td><td>0<br><small>≥ 0; ≤ 1</small></td><td>趋势平滑系数；0 = 自动选择。</td></tr><tr><td><code>gamma</code><br><small>float</small></td><td>0<br><small>≥ 0; ≤ 1</small></td><td>季节平滑系数；0 = 自动选择。</td></tr><tr><td><code>seasonal_mode</code><br><small>string</small></td><td>&quot;additive&quot;<br><small>additive / multiplicative</small></td><td>季节形式：additive = 每个季节位置加一个固定量；multiplicative = 按比例放大缩小（负载越高日内波动越大的资源用它）。乘性要求历史严格大于 0，触到 0 的序列会被拒绝，请改用加性。</td></tr><tr><td><code>damping_phi</code><br><small>float</small></td><td>0.98<br><small>≥ 0.8; ≤ 1</small></td><td>趋势阻尼系数，仅 damped=true 时使用；越小趋势衰减越快，1 = 不阻尼。</td></tr><tr><td><code>non_negative</code><br><small>bool</small></td><td>true<br><small>无额外范围限制</small></td><td>预测是否下限取 0：资源量不会为负，加性趋势可能外推到 0 以下。</td></tr></tbody></table></div>
@@ -17,8 +39,40 @@
   &quot;seasonal_mode&quot;: &quot;additive&quot;,
   &quot;damping_phi&quot;: 0.98
 }</code></pre>
+<h2 id="worked-example">计算示例：数据、参数与代入过程</h2>
+<p>为了看清更新过程，用不带季节、只带趋势的最简单形式，并手工指定系数（这样不做网格搜索）。参数：</p>
+<pre data-language="JSON"><code>{
+  "trend": true,
+  "alpha": 0.5,
+  "beta": 0.3
+}</code></pre>
+<pre data-language="数据"><code>y = [10, 11, 12.5, 13, 14.5, 15]        每 5 分钟一个点</code></pre>
+<p><strong>初始化：</strong>水平 ℓ = y(1) = 10；趋势 b = 前 6 个点的最小二乘斜率 = <strong>1.0286</strong>。不阻尼，φ = 1。</p>
+<p><strong>逐点更新：</strong>先用旧状态预测这一点 <code>base = ℓ + b</code>，再用实际值更新：</p>
+<div class="parameter-reference"><table><thead><tr><th>t</th><th>y</th><th>base = ℓ+b（预测）</th><th>误差 y−base</th><th>新水平 ℓ = 0.5·y + 0.5·base</th><th>新趋势 b = 0.3·(ℓ−旧ℓ) + 0.7·旧b</th></tr></thead><tbody>
+<tr><td>1</td><td>10</td><td>11.0286</td><td>−1.0286</td><td>10.5143</td><td>0.8743</td></tr>
+<tr><td>2</td><td>11</td><td>11.3886</td><td>−0.3886</td><td>11.1943</td><td>0.8160</td></tr>
+<tr><td>3</td><td>12.5</td><td>12.0103</td><td>0.4897</td><td>12.2551</td><td>0.8895</td></tr>
+<tr><td>4</td><td>13</td><td>13.1446</td><td>−0.1446</td><td>13.0723</td><td>0.8678</td></tr>
+<tr><td>5</td><td>14.5</td><td>13.9401</td><td>0.5599</td><td>14.2200</td><td>0.9518</td></tr>
+<tr><td>6</td><td>15</td><td>15.1718</td><td>−0.1718</td><td>15.0859</td><td>0.9260</td></tr></tbody></table></div>
+<p>以第 1 行为例：<code>base = 10 + 1.0286 = 11.0286</code>；<code>ℓ = 0.5×10 + 0.5×11.0286 = 10.5143</code>；<code>b = 0.3×(10.5143 − 10) + 0.7×1.0286 = 0.8743</code>。</p>
+<p><strong>预测：</strong>最后的状态是 ℓ = 15.0859、b = 0.9260，不阻尼，所以</p>
+<pre data-language="计算"><code>ŷ(T+1) = 15.0859 + 1×0.9260 = 16.0119
+ŷ(T+2) = 15.0859 + 2×0.9260 = 16.9379
+ŷ(T+3) = 15.0859 + 3×0.9260 = 17.8639</code></pre>
+<p>结果 <code>[16.0119, 16.9379, 17.8639]</code>：沿着最近的趋势每步多约 0.93。如果打开 <code>damped</code>（φ=0.98），增量变成 0.926×(0.98 + 0.98² + 0.98³)，增长会逐步放缓，长预测范围内不会一直上冲。</p>
+<p>这些数字由 <code>pkg/forecast/docs_examples_test.go</code> 用真实代码算出并持续校验。</p>
 <h2 id="tuning">调参与取舍</h2>
 <p>先使用自动平滑系数（0）。需要抑制远期趋势时开启 damped。multiplicative 要求周期至少 2 且历史严格大于 0，含零值时改用 additive。</p>
+<h2 id="references">来源与引用</h2>
+<ul>
+<li>Holt, C.C. “Forecasting seasonals and trends by exponentially weighted moving averages”，<em>International Journal of Forecasting</em> 20(1)，2004，5–10（1957 年的 ONR 研究备忘录的重印）：趋势项。</li>
+<li>Winters, P.R. “Forecasting sales by exponentially weighted moving averages”，<em>Management Science</em> 6(3)，1960，324–342：季节项（加性与乘性）。</li>
+<li>Gardner, E.S. &amp; McKenzie, E. “Forecasting trends in time series”，<em>Management Science</em> 31(10)，1985，1237–1246：阻尼趋势。</li>
+<li>Hyndman, R.J.、Koehler, A.B.、Ord, J.K.、Snyder, R.D. <em>Forecasting with Exponential Smoothing: The State Space Approach</em>，Springer，2008。</li>
+<li>Hyndman, R.J. &amp; Athanasopoulos, G. <em>Forecasting: Principles and Practice</em>（第 3 版）第 8.2 节（含趋势的方法与阻尼趋势）和第 8.3 节（Holt-Winters 季节方法）：<a href="https://otexts.com/fpp3/holt-winters.html">https://otexts.com/fpp3/holt-winters.html</a>。</li>
+<li>本实现与教科书的差别：系数用小网格按样本内一步误差平方和选择，而不是数值优化；这样慢一点也稳一点，不会因优化器不收敛而失败。</li></ul>
 <h2 id="shared-parameters">通用参数：变化重置与分位校准</h2>
 <div class="parameter-reference"><table><thead><tr><th>参数 / 类型</th><th>默认值 / 范围 / 单位</th><th>含义与使用</th></tr></thead><tbody><tr><td><code>reset_on_change</code><br><small>bool</small></td><td>false<br><small>无额外范围限制</small></td><td>水平突变后重置：检测历史里最后一次水平突变（发布、扩缩容、流量切换），只用突变之后的历史预测。关闭时用全部历史（现状）。突变之后至少要有 6 步才会被确认；突变后的历史不够算法所需时，取算法所需的最新一段。</td></tr><tr><td><code>change_threshold</code><br><small>float</small></td><td>8<br><small>≥ 3; ≤ 50</small></td><td>突变阈值：突变幅度（扣除前一段趋势后）超过噪声的多少倍才算，越大越不容易误报，噪声由相邻步变化的稳健标准差估计。仅 reset_on_change=true 时使用。</td></tr><tr><td><code>change_min_shift</code><br><small>float</small></td><td>0.2<br><small>≥ 0; ≤ 5</small></td><td>最小突变幅度：突变至少是水平的这个比例（0.2 = 20%），很干净的序列上的微小跳变不算。仅 reset_on_change=true 时使用。</td></tr><tr><td><code>quantile_level</code><br><small>float</small></td><td>0<br><small>≥ 0; ≤ 0.99</small></td><td>推荐分位数：0 = 点预测（现状）；0.9 等 = 预测「实际值有约 90% 的把握不超过」的线（保形预测：用本算法在这个负载最近几个窗口里的真实误差校准，需要更多历史和时间）。必须大于 0.5。</td></tr><tr><td><code>calibration_windows</code><br><small>int</small></td><td>8<br><small>≥ 3; ≤ 50</small></td><td>校准窗口数：用最近多少个历史窗口测本算法的误差；越多越稳，也越慢（每个窗口多跑一次预测）。仅推荐分位数大于 0 时使用。</td></tr></tbody></table></div>
 <p>quantile_level 是 0～1 的分位点，percentile 是 1～100 的百分数，二者不是同一参数。分位校准会额外运行历史预测；增加校准窗口前检查历史与运行预算，覆盖率是评估目标而非保证。</p>

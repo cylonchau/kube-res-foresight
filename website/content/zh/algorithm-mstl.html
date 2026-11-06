@@ -5,6 +5,23 @@
 <p>至少最长周期的两倍。5 分钟采样的日周期需要 576 点；加周周期后需要 4032 点，即两周。</p>
 <p>输入应是等间隔、无缺口且数值有限的序列。输出保留输入指标单位，例如 CPU 核、内存字节或每秒请求数；采样步长决定步数对应的真实时间。最低样本数仅表示可运行，不代表预测可靠。</p>
 <p>此方法不使用协变量；分别预测各目标指标。</p>
+<h2 id="principle">原理与公式</h2>
+<p>MSTL（多重季节-趋势分解）用于同时有“日周期”和“周周期”的负载。它把序列拆成趋势和每个周期各自的季节形状，把季节形状拿走，对剩下的（趋势加噪声）用 Theta 预测，再把季节形状加回去。</p>
+<pre data-language="公式"><code>分解：  y(t) = trend(t) + S_day(t mod 日周期) + S_week(t mod 周周期) + remainder(t)
+预测：  ŷ(T+h) = Theta( y − S_day − S_week )(h) + S_day((T+h) mod 日周期) + S_week((T+h) mod 周周期)
+        小于 0 的预测截为 0
+
+每个季节形状 S 的估计（重复 3 遍，使各个形状互相一致）：
+  r(t)  = y(t) − trend(t) − 其他周期的形状
+  S(pos) = 位置 pos 上所有周期的 r 的平均，再整体减去均值（使形状的平均为 0）
+  trend  = 把去掉季节后的序列做一次以“最长周期”为窗口的居中移动平均</code></pre>
+<p>参数怎样进入公式：</p>
+<ul>
+<li><code>daily_season_steps</code>：一天有多少步（较短的周期）。5 分钟一个点 = 288。</li>
+<li><code>weekly_season_steps</code>：一周有多少步，必须比日周期长；5 分钟一个点 = 2016。填 0 表示只有日周期。</li>
+<li>最少样本数 = 2 × 最长周期（至少看到两整个周期，否则一个位置只见过一次，分不清是季节还是噪声）。</li></ul>
+<p><strong>为什么这样做：</strong>真实的业务负载常常“工作日白天高、夜里低，周末又整体偏低”，一个周期的季节算法只能抓到一种。把两种周期分开估计、再加回来，就能同时表达“每天几点高”和“每周哪几天高”。</p>
+<p><strong>与论文的差别：</strong>论文里的 STL 用 LOESS 平滑每个季节形状，所以形状可以慢慢变化；这里每个季节形状是固定的，等于历史上所有周期在该位置的平均（先扣掉趋势和其他周期）。好处是便宜且不需要调参，代价是形状在历史里发生变化时只会被平均，不会被跟随。</p>
 <h2 id="parameters">参数说明</h2>
 <p><small>窄屏可左右滑动参数表，查看完整说明。</small></p>
 <div class="parameter-reference"><table><thead><tr><th>参数 / 类型</th><th>默认值 / 范围 / 单位</th><th>含义与使用</th></tr></thead><tbody><tr><td><code>daily_season_steps</code><br><small>int</small></td><td>必填，无默认值<br><small>≥ 2; steps</small></td><td>一天的步数 = 86400 / 步长秒数（1 分钟一步是 1440，5 分钟一步是 288）。</td></tr><tr><td><code>weekly_season_steps</code><br><small>int</small></td><td>0<br><small>≥ 0; steps</small></td><td>一周的步数 = 7 × 一天的步数；0 = 只做日季节。必须大于一天的步数。启用周季节至少需要两周历史。</td></tr></tbody></table></div>
@@ -14,8 +31,34 @@
   &quot;daily_season_steps&quot;: 288,
   &quot;weekly_season_steps&quot;: 2016
 }</code></pre>
+<h2 id="worked-example">计算示例：数据、参数与代入过程</h2>
+<p>为了看清，用一个只有 4 步的“迷你日周期”，没有周周期，一共 3 个周期（12 个点）。数据是人为构造的：基线 10，每步上升 0.5，再叠加季节形状 [−2, 0, +3, −1]。</p>
+<pre data-language="JSON"><code>{
+  "daily_season_steps": 4,
+  "weekly_season_steps": 0
+}</code></pre>
+<pre data-language="数据"><code>y = [8, 10.5, 14, 10.5,   10, 12.5, 16, 12.5,   12, 14.5, 18, 14.5]
+    └─ 第 1 个周期 ─┘      └─ 第 2 个周期 ─┘      └─ 第 3 个周期 ─┘</code></pre>
+<p><strong>第 1 步，估计季节形状。</strong>算法扣掉趋势后，对同一位置的 3 个值取平均并让整体均值为 0，重复 3 遍。得到的形状是</p>
+<pre data-language="结果"><code>S_day = [−2.1913, −0.0491, +3.0693, −0.8289]        （平均为 0）</code></pre>
+<p>很接近我们构造时用的 [−2, 0, +3, −1]，偏差来自上升趋势和居中移动平均在序列两端的边界效应。</p>
+<p><strong>第 2 步，对去掉季节后的序列做 Theta 预测</strong>（序列大致是一条每步升 0.5 的直线）。以第 1 步为例，基础预测是 13.3812 − (−2.1913) = <strong>15.5725</strong>。</p>
+<p><strong>第 3 步，加回季节形状。</strong>下一步对应的位置是 12 mod 4 = 0，所以：</p>
+<pre data-language="计算"><code>ŷ(T+1) = 基础预测 + S_day[0] = 15.5725 + (−2.1913) = 13.3812
+ŷ(T+2) = …                    + S_day[1]                     = 15.7672
+ŷ(T+3) = …                    + S_day[2]                     = 19.1292
+ŷ(T+4) = …                    + S_day[3]                     = 15.4747</code></pre>
+<p>结果 <code>[13.3812, 15.7672, 19.1292, 15.4747]</code>：一个“上升后的波形”，四个点的高低次序和季节形状一致。</p>
+<p>顺便看一个局限：构造数据时的“真值”（基线继续每步升 0.5）应当是 [14, 16.5, 20, 16.5]，而预测略低（偏低约 0.6 到 1.0），因为 Theta 只取趋势的一半。这是用 Theta 做基础预测的特性：对稳定上升的负载偏保守地低。</p>
+<p>这些数字由 <code>pkg/forecast/docs_examples_test.go</code> 用真实代码算出并持续校验。</p>
 <h2 id="tuning">调参与取舍</h2>
 <p>先配置 daily_season_steps。weekly_season_steps=0 只做日季节；启用周季节时必须大于日周期，历史不足会跳过而非补齐。</p>
+<h2 id="references">来源与引用</h2>
+<ul>
+<li>Bandara, K.、Hyndman, R.J.、Bergmeir, C. “MSTL: A Seasonal-Trend Decomposition Algorithm for Time Series with Multiple Seasonal Patterns”，2021，<a href="https://arxiv.org/abs/2107.13462">arXiv:2107.13462</a>：多重季节分解和用它预测的方法。</li>
+<li>Cleveland, R.B.、Cleveland, W.S.、McRae, J.E.、Terpenning, I. “STL: A seasonal-trend decomposition procedure based on Loess”，<em>Journal of Official Statistics</em> 6(1)，1990，3–73：单季节的 STL，MSTL 的基础。</li>
+<li>Theta 作为底层预测：见本站的 <a href="algorithm-theta.html">Theta</a> 页。</li>
+<li>与论文的差别见上文“与论文的差别”：本实现的季节形状固定（所有周期的平均），不用 LOESS。</li></ul>
 <h2 id="shared-parameters">通用参数：变化重置与分位校准</h2>
 <div class="parameter-reference"><table><thead><tr><th>参数 / 类型</th><th>默认值 / 范围 / 单位</th><th>含义与使用</th></tr></thead><tbody><tr><td><code>reset_on_change</code><br><small>bool</small></td><td>false<br><small>无额外范围限制</small></td><td>水平突变后重置：检测历史里最后一次水平突变（发布、扩缩容、流量切换），只用突变之后的历史预测。关闭时用全部历史（现状）。突变之后至少要有 6 步才会被确认；突变后的历史不够算法所需时，取算法所需的最新一段。</td></tr><tr><td><code>change_threshold</code><br><small>float</small></td><td>8<br><small>≥ 3; ≤ 50</small></td><td>突变阈值：突变幅度（扣除前一段趋势后）超过噪声的多少倍才算，越大越不容易误报，噪声由相邻步变化的稳健标准差估计。仅 reset_on_change=true 时使用。</td></tr><tr><td><code>change_min_shift</code><br><small>float</small></td><td>0.2<br><small>≥ 0; ≤ 5</small></td><td>最小突变幅度：突变至少是水平的这个比例（0.2 = 20%），很干净的序列上的微小跳变不算。仅 reset_on_change=true 时使用。</td></tr><tr><td><code>quantile_level</code><br><small>float</small></td><td>0<br><small>≥ 0; ≤ 0.99</small></td><td>推荐分位数：0 = 点预测（现状）；0.9 等 = 预测「实际值有约 90% 的把握不超过」的线（保形预测：用本算法在这个负载最近几个窗口里的真实误差校准，需要更多历史和时间）。必须大于 0.5。</td></tr><tr><td><code>calibration_windows</code><br><small>int</small></td><td>8<br><small>≥ 3; ≤ 50</small></td><td>校准窗口数：用最近多少个历史窗口测本算法的误差；越多越稳，也越慢（每个窗口多跑一次预测）。仅推荐分位数大于 0 时使用。</td></tr></tbody></table></div>
 <p>quantile_level 是 0～1 的分位点，percentile 是 1～100 的百分数，二者不是同一参数。分位校准会额外运行历史预测；增加校准窗口前检查历史与运行预算，覆盖率是评估目标而非保证。</p>

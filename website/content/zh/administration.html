@@ -13,4 +13,4 @@
 <p>准入调用需携带 <code>request_uid</code> 才生成记录，并按 UID 去重。具备工作负载版本信息时，默认记录创建及每个新版本的首个 Pod；扩容和替换产生的后续 Pod 仍正常处理，但不逐一记录。需要完整记录时启用 <code>forecast.admission_record_scaling</code>。有请求 UID、没有版本信息时继续逐次记录。</p>
 <h2 id="ai-administration">AI 配置与通知</h2>
 <p>系统参数 <code>assistant.enabled</code> 控制聊天入口；“AI 配置”分别管理 <a href="llm-configuration.html">LLM 连接</a>、<a href="assistant.html#custom-skills">Skill</a> 与 <a href="ai-tasks.html">定时任务</a>。LLM、Skill、任务菜单和 <code>assistant:chat</code> 权限分别授予。</p>
-<p>邮件使用系统参数通知分类的 <code>notify.email.*</code> 配置。接入前同时检查模型连接、邮箱与 SMTP，定时任务运行结果在任务中心与任务记录中查看。</p>
+<p>邮件使用系统参数通知分类的 <code>notify.email.*</code> 配置，填法见 <a href="smtp.html">邮件（SMTP）配置</a>。接入前同时检查模型连接、邮箱与 SMTP，定时任务运行结果在任务中心与任务记录中查看。</p>

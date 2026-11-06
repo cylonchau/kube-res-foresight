@@ -5,6 +5,26 @@
 <p>At least lags + 4×min_samples_leaf + 1 observations; direct mode adds horizon−1.</p>
 <p>Inputs must be regularly sampled, gap-free, and finite. Outputs retain the metric unit, such as CPU cores, memory bytes, or requests per second. The sample interval determines the duration of a step. Minimum history permits execution; it does not establish forecast quality.</p>
 <p>Supports covariates on the same sample grid, using only observations before the forecast origin. Future covariates carry the last observed value; future business demand is not assumed known.</p>
+<h2 id="principle">How it works and the formula</h2>
+<p>GBDT (gradient-boosted regression trees) adds trees one after another: start from a constant, and with every new tree fit "how far the current forecast is off" (the residual), then add that tree to the total forecast by a small share, the learning rate. The features are the previous values, optional calendar features and covariates; the forecast rolls forward recursively (or one ensemble is trained per anchor step).</p>
+<pre data-language="Formula"><code>start:    F₀ = the mean of the training targets (the alpha-quantile when objective = quantile)
+tree m (m = 1 … M, M = n_estimators):
+  residual   r(i) = y(i) − F(m−1)(x(i))                     (with the quantile objective the "gradient" fitted is alpha or alpha−1 and a leaf takes the alpha-quantile of the residuals)
+  split      bin each feature into 32 bins and pick the (feature, bin edge) of the largest gain:
+               gain = (ΣL)²/nL + (ΣR)²/nR − (Σ)²/n           Σ is the sum of the residuals on that side, n the number of rows
+             recurse to depth max_depth, or until a side has fewer than min_samples_leaf rows; a leaf's value = the mean of its residuals
+  update     F(m)(x) = F(m−1)(x) + learning_rate × tree_m(x)
+forecast:  ŷ(t) = F(M)( x(t) ), several steps recursively: the forecast is used as the lag of the next step</code></pre>
+<p>How the parameters enter the formula:</p>
+<ul>
+<li><code>lags</code>: how many previous steps are features, required; <code>calendar_features</code>, <code>covariate_lags</code>, <code>training_window_steps</code> as in ridge autoregression.</li>
+<li><code>n_estimators</code> (M): the number of trees (default 100).</li>
+<li><code>learning_rate</code>: the share each tree contributes (default 0.1). Smaller needs more trees and overfits less easily.</li>
+<li><code>max_depth</code>, <code>min_samples_leaf</code>: as in the random forest. The least history = lags + 4×min_samples_leaf + 1.</li>
+<li><code>objective</code>: <code>squared</code> is a squared-error point forecast; <code>quantile</code> forecasts the <code>alpha</code> quantile with the pinball loss (0.9 = the actual stays below it about 90% of the time), for peak or capacity protection; its coverage has to be verified separately.</li>
+<li><code>multi_step</code>, <code>direct_anchors</code>: recursive or direct several steps, as in ridge autoregression.</li></ul>
+<p><strong>Why it is done this way:</strong> every tree is shallow and weak by itself; fitting the residuals one after another brings the total forecast closer to the target step by step. That expresses non-linear relations and overfits less easily than one deep tree. The quantile objective lets it forecast a deliberately high line directly, which suits capacity protection.</p>
+<p><strong>Limit:</strong> like every tree model GBDT cannot extrapolate: a forecast stays inside the range of the training targets (see the example of the <a href="algorithm-random_forest.html">random forest page</a>). The trees here are deterministic, with no sampling, so the same history always gives the same forecast.</p>
 <h2 id="parameters">Parameter reference</h2>
 <p><small>On narrow screens, swipe the parameter table horizontally to read all columns.</small></p>
 <div class="parameter-reference"><table><thead><tr><th>Parameter / type</th><th>Default / range / unit</th><th>Meaning and use</th></tr></thead><tbody><tr><td><code>lags</code><br><small>int</small></td><td>Required; no default<br><small>≥ 1; ≤ 2000; steps</small></td><td>Number of preceding target observations used as features.</td></tr><tr><td><code>calendar_features</code><br><small>bool</small></td><td>false<br><small>No additional range</small></td><td>Include UTC daily and weekly sine/cosine features.</td></tr><tr><td><code>n_estimators</code><br><small>int</small></td><td>100<br><small>≥ 1; ≤ 1000</small></td><td>Number of trees; more trees increase fitting cost.</td></tr><tr><td><code>learning_rate</code><br><small>float</small></td><td>0.1<br><small>≥ 0.001; ≤ 1</small></td><td>Shrinkage applied to each boosting tree.</td></tr><tr><td><code>max_depth</code><br><small>int</small></td><td>3<br><small>≥ 1; ≤ 8</small></td><td>Maximum tree depth; deeper trees can overfit.</td></tr><tr><td><code>min_samples_leaf</code><br><small>int</small></td><td>5<br><small>≥ 1</small></td><td>Minimum observations per leaf.</td></tr><tr><td><code>objective</code><br><small>string</small></td><td>&quot;squared&quot;<br><small>squared / quantile</small></td><td>squared is point forecasting; quantile uses the alpha quantile and needs coverage evaluation.</td></tr><tr><td><code>alpha</code><br><small>float</small></td><td>0.9<br><small>≥ 0.01; ≤ 0.99</small></td><td>Native quantile level, used only when objective=quantile.</td></tr><tr><td><code>training_window_steps</code><br><small>int</small></td><td>5000<br><small>≥ 0; steps</small></td><td>Use only this many recent observations for training; zero uses all available history.</td></tr><tr><td><code>covariate_lags</code><br><small>int</small></td><td>3<br><small>≥ 1; ≤ 48; steps</small></td><td>Lag count per covariate. Future steps carry forward the last observed covariate; ignored without covariates.</td></tr><tr><td><code>multi_step</code><br><small>string</small></td><td>&quot;recursive&quot;<br><small>recursive / direct</small></td><td>recursive feeds forecasts forward; direct fits separate horizon anchors without recursive feedback.</td></tr><tr><td><code>direct_anchors</code><br><small>int</small></td><td>8<br><small>≥ 2; ≤ 60</small></td><td>Number of directly trained horizon anchors, with interpolation between them; used only in direct mode.</td></tr></tbody></table></div>
@@ -19,8 +39,40 @@
   &quot;multi_step&quot;: &quot;recursive&quot;,
   &quot;objective&quot;: &quot;squared&quot;
 }</code></pre>
+<h2 id="worked-example">Worked example: data, parameters and substitution</h2>
+<p>To list every step we use the smallest setting: 2 lags, <strong>1 tree of depth 1 (a single split)</strong>, learning rate 0.5.</p>
+<pre data-language="JSON"><code>{
+  "lags": 2,
+  "n_estimators": 1,
+  "learning_rate": 0.5,
+  "max_depth": 1,
+  "min_samples_leaf": 1,
+  "objective": "squared"
+}</code></pre>
+<pre data-language="Data"><code>y = [10, 12, 13, 15, 14, 16, 18, 17, 19, 21]        one point every 5 minutes, forecast 2 steps</code></pre>
+<p><strong>Step 1, the training rows and the start.</strong> 8 rows; the mean of the targets F₀ = (13+15+14+16+18+17+19+21)/8 = <strong>16.625</strong>. The residual of each row is r = y − 16.625:</p>
+<div class="parameter-reference"><table><thead><tr><th>feature y(t−1)</th><th>feature y(t−2)</th><th>target y(t)</th><th>residual r</th></tr></thead><tbody>
+<tr><td>12</td><td>10</td><td>13</td><td>−3.625</td></tr><tr><td>13</td><td>12</td><td>15</td><td>−1.625</td></tr><tr><td>15</td><td>13</td><td>14</td><td>−2.625</td></tr><tr><td>14</td><td>15</td><td>16</td><td>−0.625</td></tr>
+<tr><td>16</td><td>14</td><td>18</td><td>+1.375</td></tr><tr><td>18</td><td>16</td><td>17</td><td>+0.375</td></tr><tr><td>17</td><td>18</td><td>19</td><td>+2.375</td></tr><tr><td>19</td><td>17</td><td>21</td><td>+4.375</td></tr></tbody></table></div>
+<p><strong>Step 2, find the best single split.</strong> Among all (feature, threshold) pairs take the largest gain. The best is "y(t−1) ≤ 15":</p>
+<pre data-language="Calculation"><code>left  (y(t−1) ≤ 15: the four rows 12, 13, 15, 14):  sum of residuals = −3.625 −1.625 −2.625 −0.625 = −8.5,  nL = 4
+right (y(t−1) &gt; 15: the four rows 16, 18, 17, 19): sum of residuals = +1.375 +0.375 +2.375 +4.375 = +8.5,  nR = 4
+total = 0, n = 8
+gain = 8.5²/4 + 8.5²/4 − 0²/8 = 18.0625 + 18.0625 = 36.125</code></pre>
+<p>A leaf's value is the mean of its residuals: left = −8.5/4 = <strong>−2.125</strong>, right = +8.5/4 = <strong>+2.125</strong>.</p>
+<p><strong>Step 3, forecast.</strong> The next point has the last two values as features: y(t−1) = 21, y(t−2) = 19. 21 &gt; 15, so it goes to the right leaf, which contributes +2.125, times the learning rate 0.5:</p>
+<pre data-language="Calculation"><code>ŷ(T+1) = F₀ + 0.5 × 2.125 = 16.625 + 1.0625 = 17.6875</code></pre>
+<p><strong>Step 4, recursion.</strong> The features of step 2 are y(t−1) = 17.6875 (also &gt; 15), so it goes to the right leaf again and ŷ(T+2) = 17.6875. The forecast is <code>[17.6875, 17.6875]</code>.</p>
+<p>Two things to note: the last value of the history is 21 and the forecast is 17.69, much lower than the latest value: with one shallow tree it is closer to "the overall mean plus a small adjustment"; and a learning rate of 0.5 lets each tree contribute only half. Set <code>n_estimators</code> to 2 and the second tree fits the residuals left by the first, so the step-1 forecast becomes <strong>18.84375</strong>; the more trees, the closer the forecast gets to the detail of the training data, and the more easily it overfits. The real defaults are 100 trees, depth 3 and learning rate 0.1.</p>
+<p>These numbers are computed by the real code in <code>pkg/forecast/docs_examples_test.go</code> and checked on every test run.</p>
 <h2 id="tuning">Tuning and tradeoffs</h2>
 <p>Smaller learning_rate generally needs more trees. alpha denotes a quantile only when objective=quantile, unlike EWMA alpha. Compare native quantiles and conformal calibration separately before stacking upward adjustments.</p>
+<h2 id="references">Sources and references</h2>
+<ul>
+<li>Friedman, J.H. "Greedy function approximation: a gradient boosting machine", <em>The Annals of Statistics</em> 29(5), 2001, 1189–1232: the original paper of gradient boosting.</li>
+<li>Koenker, R. &amp; Bassett, G. "Regression quantiles", <em>Econometrica</em> 46(1), 1978, 33–50: quantile regression and the pinball loss.</li>
+<li>Ke, G. et al. "LightGBM: A Highly Efficient Gradient Boosting Decision Tree", NeurIPS 2017: binning feature values (a histogram) to speed up splitting; this implementation uses 32 bins, a simplified version that does not depend on that library.</li>
+<li>Breiman et al. <em>Classification and Regression Trees</em> (1984): regression trees and the variance-reduction split criterion, as on the random forest page.</li></ul>
 <h2 id="shared-parameters">Shared parameters: shifts and quantiles</h2>
 <div class="parameter-reference"><table><thead><tr><th>Parameter / type</th><th>Default / range / unit</th><th>Meaning and use</th></tr></thead><tbody><tr><td><code>reset_on_change</code><br><small>bool</small></td><td>false<br><small>No additional range</small></td><td>Use history after a detected level shift, preserving enough points for the underlying method.</td></tr><tr><td><code>change_threshold</code><br><small>float</small></td><td>8<br><small>≥ 3; ≤ 50</small></td><td>Minimum shift relative to robust noise; used only with reset_on_change.</td></tr><tr><td><code>change_min_shift</code><br><small>float</small></td><td>0.2<br><small>≥ 0; ≤ 5</small></td><td>Minimum relative level shift; 0.2 means 20%. Used only with reset_on_change.</td></tr><tr><td><code>quantile_level</code><br><small>float</small></td><td>0<br><small>≥ 0; ≤ 0.99</small></td><td>Zero disables conformal calibration; otherwise must be above 0.5 and at most 0.99. Calibrates an upper forecast using earlier forecast errors.</td></tr><tr><td><code>calibration_windows</code><br><small>int</small></td><td>8<br><small>≥ 3; ≤ 50</small></td><td>Historical windows for conformal calibration; more windows add forecast calls and history requirements.</td></tr></tbody></table></div>
 <p>quantile_level uses a 0–1 scale; percentile uses 1–100. Calibration runs extra historical forecasts. Check history and runtime budgets before increasing windows; coverage is an evaluation target, not a guarantee.</p>

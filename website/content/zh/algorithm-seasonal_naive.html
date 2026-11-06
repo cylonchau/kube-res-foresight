@@ -5,6 +5,13 @@
 <p>至少 season_length_steps 个点，即一个完整周期。</p>
 <p>输入应是等间隔、无缺口且数值有限的序列。输出保留输入指标单位，例如 CPU 核、内存字节或每秒请求数；采样步长决定步数对应的真实时间。最低样本数仅表示可运行，不代表预测可靠。</p>
 <p>此方法不使用协变量；分别预测各目标指标。</p>
+<h2 id="principle">原理与公式</h2>
+<p>季节持续把“一个周期以前同一位置的值”当作预测。周期长度 <code>m</code> 以步数计，由 <code>season_length_steps</code> 给出，算法从不自己猜周期。</p>
+<pre data-language="公式"><code>ŷ(T+h) = y(T + h − m·(k+1))，其中 k = ⌊(h−1)/m⌋</code></pre>
+<p>换成最直白的话：预测的第 1 步等于最近一个周期的第 1 步，第 2 步等于第 2 步……预测范围比一个周期长时，把最近一个周期整段重复使用。实现里就是 <code>out[h] = values[n − m + (h mod m)]</code>（<code>h</code> 从 0 起）。</p>
+<p><code>season_length_steps</code> 要自己换算：周期的时间长度 ÷ 采样步长。例如日周期、5 分钟一个点 = 24×60÷5 = <strong>288</strong> 步；周周期 = 7×288 = <strong>2016</strong> 步。历史至少要有 <code>m</code> 个点。</p>
+<p><strong>为什么这样做：</strong>很多业务负载有强烈的日周期或周周期（早高峰、每周一的批处理）。对这种负载，“昨天同一时刻是什么”往往比“现在是什么”更准，而且几乎不需要计算。它是季节类算法的基线。</p>
+<p><strong>它的弱点：</strong>只看一个周期。那个周期里如果恰好有一次故障或一次异常高峰，它会把这个异常当作常态原样复制到未来；也不看趋势。因此平台要求历史里至少有数个完整周期（系统参数 <code>forecast.min_seasons</code>，默认 3）它才可以参与决策，并建议用它和别的算法一起比较。</p>
 <h2 id="parameters">参数说明</h2>
 <p><small>窄屏可左右滑动参数表，查看完整说明。</small></p>
 <div class="parameter-reference"><table><thead><tr><th>参数 / 类型</th><th>默认值 / 范围 / 单位</th><th>含义与使用</th></tr></thead><tbody><tr><td><code>season_length_steps</code><br><small>int</small></td><td>必填，无默认值<br><small>≥ 2; steps</small></td><td>周期长度，按采样步数计，不能硬编码 24=一天；一天 = 86400 秒 / 步长秒数。</td></tr></tbody></table></div>
@@ -13,8 +20,29 @@
 <pre data-language="JSON"><code>{
   &quot;season_length_steps&quot;: 288
 }</code></pre>
+<h2 id="worked-example">计算示例：数据、参数与代入过程</h2>
+<p>为了便于看清，这里用一个只有 4 步的“迷你周期”（真实使用时是 288 或 2016）。采样每 5 分钟一次，已有两个完整周期的历史：</p>
+<pre data-language="JSON"><code>{
+  "season_length_steps": 4
+}</code></pre>
+<pre data-language="数据"><code>y = [1.0, 2.0, 3.0, 2.0,   1.2, 2.2, 3.2, 2.1]
+     └─ 第 1 个周期 ─┘     └─ 第 2 个周期（最近）─┘     n = 8，m = 4</code></pre>
+<p>预测接下来 6 步。取最近一个周期 <code>[1.2, 2.2, 3.2, 2.1]</code>，用公式 <code>values[n − m + (h mod m)]</code>：</p>
+<div class="parameter-reference"><table><thead><tr><th>h（从 0 起）</th><th>h mod 4</th><th>取的下标 n−m+(h mod m)</th><th>取到的值</th></tr></thead><tbody>
+<tr><td>0</td><td>0</td><td>8−4+0 = 4</td><td>1.2</td></tr>
+<tr><td>1</td><td>1</td><td>5</td><td>2.2</td></tr>
+<tr><td>2</td><td>2</td><td>6</td><td>3.2</td></tr>
+<tr><td>3</td><td>3</td><td>7</td><td>2.1</td></tr>
+<tr><td>4</td><td>0</td><td>4</td><td>1.2</td></tr>
+<tr><td>5</td><td>1</td><td>5</td><td>2.2</td></tr></tbody></table></div>
+<p>结果是 <code>[1.2, 2.2, 3.2, 2.1, 1.2, 2.2]</code>：最近一个周期被原样复制。第一个周期的值（1.0、2.0、3.0、2.0）没有参与，这正是它“只看一个周期”的含义。</p>
+<p>这些数字由 <code>pkg/forecast/docs_examples_test.go</code> 用真实代码算出并持续校验。</p>
 <h2 id="tuning">调参与取舍</h2>
 <p>先把业务周期换算成采样步数。5 分钟采样时，一天是 288 步；一分钟采样时是 1440 步。不要把 24 直接当作一天。</p>
+<h2 id="references">来源与引用</h2>
+<ul>
+<li>Hyndman, R.J. &amp; Athanasopoulos, G. <em>Forecasting: Principles and Practice</em>（第 3 版，OTexts，2021），第 5.2 节中的 Seasonal naïve method：<a href="https://otexts.com/fpp3/simple-methods.html">https://otexts.com/fpp3/simple-methods.html</a>。</li>
+<li>平台对季节类算法“至少要有若干个周期的历史才参与决策”的规则，是为了避免把一次异常周期当作模式；见系统参数 <code>forecast.min_seasons</code>。</li></ul>
 <h2 id="apply">在模块中使用</h2>
 <ol><li>保存参数，检查历史窗口、采样步长和预测范围。</li><li>打开模块的“启用预测”；固定算法只运行指定方法，动态算法使用平台已启用的方法。</li><li>此方法为基线，无需回测晋升，但仍应比较实测表现。</li><li>在仅观察或仅推荐下检查误差、峰值低估、耗时与采用原因，再分别授权准入和副本执行。</li></ol>
 <p>历史不足、参数不合法、运行超时或输出无效时，检查算法运行原因；没有合格预测时按模块的固定周期、兜底与保护规则处理。</p>

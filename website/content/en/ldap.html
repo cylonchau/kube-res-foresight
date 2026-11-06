@@ -53,6 +53,60 @@ ou=sre,ou=platform,dc=example,dc=com=ADMIN</code></pre>
 <tr><td>Where groups are searched and the membership filter (without memberOf)</td><td><code>ldap.group_base_dn</code>, <code>ldap.group_filter</code></td></tr>
 <tr><td>The table of group DN to role or permission</td><td><code>ldap.group_role_mappings</code>, one <code>group DN=role code of this platform</code> per line</td></tr></tbody></table>
 <p>Roles in the other system (administrator, editor, read-only) have no fixed counterpart here: use the role codes you created under Authorization → Roles. The built-in administrator role is <code>ADMIN</code> and has every permission, so check before granting it to a whole group.</p>
+<h2 id="examples">Complete configuration examples and what happens in one sign-in</h2>
+<p>Two common directories follow, with what each parameter holds and what the platform does in one sign-in, side by side. Addresses, DNs and group names are examples; replace them with the values of your directory.</p>
+<h3>Example 1: OpenLDAP, groups from the membership in group entries</h3>
+<p>The directory holds:</p>
+<pre data-language="LDIF"><code>dn: uid=alice,ou=people,dc=example,dc=com
+uid: alice
+cn: Alice Zhang
+mail: alice@example.com
+
+dn: cn=sre,ou=groups,dc=example,dc=com
+objectClass: groupOfNames
+cn: sre
+member: uid=alice,ou=people,dc=example,dc=com</code></pre>
+<p>Set the system parameters like this (System → System parameters → LDAP; each item is saved on its own, enable last):</p>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Note</th></tr></thead><tbody>
+<tr><td><code>ldap.url</code></td><td><code>ldaps://ldap.example.com:636</code></td><td>LDAPS; with <code>ldap://</code> StartTLS must be on.</td></tr>
+<tr><td><code>ldap.bind_dn</code></td><td><code>cn=readonly,dc=example,dc=com</code></td><td>A read-only service account used to search for users.</td></tr>
+<tr><td><code>ldap.bind_password</code></td><td>the password of the service account</td><td>Stored encrypted.</td></tr>
+<tr><td><code>ldap.user_base_dn</code></td><td><code>ou=people,dc=example,dc=com</code></td><td>Users are searched below it.</td></tr>
+<tr><td><code>ldap.user_filter</code></td><td><code>(uid=%s)</code></td><td><code>%s</code> becomes the login name.</td></tr>
+<tr><td><code>ldap.display_name_attr</code></td><td><code>cn</code></td><td>The display name.</td></tr>
+<tr><td><code>ldap.email_attr</code></td><td><code>mail</code></td><td>The email.</td></tr>
+<tr><td><code>ldap.group_base_dn</code></td><td><code>ou=groups,dc=example,dc=com</code></td><td>Group entries are searched here.</td></tr>
+<tr><td><code>ldap.group_filter</code></td><td><code>(member=%s)</code></td><td>Here <code>%s</code> is the <strong>DN of the user</strong>, not the login name.</td></tr>
+<tr><td><code>ldap.group_name_attr</code></td><td><code>cn</code> (default)</td><td>The attribute of a group entry that is the group name.</td></tr>
+<tr><td><code>ldap.group_role_mappings</code></td><td><pre><code>sre=ADMIN
+dev=VIEWER</code></pre></td><td>One <code>group=role code</code> per line.</td></tr>
+<tr><td><code>ldap.default_role_code</code></td><td>empty</td><td>Someone in no mapped group cannot sign in. To let them in read-only, give the code of a read-only role.</td></tr>
+<tr><td><code>ldap.enabled</code></td><td><code>true</code></td><td>Set last: enabling checks the whole configuration and connects to the directory once.</td></tr></tbody></table>
+<p><strong>What happens when alice signs in:</strong></p>
+<ol>
+<li>The platform connects to the directory over LDAPS and signs in with the service account <code>cn=readonly,…</code>.</li>
+<li>It searches below <code>ou=people,…</code> with <code>(uid=alice)</code>. It finds one entry <code>uid=alice,ou=people,dc=example,dc=com</code>; none is "user not found", more than one is refused (the filter must match exactly one person). Special characters in the typed login name are escaped and cannot rewrite the filter.</li>
+<li>It signs in once more with that DN and the password alice typed. <strong>The password is checked only by the directory</strong>; the platform neither stores nor compares it.</li>
+<li>It reads <code>cn</code> and <code>mail</code>: the display name Alice Zhang and the email.</li>
+<li>Groups: it searches below <code>ou=groups,…</code> with <code>(member=uid=alice,ou=people,dc=example,dc=com)</code> and finds the group <code>cn=sre</code>, group name <code>sre</code>.</li>
+<li>By the mapping <code>sre=ADMIN</code> alice gets the <code>ADMIN</code> role; the local database has no alice, so a user whose source is LDAP is created and signed in.</li></ol>
+<h3>Example 2: Active Directory, reading memberOf directly</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th></tr></thead><tbody>
+<tr><td><code>ldap.url</code></td><td><code>ldaps://ad.example.com:636</code></td></tr>
+<tr><td><code>ldap.bind_dn</code></td><td><code>CN=svc-krf,OU=Service Accounts,DC=example,DC=com</code></td></tr>
+<tr><td><code>ldap.user_base_dn</code></td><td><code>DC=example,DC=com</code></td></tr>
+<tr><td><code>ldap.user_filter</code></td><td><code>(&amp;(objectClass=user)(sAMAccountName=%s))</code></td></tr>
+<tr><td><code>ldap.display_name_attr</code> / <code>ldap.email_attr</code></td><td><code>displayName</code> / <code>mail</code></td></tr>
+<tr><td><code>ldap.member_of_attr</code></td><td><code>memberOf</code></td></tr>
+<tr><td><code>ldap.group_base_dn</code> / <code>ldap.group_filter</code></td><td>empty (not needed with memberOf)</td></tr>
+<tr><td><code>ldap.group_role_mappings</code></td><td><pre><code>Platform-Admins=ADMIN
+CN=Platform-Readers,OU=Groups,DC=example,DC=com=VIEWER</code></pre></td></tr></tbody></table>
+<p>The <code>memberOf</code> of an AD user entry holds the full DN of each group, for example <code>CN=Platform-Admins,OU=Groups,DC=example,DC=com</code>. The left side of a mapping may be the full DN or just the value of its first segment (<code>Platform-Admins</code>); the platform matches both. The second line shows the full-DN form: the line is split at the last <code>=</code>, so the whole DN in front is untouched. To count nested groups too, do not use <code>memberOf</code> but the group filter <code>(member:1.2.840.113556.1.4.1941:=%s)</code>.</p>
+<h3>Check before enabling</h3>
+<ul>
+<li>The service account finds the user: sign in with it in any LDAP client and search <code>user_base_dn</code> for a known user with the same filter; it should return exactly one entry.</li>
+<li>The role code exists and is enabled: the code on the right of a mapping must match the one under Authorization → Roles.</li>
+<li>Try an ordinary user, then an administrator: make sure a mapped role does not give a whole group more than it should.</li></ul>
 <h2 id="sync">Synchronization and disabling</h2>
 <p>Users who were deleted or disabled in the directory, or who no longer belong to a mapped group, are disabled by the synchronization and lose their sessions; users the directory enabled again are restored, except those an administrator disabled. When the directory cannot be reached no account is changed, so an outage does not lock everyone out.</p>
 <h2 id="troubleshoot">Troubleshooting</h2>

@@ -53,6 +53,60 @@ ou=sre,ou=平台组,dc=example,dc=com=ADMIN</code></pre>
 <tr><td>组的搜索范围和成员过滤器（没有 memberOf 时）</td><td><code>ldap.group_base_dn</code>、<code>ldap.group_filter</code></td></tr>
 <tr><td>“组的 DN → 角色/权限”的对应表</td><td><code>ldap.group_role_mappings</code>，每条写成 <code>组 DN=本平台的角色编码</code></td></tr></tbody></table>
 <p>其他系统里的角色（管理员、编辑、只读等）和本平台的角色没有固定对应，请改用你在“授权管理 → 角色”里建好的角色编码。平台自带的管理员角色编码是 <code>ADMIN</code>，拥有全部权限，授予整个组之前先确认。</p>
+<h2 id="examples">完整配置示例与一次登录的过程</h2>
+<p>下面用两个常见目录，把每个参数具体填什么、一次登录里平台做了什么，放在一起看。地址、DN 和组名都是示例，请换成你们目录里的值。</p>
+<h3>示例一：OpenLDAP，用组条目里的成员关系取组</h3>
+<p>目录里有：</p>
+<pre data-language="LDIF"><code>dn: uid=alice,ou=people,dc=example,dc=com
+uid: alice
+cn: Alice Zhang
+mail: alice@example.com
+
+dn: cn=sre,ou=groups,dc=example,dc=com
+objectClass: groupOfNames
+cn: sre
+member: uid=alice,ou=people,dc=example,dc=com</code></pre>
+<p>系统参数这样填（“系统管理 → 系统参数 → LDAP 认证”，每项单独保存，最后再启用）：</p>
+<table><thead><tr><th>参数</th><th>值</th><th>说明</th></tr></thead><tbody>
+<tr><td><code>ldap.url</code></td><td><code>ldaps://ldap.example.com:636</code></td><td>用 LDAPS；如果用 <code>ldap://</code>，必须开 StartTLS。</td></tr>
+<tr><td><code>ldap.bind_dn</code></td><td><code>cn=readonly,dc=example,dc=com</code></td><td>只读的服务账号，用来搜索用户。</td></tr>
+<tr><td><code>ldap.bind_password</code></td><td>服务账号的密码</td><td>加密保存。</td></tr>
+<tr><td><code>ldap.user_base_dn</code></td><td><code>ou=people,dc=example,dc=com</code></td><td>从这里往下搜索用户。</td></tr>
+<tr><td><code>ldap.user_filter</code></td><td><code>(uid=%s)</code></td><td><code>%s</code> 会被替换成登录名。</td></tr>
+<tr><td><code>ldap.display_name_attr</code></td><td><code>cn</code></td><td>显示名。</td></tr>
+<tr><td><code>ldap.email_attr</code></td><td><code>mail</code></td><td>邮箱。</td></tr>
+<tr><td><code>ldap.group_base_dn</code></td><td><code>ou=groups,dc=example,dc=com</code></td><td>到这里搜索组条目。</td></tr>
+<tr><td><code>ldap.group_filter</code></td><td><code>(member=%s)</code></td><td>这里的 <code>%s</code> 是<strong>用户的 DN</strong>，不是登录名。</td></tr>
+<tr><td><code>ldap.group_name_attr</code></td><td><code>cn</code>（默认）</td><td>组条目里作为组名的属性。</td></tr>
+<tr><td><code>ldap.group_role_mappings</code></td><td><pre><code>sre=ADMIN
+dev=VIEWER</code></pre></td><td>每行 <code>组=角色编码</code>。</td></tr>
+<tr><td><code>ldap.default_role_code</code></td><td>留空</td><td>不在映射组里的人无法登录。想让他们以只读登录，填一个只读角色的编码。</td></tr>
+<tr><td><code>ldap.enabled</code></td><td><code>true</code></td><td>最后设置：启用时平台会校验整套配置并连一次目录。</td></tr></tbody></table>
+<p><strong>alice 登录时发生了什么：</strong></p>
+<ol>
+<li>平台用 LDAPS 连接目录，并用服务账号 <code>cn=readonly,…</code> 登录。</li>
+<li>在 <code>ou=people,…</code> 下用 <code>(uid=alice)</code> 搜索。找到一条 <code>uid=alice,ou=people,dc=example,dc=com</code>；一条也没有是“用户不存在”，多于一条会被拒绝（过滤器必须只匹配一个人）。输入的登录名里的特殊字符会被转义，不能用来改写过滤器。</li>
+<li>用这个 DN 和 alice 输入的密码再登录一次。<strong>密码只由目录校验</strong>，平台不保存也不比较。</li>
+<li>读取 <code>cn</code> 和 <code>mail</code>，得到显示名 Alice Zhang 和邮箱。</li>
+<li>取组：在 <code>ou=groups,…</code> 下用 <code>(member=uid=alice,ou=people,dc=example,dc=com)</code> 搜索，找到组 <code>cn=sre</code>，组名是 <code>sre</code>。</li>
+<li>按角色映射 <code>sre=ADMIN</code>，alice 得到 <code>ADMIN</code> 角色；本地库里没有 alice，所以自动创建一个来源为 LDAP 的用户并登录。</li></ol>
+<h3>示例二：Active Directory，直接读 memberOf</h3>
+<table><thead><tr><th>参数</th><th>值</th></tr></thead><tbody>
+<tr><td><code>ldap.url</code></td><td><code>ldaps://ad.example.com:636</code></td></tr>
+<tr><td><code>ldap.bind_dn</code></td><td><code>CN=svc-krf,OU=Service Accounts,DC=example,DC=com</code></td></tr>
+<tr><td><code>ldap.user_base_dn</code></td><td><code>DC=example,DC=com</code></td></tr>
+<tr><td><code>ldap.user_filter</code></td><td><code>(&amp;(objectClass=user)(sAMAccountName=%s))</code></td></tr>
+<tr><td><code>ldap.display_name_attr</code> / <code>ldap.email_attr</code></td><td><code>displayName</code> / <code>mail</code></td></tr>
+<tr><td><code>ldap.member_of_attr</code></td><td><code>memberOf</code></td></tr>
+<tr><td><code>ldap.group_base_dn</code> / <code>ldap.group_filter</code></td><td>留空（用 memberOf 就不需要）</td></tr>
+<tr><td><code>ldap.group_role_mappings</code></td><td><pre><code>Platform-Admins=ADMIN
+CN=Platform-Readers,OU=Groups,DC=example,DC=com=VIEWER</code></pre></td></tr></tbody></table>
+<p>AD 用户条目的 <code>memberOf</code> 里是每个组的完整 DN，例如 <code>CN=Platform-Admins,OU=Groups,DC=example,DC=com</code>。映射左边既可以写完整 DN，也可以只写第一段的值（<code>Platform-Admins</code>），平台两种都会匹配。第二行展示了完整 DN 的写法：程序按最后一个 <code>=</code> 切分，前面的整个 DN 不受影响。需要把嵌套组也算进来时，不用 <code>memberOf</code>，改用组过滤器 <code>(member:1.2.840.113556.1.4.1941:=%s)</code>。</p>
+<h3>启用前先自查</h3>
+<ul>
+<li>服务账号能搜到用户：用任何 LDAP 客户端以它登录，对 <code>user_base_dn</code> 用同样的过滤器查一个已知用户，应当恰好返回一条。</li>
+<li>角色编码存在且已启用：映射右边的编码要和“授权管理 → 角色”里的一致。</li>
+<li>先试普通用户再试管理员：确认映射的角色不会把不该有的权限给了整个组。</li></ul>
 <h2 id="sync">同步与停用</h2>
 <p>目录里被删除、被禁用或不再属于任何映射组的用户，会在同步时被停用并结束会话；目录重新启用的用户会恢复，被管理员手动停用的除外。目录不可达时不会改动任何账号，避免一次故障把所有人锁在外面。</p>
 <h2 id="troubleshoot">排查</h2>

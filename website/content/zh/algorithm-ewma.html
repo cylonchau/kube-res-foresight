@@ -5,6 +5,20 @@
 <p>至少 2 个点。</p>
 <p>输入应是等间隔、无缺口且数值有限的序列。输出保留输入指标单位，例如 CPU 核、内存字节或每秒请求数；采样步长决定步数对应的真实时间。最低样本数仅表示可运行，不代表预测可靠。</p>
 <p>此方法不使用协变量；分别预测各目标指标。</p>
+<h2 id="principle">原理与公式</h2>
+<p>EWMA（指数加权移动平均，也叫简单指数平滑）给每个历史值一个权重，越新的权重越大，权重按固定比例逐步衰减；预测是平滑后的“当前水平”，向未来水平延续。</p>
+<pre data-language="公式"><code>水平递推：  ℓ(1) = y(1)
+            ℓ(t) = α·y(t) + (1 − α)·ℓ(t−1)        t = 2 … T
+预测：      ŷ(T+h) = ℓ(T)                          h = 1 … H（一条水平线）
+
+等价地：ℓ(T) = α·Σ (1−α)^k · y(T−k)，最新值权重 α，往前每一步乘 (1−α)</code></pre>
+<p>参数怎样进入公式：</p>
+<ul>
+<li><code>alpha</code>（α，0 到 1）：越大越看重最新值。有效“记忆长度”约为 1/α 步：α=0.3 约相当于看最近 3 步多一点。</li>
+<li><code>span</code>：另一种写法，<code>α = 2 / (span + 1)</code>。span=5 等价于 α=1/3。两者只能选一个。</li>
+<li><code>bias_correction</code>：把权重 <code>(1−α)^龄</code> 直接加权求平均，再除以权重之和，而不是从第一个值起递推。历史很短时，第一个值不会拖着结果。</li></ul>
+<p><strong>为什么这样做：</strong>实测负载有噪声，直接取最后一个值会被一次毛刺带偏，取全部历史的平均又反应太慢。EWMA 用一个参数在“跟得上”和“抗噪声”之间取舍，计算只有一个循环，几乎没有成本，所以适合作为低成本候选，特别是重视近期负载的场景。</p>
+<p><strong>它做不到的：</strong>预测是一条水平线，既不外推趋势，也不认识周期。负载持续上升时它总是偏低一截（落后于趋势）。</p>
 <h2 id="parameters">参数说明</h2>
 <p><small>窄屏可左右滑动参数表，查看完整说明。</small></p>
 <div class="parameter-reference"><table><thead><tr><th>参数 / 类型</th><th>默认值 / 范围 / 单位</th><th>含义与使用</th></tr></thead><tbody><tr><td><code>alpha</code><br><small>float</small></td><td>0.3<br><small>≥ 0.001; ≤ 1</small></td><td>平滑系数，越大越贴近最新值；取值 (0,1]。与 span 二选一。</td></tr><tr><td><code>span</code><br><small>int</small></td><td>0<br><small>≥ 0; ≤ 100000; steps</small></td><td>用跨度表示平滑：alpha = 2/(span+1)。0 表示不使用，改用 alpha；两者不能同时给出。</td></tr><tr><td><code>bias_correction</code><br><small>bool</small></td><td>false<br><small>无额外范围限制</small></td><td>偏差修正：按 (1-alpha)^龄 加权后除以权重和，而不是以第一个观测值起算，短历史上更不受首个值影响。</td></tr></tbody></table></div>
@@ -14,8 +28,35 @@
   &quot;alpha&quot;: 0.3,
   &quot;bias_correction&quot;: false
 }</code></pre>
+<h2 id="worked-example">计算示例：数据、参数与代入过程</h2>
+<p>最近 6 个采样点（每 5 分钟一个）的 CPU 使用量（核）。参数：</p>
+<pre data-language="JSON"><code>{
+  "alpha": 0.3,
+  "bias_correction": false
+}</code></pre>
+<pre data-language="数据"><code>y = [10, 12, 11, 15, 14, 16]</code></pre>
+<p>按公式从第一个值起递推，<code>ℓ(t) = 0.3·y(t) + 0.7·ℓ(t−1)</code>：</p>
+<div class="parameter-reference"><table><thead><tr><th>t</th><th>y(t)</th><th>代入</th><th>ℓ(t)</th></tr></thead><tbody>
+<tr><td>1</td><td>10</td><td>ℓ(1) = y(1)</td><td>10.0000</td></tr>
+<tr><td>2</td><td>12</td><td>0.3×12 + 0.7×10.0000</td><td>10.6000</td></tr>
+<tr><td>3</td><td>11</td><td>0.3×11 + 0.7×10.6000</td><td>10.7200</td></tr>
+<tr><td>4</td><td>15</td><td>0.3×15 + 0.7×10.7200</td><td>12.0040</td></tr>
+<tr><td>5</td><td>14</td><td>0.3×14 + 0.7×12.0040</td><td>12.6028</td></tr>
+<tr><td>6</td><td>16</td><td>0.3×16 + 0.7×12.6028</td><td>13.6220</td></tr></tbody></table></div>
+<p>所以预测是 <code>[13.622, 13.622]</code>（取 2 步）：一条水平线。注意最后一个实际值是 16，预测却是 13.6，因为前面较小的值仍在拉低它，这就是“平滑”的代价，也是它在上升负载里偏低的原因。</p>
+<p>改参数看看结果怎么变（同样的数据）：</p>
+<ul>
+<li><code>bias_correction: true</code>：直接用权重 1、0.7、0.49、0.343、0.2401、0.16807（最新的值权重最大）加权平均，得到 <strong>14.1049</strong>。它不再受第一个值 10 的牵连，所以更高。</li>
+<li><code>span: 5</code>（α = 2/6 ≈ 0.3333）：得到 <strong>13.8601</strong>，比 α=0.3 稍微更贴近最新值。</li></ul>
+<p>这些数字由 <code>pkg/forecast/docs_examples_test.go</code> 用真实代码算出并持续校验。</p>
 <h2 id="tuning">调参与取舍</h2>
 <p>alpha 越大越快跟随最近变化，也越容易受噪声影响。span 是另一种指定平滑强度的方式；显式 alpha 与正数 span 不能同时填写。</p>
+<h2 id="references">来源与引用</h2>
+<ul>
+<li>Brown, R.G. <em>Statistical Forecasting for Inventory Control</em>（McGraw-Hill，1959）：指数平滑方法的经典来源。</li>
+<li>Hyndman, R.J. &amp; Athanasopoulos, G. <em>Forecasting: Principles and Practice</em>（第 3 版，OTexts，2021），第 8.1 节简单指数平滑：<a href="https://otexts.com/fpp3/ses.html">https://otexts.com/fpp3/ses.html</a>。</li>
+<li>Hyndman, R.J. 等 <em>Forecasting with Exponential Smoothing: The State Space Approach</em>（Springer，2008）：指数平滑的统一理论。</li>
+<li><code>span</code> 与 α 的换算 <code>α = 2/(span+1)</code> 沿用 pandas 的 <code>ewm(span=…)</code> 约定。</li></ul>
 <h2 id="shared-parameters">通用参数：变化重置与分位校准</h2>
 <div class="parameter-reference"><table><thead><tr><th>参数 / 类型</th><th>默认值 / 范围 / 单位</th><th>含义与使用</th></tr></thead><tbody><tr><td><code>reset_on_change</code><br><small>bool</small></td><td>false<br><small>无额外范围限制</small></td><td>水平突变后重置：检测历史里最后一次水平突变（发布、扩缩容、流量切换），只用突变之后的历史预测。关闭时用全部历史（现状）。突变之后至少要有 6 步才会被确认；突变后的历史不够算法所需时，取算法所需的最新一段。</td></tr><tr><td><code>change_threshold</code><br><small>float</small></td><td>8<br><small>≥ 3; ≤ 50</small></td><td>突变阈值：突变幅度（扣除前一段趋势后）超过噪声的多少倍才算，越大越不容易误报，噪声由相邻步变化的稳健标准差估计。仅 reset_on_change=true 时使用。</td></tr><tr><td><code>change_min_shift</code><br><small>float</small></td><td>0.2<br><small>≥ 0; ≤ 5</small></td><td>最小突变幅度：突变至少是水平的这个比例（0.2 = 20%），很干净的序列上的微小跳变不算。仅 reset_on_change=true 时使用。</td></tr><tr><td><code>quantile_level</code><br><small>float</small></td><td>0<br><small>≥ 0; ≤ 0.99</small></td><td>推荐分位数：0 = 点预测（现状）；0.9 等 = 预测「实际值有约 90% 的把握不超过」的线（保形预测：用本算法在这个负载最近几个窗口里的真实误差校准，需要更多历史和时间）。必须大于 0.5。</td></tr><tr><td><code>calibration_windows</code><br><small>int</small></td><td>8<br><small>≥ 3; ≤ 50</small></td><td>校准窗口数：用最近多少个历史窗口测本算法的误差；越多越稳，也越慢（每个窗口多跑一次预测）。仅推荐分位数大于 0 时使用。</td></tr></tbody></table></div>
 <p>quantile_level 是 0～1 的分位点，percentile 是 1～100 的百分数，二者不是同一参数。分位校准会额外运行历史预测；增加校准窗口前检查历史与运行预算，覆盖率是评估目标而非保证。</p>

@@ -1,0 +1,61 @@
+<h2 id="overview">邮件通道是什么，谁在用</h2>
+<p>邮件通道让平台通过一台 SMTP 服务器给指定邮箱发信。目前用它的是 <a href="ai-tasks.html">AI 定时任务</a>：任务按计划让模型回答，再把回答发给收件人。通道本身只管“把一封信交给 SMTP 服务器”，不管内容；没有配置好时，任务运行会失败并在任务中心写明原因，不会静默丢信。</p>
+<p>配置全部在“系统管理 → 系统参数”的<strong>通知</strong>分类里，没有配置文件。每一项单独保存，刚保存的参数最多 10 秒后生效。配好后用同一页的“发送测试邮件”按钮给自己发一封，是最快的验证办法。</p>
+<h2 id="params">参数</h2>
+<table><thead><tr><th>参数</th><th>默认值</th><th>含义</th></tr></thead><tbody>
+<tr><td><code>notify.email.host</code></td><td>空</td><td>SMTP 服务器主机名或 IP。为空表示邮件通道没有配置，发送会直接失败。</td></tr>
+<tr><td><code>notify.email.port</code></td><td>587</td><td>端口，1 到 65535。常见搭配：587 + <code>starttls</code>，465 + <code>tls</code>，25 + <code>none</code>。</td></tr>
+<tr><td><code>notify.email.security</code></td><td><code>starttls</code></td><td>连接加密方式：<code>starttls</code>（先明文连接再升级为加密）、<code>tls</code>（整条连接一开始就是 TLS，也叫隐式 TLS / SMTPS）、<code>none</code>（不加密）。</td></tr>
+<tr><td><code>notify.email.username</code></td><td>空</td><td>登录 SMTP 服务器的账号。服务器不需要登录时留空。</td></tr>
+<tr><td><code>notify.email.password</code></td><td>空</td><td>账号的密码或应用专用密码。加密保存，保存后只显示掩码；提交掩码表示保持原值。</td></tr>
+<tr><td><code>notify.email.from</code></td><td>空</td><td>发件地址，必填。可以写 <code>reports@example.com</code>，也可以写带显示名的 <code>"kube-res-foresight &lt;reports@example.com&gt;"</code>。邮件服务通常要求它与登录账号一致或是该账号有权代发的地址。</td></tr>
+<tr><td><code>notify.email.skip_verify</code></td><td><code>false</code></td><td>是否跳过服务器证书校验。服务器用自签名证书时才临时打开；打开后连接可能被冒充，能提供受信任证书时不要开。</td></tr>
+<tr><td><code>notify.email.timeout_seconds</code></td><td>30</td><td>一封邮件从连接、登录到交付给服务器的总时限，5 到 300 秒。</td></tr></tbody></table>
+<p>“启用”没有单独的开关：<code>host</code>、<code>port</code>、<code>from</code> 都有效，通道就可用。</p>
+<h2 id="security">加密与密码：什么时候会发送登录密码</h2>
+<p>平台使用标准的 SMTP PLAIN 登录。出于安全，<strong>账号密码只会在加密连接上发送</strong>，或者发给本机上的服务器；在一条不加密的外部连接上，登录会被拒绝，而不是把密码明文发出去。</p>
+<table><thead><tr><th>security</th><th>典型端口</th><th>过程</th><th>能否带账号密码</th></tr></thead><tbody>
+<tr><td><code>starttls</code></td><td>587</td><td>先用明文连上并问候，服务器必须声明支持 STARTTLS，然后升级为 TLS，再登录和发信。服务器不支持时报错而不是退回明文。</td><td>可以（升级之后）</td></tr>
+<tr><td><code>tls</code></td><td>465</td><td>一开始就建立 TLS，之后登录和发信。</td><td>可以</td></tr>
+<tr><td><code>none</code></td><td>25</td><td>全程不加密。</td><td>只有服务器在本机时可以；用于内网无认证的中继。</td></tr></tbody></table>
+<h2 id="examples">常见邮件服务的填法</h2>
+<p>下面的主机名、地址和密码都是示例，请换成你自己的。具体要求以邮件服务商的说明为准（有的需要“应用专用密码”或在管理后台允许 SMTP 登录）。</p>
+<h3>企业邮箱 / Microsoft 365 一类的 587 + STARTTLS</h3>
+<table><thead><tr><th>参数</th><th>值</th></tr></thead><tbody>
+<tr><td><code>notify.email.host</code></td><td><code>smtp.example.com</code></td></tr>
+<tr><td><code>notify.email.port</code></td><td><code>587</code></td></tr>
+<tr><td><code>notify.email.security</code></td><td><code>starttls</code></td></tr>
+<tr><td><code>notify.email.username</code></td><td><code>reports@example.com</code></td></tr>
+<tr><td><code>notify.email.password</code></td><td>该账号的密码或应用专用密码</td></tr>
+<tr><td><code>notify.email.from</code></td><td><code>kube-res-foresight &lt;reports@example.com&gt;</code></td></tr></tbody></table>
+<h3>465 + 隐式 TLS（一些国内邮箱服务）</h3>
+<p>与上表相同，只把 <code>port</code> 改成 <code>465</code>、<code>security</code> 改成 <code>tls</code>。</p>
+<h3>内网中继，不登录</h3>
+<table><thead><tr><th>参数</th><th>值</th></tr></thead><tbody>
+<tr><td><code>notify.email.host</code></td><td><code>mail-relay.internal</code></td></tr>
+<tr><td><code>notify.email.port</code></td><td><code>25</code></td></tr>
+<tr><td><code>notify.email.security</code></td><td><code>none</code></td></tr>
+<tr><td><code>notify.email.username</code> / <code>password</code></td><td>留空</td></tr>
+<tr><td><code>notify.email.from</code></td><td><code>reports@example.com</code>（中继允许的发件地址）</td></tr></tbody></table>
+<p>这种配置信件内容在内网里是明文传输的，只适合受信任的网络。</p>
+<h3>自签名证书的内部服务器</h3>
+<p>先按服务器实际的端口和加密方式填，再把 <code>notify.email.skip_verify</code> 设为 <code>true</code>。这只是权宜之计：证书不校验，连接可能被冒充；长期使用应给服务器换成受信任的证书。</p>
+<h2 id="message">发出的邮件长什么样</h2>
+<p>邮件内容用 UTF-8，经 base64 编码，中文主题也能正常显示。任务回答是 HTML 时，邮件同时带纯文本和 HTML 两个版本（multipart/alternative）：支持 HTML 的邮箱客户端显示带标题、表格和颜色的版本，其他客户端显示纯文本。平台会去掉 HTML 里的脚本、框架和对象，邮件客户端本来也不会显示它们。内容里的换行不会被用来构造邮件头。</p>
+<p>一封邮件发给一个收件人；一个任务有多个收件人时分别发送，其中某个失败不会让已经发成功的重发。</p>
+<h2 id="test">先发一封测试邮件</h2>
+<p>“系统管理 → 系统参数”里，通知分类有“发送测试邮件”：填一个收件邮箱，平台用当前保存的参数发一封测试信。成功会提示已发送；失败时直接显示邮件服务器的原话，这是排查最有用的信息。刚改的参数最多 10 秒后生效，改完请稍等再测。</p>
+<h2 id="troubleshoot">排查</h2>
+<table><thead><tr><th>提示（节选）</th><th>原因与检查</th></tr></thead><tbody>
+<tr><td><code>the e-mail channel is not set up: the SMTP host (notify.email.host) is empty</code></td><td>没有填主机。</td></tr>
+<tr><td><code>the SMTP port (notify.email.port) is not valid</code></td><td>端口不在 1 到 65535。</td></tr>
+<tr><td><code>the sender address (notify.email.from) is not set</code> / <code>is not valid</code></td><td>发件地址为空或格式不对；带显示名时要写成 <code>名称 &lt;地址&gt;</code>。</td></tr>
+<tr><td><code>the security (notify.email.security) is starttls, tls or none</code></td><td><code>security</code> 只能是这三个值之一。</td></tr>
+<tr><td><code>could not reach the SMTP server host:port</code></td><td>连不上：主机名、端口、防火墙或出站网络策略。容器里要确认平台所在的 Pod 能访问该地址。</td></tr>
+<tr><td><code>the SMTP server did not greet</code></td><td>连上了但服务器没有按 SMTP 问候，常见于端口与加密方式不匹配，例如在 465 上用了 <code>starttls</code>，应改成 <code>tls</code>。</td></tr>
+<tr><td><code>the SMTP server does not offer STARTTLS</code></td><td>服务器不支持升级加密：换成它支持的方式（<code>tls</code>），或确认是不加密的内网中继再用 <code>none</code>。</td></tr>
+<tr><td><code>STARTTLS failed</code> / 证书相关错误</td><td>证书不被信任或域名不匹配。检查服务器证书；自签名证书可临时开 <code>skip_verify</code>。</td></tr>
+<tr><td><code>the SMTP server refused the sign-in</code></td><td>账号或密码不对，或服务器要求应用专用密码、没有允许该账号用 SMTP 登录。</td></tr>
+<tr><td><code>the SMTP server refused the sender</code></td><td>发件地址不被允许：通常要与登录账号一致，或该账号有权代发。</td></tr>
+<tr><td><code>the SMTP server refused the recipient …</code></td><td>收件地址被拒绝：地址错误，或服务器不允许向外部域发信（中继限制）。</td></tr></tbody></table>
+<p>任务运行失败时，错误也会出现在任务中心的运行记录里，已经发送成功的收件人不会因为重试再收到一次。</p>

@@ -766,3 +766,10 @@ all ten management pages and the shared product title. Screenshots were inspecte
 2026-11-06 续：「规格保持」写清楚
 - 需求表的「规格保持（降低要等 24 小时）」只说了一半。现在标签带上「规格从 X 起没变」（`NeedField.HeldSince`，取规格上次变化的时间，24 小时从它起算），表下加一段说明：为什么规格不来回变、增加立即、降低要稳定满设定小时数、变化在设定比例内不动、仅推荐模式下保持的值不超过在跑的规格。
 - 截图里第 418 版仍是推荐 6 核（需求 1.78 核、当前 4 核）：它是 `inForce` 修复（`2527cd8`）部署前生成的快照，快照存下来不会重算；要等部署后的下一轮推荐才会按「不高于在跑规格」重算。没有在部署后的版本上验证过；如果部署后新的快照仍是 6 核，先看模块的模式是不是「仅推荐」（修复只对仅推荐模式生效）。
+
+2026-11-06 续：官网算法页补原理、示例与引用，新增 SMTP 配置页，LDAP 补完整示例
+- **算法页**：16 个算法（含 model_service、combination）的中英文页都加了三节：「原理与公式」（公式、每个参数怎样进入公式、为什么这样设计、局限）、「计算示例」（数据、参数、逐步代入、结果）、「来源与引用」（论文、书、VPA/Autopilot、arXiv 等，以及本实现与原方法的差别）。model_service 没有公式，写请求、答复和平台怎么读。
+- **示例的数字是真算的**：`pkg/forecast/docs_examples_test.go` 用真实代码跑每个示例并断言页面上的数（还核对了几处手算：Theta、岭回归、EWMA 偏差修正、组合权重、KNN 权重），model_service 对着一个替身 HTTP 服务验证请求体、鉴权头、分位读取和负值截断。改算法后示例不再吻合会让测试失败。示例里的参数 JSON 也被 `scripts/check-algorithm-docs` 按真实校验器构建（160 个参数项、32 页通过）。
+- **新增页面**：`smtp`（邮件（SMTP）配置）：参数表（默认值、范围）、加密与密码何时发送、按常见邮件服务填写的示例、邮件长什么样、测试邮件按钮、逐条错误的原因。内容对着 `pkg/notify/email` 的实现写，不是凭印象。`ldap` 页加了 OpenLDAP 与 AD 的完整配置示例和「alice 登录时发生了什么」的逐步说明。`ai-tasks` 里「邮件为纯文本」已过时（HTML 邮件做过），改成准确的说法并链到 SMTP 页；`administration` 也链到 SMTP 页。
+- **验证**：`go test ./pkg/forecast`、`go run ./scripts/check-algorithm-docs`、`python scripts/build-site.py`、`python scripts/check-site.py`（79 页）通过。没有在浏览器里看页面的排版（表格、公式块、移动端），也没有人对论文引用逐条核对出版信息：作者、期刊、卷期页码是凭记忆写的，arXiv 编号和 FPP3 链接是常用的已知地址；发布前建议抽查几条。
+- **不是**：没有新做任何算法，也没有改 SMTP/LDAP 的行为。

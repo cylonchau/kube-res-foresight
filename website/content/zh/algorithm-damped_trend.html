@@ -6,6 +6,24 @@
 <p>至少 window_steps 个点（默认 12，最少 3）。</p>
 <p>输入应是等间隔、无缺口且数值有限的序列。输出保留输入指标单位，例如 CPU 核、内存字节或每秒请求数；采样步长决定步数对应的真实时间。最低样本数仅表示可运行，不代表预测可靠。</p>
 <p>此方法不使用协变量；分别预测各目标指标。</p>
+<h2 id="principle">原理与公式</h2>
+<p>阻尼趋势回答的是“一个已经开始的缓慢爬升会走到哪里”。水平取 EWMA，斜率取最近一小段里各点两两斜率的<strong>中位数</strong>，斜率只延续越来越少的步数，所以预测向一个上限收敛而不是无限外推。</p>
+<pre data-language="公式"><code>水平：  ℓ = 对全部历史做 EWMA（系数 α，从第一个值起递推）
+斜率：  b = 最近 window_steps 个点里所有点对斜率 (y(j) − y(i)) / (j − i) 的中位数（Theil-Sen）
+        若 b &lt; 0：b ← b × down_share
+预测：  ŷ(T+h) = ℓ + b · (φ + φ² + … + φʰ)               φ = damping
+        并限制在 ≤ cap_ratio × 窗口内最高值，且不小于 0
+
+φ &lt; 1 时，无论 h 多大，预测最远只会到  ℓ + b · φ / (1 − φ)</code></pre>
+<p>参数怎样进入公式：</p>
+<ul>
+<li><code>alpha</code>：水平的 EWMA 系数。</li>
+<li><code>window_steps</code>：斜率取自最近多少步（默认 12，也是最少样本数）。越短越快反映刚开始的上涨，也越容易受噪声影响。</li>
+<li><code>damping</code>（φ）：阻尼。斜率每向前一步乘一次 φ。默认 0.9 时预测最远走到 <code>ℓ + 9·b</code>；1 表示不阻尼，按直线一直外推。</li>
+<li><code>down_share</code>：下降的斜率跟随多少。0（默认）表示不跟随：预测在下降时只是平推，不催着降容量；是否缩容是决策的事，决策有自己的保持时间。</li>
+<li><code>cap_ratio</code>：预测不超过窗口内最高值的这个倍数，防止很陡的短斜率被外推到很远。</li></ul>
+<p><strong>为什么这样做：</strong>内存和缓存经常“缓慢爬升，夹杂突然下降（重启、垃圾回收）”。用全部历史拟合直线会被突降拉歪；只看水平又总是落后于爬升。取中位数斜率，一两个孤立的尖峰或一次骤降不会移动它；再对斜率做阻尼，是因为短窗口里的斜率不会永远持续，让预测向上限收敛，比直线外推更诚实。</p>
+<p><strong>它做不到的：</strong>看不到上涨开始之前的突发，也不认识日周期。没有先兆的突发要靠预留容量；周期性高峰要看季节类算法。它是候选算法，要在回测里胜过基线才会被采用。</p>
 <h2 id="parameters">参数说明</h2>
 <p><small>窄屏可左右滑动参数表，查看完整说明。</small></p>
 <div class="parameter-reference"><table><thead><tr><th>参数 / 类型</th><th>默认值 / 范围 / 单位</th><th>含义与使用</th></tr></thead><tbody><tr><td><code>alpha</code><br><small>float</small></td><td>0.3<br><small>≥ 0.001; ≤ 1</small></td><td>水平的 EWMA 系数，越大越贴近最新值；取值 (0,1]。</td></tr><tr><td><code>window_steps</code><br><small>int</small></td><td>12<br><small>≥ 3; ≤ 1000; steps</small></td><td>斜率取自最近多少步。越短越快反映刚开始的上涨，也越容易受噪声影响；按采样步长换算成时间，例如 30 秒步长的 12 步是 6 分钟。也是算法的最少样本数。</td></tr><tr><td><code>damping</code><br><small>float</small></td><td>0.9<br><small>≥ 0.01; ≤ 1</small></td><td>阻尼系数 φ：斜率每往前一步乘一次 φ，预测最远走到水平 + 斜率·φ/(1−φ)。1 表示不阻尼（按直线外推，会一直上涨）；越小越快收敛。</td></tr><tr><td><code>down_share</code><br><small>float</small></td><td>0<br><small>≥ 0; ≤ 1</small></td><td>下降的斜率跟随多少：0 = 不跟随（预测按水平平推，给出容量要慢），1 = 完全跟随。何时降下来是决策的事，这里默认不催它。</td></tr><tr><td><code>cap_ratio</code><br><small>float</small></td><td>1.5<br><small>≥ 1; ≤ 10</small></td><td>预测不超过最近窗口最高值的这个倍数，防止很陡的短斜率被外推到很远。</td></tr></tbody></table></div>
@@ -18,8 +36,40 @@
   &quot;down_share&quot;: 0,
   &quot;cap_ratio&quot;: 1.5
 }</code></pre>
+<h2 id="worked-example">计算示例：数据、参数与代入过程</h2>
+<p>一个缓慢爬升的内存（GiB），每 5 分钟一个点，其中夹着两次小的回落。参数取默认值，只把窗口缩成 6 步以便手算。</p>
+<pre data-language="JSON"><code>{
+  "alpha": 0.3,
+  "window_steps": 6,
+  "damping": 0.9,
+  "down_share": 0,
+  "cap_ratio": 1.5
+}</code></pre>
+<pre data-language="数据"><code>y = [50, 51, 53, 52, 55, 57, 56, 59]        n = 8</code></pre>
+<p><strong>第 1 步，水平 ℓ（对全部 8 个点做 EWMA，α = 0.3）：</strong></p>
+<pre data-language="计算"><code>50 → 0.3×51+0.7×50 = 50.3 → 0.3×53+0.7×50.3 = 51.11 → 51.377 → 52.4639 → 53.8247 → 54.4773 → 0.3×59+0.7×54.4773 = 55.8341
+ℓ = 55.8341</code></pre>
+<p><strong>第 2 步，斜率 b（最近 6 个点 [53, 52, 55, 57, 56, 59] 的点对斜率中位数）。</strong>6 个点共 15 对，逐对算 (y(j)−y(i))/(j−i)，从小到大排：</p>
+<pre data-language="计算"><code>−1, −1, 0.5, 0.75, 1, 1, 1.2, 1.3333, 1.3333, 1.3333, 1.75, 2, 2.5, 3, 3
+第 8 个（中位数） = 1.3333
+b = 1.3333（每步）</code></pre>
+<p>注意窗口里的回落（53→52、57→56）算出来的负斜率 −1 排在最前面，没有影响中位数，这就是“中位数对孤立的骤降不敏感”。</p>
+<p><strong>第 3 步，代入公式</strong>（φ = 0.9，累计的阻尼步长 φ+φ²+…）：</p>
+<div class="parameter-reference"><table><thead><tr><th>h</th><th>φ + … + φʰ</th><th>ŷ = ℓ + b × 累计</th></tr></thead><tbody>
+<tr><td>1</td><td>0.9</td><td>55.8341 + 1.3333×0.9 = 57.0341</td></tr>
+<tr><td>2</td><td>0.9 + 0.81 = 1.71</td><td>55.8341 + 1.3333×1.71 = 58.1141</td></tr>
+<tr><td>3</td><td>1.71 + 0.729 = 2.439</td><td>55.8341 + 1.3333×2.439 = 59.0861</td></tr></tbody></table></div>
+<p>结果 <code>[57.0341, 58.1141, 59.0861]</code>，增量一步比一步小（1.20、1.08、0.97）。无论预测多远，最高也只到 55.8341 + 1.3333 × 9 = <strong>67.83</strong>；上限 cap_ratio × 窗口最高值 = 1.5 × 59 = 88.5，此例中阻尼先起作用，cap 没有触发。</p>
+<p>把 <code>damping</code> 改成 1（不阻尼），同样的数据每步都多 1.3333，预测会一直上升，直到被 88.5 的上限拦住。</p>
+<p>这些数字由 <code>pkg/forecast/docs_examples_test.go</code> 用真实代码算出并持续校验。</p>
 <h2 id="tuning">调参与取舍</h2>
 <p>窗口越短，越快跟上刚开始的上涨，也越容易被噪声带偏；中位数斜率对一两个孤立的尖峰或骤降不敏感，但窗口里大部分点都在波动时斜率就不可靠。阻尼越小预测收敛得越近，保守地低估持续上涨；阻尼接近 1 会走得很远，由 cap_ratio 兜住。down_share 保持 0 时，预测在负载下降时只是平推，什么时候缩容由决策里的保持时间和冷却决定。</p>
+<h2 id="references">来源与引用</h2>
+<ul>
+<li>Gardner, E.S. &amp; McKenzie, E. “Forecasting trends in time series”，<em>Management Science</em> 31(10)，1985，1237–1246：阻尼趋势，趋势每一步衰减以免外推过头。</li>
+<li>Gardner, E.S. “Exponential smoothing: The state of the art—Part II”，<em>International Journal of Forecasting</em> 22(4)，2006，637–666：回顾并推荐阻尼趋势作为稳健的默认。</li>
+<li>Theil（1950）、Sen（1968）：斜率取点对斜率的中位数，见 <a href="algorithm-peak_envelope.html">峰值包络</a> 页。</li>
+<li>本算法把“EWMA 水平 + 窗口内中位数斜率 + 阻尼 + 下降只跟随一部分 + 上限”组合起来，是针对“缓慢爬升夹杂骤降”的负载设计的，不是某一篇论文的原样算法。</li></ul>
 <h2 id="shared-parameters">通用参数：变化重置与分位校准</h2>
 <div class="parameter-reference"><table><thead><tr><th>参数 / 类型</th><th>默认值 / 范围 / 单位</th><th>含义与使用</th></tr></thead><tbody><tr><td><code>reset_on_change</code><br><small>bool</small></td><td>false<br><small>无额外范围限制</small></td><td>水平突变后重置：检测历史里最后一次水平突变（发布、扩缩容、流量切换），只用突变之后的历史预测。关闭时用全部历史（现状）。突变之后至少要有 6 步才会被确认；突变后的历史不够算法所需时，取算法所需的最新一段。</td></tr><tr><td><code>change_threshold</code><br><small>float</small></td><td>8<br><small>≥ 3; ≤ 50</small></td><td>突变阈值：突变幅度（扣除前一段趋势后）超过噪声的多少倍才算，越大越不容易误报，噪声由相邻步变化的稳健标准差估计。仅 reset_on_change=true 时使用。</td></tr><tr><td><code>change_min_shift</code><br><small>float</small></td><td>0.2<br><small>≥ 0; ≤ 5</small></td><td>最小突变幅度：突变至少是水平的这个比例（0.2 = 20%），很干净的序列上的微小跳变不算。仅 reset_on_change=true 时使用。</td></tr><tr><td><code>quantile_level</code><br><small>float</small></td><td>0<br><small>≥ 0; ≤ 0.99</small></td><td>推荐分位数：0 = 点预测（现状）；0.9 等 = 预测「实际值有约 90% 的把握不超过」的线（保形预测：用本算法在这个负载最近几个窗口里的真实误差校准，需要更多历史和时间）。必须大于 0.5。</td></tr><tr><td><code>calibration_windows</code><br><small>int</small></td><td>8<br><small>≥ 3; ≤ 50</small></td><td>校准窗口数：用最近多少个历史窗口测本算法的误差；越多越稳，也越慢（每个窗口多跑一次预测）。仅推荐分位数大于 0 时使用。</td></tr></tbody></table></div>
 <p>quantile_level 是 0～1 的分位点，percentile 是 1～100 的百分数，二者不是同一参数。分位校准会额外运行历史预测；增加校准窗口前检查历史与运行预算，覆盖率是评估目标而非保证。</p>

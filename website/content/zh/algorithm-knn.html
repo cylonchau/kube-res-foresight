@@ -5,6 +5,25 @@
 <p>默认互斥窗口时，至少 k×window+1 点；完整预测还至少需要 k×window+horizon 点，并有足够符合时刻限制的候选。</p>
 <p>输入应是等间隔、无缺口且数值有限的序列。输出保留输入指标单位，例如 CPU 核、内存字节或每秒请求数；采样步长决定步数对应的真实时间。最低样本数仅表示可运行，不代表预测可靠。</p>
 <p>此方法不使用协变量；分别预测各目标指标。</p>
+<h2 id="principle">原理与公式</h2>
+<p>KNN 是“类比预测”：拿最近的一段历史（窗口），去历史里找最像它的 K 段，看这 K 段<strong>后面</strong>各发生了什么，把它们加权平均当作预测。它假设“相似的开头会有相似的结尾”。</p>
+<pre data-language="公式"><code>查询窗口  q = 最近 W 个点                                     W = window
+候选窗口  c(e) = 以位置 e 结尾的 W 个点，且 e 之后还有 H 个值（H = 预测步数）
+相对归一化（normalize = relative）：每个窗口除以它自己的平均值 m(·)
+距离      d(e) = Σ_i ( c(e)(i)/m(c) − q(i)/m(q) )²
+取 K 个距离最小、且彼此至少相隔 W 步的候选（排除区，避免同一事件的平移副本被数 K 次）
+权重      w(e) = 1 / ( √d(e) + 10⁻⁹ )                         越相似权重越大
+预测      ŷ(T+h) = m(q) · Σ w(e) · y(e+h)/m(c(e)) / Σ w(e)</code></pre>
+<p>参数怎样进入公式：</p>
+<ul>
+<li><code>window</code>（W）：窗口长度（步数）。看多长的“开头”来找相似段；默认 48。</li>
+<li><code>k</code>：取最像的几段，默认 5。多取更平滑，少取更贴近最像的那一段。</li>
+<li><code>normalize</code>：<code>relative</code>（默认）把窗口除以自己的平均再比较，所以“在较低负载下出现过同样的形状”也能匹配，预测再乘回当前窗口的平均；<code>none</code> 直接比原值。</li>
+<li><code>exclusion</code>：<code>window</code>（默认）表示选出的 K 段之间至少相隔一个窗口，是 K 个不同的事件；<code>none</code> 表示不限制，允许重叠（最像的几段可能只是同一事件错开几步的副本）。</li>
+<li><code>same_time_of_day</code> 与 <code>time_tolerance_minutes</code>：只在“与当前窗口同一时刻（容差分钟内，按 UTC，跨午夜也算）”结束的窗口里找，适合模式属于某个钟点的负载。</li>
+<li>最少样本数：不重叠时是 K×W + H（K 段互不重叠、每段后面还要有 H 个值）。</li></ul>
+<p><strong>为什么这样做：</strong>有些负载的形状反复出现，但并不严格按钟点（比如定时批处理的启动-高峰-回落，或者每次发布后的预热曲线）。KNN 不假设周期，直接从历史里找“上次这样开头之后发生了什么”，不需要训练；归一化让它在不同负载水平上也能复用同一个形状。</p>
+<p><strong>它的弱点：</strong>历史里没有出现过的形状它不会预测；窗口越长、历史越短，找到好的类比越难；它也只能给出历史里出现过的数值范围附近的预测。</p>
 <h2 id="parameters">参数说明</h2>
 <p><small>窄屏可左右滑动参数表，查看完整说明。</small></p>
 <div class="parameter-reference"><table><thead><tr><th>参数 / 类型</th><th>默认值 / 范围 / 单位</th><th>含义与使用</th></tr></thead><tbody><tr><td><code>window</code><br><small>int</small></td><td>48<br><small>≥ 2; ≤ 5000; steps</small></td><td>比较窗口长度。</td></tr><tr><td><code>k</code><br><small>int</small></td><td>5<br><small>≥ 1; ≤ 200</small></td><td>取最相似的几段。</td></tr><tr><td><code>normalize</code><br><small>string</small></td><td>&quot;relative&quot;<br><small>relative / none</small></td><td>relative = 窗口除以自身均值后比较，再缩放回当前水平；none = 直接比较原值。</td></tr><tr><td><code>exclusion</code><br><small>string</small></td><td>&quot;window&quot;<br><small>window / none</small></td><td>互斥区：window = 选中的 K 段两两至少相隔一个窗口长度，K 段是 K 次不同的事件（所需历史约 K×窗口）；none = 不限制，最像的几段可能只是同一次事件错开几步的副本（版本 2 之前的行为）。</td></tr><tr><td><code>same_time_of_day</code><br><small>bool</small></td><td>false<br><small>无额外范围限制</small></td><td>只比较与当前窗口在同一时刻（UTC 时分）结束的历史窗口，适合形态属于一天中某个时刻的负载；候选变少，需要更长的历史。</td></tr><tr><td><code>time_tolerance_minutes</code><br><small>int</small></td><td>60<br><small>≥ 0; ≤ 720; minutes</small></td><td>同一时刻的容差，仅 same_time_of_day=true 时使用；跨零点按环形计算。</td></tr></tbody></table></div>
@@ -17,8 +36,41 @@
   &quot;exclusion&quot;: &quot;window&quot;,
   &quot;same_time_of_day&quot;: false
 }</code></pre>
+<h2 id="worked-example">计算示例：数据、参数与代入过程</h2>
+<p>一个“每 3 步重复一次”的小负载（10、20、30 的形状），后来整体水平抬高了约 20%。每 5 分钟一个点，窗口 3，取 2 个最近邻。</p>
+<pre data-language="JSON"><code>{
+  "window": 3,
+  "k": 2,
+  "normalize": "relative",
+  "exclusion": "window"
+}</code></pre>
+<pre data-language="数据"><code>下标  0   1   2   3   4   5   6   7   8   9  10  11  12  13
+y  = [10, 20, 30, 10, 20, 30, 12, 24, 36, 12, 23, 35, 12, 22]        n = 14，预测 3 步</code></pre>
+<p><strong>第 1 步，查询窗口。</strong>最近 3 个点 q = [35, 12, 22]（下标 11 到 13），平均 m(q) = 23，相对归一化后 [1.5217, 0.5217, 0.9565]。</p>
+<p><strong>第 2 步，找最像的窗口。</strong>算所有“后面还有 3 个值”的候选窗口的距离，选出最小的两个，并且两个窗口的结尾至少相隔 3 步：</p>
+<div class="parameter-reference"><table><thead><tr><th>候选窗口（结尾下标）</th><th>窗口内容</th><th>归一化</th><th>距离 d</th></tr></thead><tbody>
+<tr><td>10</td><td>[36, 12, 23]，平均 23.667</td><td>[1.5211, 0.5070, 0.9718]</td><td><strong>0.00045</strong></td></tr>
+<tr><td>4</td><td>[30, 10, 20]，平均 20</td><td>[1.5, 0.5, 1.0]</td><td><strong>0.00284</strong></td></tr></tbody></table></div>
+<p>它们结尾的下标是 10 和 4，相隔 6 ≥ 3，满足排除区。注意：尽管水平不同（23.7 对 20 对 23），归一化后形状几乎一样，所以能匹配。</p>
+<p><strong>第 3 步，权重。</strong>w = 1/(√d + 10⁻⁹)：窗口 10 的 w = 1/0.02123 = <strong>47.10</strong>；窗口 4 的 w = 1/0.05325 = <strong>18.78</strong>。更像的那段权重更大。</p>
+<p><strong>第 4 步，看这两段后面各发生了什么，并按各自的平均归一化：</strong></p>
+<div class="parameter-reference"><table><thead><tr><th>候选</th><th>后面的 3 个值</th><th>除以该窗口平均后</th></tr></thead><tbody>
+<tr><td>结尾 10</td><td>[35, 12, 22]</td><td>[1.4789, 0.5070, 0.9296]</td></tr>
+<tr><td>结尾 4</td><td>[30, 12, 24]</td><td>[1.5, 0.6, 1.2]</td></tr></tbody></table></div>
+<p><strong>第 5 步，加权平均并乘回当前水平 m(q) = 23：</strong></p>
+<pre data-language="计算"><code>h=1：(47.10×1.4789 + 18.78×1.5) / (47.10 + 18.78) = 1.4848  → × 23 = 34.15
+h=2：(47.10×0.5070 + 18.78×0.6) / 65.88            = 0.5335  → × 23 = 12.27
+h=3：(47.10×0.9296 + 18.78×1.2) / 65.88            = 1.0066  → × 23 = 23.15</code></pre>
+<p>结果 <code>[34.1526, 12.2714, 23.1532]</code>：预测延续了“高—低—中”的三步形状，水平按当前窗口的 23 缩放（所以第 1 步比历史里的 30 高、接近 35）。</p>
+<p>这些数字由 <code>pkg/forecast/docs_examples_test.go</code> 用真实代码算出并持续校验。</p>
 <h2 id="tuning">调参与取舍</h2>
 <p>window 应覆盖想匹配的形态；k 太大会把不相似片段也混进来。exclusion=window 减少同一次事件重复投票。same_time_of_day 按 UTC 时分比较，启用后应增加历史窗口。</p>
+<h2 id="references">来源与引用</h2>
+<ul>
+<li>Lorenz, E.N. “Atmospheric predictability as revealed by naturally occurring analogues”，<em>Journal of the Atmospheric Sciences</em> 26(4)，1969，636–646：类比预测（analogue forecasting）的经典来源。</li>
+<li>Farmer, J.D. &amp; Sidorowich, J.J. “Predicting chaotic time series”，<em>Physical Review Letters</em> 59(8)，1987，845–848：用最近邻的“后续轨迹”预测时间序列。</li>
+<li>Cover, T. &amp; Hart, P. “Nearest neighbor pattern classification”，<em>IEEE Transactions on Information Theory</em> 13(1)，1967，21–27：最近邻方法。</li>
+<li>排除区（选出的 K 段彼此至少相隔一个窗口）和相对归一化是本平台为避免“同一事件被数 K 次”和“水平不同的同形状无法匹配”加入的处理，不是原始论文里的内容。</li></ul>
 <h2 id="shared-parameters">通用参数：变化重置与分位校准</h2>
 <div class="parameter-reference"><table><thead><tr><th>参数 / 类型</th><th>默认值 / 范围 / 单位</th><th>含义与使用</th></tr></thead><tbody><tr><td><code>reset_on_change</code><br><small>bool</small></td><td>false<br><small>无额外范围限制</small></td><td>水平突变后重置：检测历史里最后一次水平突变（发布、扩缩容、流量切换），只用突变之后的历史预测。关闭时用全部历史（现状）。突变之后至少要有 6 步才会被确认；突变后的历史不够算法所需时，取算法所需的最新一段。</td></tr><tr><td><code>change_threshold</code><br><small>float</small></td><td>8<br><small>≥ 3; ≤ 50</small></td><td>突变阈值：突变幅度（扣除前一段趋势后）超过噪声的多少倍才算，越大越不容易误报，噪声由相邻步变化的稳健标准差估计。仅 reset_on_change=true 时使用。</td></tr><tr><td><code>change_min_shift</code><br><small>float</small></td><td>0.2<br><small>≥ 0; ≤ 5</small></td><td>最小突变幅度：突变至少是水平的这个比例（0.2 = 20%），很干净的序列上的微小跳变不算。仅 reset_on_change=true 时使用。</td></tr><tr><td><code>quantile_level</code><br><small>float</small></td><td>0<br><small>≥ 0; ≤ 0.99</small></td><td>推荐分位数：0 = 点预测（现状）；0.9 等 = 预测「实际值有约 90% 的把握不超过」的线（保形预测：用本算法在这个负载最近几个窗口里的真实误差校准，需要更多历史和时间）。必须大于 0.5。</td></tr><tr><td><code>calibration_windows</code><br><small>int</small></td><td>8<br><small>≥ 3; ≤ 50</small></td><td>校准窗口数：用最近多少个历史窗口测本算法的误差；越多越稳，也越慢（每个窗口多跑一次预测）。仅推荐分位数大于 0 时使用。</td></tr></tbody></table></div>
 <p>quantile_level 是 0～1 的分位点，percentile 是 1～100 的百分数，二者不是同一参数。分位校准会额外运行历史预测；增加校准窗口前检查历史与运行预算，覆盖率是评估目标而非保证。</p>

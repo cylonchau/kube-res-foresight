@@ -5,6 +5,21 @@
 <p>无季节项至少 4 个点；有季节项至少两个完整周期。</p>
 <p>输入应是等间隔、无缺口且数值有限的序列。输出保留输入指标单位，例如 CPU 核、内存字节或每秒请求数；采样步长决定步数对应的真实时间。最低样本数仅表示可运行，不代表预测可靠。</p>
 <p>此方法不使用协变量；分别预测各目标指标。</p>
+<h2 id="principle">原理与公式</h2>
+<p>Theta 方法是 M3 预测竞赛的获胜方法。简化形式（Hyndman 与 Billah）等价于：先对序列做简单指数平滑得到“水平”，再加一个“漂移”，漂移取线性趋势斜率的<strong>一半</strong>。水平跟着近期走，趋势只信一半，所以在短而有噪声的序列上很难被击败。</p>
+<pre data-language="公式"><code>x = 去季节后的序列（无季节时就是原序列）
+ℓ  = 对 x 做简单指数平滑得到的最后一个水平（系数 α）
+b  = x 对时间做最小二乘直线的斜率（每步）
+n  = 序列长度
+
+ŷ(T+h) = ℓ + (b/2) · ( (h−1) + 1/α − (1−α)ⁿ / α )        h = 1 … H
+最后把季节项放回去，并把小于 0 的预测截为 0</code></pre>
+<p>括号里第一项 <code>(h−1)</code> 表示每向前一步漂移再多走一步；<code>1/α − (1−α)ⁿ/α</code> 是平滑水平与趋势线之间的固定偏移。</p>
+<p>参数怎样进入公式：</p>
+<ul>
+<li><code>alpha</code>：水平的平滑系数。<strong>填 0 表示自动选择</strong>：在 0.05、0.10 … 1.00 上试，取历史上一步预测误差平方和最小的 α。</li>
+<li><code>season_length_steps</code>（m）：季节长度（步数）。0 或 1 表示不带季节；带季节时至少要 2m 个点。带季节时先用经典分解（居中移动平均）算每个位置的季节指数：历史全为正数时用乘性（序列除以指数），否则用加性（序列减去指数），预测后再放回。</li></ul>
+<p><strong>为什么这样做：</strong>只看水平会落后于上升趋势，完整外推趋势又容易冲过头。折中取一半斜率，既能跟上缓慢的变化，又不会被几个点带偏。不需要训练，也不需要调很多参数。</p>
 <h2 id="parameters">参数说明</h2>
 <p><small>窄屏可左右滑动参数表，查看完整说明。</small></p>
 <div class="parameter-reference"><table><thead><tr><th>参数 / 类型</th><th>默认值 / 范围 / 单位</th><th>含义与使用</th></tr></thead><tbody><tr><td><code>season_length_steps</code><br><small>int</small></td><td>0<br><small>≥ 0; steps</small></td><td>周期长度（步数）；0 表示不含季节项，启用需要至少两个完整周期。历史全为正时按比例分解，否则按加性分解。</td></tr><tr><td><code>alpha</code><br><small>float</small></td><td>0<br><small>≥ 0; ≤ 1</small></td><td>水平平滑系数；0 = 按样本内单步误差自动选择。</td></tr></tbody></table></div>
@@ -14,8 +29,28 @@
   &quot;season_length_steps&quot;: 288,
   &quot;alpha&quot;: 0
 }</code></pre>
+<h2 id="worked-example">计算示例：数据、参数与代入过程</h2>
+<p>不带季节，手工指定 α（这样不做自动选择）。每 5 分钟一个点。</p>
+<pre data-language="JSON"><code>{
+  "alpha": 0.5
+}</code></pre>
+<pre data-language="数据"><code>y = [10, 12, 11, 13, 14, 16]        n = 6</code></pre>
+<p><strong>第 1 步，简单指数平滑得到水平 ℓ</strong>（ℓ(1) = 10，之后 ℓ ← 0.5·y + 0.5·ℓ）：10 → 11 → 11 → 12 → 13 → <strong>14.5</strong>。</p>
+<p><strong>第 2 步，最小二乘斜率 b：</strong>对 (0,10)、(1,12)、(2,11)、(3,13)、(4,14)、(5,16) 做直线，斜率 <strong>1.0857</strong> 每步。</p>
+<p><strong>第 3 步，代入公式。</strong>(1−α)ⁿ = 0.5⁶ = 0.015625，所以 1/α − (1−α)ⁿ/α = 2 − 0.03125 = 1.96875，b/2 = 0.54285：</p>
+<pre data-language="计算"><code>ŷ(T+1) = 14.5 + 0.54285 × ( 0 + 1.96875) = 15.5687
+ŷ(T+2) = 14.5 + 0.54285 × ( 1 + 1.96875) = 16.1116
+ŷ(T+3) = 14.5 + 0.54285 × ( 2 + 1.96875) = 16.6545</code></pre>
+<p>结果 <code>[15.5687, 16.1116, 16.6545]</code>。对比：如果完整外推趋势（斜率 1.0857 而不是一半），每向前一步会多 1.09；Theta 每步只多 0.54，这就是“趋势只信一半”。</p>
+<p>这些数字由 <code>pkg/forecast/docs_examples_test.go</code> 用真实代码算出并持续校验。</p>
 <h2 id="tuning">调参与取舍</h2>
 <p>alpha=0 自动选择平滑强度；先从无季节版本比较，确认周期明确且历史充足后再设置 season_length_steps。</p>
+<h2 id="references">来源与引用</h2>
+<ul>
+<li>Assimakopoulos, V. &amp; Nikolopoulos, K. “The theta model: a decomposition approach to forecasting”，<em>International Journal of Forecasting</em> 16(4)，2000，521–530：Theta 方法的原始论文。</li>
+<li>Hyndman, R.J. &amp; Billah, B. “Unmasking the Theta method”，<em>International Journal of Forecasting</em> 19(2)，2003，287–290：证明它等价于带漂移的简单指数平滑（本实现采用的形式）。</li>
+<li>Makridakis, S. &amp; Hibon, M. “The M3-Competition: results, conclusions and implications”，<em>International Journal of Forecasting</em> 16(4)，2000，451–476：Theta 在其中获胜。</li>
+<li>经典季节分解（居中移动平均求季节指数）的说明见 Hyndman &amp; Athanasopoulos <em>Forecasting: Principles and Practice</em>（第 3 版）第 3.4 节：<a href="https://otexts.com/fpp3/classical-decomposition.html">https://otexts.com/fpp3/classical-decomposition.html</a>。</li></ul>
 <h2 id="shared-parameters">通用参数：变化重置与分位校准</h2>
 <div class="parameter-reference"><table><thead><tr><th>参数 / 类型</th><th>默认值 / 范围 / 单位</th><th>含义与使用</th></tr></thead><tbody><tr><td><code>reset_on_change</code><br><small>bool</small></td><td>false<br><small>无额外范围限制</small></td><td>水平突变后重置：检测历史里最后一次水平突变（发布、扩缩容、流量切换），只用突变之后的历史预测。关闭时用全部历史（现状）。突变之后至少要有 6 步才会被确认；突变后的历史不够算法所需时，取算法所需的最新一段。</td></tr><tr><td><code>change_threshold</code><br><small>float</small></td><td>8<br><small>≥ 3; ≤ 50</small></td><td>突变阈值：突变幅度（扣除前一段趋势后）超过噪声的多少倍才算，越大越不容易误报，噪声由相邻步变化的稳健标准差估计。仅 reset_on_change=true 时使用。</td></tr><tr><td><code>change_min_shift</code><br><small>float</small></td><td>0.2<br><small>≥ 0; ≤ 5</small></td><td>最小突变幅度：突变至少是水平的这个比例（0.2 = 20%），很干净的序列上的微小跳变不算。仅 reset_on_change=true 时使用。</td></tr><tr><td><code>quantile_level</code><br><small>float</small></td><td>0<br><small>≥ 0; ≤ 0.99</small></td><td>推荐分位数：0 = 点预测（现状）；0.9 等 = 预测「实际值有约 90% 的把握不超过」的线（保形预测：用本算法在这个负载最近几个窗口里的真实误差校准，需要更多历史和时间）。必须大于 0.5。</td></tr><tr><td><code>calibration_windows</code><br><small>int</small></td><td>8<br><small>≥ 3; ≤ 50</small></td><td>校准窗口数：用最近多少个历史窗口测本算法的误差；越多越稳，也越慢（每个窗口多跑一次预测）。仅推荐分位数大于 0 时使用。</td></tr></tbody></table></div>
 <p>quantile_level 是 0～1 的分位点，percentile 是 1～100 的百分数，二者不是同一参数。分位校准会额外运行历史预测；增加校准窗口前检查历史与运行预算，覆盖率是评估目标而非保证。</p>

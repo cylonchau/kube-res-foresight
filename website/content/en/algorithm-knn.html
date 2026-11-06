@@ -5,6 +5,25 @@
 <p>With window exclusion, the base minimum is k×window+1. A full forecast needs at least k×window+horizon points and enough candidates satisfying any time-of-day filter.</p>
 <p>Inputs must be regularly sampled, gap-free, and finite. Outputs retain the metric unit, such as CPU cores, memory bytes, or requests per second. The sample interval determines the duration of a step. Minimum history permits execution; it does not establish forecast quality.</p>
 <p>This method does not use covariates; target metrics are forecast separately.</p>
+<h2 id="principle">How it works and the formula</h2>
+<p>KNN is "analogue forecasting": take the latest stretch of the history (the window), find the K stretches of the history most like it, look at what happened <strong>after</strong> each, and take their weighted average as the forecast. It assumes "a similar beginning has a similar ending".</p>
+<pre data-language="Formula"><code>query window      q = the latest W points                                 W = window
+candidate window  c(e) = the W points ending at position e, with H more values after e (H = steps to forecast)
+relative normalisation (normalize = relative): every window is divided by its own mean m(·)
+distance          d(e) = Σ_i ( c(e)(i)/m(c) − q(i)/m(q) )²
+take the K candidates of the smallest distance that are at least W steps apart (the exclusion zone, so that a shifted copy of one event is not counted K times)
+weight            w(e) = 1 / ( √d(e) + 10⁻⁹ )                         the more alike the heavier
+forecast          ŷ(T+h) = m(q) · Σ w(e) · y(e+h)/m(c(e)) / Σ w(e)</code></pre>
+<p>How the parameters enter the formula:</p>
+<ul>
+<li><code>window</code> (W): the window length in steps: how long a "beginning" is used to find similar stretches; default 48.</li>
+<li><code>k</code>: how many of the most alike stretches are taken, default 5. More is smoother, fewer follows the closest one more.</li>
+<li><code>normalize</code>: <code>relative</code> (default) divides a window by its own mean before comparing, so "the same shape seen at a lower load" matches too, and the forecast is scaled back by the mean of the current window; <code>none</code> compares the raw values.</li>
+<li><code>exclusion</code>: <code>window</code> (default) keeps the chosen K stretches at least one window apart, so they are K different events; <code>none</code> sets no limit and allows overlap (the most alike stretches may be copies of one event shifted by a few steps).</li>
+<li><code>same_time_of_day</code> and <code>time_tolerance_minutes</code>: search only among windows that end at the same time of day as the current one (within the tolerance in minutes, UTC, around midnight too), for a load whose pattern belongs to an hour of the day.</li>
+<li>The least history: without overlap K×W + H (K stretches that do not overlap, each followed by H values).</li></ul>
+<p><strong>Why it is done this way:</strong> some loads repeat a shape without keeping strictly to the clock (the start–peak–fall of a scheduled batch, or the warm-up curve after every release). KNN assumes no cycle: it looks into the history for "what followed the last time it began like this", with no training; normalisation lets one shape be reused at different load levels.</p>
+<p><strong>Its weakness:</strong> it does not forecast a shape the history has never shown; the longer the window and the shorter the history, the harder it is to find a good analogue; and its forecast stays near the range of values the history has shown.</p>
 <h2 id="parameters">Parameter reference</h2>
 <p><small>On narrow screens, swipe the parameter table horizontally to read all columns.</small></p>
 <div class="parameter-reference"><table><thead><tr><th>Parameter / type</th><th>Default / range / unit</th><th>Meaning and use</th></tr></thead><tbody><tr><td><code>window</code><br><small>int</small></td><td>48<br><small>≥ 2; ≤ 5000; steps</small></td><td>Length of the historical shape to match, in sample steps.</td></tr><tr><td><code>k</code><br><small>int</small></td><td>5<br><small>≥ 1; ≤ 200</small></td><td>Number of neighboring historical windows to combine.</td></tr><tr><td><code>normalize</code><br><small>string</small></td><td>&quot;relative&quot;<br><small>relative / none</small></td><td>relative compares relative levels; zscore compares standardized shapes; none uses raw values.</td></tr><tr><td><code>exclusion</code><br><small>string</small></td><td>&quot;window&quot;<br><small>window / none</small></td><td>window prevents chosen neighbor windows from overlapping; none permits overlap.</td></tr><tr><td><code>same_time_of_day</code><br><small>bool</small></td><td>false<br><small>No additional range</small></td><td>Compare neighbors ending near the same UTC time of day; requires more historical candidates.</td></tr><tr><td><code>time_tolerance_minutes</code><br><small>int</small></td><td>60<br><small>≥ 0; ≤ 720; minutes</small></td><td>Circular time-of-day tolerance, used only when same_time_of_day=true.</td></tr></tbody></table></div>
@@ -17,8 +36,41 @@
   &quot;exclusion&quot;: &quot;window&quot;,
   &quot;same_time_of_day&quot;: false
 }</code></pre>
+<h2 id="worked-example">Worked example: data, parameters and substitution</h2>
+<p>A small load that "repeats every 3 steps" (the shape 10, 20, 30) whose overall level later rose by about 20%. One point every 5 minutes, window 3, 2 nearest neighbours.</p>
+<pre data-language="JSON"><code>{
+  "window": 3,
+  "k": 2,
+  "normalize": "relative",
+  "exclusion": "window"
+}</code></pre>
+<pre data-language="Data"><code>index  0   1   2   3   4   5   6   7   8   9  10  11  12  13
+y  = [10, 20, 30, 10, 20, 30, 12, 24, 36, 12, 23, 35, 12, 22]        n = 14, forecast 3 steps</code></pre>
+<p><strong>Step 1, the query window.</strong> The last 3 points q = [35, 12, 22] (index 11 to 13), mean m(q) = 23, normalised [1.5217, 0.5217, 0.9565].</p>
+<p><strong>Step 2, find the most alike windows.</strong> Compute the distance of every candidate that has 3 values after it, take the two smallest whose ends are at least 3 steps apart:</p>
+<div class="parameter-reference"><table><thead><tr><th>candidate (end index)</th><th>window</th><th>normalised</th><th>distance d</th></tr></thead><tbody>
+<tr><td>10</td><td>[36, 12, 23], mean 23.667</td><td>[1.5211, 0.5070, 0.9718]</td><td><strong>0.00045</strong></td></tr>
+<tr><td>4</td><td>[30, 10, 20], mean 20</td><td>[1.5, 0.5, 1.0]</td><td><strong>0.00284</strong></td></tr></tbody></table></div>
+<p>Their end indices are 10 and 4, 6 apart ≥ 3, so the exclusion zone is kept. Note: although the levels differ (23.7, 20 and 23) the normalised shapes are almost the same, which is why they match.</p>
+<p><strong>Step 3, the weights.</strong> w = 1/(√d + 10⁻⁹): window 10 has w = 1/0.02123 = <strong>47.10</strong>; window 4 has w = 1/0.05325 = <strong>18.78</strong>. The more alike one weighs more.</p>
+<p><strong>Step 4, what followed the two stretches, normalised by their own means:</strong></p>
+<div class="parameter-reference"><table><thead><tr><th>candidate</th><th>the 3 values after it</th><th>divided by the mean of that window</th></tr></thead><tbody>
+<tr><td>end 10</td><td>[35, 12, 22]</td><td>[1.4789, 0.5070, 0.9296]</td></tr>
+<tr><td>end 4</td><td>[30, 12, 24]</td><td>[1.5, 0.6, 1.2]</td></tr></tbody></table></div>
+<p><strong>Step 5, the weighted average, scaled back by the current level m(q) = 23:</strong></p>
+<pre data-language="Calculation"><code>h=1: (47.10×1.4789 + 18.78×1.5) / (47.10 + 18.78) = 1.4848  → × 23 = 34.15
+h=2: (47.10×0.5070 + 18.78×0.6) / 65.88            = 0.5335  → × 23 = 12.27
+h=3: (47.10×0.9296 + 18.78×1.2) / 65.88            = 1.0066  → × 23 = 23.15</code></pre>
+<p>The result is <code>[34.1526, 12.2714, 23.1532]</code>: the forecast continues the three-step shape "high – low – middle", scaled to the current window's 23 (which is why step 1 is above the 30 of the history and near 35).</p>
+<p>These numbers are computed by the real code in <code>pkg/forecast/docs_examples_test.go</code> and checked on every test run.</p>
 <h2 id="tuning">Tuning and tradeoffs</h2>
 <p>Choose window to cover the shape being matched. Too large a k includes weaker matches. Window exclusion avoids duplicate votes from the same event. same_time_of_day uses UTC and needs more history.</p>
+<h2 id="references">Sources and references</h2>
+<ul>
+<li>Lorenz, E.N. "Atmospheric predictability as revealed by naturally occurring analogues", <em>Journal of the Atmospheric Sciences</em> 26(4), 1969, 636–646: the classic source of analogue forecasting.</li>
+<li>Farmer, J.D. &amp; Sidorowich, J.J. "Predicting chaotic time series", <em>Physical Review Letters</em> 59(8), 1987, 845–848: forecasting a series from the continuations of its nearest neighbours.</li>
+<li>Cover, T. &amp; Hart, P. "Nearest neighbor pattern classification", <em>IEEE Transactions on Information Theory</em> 13(1), 1967, 21–27: the nearest-neighbour method.</li>
+<li>The exclusion zone (the chosen K stretches at least one window apart) and the relative normalisation are this platform's additions, to avoid "one event counted K times" and "the same shape at a different level cannot match"; they are not in the original papers.</li></ul>
 <h2 id="shared-parameters">Shared parameters: shifts and quantiles</h2>
 <div class="parameter-reference"><table><thead><tr><th>Parameter / type</th><th>Default / range / unit</th><th>Meaning and use</th></tr></thead><tbody><tr><td><code>reset_on_change</code><br><small>bool</small></td><td>false<br><small>No additional range</small></td><td>Use history after a detected level shift, preserving enough points for the underlying method.</td></tr><tr><td><code>change_threshold</code><br><small>float</small></td><td>8<br><small>≥ 3; ≤ 50</small></td><td>Minimum shift relative to robust noise; used only with reset_on_change.</td></tr><tr><td><code>change_min_shift</code><br><small>float</small></td><td>0.2<br><small>≥ 0; ≤ 5</small></td><td>Minimum relative level shift; 0.2 means 20%. Used only with reset_on_change.</td></tr><tr><td><code>quantile_level</code><br><small>float</small></td><td>0<br><small>≥ 0; ≤ 0.99</small></td><td>Zero disables conformal calibration; otherwise must be above 0.5 and at most 0.99. Calibrates an upper forecast using earlier forecast errors.</td></tr><tr><td><code>calibration_windows</code><br><small>int</small></td><td>8<br><small>≥ 3; ≤ 50</small></td><td>Historical windows for conformal calibration; more windows add forecast calls and history requirements.</td></tr></tbody></table></div>
 <p>quantile_level uses a 0–1 scale; percentile uses 1–100. Calibration runs extra historical forecasts. Check history and runtime budgets before increasing windows; coverage is an evaluation target, not a guarantee.</p>

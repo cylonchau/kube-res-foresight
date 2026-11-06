@@ -5,6 +5,28 @@
 <p>至少 lags + 4×min_samples_leaf + 1 点；训练窗口仍需保留足够样本。</p>
 <p>输入应是等间隔、无缺口且数值有限的序列。输出保留输入指标单位，例如 CPU 核、内存字节或每秒请求数；采样步长决定步数对应的真实时间。最低样本数仅表示可运行，不代表预测可靠。</p>
 <p>支持协变量：使用同一时间网格上的其他指标，特征仅取预测起点之前的值；未来协变量沿用最后观测值，不是假设已知未来业务量。</p>
+<h2 id="principle">原理与公式</h2>
+<p>随机森林是许多棵回归树的平均。每棵树只看一个随机抽样的训练子集和一个随机的特征子集，所以每棵树都不完美，但彼此犯的错不同，平均起来比单棵稳。特征是前几步的值、可选的日历特征和协变量；预测时递归向前滚。</p>
+<pre data-language="公式"><code>特征：    x(t) = [ y(t−1), …, y(t−L) ] （+ 日历 sin/cos，+ 协变量滞后）            L = lags
+每棵树 b = 1 … B（B = n_estimators）：
+  1) 从训练行里有放回地抽 sample_ratio × 行数 行（自助采样）
+  2) 随机抽 feature_ratio × 特征数 个特征，这棵树只能用它们分裂
+  3) 在抽到的行上递归分裂：把特征值按 32 个分箱，选使“方差减小量”最大的 (特征, 分箱边界)，
+       gain = (ΣL)²/nL + (ΣR)²/nR − (Σ)²/n          Σ 是该侧目标值之和，n 是行数
+     直到深度达到 max_depth，或一侧的行数少于 min_samples_leaf；叶子的值 = 该叶里目标值的平均
+预测：    ŷ(t) = (1/B) · Σ tree_b( x(t) )
+多步：    把预测当作下一步的滞后值，递归向前滚</code></pre>
+<p>参数怎样进入公式：</p>
+<ul>
+<li><code>lags</code>（L）：用前几步作特征，必须选。</li>
+<li><code>n_estimators</code>（B）：树的数量。越多越稳、越慢（默认 50）。</li>
+<li><code>max_depth</code>：每棵树的最大深度（默认 6）。越深越能拟合复杂关系，也越容易记住噪声。</li>
+<li><code>min_samples_leaf</code>：叶子至少几行（默认 5）。越大越平滑。最少样本数 = lags + 4×min_samples_leaf + 1。</li>
+<li><code>feature_ratio</code>、<code>sample_ratio</code>：每棵树用多少比例的特征、多少比例的行（有放回）。比例小则树之间更不一样。</li>
+<li><code>seed</code>：随机种子。种子固定时，同样的历史和参数永远给出同样的预测（可复现）。</li>
+<li><code>calendar_features</code>、<code>covariate_lags</code>、<code>training_window_steps</code>：同 <a href="algorithm-ridge_ar.html">岭回归自回归</a>。</li></ul>
+<p><strong>为什么这样做：</strong>树模型能拟合非线性关系（比如“上一步低于某个值时下一步会回升”），不需要对数据做线性假设，也不怕特征量纲不同。多棵树平均，用来抵消单棵树的过拟合。</p>
+<p><strong>关键限制：树模型不能外推。</strong>叶子的值是训练目标的平均，所以预测永远落在训练目标的取值范围内。负载持续上升到历史从没见过的高度时，它不会预测更高。这是平台要求它在回测里胜过基线才会被采用的原因，也是它更适合“在已见范围内波动”的负载，而不是增长中的负载。</p>
 <h2 id="parameters">参数说明</h2>
 <p><small>窄屏可左右滑动参数表，查看完整说明。</small></p>
 <div class="parameter-reference"><table><thead><tr><th>参数 / 类型</th><th>默认值 / 范围 / 单位</th><th>含义与使用</th></tr></thead><tbody><tr><td><code>lags</code><br><small>int</small></td><td>必填，无默认值<br><small>≥ 1; ≤ 2000; steps</small></td><td>滞后步数，仅使用目标步之前的值。</td></tr><tr><td><code>calendar_features</code><br><small>bool</small></td><td>false<br><small>无额外范围限制</small></td><td>是否加入 UTC 日/周周期的正余弦特征。</td></tr><tr><td><code>n_estimators</code><br><small>int</small></td><td>50<br><small>≥ 1; ≤ 500</small></td><td>树的数量。</td></tr><tr><td><code>max_depth</code><br><small>int</small></td><td>6<br><small>≥ 1; ≤ 12</small></td><td>单棵树最大深度。</td></tr><tr><td><code>min_samples_leaf</code><br><small>int</small></td><td>5<br><small>≥ 1</small></td><td>叶子最少样本数。</td></tr><tr><td><code>feature_ratio</code><br><small>float</small></td><td>0.6<br><small>≥ 0.05; ≤ 1</small></td><td>每棵树可用于分裂的特征比例。</td></tr><tr><td><code>sample_ratio</code><br><small>float</small></td><td>0.8<br><small>≥ 0.05; ≤ 1</small></td><td>每棵树自助采样的样本比例。</td></tr><tr><td><code>training_window_steps</code><br><small>int</small></td><td>0<br><small>≥ 0; steps</small></td><td>只用最近多少个样本训练；0 = 全部历史。</td></tr><tr><td><code>covariate_lags</code><br><small>int</small></td><td>3<br><small>≥ 1; ≤ 48; steps</small></td><td>每个参与指标取最近多少步的值作为特征（只用目标步之前的值）；没有其他参与指标时忽略。</td></tr><tr><td><code>seed</code><br><small>int</small></td><td>42<br><small>≥ 0; ≤ 1000000</small></td><td>随机种子，固定后同样的历史给出同样的预测。</td></tr></tbody></table></div>
@@ -18,8 +40,35 @@
   &quot;training_window_steps&quot;: 2000,
   &quot;seed&quot;: 42
 }</code></pre>
+<h2 id="worked-example">计算示例：数据、参数与代入过程</h2>
+<p>用一个最简单的“一直上升”的序列来看“不能外推”：每 5 分钟一个点，从 10 一直升到 29（每步加 1），共 20 个点。</p>
+<pre data-language="JSON"><code>{
+  "lags": 2,
+  "n_estimators": 20,
+  "max_depth": 3,
+  "min_samples_leaf": 2,
+  "feature_ratio": 1,
+  "sample_ratio": 1,
+  "seed": 42
+}</code></pre>
+<pre data-language="数据"><code>y = [10, 11, 12, …, 28, 29]        n = 20；训练行：特征 [y(t−1), y(t−2)]，目标 y(t)，共 18 行，目标范围 12 … 29</code></pre>
+<p>按“每步加 1”，下一步人人都知道应该是 30、31、32。但随机森林给出的是：</p>
+<pre data-language="结果"><code>ŷ = [27.9125, 27.9125, 27.9125]</code></pre>
+<p>三个预测都低于历史里的最大值 29，而且是一条水平线。原因：</p>
+<ul>
+<li>预测第 1 步时，特征 [29, 28] 落在每棵树“最大特征值那一侧”的叶子里；叶子的值是该叶训练目标的平均，而训练目标最大是 29，所以预测不可能超过 29。</li>
+<li>这个预测 27.9 又被当作下一步的滞后值，落进同一片叶子，所以后面各步还是 27.9。</li></ul>
+<p>对比：同样的数据，线性模型（<a href="algorithm-ridge_ar.html">岭回归自回归</a>）（默认参数）预测约 29.95、30.92、31.88，一直往上。因此，<strong>对在增长的负载，要留意树模型会偏低</strong>；它在负载围绕一个范围起伏、关系是非线性的时候才占优。</p>
+<p>森林内部的一次分裂怎么选，见 <a href="algorithm-gbdt.html#worked-example">GBDT 页的示例</a>，那里把每一步（基线值、残差、分裂的增益、叶子的值）都列了出来；随机森林的树用同样的分裂规则，只是拟合目标本身而不是残差，并且每棵树只在抽样后的行和特征上分裂。</p>
+<p>这些数字由 <code>pkg/forecast/docs_examples_test.go</code> 用真实代码算出并持续校验（随机种子固定为 42，所以结果可复现）。</p>
 <h2 id="tuning">调参与取舍</h2>
 <p>先限制树数、深度与训练窗口。增加树数提高开销，增加深度更容易拟合噪声；seed 用于可重复比较。与岭回归和基线使用相同回测窗口比较。</p>
+<h2 id="references">来源与引用</h2>
+<ul>
+<li>Breiman, L. “Random Forests”，<em>Machine Learning</em> 45(1)，2001，5–32：随机森林的原始论文。</li>
+<li>Breiman, L. “Bagging predictors”，<em>Machine Learning</em> 24(2)，1996，123–140：自助采样与平均（bagging）。</li>
+<li>Breiman, L.、Friedman, J.H.、Olshen, R.A.、Stone, C.J. <em>Classification and Regression Trees</em>（Wadsworth，1984）：回归树与方差减小的分裂准则。</li>
+<li>把滞后值作为特征、递归向前预测，是用回归模型做时间序列预测的常见做法；树模型不能外推的限制在上面的示例里给出了实际的数字。</li></ul>
 <h2 id="shared-parameters">通用参数：变化重置与分位校准</h2>
 <div class="parameter-reference"><table><thead><tr><th>参数 / 类型</th><th>默认值 / 范围 / 单位</th><th>含义与使用</th></tr></thead><tbody><tr><td><code>reset_on_change</code><br><small>bool</small></td><td>false<br><small>无额外范围限制</small></td><td>水平突变后重置：检测历史里最后一次水平突变（发布、扩缩容、流量切换），只用突变之后的历史预测。关闭时用全部历史（现状）。突变之后至少要有 6 步才会被确认；突变后的历史不够算法所需时，取算法所需的最新一段。</td></tr><tr><td><code>change_threshold</code><br><small>float</small></td><td>8<br><small>≥ 3; ≤ 50</small></td><td>突变阈值：突变幅度（扣除前一段趋势后）超过噪声的多少倍才算，越大越不容易误报，噪声由相邻步变化的稳健标准差估计。仅 reset_on_change=true 时使用。</td></tr><tr><td><code>change_min_shift</code><br><small>float</small></td><td>0.2<br><small>≥ 0; ≤ 5</small></td><td>最小突变幅度：突变至少是水平的这个比例（0.2 = 20%），很干净的序列上的微小跳变不算。仅 reset_on_change=true 时使用。</td></tr><tr><td><code>quantile_level</code><br><small>float</small></td><td>0<br><small>≥ 0; ≤ 0.99</small></td><td>推荐分位数：0 = 点预测（现状）；0.9 等 = 预测「实际值有约 90% 的把握不超过」的线（保形预测：用本算法在这个负载最近几个窗口里的真实误差校准，需要更多历史和时间）。必须大于 0.5。</td></tr><tr><td><code>calibration_windows</code><br><small>int</small></td><td>8<br><small>≥ 3; ≤ 50</small></td><td>校准窗口数：用最近多少个历史窗口测本算法的误差；越多越稳，也越慢（每个窗口多跑一次预测）。仅推荐分位数大于 0 时使用。</td></tr></tbody></table></div>
 <p>quantile_level 是 0～1 的分位点，percentile 是 1～100 的百分数，二者不是同一参数。分位校准会额外运行历史预测；增加校准窗口前检查历史与运行预算，覆盖率是评估目标而非保证。</p>

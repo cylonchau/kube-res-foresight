@@ -5,6 +5,24 @@
 <p>至少 envelope_window_steps + 10 个点。</p>
 <p>输入应是等间隔、无缺口且数值有限的序列。输出保留输入指标单位，例如 CPU 核、内存字节或每秒请求数；采样步长决定步数对应的真实时间。最低样本数仅表示可运行，不代表预测可靠。</p>
 <p>此方法不使用协变量；分别预测各目标指标。</p>
+<h2 id="principle">原理与公式</h2>
+<p>峰值包络预测的是负载“上沿”的走向，适用于由峰值而不是平均值决定上限的资源。典型例子是内存工作集：它像锯齿，缓慢涨高，又因垃圾回收或缓存淘汰突然掉下来。这种序列的平均值远低于进程真正需要的，按平均值推荐的上限会被下一个峰值冲破。</p>
+<pre data-language="公式"><code>包络：     env(t) = max( y(t−w+1), …, y(t) )                  w = envelope_window_steps（滚动最大值，只用该点之前和当前的 w 步）
+拟合：     对包络用 Theil-Sen 估计画一条直线：
+             slope     = 包络上所有点对的斜率 (env(j) − env(i)) / (j − i) 的中位数
+             intercept = 各点 env(i) − slope·i 的中位数
+预测：     ŷ(T+h) = intercept + slope·(T−1+h)              （位置 i 从 0 起算）
+           不开启 allow_decline 时：slope &lt; 0 按 0 算，且预测不低于“现在的包络值”
+           最后 × (1 + safety_margin)，并保证不小于 0</code></pre>
+<p>参数怎样进入公式：</p>
+<ul>
+<li><code>envelope_window_steps</code>（w）：滚动最大值的窗口步数。窗口要盖住一个“锯齿”的周期（涨起来到被回收），默认 30。</li>
+<li><code>fit_steps</code>：只用最新的多少个包络点拟合直线；0 表示用全部。想只看近期趋势就填小一点。</li>
+<li><code>allow_decline</code>：允许直线向下。默认不允许：它是为“保护”做的推荐，不是平均值的估计，刚冲到的峰值不会被预测成更小。</li>
+<li><code>safety_margin</code>：在直线预测上再加的余量。</li>
+<li>最少样本数 = w + 10：窗口加上能拟合一条直线的余地。</li></ul>
+<p><strong>为什么用 Theil-Sen 而不是最小二乘：</strong>Theil-Sen 取的是点对斜率的中位数，几个异常的峰值或一次重启后的塌陷拖不动它；最小二乘会被这些点带歪。点太多时（超过 300 个）只取均匀的 300 个，两两斜率最多 4.5 万个。</p>
+<p><strong>额外能力：</strong>同一条直线可以回答“什么时候会碰到上限”（例如容器的内存 limit）：直线到达上限所需的步数，换成时间。泄漏的预测同时也是一个日期。直线是平的、向下的，或要超过历史长度十倍以上才碰到上限时，会诚实地说“碰不到”。</p>
 <h2 id="parameters">参数说明</h2>
 <p><small>窄屏可左右滑动参数表，查看完整说明。</small></p>
 <div class="parameter-reference"><table><thead><tr><th>参数 / 类型</th><th>默认值 / 范围 / 单位</th><th>含义与使用</th></tr></thead><tbody><tr><td><code>envelope_window_steps</code><br><small>int</small></td><td>30<br><small>≥ 2; ≤ 100000; steps</small></td><td>滚动最大值的窗口（步数）：要大于一个锯齿的周期（一次 GC 或缓存淘汰的间隔），否则包络还是锯齿。</td></tr><tr><td><code>fit_steps</code><br><small>int</small></td><td>0<br><small>≥ 0; steps</small></td><td>只拟合包络最近的这么多步；0 = 全部。负载的增长速度变过时用它只看最近的趋势。</td></tr><tr><td><code>allow_decline</code><br><small>bool</small></td><td>false<br><small>无额外范围限制</small></td><td>是否允许预测下降：false（默认）= 下降的斜率按平处理，预测不低于当前包络，用于防 OOM；true = 照直线走，也可能低于当前峰值。</td></tr><tr><td><code>safety_margin</code><br><small>float</small></td><td>0<br><small>≥ 0; ≤ 5</small></td><td>安全边际：结果再乘 (1+边际)。</td></tr></tbody></table></div>
@@ -16,8 +34,36 @@
   &quot;allow_decline&quot;: false,
   &quot;safety_margin&quot;: 0.1
 }</code></pre>
+<h2 id="worked-example">计算示例：数据、参数与代入过程</h2>
+<p>一个缓慢上涨的内存锯齿：每 5 分钟一个点（MiB），每涨几步被回收一次。参数：窗口 4 步，用全部包络点，不允许下降，不加余量。</p>
+<pre data-language="JSON"><code>{
+  "envelope_window_steps": 4,
+  "fit_steps": 0,
+  "allow_decline": false,
+  "safety_margin": 0
+}</code></pre>
+<pre data-language="数据"><code>y = [100, 104, 108, 112, 90, 104, 108, 112, 116, 94, 108, 112, 116, 120, 98, 112]     n = 16
+    下标 0   1    2    3   4   5    6    7    8   9   10   11   12   13  14   15</code></pre>
+<p><strong>第 1 步，滚动最大值（窗口 4，从下标 3 起）：</strong>每个点取它和前 3 个点中的最大值。回收造成的低点（90、94、98）被“盖住”了：</p>
+<pre data-language="结果"><code>env = [112, 112, 112, 112, 112, 116, 116, 116, 116, 116, 120, 120, 120]      （13 个点，对应下标 3 … 15）
+现在的包络值 = 120</code></pre>
+<p><strong>第 2 步，Theil-Sen 拟合。</strong>13 个包络点有 78 对，取这 78 个斜率的中位数；截距是各点 <code>env − slope × 位置</code> 的中位数：</p>
+<pre data-language="结果"><code>slope = 0.7636（每步）      intercept = 108.5455</code></pre>
+<p>（直观上：包络大约每 5 步抬高 4 MiB，即每步约 0.76 MiB。）</p>
+<p><strong>第 3 步，代入公式。</strong>n = 16，位置从 0 起算，所以第 h 步在位置 15 + h：</p>
+<pre data-language="计算"><code>ŷ(T+1) = 108.5455 + 0.7636 × 16 = 120.7636
+ŷ(T+2) = 108.5455 + 0.7636 × 17 = 121.5273
+ŷ(T+3) = 108.5455 + 0.7636 × 18 = 122.2909</code></pre>
+<p>结果 <code>[120.7636, 121.5273, 122.2909]</code>。它们都不低于“现在的包络值” 120，所以不被抬高；如果直线算出来比 120 小，会被抬到 120。原始数据里最后一个值是 112（刚被回收之后），但预测是 120.8：这正是它要的，“下一个峰值至少还有这么高”，推荐上限就不会被下一次冲高冲破。</p>
+<p><strong>什么时候到上限？</strong>设容器内存 limit 为 150：直线需要 (150 − 108.5455) ÷ 0.7636 − 15 ≈ 39.3 步才到，每步 5 分钟，约 <strong>196 分钟（3.3 小时）</strong>之后。</p>
+<p>这些数字由 <code>pkg/forecast/docs_examples_test.go</code> 用真实代码算出并持续校验。</p>
 <h2 id="tuning">调参与取舍</h2>
 <p>包络窗口应大于一次 GC 或缓存淘汰周期。fit_steps 限制拟合的近期范围；allow_decline 默认关闭，防止下降斜率把预测压到当前包络以下。</p>
+<h2 id="references">来源与引用</h2>
+<ul>
+<li>Theil, H. “A rank-invariant method of linear and polynomial regression analysis”，<em>Proceedings of the Koninklijke Nederlandse Akademie van Wetenschappen</em> 53，1950，386–392、521–525、1397–1412：点对斜率中位数的原始论文。</li>
+<li>Sen, P.K. “Estimates of the regression coefficient based on Kendall's tau”，<em>Journal of the American Statistical Association</em> 63(324)，1968，1379–1389：Theil-Sen 估计的现代形式，抗异常值。</li>
+<li>“对滚动最大值做稳健线性拟合并外推”是本平台为内存工作集这类“锯齿加缓升”的负载设计的做法，不是某篇论文的算法；它与 VPA 对内存按峰值（而不是平均）推荐的思路一致。</li></ul>
 <h2 id="shared-parameters">通用参数：变化重置与分位校准</h2>
 <div class="parameter-reference"><table><thead><tr><th>参数 / 类型</th><th>默认值 / 范围 / 单位</th><th>含义与使用</th></tr></thead><tbody><tr><td><code>reset_on_change</code><br><small>bool</small></td><td>false<br><small>无额外范围限制</small></td><td>水平突变后重置：检测历史里最后一次水平突变（发布、扩缩容、流量切换），只用突变之后的历史预测。关闭时用全部历史（现状）。突变之后至少要有 6 步才会被确认；突变后的历史不够算法所需时，取算法所需的最新一段。</td></tr><tr><td><code>change_threshold</code><br><small>float</small></td><td>8<br><small>≥ 3; ≤ 50</small></td><td>突变阈值：突变幅度（扣除前一段趋势后）超过噪声的多少倍才算，越大越不容易误报，噪声由相邻步变化的稳健标准差估计。仅 reset_on_change=true 时使用。</td></tr><tr><td><code>change_min_shift</code><br><small>float</small></td><td>0.2<br><small>≥ 0; ≤ 5</small></td><td>最小突变幅度：突变至少是水平的这个比例（0.2 = 20%），很干净的序列上的微小跳变不算。仅 reset_on_change=true 时使用。</td></tr><tr><td><code>quantile_level</code><br><small>float</small></td><td>0<br><small>≥ 0; ≤ 0.99</small></td><td>推荐分位数：0 = 点预测（现状）；0.9 等 = 预测「实际值有约 90% 的把握不超过」的线（保形预测：用本算法在这个负载最近几个窗口里的真实误差校准，需要更多历史和时间）。必须大于 0.5。</td></tr><tr><td><code>calibration_windows</code><br><small>int</small></td><td>8<br><small>≥ 3; ≤ 50</small></td><td>校准窗口数：用最近多少个历史窗口测本算法的误差；越多越稳，也越慢（每个窗口多跑一次预测）。仅推荐分位数大于 0 时使用。</td></tr></tbody></table></div>
 <p>quantile_level 是 0～1 的分位点，percentile 是 1～100 的百分数，二者不是同一参数。分位校准会额外运行历史预测；增加校准窗口前检查历史与运行预算，覆盖率是评估目标而非保证。</p>
