@@ -16,7 +16,7 @@
 
 **当前阶段（P10 资源超配分析与可观测大盘，2026-11-19，未开始）**：先建一个以真实历史指标为依据、可解释、可追溯的资源超配分析系统：Controller 只读上报集群与工作负载配置，Prometheus 提供使用量，平台存配置快照与分析结果；系统内大盘、Grafana Dashboard 与深链；LLM 周期建议。本阶段超配判断**不用预测模型**，**不做成本**，以 Observe/Recommend 为主、不根据超配判断自动改资源。计划、待确认事项和验收见 [overprovision-p10.md](.agents/skills/requirements/references/overprovision-p10.md)。
 
-**同期整理（P11 AI 资源智能分析与对话、异步计算与 502/504 治理，2026-11-19，未开始）**：AI 只分析、评估、推荐，**不执行任何资源修改**，数字由规则引擎给、LLM 只解释，不重复做预测；让 AI 知道系统能做什么并真的去调用（统一能力注册表、按权限与当前页面注入上下文、Codex 反代与标准 API 共用，反代不支持工具调用时走受控的文本协议或规则路由，只执行只读项）；增加独立对话页面（与悬浮窗共享、入库的会话）、AI 权限与审计、异步任务（任务 ID、进度、缓存、持久化、断线恢复）和 502/504 全链路治理。计划、现状证据、状态生命周期和验收指标见 [ai-and-performance-p11.md](.agents/skills/requirements/references/ai-and-performance-p11.md)；性能与异步（T1）不依赖 P10，建议先做。
+**同期整理（P11 AI 资源智能分析与对话、异步计算与 502/504 治理，2026-11-19；C3、C7、C8、C9 已做并只在假服务上验证，其余未开始）**：AI 只分析、评估、推荐，**不执行任何资源修改**，数字由规则引擎给、LLM 只解释，不重复做预测；让 AI 知道系统能做什么并真的去调用（统一能力注册表、按权限与当前页面注入上下文、Codex 反代与标准 API 共用，反代不支持工具调用时走受控的文本协议或规则路由，只执行只读项）；增加独立对话页面（与悬浮窗共享、入库的会话）、AI 权限与审计、异步任务（任务 ID、进度、缓存、持久化、断线恢复）和 502/504 全链路治理。计划、现状证据、状态生命周期和验收指标见 [ai-and-performance-p11.md](.agents/skills/requirements/references/ai-and-performance-p11.md)；性能与异步（T1）不依赖 P10，建议先做。
 
 **暂缓（P9 成本闭环）**：2026-11-19 用户决定把成本相关内容移出当前阶段，需求整理在 [cost-module-requirements.md](.agents/skills/requirements/references/cost-module-requirements.md)，确认后再做。C1～C4（价格与成本、浪费诊断、候选方案、节点装箱模拟，只读，代码在 `pkg/cost` 与 `pkg/forecastsvc/cost.go`）在暂缓前已实现，只在合成数据上验证，没有对着真实 kube-state-metrics、真实集群和真实账单验证；C5～C8 未开始。产品面（菜单、页面、接口、系统参数、数据表）已于 2026-11-19 移出（P10 A6），代码保留。目标是“在不损害稳定性的前提下可证明地少花钱”，上述准则全部不变：副本仍只由 operator 控制，不引入 HPA 当执行后端，不 cordon/drain，不做跨集群，“已实现节省”必须有节点小时或账单依据。计划、待决事项和验收见 [cost-closure-p9.md](.agents/skills/requirements/references/cost-closure-p9.md)。
 
