@@ -3,6 +3,7 @@ package rdb
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/cylonchau/kube-res-foresight/pkg/model"
 	"gorm.io/gorm"
@@ -102,6 +103,13 @@ func (dao *AssistantConnectionDAO) Save(ctx context.Context, c *model.AssistantC
 		}
 		return nil
 	})
+}
+
+// SetToolModeDetected keeps the tool mode found by asking a connection (native, text or router) and when. It changes these two columns only, so a
+// form saved at the same moment is not overwritten.
+func (dao *AssistantConnectionDAO) SetToolModeDetected(ctx context.Context, id uint, mode string, at time.Time) error {
+	return dao.db.WithContext(ctx).Model(&model.AssistantConnection{}).Where("id = ?", id).
+		UpdateColumns(map[string]any{"tool_mode_detected": mode, "tool_mode_checked_at": at}).Error
 }
 
 // Delete removes connections for good; the skills that named one go back to the default model.

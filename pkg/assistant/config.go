@@ -62,23 +62,26 @@ type Header struct {
 
 // Connection is the language model the assistant talks to, as the assistant uses it (the key and the headers decrypted).
 type Connection struct {
-	ID             uint
-	Name           string
-	Provider       string
-	Endpoint       string
-	Model          string
-	APIKey         string
-	Timeout        time.Duration
-	SkipTLSVerify  bool
-	ProxyURL       string
-	Headers        []Header
-	CustomParams   map[string]any
-	Temperature    *float64
-	MaxTokens      int
-	ContextLength  int
-	MaxToolRounds  int
-	keyUnreadable  bool
-	paramsUnusable bool
+	ID            uint
+	Name          string
+	Provider      string
+	Endpoint      string
+	Model         string
+	APIKey        string
+	Timeout       time.Duration
+	SkipTLSVerify bool
+	ProxyURL      string
+	Headers       []Header
+	CustomParams  map[string]any
+	Temperature   *float64
+	MaxTokens     int
+	ContextLength int
+	MaxToolRounds int
+	// ToolMode is the one the administrator chose (auto when none); ToolModeDetected is the one found out by asking the connection.
+	ToolMode         ToolMode
+	ToolModeDetected ToolMode
+	keyUnreadable    bool
+	paramsUnusable   bool
 }
 
 // FromRow reads a stored connection. A key or headers that cannot be decrypted (the secret key of the platform changed) count as missing,
@@ -91,6 +94,15 @@ func FromRow(row *model.AssistantConnection) Connection {
 		MaxToolRounds: clampInt(row.MaxToolRounds, MinMaxToolRounds, MaxMaxToolRounds, DefaultMaxToolRounds)}
 	if c.Provider == "" {
 		c.Provider = model.ProviderOpenAI
+	}
+	// a stored mode that is not one of the known (a row written by a newer version) is read as auto
+	if m, err := ParseToolMode(row.ToolMode); err == nil {
+		c.ToolMode = m
+	} else {
+		c.ToolMode = ModeAuto
+	}
+	if m, err := ParseToolMode(row.ToolModeDetected); err == nil && m != ModeAuto {
+		c.ToolModeDetected = m
 	}
 	if row.APIKey != "" {
 		if key, err := cryptoutils.DecryptValue(row.APIKey); err == nil {
@@ -243,6 +255,8 @@ type ConnectionInput struct {
 	MaxTokens     int
 	ContextLength int
 	MaxToolRounds int
+	// ToolMode is auto (empty), native, text or router: how the assistant gets data through the connection.
+	ToolMode string
 }
 
 // Apply checks the input and writes it into the row (a new row, or the stored one being edited). The key and the header values are
@@ -375,6 +389,17 @@ func Apply(row *model.AssistantConnection, in ConnectionInput) error {
 	if err != nil {
 		return fmt.Errorf("could not store the headers: %w", err)
 	}
+
+	mode, err := ParseToolMode(in.ToolMode)
+	if err != nil {
+		return err
+	}
+	// what was found out holds for the service and the model it was found for: a different endpoint or model, or a different chosen mode,
+	// is asked again
+	if row.Endpoint != endpoint || row.Model != modelName || ToolMode(row.ToolMode) != mode {
+		row.ToolModeDetected, row.ToolModeCheckedAt = "", nil
+	}
+	row.ToolMode = string(mode)
 
 	row.Name, row.Description, row.Provider, row.Endpoint, row.Model = name, description, provider, endpoint, modelName
 	row.Enabled, row.IsDefault = in.Enabled, in.IsDefault

@@ -411,7 +411,7 @@ func (s *Service) RunSkill(ctx context.Context, name, arg, lang string) (*Reply,
 			question += "\n\nArgument: " + arg
 		}
 	}
-	return s.answer(ctx, *conn, []Turn{{Role: "user", Content: question}}, lang)
+	return s.answer(ctx, *conn, []Turn{{Role: "user", Content: question}}, lang, nil)
 }
 
 // ProbeResult is the answer of a language model to the test of a connection.
@@ -419,24 +419,30 @@ type ProbeResult struct {
 	OK        bool   `json:"ok"`
 	LatencyMS int64  `json:"latency_ms"`
 	Message   string `json:"message"`
+	// ToolMode is how the service can be used for data: native (it calls tools), text (it follows a JSON plan written in the prompt) or router
+	// (neither). Empty when the service could not be asked. ToolModeDetail says how it was decided.
+	ToolMode       ToolMode `json:"tool_mode,omitempty"`
+	ToolModeDetail string   `json:"tool_mode_detail,omitempty"`
 }
 
 // Probe asks the connection one small question, with a tool offered the way the assistant offers them: it tells whether the address
-// answers, the key is accepted, the model exists, and the service takes tools. What is tested is the connection as it is given, not
-// the one that is stored.
+// answers, the key is accepted and the model exists. It then finds out how the service handles tools (accepting the parameter proves nothing:
+// a proxy that ignores it accepts it too), which is what the tool mode of the connection is. What is tested is the connection as it is given,
+// not the one that is stored.
 func (s *Service) Probe(ctx context.Context, conn Connection) ProbeResult {
 	timeout := conn.Timeout
 	if timeout <= 0 || timeout > time.Minute {
 		timeout = time.Minute
 	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	first, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	ping := ToolSpec{Name: "ping", Description: "Does nothing; offered only to check that the service accepts tools.", Parameters: object(map[string]any{})}
 	started := s.now()
-	_, err := s.llmFor(conn).Complete(ctx, []Message{{Role: "user", Content: "Reply with the single word: ok"}}, []ToolSpec{ping}, 64)
+	_, err := s.llmFor(conn).Complete(first, []Message{{Role: "user", Content: "Reply with the single word: ok"}}, []ToolSpec{ping}, 64)
 	took := s.now().Sub(started).Milliseconds()
 	if err != nil {
 		return ProbeResult{LatencyMS: took, Message: err.Error()}
 	}
-	return ProbeResult{OK: true, LatencyMS: took, Message: "ok"}
+	found := s.DetectToolMode(ctx, conn)
+	return ProbeResult{OK: true, LatencyMS: took, Message: "ok", ToolMode: found.Mode, ToolModeDetail: found.Detail}
 }

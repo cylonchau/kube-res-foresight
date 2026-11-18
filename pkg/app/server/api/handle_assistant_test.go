@@ -69,7 +69,7 @@ const rigKey = "sk-live-key-must-never-leak"
 func connBody(name string) map[string]any {
 	return map[string]any{"name": name, "description": "", "provider": "openai", "endpoint": "http://llm.test/v1/", "model": "test-model", "api_key": rigKey,
 		"enabled": true, "is_default": true, "timeout_seconds": 90, "skip_tls_verify": false, "proxy_url": "", "headers": []any{}, "custom_params": "",
-		"max_tokens": 0, "context_length": 0, "max_tool_rounds": 6}
+		"max_tokens": 0, "context_length": 0, "max_tool_rounds": 6, "tool_mode": "native"}
 }
 
 // newAssistantRig builds the assistant over a test database. ready puts it in the state of a working assistant: the switch on and a
@@ -97,6 +97,9 @@ func newAssistantRig(t *testing.T, ready bool) *assistantRig {
 			n, _ := strconv.Atoi(id)
 			c.Set("userId", uint(n))
 			c.Set("username", "user"+id)
+			if r := c.GetHeader("X-Test-Roles"); r != "" {
+				c.Set("roles", strings.Split(r, ","))
+			}
 		}
 	})
 	rig.r.GET("/assistant/tasks", h.ListTasks)
@@ -299,12 +302,15 @@ func TestAConnectionIsTestedAsTheFormHoldsItAndTheStoredKeyStandsInForAnEmptyOne
 	stored, err := a.conns.Default(context.Background())
 	require.NoError(t, err)
 
-	a.llm.steps = []step{say("ok")}
+	// the test asks the ping, then how the service handles tools: here it answers the tool with a call
+	a.llm.steps = []step{say("ok"), ask(assistant.ToolCall{ID: "p", Name: "ping_tool", Arguments: `{"value":"abc"}`})}
 	body := connBody("main")
 	body["id"], body["api_key"], body["model"] = stored.ID, "", "model-in-the-form"
 	rec := a.post(t, "/assistant/connections/test", body)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	assert.Equal(t, true, decodeData(t, rec.Body.Bytes())["ok"])
+	got0 := decodeData(t, rec.Body.Bytes())
+	assert.Equal(t, true, got0["ok"])
+	assert.Equal(t, "native", got0["tool_mode"], "the test says how the service handles tools")
 	last := a.llm.conns[len(a.llm.conns)-1]
 	assert.Equal(t, "model-in-the-form", last.Model, "what is tested is the form, not what is stored")
 	assert.Equal(t, rigKey, last.APIKey, "an empty key in the form means the stored one")
@@ -368,7 +374,7 @@ func TestAQuestionIsAnsweredFromWhatAToolReturnsAndTheAnswerShowsWhereItCameFrom
 			assert.NotContains(t, spec.Name, verb, "no tool writes")
 		}
 	}
-	assert.ElementsMatch(t, []string{"get_service_status", "list_modules", "get_module_effect_report", "list_scaling_actions", "list_admissions", "export_status_report"}, names)
+	assert.ElementsMatch(t, []string{"get_service_status", "list_modules", "get_module_effect_report", "list_scaling_actions", "list_admissions", "export_status_report", "list_algorithms", "get_module_recommendation", "describe_capabilities"}, names)
 }
 
 func TestAToolThatFailsGoesBackToTheModelAsItsAnswerSoItCanCorrectItself(t *testing.T) {

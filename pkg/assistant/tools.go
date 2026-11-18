@@ -33,6 +33,8 @@ type toolResult struct {
 type tool struct {
 	spec ToolSpec
 	run  func(ctx context.Context, args json.RawMessage) (toolResult, error)
+	// meta is what the registry says of the tool (registry.go)
+	meta toolMeta
 }
 
 func object(properties map[string]any, required ...string) map[string]any {
@@ -75,11 +77,19 @@ func parse(args json.RawMessage, into any) error {
 // tools is the set the model may call: the read-only ones, and, for a question asked by a signed-in user, those that make and manage that
 // user's scheduled tasks. A scheduled run has no user, so a task cannot make more tasks.
 func (s *Service) tools(ctx context.Context) []tool {
-	set := s.readTools()
+	set := append(s.readTools(), s.registryTools()...)
 	if _, ok := ownerOf(ctx); ok && s.Tasks != nil {
 		set = append(set, s.taskTools()...)
 	}
-	return set
+	// the tools the user may use: the permission of the user decides what the model is offered, not the model
+	visible := make([]tool, 0, len(set)+1)
+	for _, t := range withMeta(set) {
+		if s.allowed(ctx, t) {
+			visible = append(visible, t)
+		}
+	}
+	listed := append([]tool(nil), visible...)
+	return append(visible, withMeta([]tool{s.capabilityTool(func() []tool { return listed })})...)
 }
 
 func (s *Service) readTools() []tool {

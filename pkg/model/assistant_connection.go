@@ -42,6 +42,14 @@ type AssistantConnection struct {
 	MaxTokens     int `gorm:"column:max_reply_tokens;not null;default:0" json:"max_tokens" column_setting:"false"`
 	ContextLength int `gorm:"not null;default:0" json:"context_length" column_setting:"false"`
 	MaxToolRounds int `gorm:"not null;default:6" json:"max_tool_rounds" column_setting:"false"`
+
+	// ToolMode is how the assistant gets data through this connection: native (the model calls the tools itself, the OpenAI tool calling), text (the model
+	// writes a JSON plan and the platform runs it after checking it), router (the platform reads by rules and the model only explains), or auto
+	// (found out by asking the connection, and kept in ToolModeDetected). A service that ignores the tools of a request (a proxy of a command line
+	// agent, for instance) answers every question as plain chat in native mode, so it needs text or router.
+	ToolMode          string     `gorm:"type:varchar(10);not null;default:'auto'" json:"tool_mode" column_setting:"false"`
+	ToolModeDetected  string     `gorm:"type:varchar(10);not null;default:''" json:"tool_mode_detected" column_setting:"false"`
+	ToolModeCheckedAt *time.Time `json:"tool_mode_checked_at" column_setting:"false"`
 }
 
 func (AssistantConnection) TableName() string { return "assistant_connection" }

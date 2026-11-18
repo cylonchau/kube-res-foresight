@@ -70,8 +70,13 @@ type Service struct {
 	Now func() time.Time
 	// NewLLM builds the client of the language model from the connection in use; nil uses the OpenAI-compatible client.
 	NewLLM func(Connection) LLM
+	// Authorizer says whether the user of a question may call the route a tool reads through: the tools the user may not use are not offered.
+	// nil allows everything.
+	Authorizer Authorizer
 
 	slots chan struct{}
+	// known remembers the tool mode found for each connection.
+	known modeKnown
 }
 
 func (s *Service) now() time.Time {
@@ -174,7 +179,14 @@ func (s *Service) ready(ctx context.Context) (*Connection, error) {
 	return conn, nil
 }
 
+// systemPrompt is the rules of the assistant with the time now.
 func systemPrompt(now time.Time, lang string) string {
+	return stableSystemPrompt(lang) + "\nThe time now is " + now.UTC().Format(time.RFC3339) + " (UTC)."
+}
+
+// stableSystemPrompt is the rules of the assistant without the time: it is the same from question to question, which a service that keeps a
+// conversation thread by its system message needs.
+func stableSystemPrompt(lang string) string {
 	reply := "Answer in the language the user writes in."
 	if lang == "zh" {
 		reply = "用中文回答（用户用其他语言提问时，用那种语言）。"
@@ -187,7 +199,6 @@ func systemPrompt(now time.Time, lang string) string {
 		"Never reveal or ask for a key, a password or a credential; the tools do not contain any. If the user asks to export or save the service state, call export_status_report and tell them a download button is under your reply.",
 		"Be brief and concrete: lead with the answer, then the few numbers that support it, and name the module or task they belong to. Times in tool results are UTC; the console shows UTC+8, so say which one you use.",
 		reply,
-		"The time now is " + now.UTC().Format(time.RFC3339) + " (UTC).",
 	}, "\n")
 }
 
@@ -273,6 +284,11 @@ func capOutput(b []byte) string {
 
 // Chat answers the last question of the conversation. lang is "zh" or "en", the language of the console.
 func (s *Service) Chat(ctx context.Context, history []Turn, lang string) (*Reply, error) {
+	return s.ChatIn(ctx, history, lang, nil)
+}
+
+// ChatIn is Chat from a page: the context says where the user is and what they are looking at, so the model knows what "this module" is.
+func (s *Service) ChatIn(ctx context.Context, history []Turn, lang string, page *PageContext) (*Reply, error) {
 	if err := s.validate(history); err != nil {
 		return nil, err
 	}
@@ -280,11 +296,12 @@ func (s *Service) Chat(ctx context.Context, history []Turn, lang string) (*Reply
 	if err != nil {
 		return nil, err
 	}
-	return s.answer(ctx, *conn, history, lang)
+	return s.answer(ctx, *conn, history, lang, page.Clean())
 }
 
-// answer asks the language model, which reads what it needs through the tools, and returns its reply.
-func (s *Service) answer(ctx context.Context, conn Connection, history []Turn, lang string) (*Reply, error) {
+// answer asks the language model, which reads what it needs through the tools, and returns its reply. How it reads depends on the connection: a
+// model that calls tools does (native); one that ignores them is given the plan protocol (text) or the platform reads for it (router).
+func (s *Service) answer(ctx context.Context, conn Connection, history []Turn, lang string, page *PageContext) (*Reply, error) {
 	if s.slots == nil {
 		return nil, errors.New("the assistant is not initialised")
 	}
@@ -313,10 +330,18 @@ func (s *Service) answer(ctx context.Context, conn Connection, history []Turn, l
 		byName[t.spec.Name] = t
 		specs = append(specs, t.spec)
 	}
+	switch s.modeOf(ctx, conn) {
+	case ModeText:
+		return s.answerText(ctx, conn, llm, history, lang, page, tools, byName)
+	case ModeRouter:
+		return s.answerRouter(ctx, conn, llm, history, lang, page, tools, byName)
+	}
 	system := systemPrompt(s.now(), lang)
 	if _, ok := ownerOf(ctx); ok && s.Tasks != nil {
 		system += "\n" + taskRules
 	}
+	// what the user may ask for, and where they are: the model does not have to guess what the platform can do
+	system += "\n" + s.contextBlock(ctx, lang, page, tools, true)
 	messages := []Message{{Role: "system", Content: system}}
 	for _, t := range history {
 		messages = append(messages, Message{Role: t.Role, Content: t.Content})

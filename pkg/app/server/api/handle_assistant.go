@@ -34,6 +34,10 @@ func withOwner(c *gin.Context) context.Context {
 	if owner, ok := ownerOfRequest(c); ok {
 		ctx = assistant.WithOwner(ctx, owner)
 	}
+	// who asks decides which tools the assistant offers: the permissions of the user, not the model, say what may be read
+	if p, ok := principalOfRequest(c); ok {
+		ctx = assistant.WithPrincipal(ctx, p)
+	}
 	return ctx
 }
 
@@ -53,6 +57,8 @@ type AssistantChatReq struct {
 	Messages []assistant.Turn `json:"messages"`
 	// Lang is the language of the console, zh or en.
 	Lang string `json:"lang"`
+	// Context is where the user is: the page and the object on it. The platform checks that the user may see the object.
+	Context *assistant.PageContext `json:"context"`
 }
 
 // AssistantSkillReq runs a skill: its name (without the slash) and what the user typed after it.
@@ -115,7 +121,7 @@ func (r *AssistantRouter) Chat(c *gin.Context) {
 	}
 	ctx, cancel := r.questionContext(c)
 	defer cancel()
-	reply, err := r.Service.Chat(ctx, req.Messages, assistantLang(req.Lang))
+	reply, err := r.Service.ChatIn(ctx, req.Messages, assistantLang(req.Lang), req.Context)
 	r.reply(c, reply, err)
 }
 
@@ -198,12 +204,14 @@ type AssistantConnectionReq struct {
 	MaxTokens      int                `json:"max_tokens"`
 	ContextLength  int                `json:"context_length"`
 	MaxToolRounds  int                `json:"max_tool_rounds"`
+	// ToolMode is auto (or empty), native, text or router.
+	ToolMode string `json:"tool_mode"`
 }
 
 func (q AssistantConnectionReq) input() assistant.ConnectionInput {
 	return assistant.ConnectionInput{Name: q.Name, Description: q.Description, Provider: q.Provider, Endpoint: q.Endpoint, Model: q.Model, APIKey: q.APIKey,
 		Enabled: q.Enabled, IsDefault: q.IsDefault, TimeoutSecond: q.TimeoutSeconds, SkipTLSVerify: q.SkipTLSVerify, ProxyURL: q.ProxyURL, Headers: q.Headers,
-		CustomParams: q.CustomParams, Temperature: q.Temperature, MaxTokens: q.MaxTokens, ContextLength: q.ContextLength, MaxToolRounds: q.MaxToolRounds}
+		CustomParams: q.CustomParams, Temperature: q.Temperature, MaxTokens: q.MaxTokens, ContextLength: q.ContextLength, MaxToolRounds: q.MaxToolRounds, ToolMode: q.ToolMode}
 }
 
 // AssistantConnectionDTO is a language model as the page sees it: the key is never returned, only whether there is one, and the values of
@@ -229,13 +237,25 @@ type AssistantConnectionDTO struct {
 	MaxTokens      int                `json:"max_tokens"`
 	ContextLength  int                `json:"context_length"`
 	MaxToolRounds  int                `json:"max_tool_rounds"`
+	// ToolMode is what the administrator chose; ToolModeDetected what asking the connection found (native, text or router, empty before it was asked).
+	ToolMode          string     `json:"tool_mode"`
+	ToolModeDetected  string     `json:"tool_mode_detected"`
+	ToolModeCheckedAt *time.Time `json:"tool_mode_checked_at"`
 }
 
 func connectionDTO(row *model.AssistantConnection) AssistantConnectionDTO {
 	return AssistantConnectionDTO{ID: row.ID, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt, Name: row.Name, Description: row.Description, Provider: row.Provider,
 		Endpoint: row.Endpoint, Model: row.Model, Enabled: row.Enabled, IsDefault: row.IsDefault, HasAPIKey: row.APIKey != "", TimeoutSeconds: row.TimeoutSeconds,
 		SkipTLSVerify: row.SkipTLSVerify, ProxyURL: row.ProxyURL, Headers: assistant.StoredHeaderNames(row), CustomParams: row.CustomParams,
-		Temperature: row.Temperature, MaxTokens: row.MaxTokens, ContextLength: row.ContextLength, MaxToolRounds: row.MaxToolRounds}
+		Temperature: row.Temperature, MaxTokens: row.MaxTokens, ContextLength: row.ContextLength, MaxToolRounds: row.MaxToolRounds,
+		ToolMode: orAuto(row.ToolMode), ToolModeDetected: row.ToolModeDetected, ToolModeCheckedAt: row.ToolModeCheckedAt}
+}
+
+func orAuto(mode string) string {
+	if mode == "" {
+		return string(assistant.ModeAuto)
+	}
+	return mode
 }
 
 // ListConnections serves GET /assistant/connections?keyword=&enabled=&page=&page_size=.
