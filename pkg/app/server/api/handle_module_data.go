@@ -372,11 +372,19 @@ func (r *ForecastRouter) ModuleCompare(c *gin.Context) {
 	}
 	ctx, cancel := r.stepCtx(c)
 	defer cancel()
+	bucketSeconds, _ := strconv.Atoi(c.Query("bucket_seconds"))
+	// the chart reads the actual values and the forecasts in two requests (predictions=false, then actual=false), so each is drawn when it arrives
+	// and one that is slow or fails does not take the other with it
 	out, err := r.Service.Compare(ctx, a.ID, forecastsvc.CompareOptions{Metric: c.Query("metric"), From: from, To: to, Algorithms: algorithms,
-		MaxPoints: maxPoints, WithPredictions: c.Query("predictions") != "false"})
+		MaxPoints: maxPoints, WithPredictions: c.Query("predictions") != "false", SkipActual: c.Query("actual") == "false", BucketSeconds: bucketSeconds})
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			query.NotFound(c, query.ErrRecordNotFound)
+			return
+		}
+		if errors.Is(err, context.DeadlineExceeded) {
+			// the reads ran out of their time: said as that (504, with the reason), not as a mistake of the request
+			query.TimedOut(c, err)
 			return
 		}
 		query.BadRequest(c, err)
@@ -387,7 +395,7 @@ func (r *ForecastRouter) ModuleCompare(c *gin.Context) {
 
 func (r *ForecastRouter) stepCtx(c *gin.Context) (context.Context, context.CancelFunc) {
 	// one manually triggered pipeline step is bounded by a system parameter, not a number in the code
-	return context.WithTimeout(c.Request.Context(), r.Service.Timing(c.Request.Context(), timing.PipelineTimeout))
+	return context.WithTimeout(c.Request.Context(), r.Service.SyncBudget(c.Request.Context(), timing.PipelineTimeout))
 }
 
 // ModuleCollect pulls the history of the module's sources.
@@ -617,7 +625,7 @@ func (r *ForecastRouter) ListPredictions(c *gin.Context) {
 		query.InternalError(c, err)
 		return
 	}
-	query.SuccessResponse(c, nil, gin.H{"list": list, "total": total, "page": page, "pageSize": size})
+	query.SuccessResponse(c, nil, gin.H{"list": list, "total": total, "total_capped": total >= rdb.MaxCountedRows, "page": page, "pageSize": size})
 }
 
 // sinceHours reads an optional look-back in hours as a time.

@@ -46,6 +46,10 @@ func hasInstanceShape(db *gorm.DB) bool {
 // prepareForecastSchema runs before the schema migration.
 func prepareForecastSchema(db *gorm.DB) error {
 	m := db.Migrator()
+	// the index of the forecast table is built before the migration so that it does not lock the table (PostgreSQL only)
+	if err := ensurePredictionTargetIndex(db); err != nil {
+		return err
+	}
 	// an earlier run that stopped half way left the moved-aside table with the indexes of the old one
 	if m.HasTable(legacySourceTable) {
 		for _, index := range []string{"idx_metric_source_key", "idx_metric_source_name"} {

@@ -84,3 +84,20 @@ func TestTheLeadFollowsThePercentileOfTheParameter(t *testing.T) {
 	f.setParameter(t, timing.LeadPercentile.Key, "41")
 	assert.InDelta(t, 0.41, f.svc.aheadSettings(ctx).LeadPct, 1e-12)
 }
+
+// The budget of work answered in one request is the parameter's, kept inside the gateway timeout, which is a parameter too.
+func TestTheBudgetOfAOneRequestOperationStaysInsideTheGatewayTimeout(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	// defaults: a manual pipeline step may take 300 s, the gateway waits 60: the step is stopped 5 s before it
+	assert.Equal(t, 55*time.Second, f.svc.SyncBudget(ctx, timing.PipelineTimeout))
+	assert.Equal(t, 55*time.Second, f.svc.GatewayRoom(ctx))
+	// a budget that already fits is kept
+	assert.Equal(t, 55*time.Second, f.svc.SyncBudget(ctx, timing.PreviewBudget), "60 s is more than the room that is left")
+	f.setParameter(t, timing.PreviewBudget.Key, "20")
+	assert.Equal(t, 20*time.Second, f.svc.SyncBudget(ctx, timing.PreviewBudget))
+	// the administrator raised the timeout of the gateway and said so
+	f.setParameter(t, timing.HTTPGatewayTimeout.Key, "600")
+	assert.Equal(t, 300*time.Second, f.svc.SyncBudget(ctx, timing.PipelineTimeout), "the parameter itself is the limit now")
+	assert.Equal(t, 595*time.Second, f.svc.GatewayRoom(ctx))
+}

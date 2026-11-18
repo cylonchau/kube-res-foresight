@@ -37,6 +37,17 @@ func withOwner(c *gin.Context) context.Context {
 	return ctx
 }
 
+// questionContext is the context of a question: the owner of the request, and the time one request may take under the gateway timeout. A question
+// is answered in one request, so what does not fit is stopped with the reason before the gateway cuts it; a stream is the fix for the long
+// ones (P11 C5).
+func (r *AssistantRouter) questionContext(c *gin.Context) (context.Context, context.CancelFunc) {
+	ctx := withOwner(c)
+	if r.Service != nil && r.Service.Forecast != nil {
+		return context.WithTimeout(ctx, r.Service.Forecast.GatewayRoom(ctx))
+	}
+	return context.WithCancel(ctx)
+}
+
 // AssistantChatReq is the conversation so far; the last message is the question.
 type AssistantChatReq struct {
 	Messages []assistant.Turn `json:"messages"`
@@ -81,6 +92,9 @@ func (r *AssistantRouter) reply(c *gin.Context, reply *assistant.Reply, err erro
 		query.ErrorResponse(c, http.StatusConflict, err)
 	case errors.Is(err, assistant.ErrBusy):
 		query.ErrorResponse(c, http.StatusTooManyRequests, err)
+	case errors.Is(err, context.DeadlineExceeded):
+		// the question took more than one request may: answered with the reason, before the gateway cuts it
+		query.TimedOut(c, err)
 	case assistant.IsRequestError(err):
 		query.BadRequest(c, err)
 	default:
@@ -99,7 +113,9 @@ func (r *AssistantRouter) Chat(c *gin.Context) {
 		query.BadRequest(c, err)
 		return
 	}
-	reply, err := r.Service.Chat(withOwner(c), req.Messages, assistantLang(req.Lang))
+	ctx, cancel := r.questionContext(c)
+	defer cancel()
+	reply, err := r.Service.Chat(ctx, req.Messages, assistantLang(req.Lang))
 	r.reply(c, reply, err)
 }
 
@@ -113,7 +129,9 @@ func (r *AssistantRouter) RunSkill(c *gin.Context) {
 		query.BadRequest(c, err)
 		return
 	}
-	reply, err := r.Service.RunSkill(withOwner(c), strings.TrimPrefix(strings.TrimSpace(req.Name), "/"), req.Args, assistantLang(req.Lang))
+	ctx, cancel := r.questionContext(c)
+	defer cancel()
+	reply, err := r.Service.RunSkill(ctx, strings.TrimPrefix(strings.TrimSpace(req.Name), "/"), req.Args, assistantLang(req.Lang))
 	r.reply(c, reply, err)
 }
 

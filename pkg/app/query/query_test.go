@@ -1,7 +1,9 @@
 package query
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"net/http"
@@ -40,4 +42,43 @@ func TestResponseHelpers(t *testing.T) {
 			assert.Contains(t, rec.Body.String(), `"code"`)
 		})
 	}
+}
+
+// A request that ran out of its time limit is answered with a 504 and the reason, marked as the platform's own, instead of an internal error;
+// any other error is still a 500, and a client that hung up is still not an error at all.
+func TestARequestThatRanOutOfTimeIsAnsweredWithTheReason(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	run := func(err error) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/modules/1/run", nil)
+		InternalError(c, err)
+		return w
+	}
+
+	w := run(fmt.Errorf("collect: %w", context.DeadlineExceeded))
+	assert.Equal(t, http.StatusGatewayTimeout, w.Code)
+	assert.Equal(t, "platform", w.Header().Get(TimeoutSourceHeader), "the platform's own 504 is told from the gateway's")
+	assert.Contains(t, w.Body.String(), "http.gateway_timeout_seconds", "the message names the parameter that sets the limit")
+	assert.Contains(t, w.Body.String(), "10005")
+
+	assert.Equal(t, http.StatusInternalServerError, run(errors.New("boom")).Code)
+	assert.Equal(t, StatusClientClosedRequest, run(context.Canceled).Code)
+}
+
+// A handler that reports every failure as a bad request still answers a request that ran out of time as a timeout with the reason.
+func TestABadRequestThatIsATimeoutIsAnsweredAsOne(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/modules/1/compare", nil)
+	BadRequest(c, fmt.Errorf("compare: %w", context.DeadlineExceeded))
+	assert.Equal(t, http.StatusGatewayTimeout, w.Code)
+	assert.Equal(t, "platform", w.Header().Get(TimeoutSourceHeader))
+
+	w = httptest.NewRecorder()
+	c, _ = gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/x", nil)
+	BadRequest(c, errors.New("from must be before to"))
+	assert.Equal(t, http.StatusBadRequest, w.Code, "any other bad request stays one")
 }

@@ -9,6 +9,7 @@ import (
 
 	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
 	"github.com/cylonchau/kube-res-foresight/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/timing"
 )
 
 // SnapshotInterval is the longest a module goes without a snapshot even when nothing changed: the history then still shows
@@ -143,6 +144,7 @@ func (s *Service) RetentionPolicy(ctx context.Context) rdb.Retention {
 				r.Snapshots = n
 			}
 		}
+		r.PredictionPruneBudget = s.Timing(ctx, timing.PruneBudget)
 		if days := s.HistoryDays(ctx, 0); days > 0 {
 			d := time.Duration(days) * 24 * time.Hour
 			r.Predictions, r.Backtests, r.Recommendations, r.Evaluations, r.Trainings = d, d, d, d, d

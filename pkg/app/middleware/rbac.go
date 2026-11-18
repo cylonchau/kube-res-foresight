@@ -204,6 +204,8 @@ func CasbinMiddleware(permissionDAO *rdb.PermissionDAO) func(c *gin.Context) {
 			strings.HasPrefix(reqPath, "/api/v1/route/") ||
 			strings.HasPrefix(reqPath, "/api/v1/columns/") ||
 			(method == "GET" && strings.HasPrefix(reqPath, "/api/v1/configs/ui.")) ||
+			// the HTTP limits are read by the console to keep its own time-outs inside the gateway timeout; they hold no secret
+			(method == "GET" && strings.HasPrefix(reqPath, "/api/v1/configs/http.")) ||
 			(method == "GET" && strings.HasPrefix(reqPath, "/api/v1/configs/ui/")) {
 			c.Next()
 			return

@@ -181,13 +181,13 @@ func (dao *PredictionDAO) SearchExecutions(ctx context.Context, f ExecutionFilte
 	if f.Until != nil {
 		q = q.Where("created_at <= ?", *f.Until)
 	}
-	var total int64
-	if err := q.Count(&total).Error; err != nil {
+	total, err := boundedCount(q)
+	if err != nil {
 		return nil, 0, err
 	}
 	page, pageSize = normalizePage(page, pageSize)
 	var list []*model.ScalingExecution
-	err := q.Order(order(f.Sort, f.Dir, executionSorts, "id DESC")).Offset(pageOffset(page, pageSize)).Limit(pageSize).Find(&list).Error
+	err = q.Order(order(f.Sort, f.Dir, executionSorts, "id DESC")).Offset(pageOffset(page, pageSize)).Limit(pageSize).Find(&list).Error
 	return list, total, err
 }
 

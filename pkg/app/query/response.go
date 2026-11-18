@@ -53,6 +53,10 @@ func InternalError(ctx *gin.Context, err error) {
 		ctx.AbortWithStatus(StatusClientClosedRequest)
 		return
 	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		TimedOut(ctx, err)
+		return
+	}
 	logger.Error("HTTP request failed with an internal error",
 		logger.String("method", ctx.Request.Method),
 		logger.String("path", ctx.Request.URL.Path),
@@ -60,6 +64,23 @@ func InternalError(ctx *gin.Context, err error) {
 		logger.Err(err),
 	)
 	ErrorResponse(ctx, http.StatusInternalServerError, err)
+}
+
+// TimeoutSourceHeader says who ended a request that took too long: "platform" when the platform stopped it at its own time limit and
+// answered with the reason. A bare 504 without it comes from the gateway in front, which is what tells the two apart in a bug report.
+const TimeoutSourceHeader = "X-Timeout-Source"
+
+// TimedOut answers a request whose time limit ran out (a pipeline step, a preview, a query of a data source) with a 504 and the reason, so the
+// person reads what happened and which parameter sets the limit, instead of a bare timeout or an internal error.
+func TimedOut(ctx *gin.Context, err error) {
+	logger.Warn("HTTP request stopped at its time limit",
+		logger.String("method", ctx.Request.Method),
+		logger.String("path", ctx.Request.URL.Path),
+		logger.String("client_ip", ctx.ClientIP()),
+		logger.Err(err),
+	)
+	ctx.Header(TimeoutSourceHeader, "platform")
+	ErrorResponse(ctx, http.StatusGatewayTimeout, ErrTimeLimit)
 }
 
 // HandleDBError determines whether to return a 400 (Conflict/Duplicate) or 500 (Fatal)
@@ -76,6 +97,11 @@ func HandleDBError(ctx *gin.Context, err error) {
 
 // BadRequest handles 400 Bad Request
 func BadRequest(ctx *gin.Context, err error) {
+	// a request that ran out of its time limit is not a mistake of the caller, whichever handler passed the error here
+	if errors.Is(err, context.DeadlineExceeded) {
+		TimedOut(ctx, err)
+		return
+	}
 	ErrorResponse(ctx, http.StatusBadRequest, err)
 }
 

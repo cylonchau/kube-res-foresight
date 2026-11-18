@@ -262,7 +262,7 @@ func (r *AlgorithmCenterRouter) RunScore(c *gin.Context) {
 	if !ok {
 		return
 	}
-	ctx, cancel := context.WithTimeout(c.Request.Context(), r.Service.Timing(c.Request.Context(), timing.PipelineTimeout))
+	ctx, cancel := context.WithTimeout(c.Request.Context(), r.Service.SyncBudget(c.Request.Context(), timing.PipelineTimeout))
 	defer cancel()
 	rows, err := r.Service.ScoreModule(ctx, id)
 	if err != nil {

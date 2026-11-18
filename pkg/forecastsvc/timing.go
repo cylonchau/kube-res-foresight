@@ -68,3 +68,20 @@ func (s *Service) budgetFor(ctx context.Context, b *model.AlgorithmRun) time.Dur
 	}
 	return s.Timing(ctx, timing.TrainBudget)
 }
+
+// gatewayTimeout is how long the gateway in front of the platform waits (the system parameter http.gateway_timeout_seconds).
+func (s *Service) gatewayTimeout(ctx context.Context) time.Duration {
+	return time.Duration(s.targetPercent(ctx, timing.HTTPGatewayTimeout)) * time.Second
+}
+
+// SyncBudget is the budget of work that is answered in one HTTP request: what the parameter says, kept inside the gateway timeout, so the
+// platform stops it and says why before the gateway cuts the connection with a bare 504. Work that runs in the background is not kept to it.
+func (s *Service) SyncBudget(ctx context.Context, p timing.Param) time.Duration {
+	return timing.Under(s.gatewayTimeout(ctx), s.Timing(ctx, p))
+}
+
+// GatewayRoom is all the time one request may take before the gateway gives up: for work that has no budget of its own (a question to the AI
+// assistant), the room that is left under the gateway timeout.
+func (s *Service) GatewayRoom(ctx context.Context) time.Duration {
+	return timing.Under(s.gatewayTimeout(ctx), 0)
+}

@@ -9,11 +9,15 @@ import (
 	"github.com/cylonchau/kube-res-foresight/pkg/app/query"
 	"github.com/cylonchau/kube-res-foresight/pkg/app/router"
 	"github.com/cylonchau/kube-res-foresight/pkg/config"
+	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
 	"github.com/cylonchau/kube-res-foresight/pkg/logger"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/timing"
 	"github.com/gin-gonic/gin"
 	"io/fs"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -29,7 +33,7 @@ func NewHTTPServer(ctx context.Context) error {
 	// Initialize Gin
 	gin.SetMode(gin.ReleaseMode)
 	engine := gin.New()
-	engine.Use(gin.Logger(), gin.Recovery(), middleware.CORS(cfg.Server.CORSAllowedOrigins), middleware.SlowRequests(3*time.Second))
+	engine.Use(gin.Logger(), gin.Recovery(), middleware.CORS(cfg.Server.CORSAllowedOrigins), middleware.SlowRequests(slowRequestLimit()))
 
 	// Custom 404/Static Handler
 	engine.NoRoute(func(c *gin.Context) {
@@ -112,5 +116,24 @@ func NewHTTPServer(ctx context.Context) error {
 			logger.Warn("kube-res-foresight HTTP listener did not report shutdown in time")
 		}
 		return nil
+	}
+}
+
+// slowRequestLimit reads the slow request threshold from the system parameter on every request (the value is cached for a few seconds by the
+// config DAO), so a change is seen without a restart. Before the database is open it is the default.
+func slowRequestLimit() func() time.Duration {
+	var once sync.Once
+	var dao *rdb.SysConfigDAO
+	fallback := time.Duration(timing.HTTPSlowRequest.Default) * time.Second
+	return func() time.Duration {
+		if model.DB == nil {
+			return fallback
+		}
+		once.Do(func() { dao = rdb.NewSysConfigDAO(model.DB) })
+		raw, err := dao.GetValueOrDefault(context.Background(), timing.HTTPSlowRequest.Key, "")
+		if err != nil {
+			return fallback
+		}
+		return time.Duration(timing.HTTPSlowRequest.Parse(raw)) * time.Second
 	}
 }

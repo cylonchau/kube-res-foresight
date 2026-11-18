@@ -3,9 +3,11 @@ package forecastsvc
 import (
 	"context"
 	"fmt"
+	"log"
 	"math"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cylonchau/kube-res-foresight/pkg/collector"
@@ -110,19 +112,39 @@ func unitOf(m *model.AlgorithmRun, metric string, mapping *model.MetricMapping) 
 	return mapping.Unit
 }
 
-// candles groups the points into buckets of whole steps so that at most maxPoints remain.
-func candles(points []collector.Point, from time.Time, step time.Duration, expected, maxPoints int) ([]Candle, int) {
+// bucketSteps is how many whole steps one bucket of the chart holds, so that a window of expected steps has at most maxPoints buckets.
+func bucketSteps(expected, maxPoints int) int {
 	if maxPoints <= 0 {
 		maxPoints = DefaultHistoryPoints
 	}
 	if maxPoints > maxHistoryPoints {
 		maxPoints = maxHistoryPoints
 	}
-	bucketSteps := (expected + maxPoints - 1) / maxPoints
-	if bucketSteps < 1 {
-		bucketSteps = 1
+	n := (expected + maxPoints - 1) / maxPoints
+	if n < 1 {
+		n = 1
 	}
-	bucket := time.Duration(bucketSteps) * step
+	return n
+}
+
+// bucketOf is the bucket of the chart for a window, worked out without reading any data (the same one LiveHistory gives the actual values),
+// so the forecasts can be read apart from them and still fall on the same grid.
+func (s *Service) bucketOf(ctx context.Context, m *model.AlgorithmRun, metric string, from, to time.Time, maxPoints int) (time.Duration, bool) {
+	setup, err := s.setup(ctx, m, metric)
+	if err != nil || setup.step <= 0 {
+		return 0, false
+	}
+	from, to = floorToStep(from, setup.step), floorToStep(to, setup.step)
+	if to.Before(from) {
+		return 0, false
+	}
+	expected := int(to.Sub(from)/setup.step) + 1
+	return time.Duration(bucketSteps(expected, maxPoints)) * setup.step, true
+}
+
+// candles groups the points into buckets of whole steps so that at most maxPoints remain.
+func candles(points []collector.Point, from time.Time, step time.Duration, expected, maxPoints int) ([]Candle, int) {
+	bucket := time.Duration(bucketSteps(expected, maxPoints)) * step
 	out := []Candle{}
 	var cur *Candle
 	var sum float64
@@ -189,6 +211,8 @@ type Compare struct {
 	ActualError string `json:"actual_error,omitempty"`
 	// ActualReplicasError is why there is no actual replica curve: the module has no replica metric, or it could not be read.
 	ActualReplicasError string `json:"actual_replicas_error,omitempty"`
+	// Timings is how long each read took, in milliseconds (actual_ms, replicas_ms, predictions_ms): when a chart is slow it says which read was.
+	Timings map[string]int64 `json:"timings_ms,omitempty"`
 }
 
 // CompareOptions selects what Compare returns.
@@ -199,7 +223,15 @@ type CompareOptions struct {
 	MaxPoints  int
 	// WithPredictions false returns the actual values only (the metric curve page).
 	WithPredictions bool
+	// SkipActual true returns the forecasts only: Prometheus is not read. The chart asks for the actual values first and for the forecasts apart,
+	// so what is read first is drawn at once and a slow database does not hold back the line that was fast. BucketSeconds is the bucket the
+	// first answer gave, so the forecasts fall on the same grid (0 works it out from the window).
+	SkipActual    bool
+	BucketSeconds int
 }
+
+// slowCompareStage is how long one read of a comparison may take before it is written to the log with its module and metric.
+const slowCompareStage = 5 * time.Second
 
 // Compare builds the comparison of a module metric for a window.
 func (s *Service) Compare(ctx context.Context, moduleID uint, o CompareOptions) (*Compare, error) {
@@ -213,35 +245,96 @@ func (s *Service) Compare(ctx context.Context, moduleID uint, o CompareOptions) 
 	}
 	out := &Compare{Metric: o.Metric, Unit: MetricUnit(m.KindOf(o.Metric)), Algorithms: []CompareAlgorithm{}, Statuses: []AlgorithmStatus{}, From: o.From, To: o.To}
 
-	actual, aerr := s.LiveHistory(ctx, moduleID, o.Metric, o.From, o.To, o.MaxPoints)
-	switch {
-	case aerr == nil:
-		out.Actual, out.Unit, out.BucketSeconds = actual, actual.Unit, actual.BucketSeconds
-	default:
-		out.ActualError = aerr.Error()
+	out.Timings = map[string]int64{}
+
+	// The reads are independent (Prometheus for the actual values and the replicas, the database for the forecasts), so they run together:
+	// the page waits for the slowest, not for the sum of them. Each is timed, so a slow chart says which read was slow.
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	timed := func(stage string, since time.Time) {
+		took := time.Since(since)
+		mu.Lock()
+		out.Timings[stage] = took.Milliseconds()
+		mu.Unlock()
+		if took >= slowCompareStage {
+			log.Printf("forecast: a comparison of module %d, metric %s was slow: reading %s took %s", moduleID, o.Metric, stage, took.Round(time.Millisecond))
+		}
 	}
-	if rs := m.FirstOfKind("replicas"); rs == nil {
-		out.ActualReplicasError = "the module has no enabled replicas metric, so there is no actual replica count to draw"
-	} else if rs.Key != o.Metric {
-		live, err := s.LiveHistory(ctx, moduleID, rs.Key, o.From, o.To, o.MaxPoints)
+	var (
+		actual, replicas *LiveSeries
+		aerr, rerr, perr error
+		rows             []model.Prediction
+	)
+	rs := m.FirstOfKind("replicas")
+	if !o.SkipActual {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			started := time.Now()
+			actual, aerr = s.LiveHistory(ctx, moduleID, o.Metric, o.From, o.To, o.MaxPoints)
+			timed("actual_ms", started)
+		}()
+		if rs != nil && rs.Key != o.Metric {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				started := time.Now()
+				replicas, rerr = s.LiveHistory(ctx, moduleID, rs.Key, o.From, o.To, o.MaxPoints)
+				timed("replicas_ms", started)
+			}()
+		}
+	}
+	if o.WithPredictions {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			started := time.Now()
+			rows, perr = s.Predictions.ForCompare(ctx, moduleID, o.Metric, o.From, o.To, o.Algorithms)
+			timed("predictions_ms", started)
+		}()
+	}
+	wg.Wait()
+
+	if !o.SkipActual {
 		switch {
-		case err != nil:
-			// the curve is left out, and the page says why instead of silently dropping it
-			out.ActualReplicasError = err.Error()
-		case live.Missing:
-			out.ActualReplicasError = "Prometheus returned no replica sample in the range"
+		case aerr == nil:
+			out.Actual, out.Unit, out.BucketSeconds = actual, actual.Unit, actual.BucketSeconds
 		default:
-			out.ActualReplicas = live
-			if out.BucketSeconds == 0 {
-				out.BucketSeconds = live.BucketSeconds
+			out.ActualError = aerr.Error()
+		}
+		if rs == nil {
+			out.ActualReplicasError = "the module has no enabled replicas metric, so there is no actual replica count to draw"
+		} else if rs.Key != o.Metric {
+			switch {
+			case rerr != nil:
+				// the curve is left out, and the page says why instead of silently dropping it
+				out.ActualReplicasError = rerr.Error()
+			case replicas.Missing:
+				out.ActualReplicasError = "Prometheus returned no replica sample in the range"
+			default:
+				out.ActualReplicas = replicas
+				if out.BucketSeconds == 0 {
+					out.BucketSeconds = replicas.BucketSeconds
+				}
 			}
 		}
 	}
 	if !o.WithPredictions {
 		return out, nil
 	}
+	if perr != nil {
+		return nil, perr
+	}
 
+	if o.SkipActual && o.BucketSeconds > 0 {
+		out.BucketSeconds = o.BucketSeconds
+	}
 	step := time.Duration(out.BucketSeconds) * time.Second
+	if step <= 0 && o.SkipActual {
+		if bucket, ok := s.bucketOf(ctx, m, o.Metric, o.From, o.To, o.MaxPoints); ok {
+			step, out.BucketSeconds = bucket, int(bucket/time.Second)
+		}
+	}
 	if step <= 0 {
 		// the actual values could not be read: bucket by the step of the dataset
 		step = time.Minute
@@ -249,10 +342,6 @@ func (s *Service) Compare(ctx context.Context, moduleID uint, o CompareOptions) 
 			step = time.Duration(m.StepSeconds) * time.Second
 		}
 		out.BucketSeconds = int(step / time.Second)
-	}
-	rows, err := s.Predictions.ForCompare(ctx, moduleID, o.Metric, o.From, o.To, o.Algorithms)
-	if err != nil {
-		return nil, err
 	}
 	capacity, basis := replicaCapacity(mod, o.Metric)
 	out.ReplicaBasis = basis

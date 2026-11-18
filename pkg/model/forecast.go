@@ -552,17 +552,21 @@ func (MetricSample) TableName() string { return "metric_sample" }
 
 // Prediction is one forecast point. It is never overwritten: a new run adds rows. QuantilePermille 500 is the
 // point forecast.
+//
+// idx_prediction_target serves the reads by target time (the history chart, the scoring of a window): the module and the metric, then the range of
+// target times, then the algorithm and the time the forecast was made, so the newest forecast of each target is found in the index without
+// reading every forecast ever made for the module. Without it a read of a month of a module scans all of its forecasts, which are millions.
 type Prediction struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
 	CreatedAt time.Time `gorm:"index" json:"created_at"`
 
-	ModuleID         uint      `gorm:"not null;uniqueIndex:idx_prediction,priority:1;index:idx_prediction_lookup,priority:1" json:"module_id"`
-	Metric           string    `gorm:"type:varchar(20);not null;uniqueIndex:idx_prediction,priority:2;index:idx_prediction_lookup,priority:2" json:"metric"`
-	PredictionTime   time.Time `gorm:"not null;uniqueIndex:idx_prediction,priority:3;index:idx_prediction_lookup,priority:3" json:"prediction_time"`
-	TargetTime       time.Time `gorm:"not null;uniqueIndex:idx_prediction,priority:4" json:"target_time"`
-	AlgorithmID      string    `gorm:"type:varchar(40);not null;uniqueIndex:idx_prediction,priority:5" json:"algorithm_id"`
+	ModuleID         uint      `gorm:"not null;uniqueIndex:idx_prediction,priority:1;index:idx_prediction_lookup,priority:1;index:idx_prediction_target,priority:1" json:"module_id"`
+	Metric           string    `gorm:"type:varchar(20);not null;uniqueIndex:idx_prediction,priority:2;index:idx_prediction_lookup,priority:2;index:idx_prediction_target,priority:2" json:"metric"`
+	PredictionTime   time.Time `gorm:"not null;uniqueIndex:idx_prediction,priority:3;index:idx_prediction_lookup,priority:3;index:idx_prediction_target,priority:5" json:"prediction_time"`
+	TargetTime       time.Time `gorm:"not null;uniqueIndex:idx_prediction,priority:4;index:idx_prediction_target,priority:3" json:"target_time"`
+	AlgorithmID      string    `gorm:"type:varchar(40);not null;uniqueIndex:idx_prediction,priority:5;index:idx_prediction_target,priority:4" json:"algorithm_id"`
 	ModelVersion     string    `gorm:"type:varchar(64);not null;uniqueIndex:idx_prediction,priority:6" json:"model_version"`
-	QuantilePermille int       `gorm:"not null;default:500;uniqueIndex:idx_prediction,priority:7" json:"quantile_permille"`
+	QuantilePermille int       `gorm:"not null;default:500;uniqueIndex:idx_prediction,priority:7;index:idx_prediction_target,priority:6" json:"quantile_permille"`
 	Value            float64   `gorm:"not null" json:"value"`
 	Unit             string    `gorm:"type:varchar(20);not null" json:"unit"`
 }

@@ -103,6 +103,13 @@ service:
 ingress:
   enabled: false
   className: ""
+  # The time the ingress waits for an answer is the first thing to check behind a 504. ingress-nginx, for example, waits 60 seconds unless told
+  # otherwise:
+  #   nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
+  #   nginx.ingress.kubernetes.io/proxy-send-timeout: "120"
+  # Whatever it is, say the same number in System > System parameters > HTTP and timeouts (http.gateway_timeout_seconds, default 60): the
+  # platform stops the work it answers in one request 5 seconds before it and says why, instead of the ingress cutting it with a bare 504.
+  # Raising it is not a cure for a slow page; long work belongs in a background task.
   annotations: {}
   hosts:
     - host: kube-res-foresight.example.com
@@ -123,7 +130,8 @@ gateway:
   #  - kube-res-foresight.example.com
   path: /
   pathType: PathPrefix # PathPrefix or Exact
-  # For example {request: 60s}; empty leaves the Gateway's default. The assistant's chat is a long answer: do not set it too short.
+  # For example {request: 60s}; empty leaves the Gateway's default. The assistant's chat is a long answer: do not set it too short. Say the same
+  # number in the system parameter http.gateway_timeout_seconds (see the ingress above).
   timeouts: {}
   annotations: {}
 

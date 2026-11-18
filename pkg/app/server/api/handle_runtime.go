@@ -363,7 +363,7 @@ func (r *RuntimeRouter) ListExecutions(c *gin.Context) {
 		query.InternalError(c, err)
 		return
 	}
-	query.SuccessResponse(c, nil, gin.H{"list": list, "total": total, "page": page, "pageSize": size})
+	query.SuccessResponse(c, nil, gin.H{"list": list, "total": total, "total_capped": total >= rdb.MaxCountedRows, "page": page, "pageSize": size})
 }
 
 // ListScaleOutcomes serves GET /scale-outcomes: the scale-ups the platform decided ahead of the load, with whether each was in time.

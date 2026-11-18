@@ -136,7 +136,7 @@ func (s *Service) PreviewChange(ctx context.Context, moduleID uint, hours int, c
 		return nil, err
 	}
 
-	budget := s.Timing(ctx, timing.PreviewBudget)
+	budget := s.SyncBudget(ctx, timing.PreviewBudget)
 	ctx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
 

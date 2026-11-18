@@ -115,7 +115,8 @@ var NotifyEmailTimeout = Param{Key: "notify.email.timeout_seconds", Default: 30,
 func All() []Param {
 	return []Param{DecisionRefreshWait, DecisionForecastMaxAge, CapacitySLOTarget, RefreshBudget, PipelineTimeout, PreviewBudget, FineTuneBudget, TrainBudget,
 		OperatorRequestTimeout, OperatorSyncInterval, OperatorDecisionCacheTTL, OperatorModuleCacheTTL, OperatorRecoverAnswers, OperatorSettingsRefresh,
-		OperatorDegradeHold, OperatorDegradeCooldown, OperatorRecoverStable, NotifyEmailTimeout, LeadPercentile, JudgePercentile, UncertaintyPercentile, MinSeasons}
+		OperatorDegradeHold, OperatorDegradeCooldown, OperatorRecoverStable, NotifyEmailTimeout, LeadPercentile, JudgePercentile, UncertaintyPercentile, MinSeasons,
+		HTTPGatewayTimeout, HTTPSlowRequest, UIRequestTimeout, UIRequestRetries, PruneBudget}
 }
 
 // Clamp brings a number into the range of the limit.

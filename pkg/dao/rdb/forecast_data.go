@@ -168,13 +168,13 @@ func (dao *PredictionDAO) ListPredictions(ctx context.Context, f PredictionFilte
 	if f.To != nil {
 		q = q.Where("target_time <= ?", *f.To)
 	}
-	var total int64
-	if err := q.Count(&total).Error; err != nil {
+	total, err := boundedCount(q)
+	if err != nil {
 		return nil, 0, err
 	}
 	page, pageSize = normalizePage(page, pageSize)
 	var list []*model.Prediction
-	err := q.Order("prediction_time DESC, target_time ASC, id DESC").Offset(pageOffset(page, pageSize)).Limit(pageSize).Find(&list).Error
+	err = q.Order("prediction_time DESC, target_time ASC, id DESC").Offset(pageOffset(page, pageSize)).Limit(pageSize).Find(&list).Error
 	return list, total, err
 }
 
@@ -524,6 +524,9 @@ type Retention struct {
 	Scores int
 	// EvaluationsPerModule caps the measured evaluations kept per module (the newest ones). 0 = no cap.
 	EvaluationsPerModule int
+	// PredictionPruneBudget is the longest one run of the clean-up spends deleting old forecasts, a batch of ten thousand rows at a time; what is
+	// left is for the next run. The forecast table is the biggest of the platform, and one DELETE of millions of rows is a transaction of minutes.
+	PredictionPruneBudget time.Duration
 }
 
 // DefaultEvaluationsPerModule is how many measured evaluations a module keeps unless the system parameter says otherwise.
@@ -547,6 +550,7 @@ var DefaultRetention = Retention{
 	Snapshots:              DefaultSnapshotsPerModule,
 	Scores:                 DefaultScoresPerModule,
 	EvaluationsPerModule:   DefaultEvaluationsPerModule,
+	PredictionPruneBudget:  2 * time.Minute,
 }
 
 // Prune deletes records older than their retention and reports how many of each were removed. The latest
@@ -561,8 +565,12 @@ func (dao *PredictionDAO) Prune(ctx context.Context, now time.Time, r Retention)
 		removed[name] = q.RowsAffected
 		return q.Error
 	}
-	if err := del("predictions", &model.Prediction{}, r.Predictions, "created_at < ?"); err != nil {
-		return removed, err
+	if r.Predictions > 0 {
+		n, err := deleteInBatches(ctx, dao.db, &model.Prediction{}, "created_at < ?", []interface{}{now.Add(-r.Predictions)}, 10000, r.PredictionPruneBudget)
+		removed["predictions"] = n
+		if err != nil {
+			return removed, err
+		}
 	}
 	if err := del("trainings", &model.TrainingRun{}, r.Trainings, "created_at < ?"); err != nil {
 		return removed, err

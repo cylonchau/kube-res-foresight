@@ -2,6 +2,7 @@ package timing
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -32,7 +33,7 @@ func TestEveryLimitHasAKeyADefaultInsideItsRangeAndText(t *testing.T) {
 		assert.NotEmpty(t, p.Name, p.Key)
 		assert.NotEmpty(t, p.Remark, p.Key)
 	}
-	assert.Len(t, seen, 22)
+	assert.Len(t, seen, 27)
 }
 
 func TestOperatorSettingsAreReadFromTheStoredTextAndNormalized(t *testing.T) {
@@ -51,4 +52,15 @@ func TestOperatorSettingsAreReadFromTheStoredTextAndNormalized(t *testing.T) {
 	assert.Equal(t, OperatorModuleCacheTTL.Max, n.ModuleCacheTTLSeconds)
 	assert.Equal(t, OperatorRecoverAnswers.Min, n.RecoverAnswers)
 	assert.Equal(t, OperatorSettingsRefresh.Min, n.SettingsRefreshSeconds)
+}
+
+// The budget of a request that is answered in one go stays inside the gateway timeout, with the margin kept.
+func TestABudgetStaysInsideTheGatewayTimeout(t *testing.T) {
+	s := func(n int) time.Duration { return time.Duration(n) * time.Second }
+	assert.Equal(t, s(30), Under(s(60), s(30)), "a budget that fits is kept")
+	assert.Equal(t, s(55), Under(s(60), s(300)), "a larger one is brought to the gateway timeout less the margin")
+	assert.Equal(t, s(55), Under(s(60), 0), "no budget is the room that is left")
+	assert.Equal(t, s(295), Under(s(300), s(300)), "a raised gateway timeout gives more room")
+	assert.Equal(t, s(5), Under(s(10), s(60)), "a very small gateway timeout still leaves the margin")
+	assert.Equal(t, s(5), Under(s(3), s(60)))
 }

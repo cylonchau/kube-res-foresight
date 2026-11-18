@@ -51,3 +51,59 @@ func TestTheComparisonShowsOnlyTheAlgorithmsThatRunForTheModuleNow(t *testing.T)
 	require.NoError(t, err)
 	assert.Equal(t, map[string]bool{"naive": true}, ids(named), "naming it does not bring it back")
 }
+
+// The chart reads the actual values and the forecasts apart: the forecasts alone do not touch Prometheus, fall on the same grid as the actual
+// values, and each read says how long it took.
+func TestTheForecastsAreReadApartFromTheActualValuesOnTheSameGrid(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	f.bind(t, "cpu", "naive", nil, 0)
+	_, err := f.collect(ctx)
+	require.NoError(t, err)
+	_, err = f.predict(ctx)
+	require.NoError(t, err)
+	window := CompareOptions{Metric: "cpu", From: testNow.Add(-time.Hour), To: testNow.Add(time.Hour), MaxPoints: 20}
+
+	// the actual values only: Prometheus is read, the forecasts are not
+	actualOnly := window
+	actualOnly.WithPredictions = false
+	first, err := f.svc.Compare(ctx, f.module.ID, actualOnly)
+	require.NoError(t, err)
+	require.NotNil(t, first.Actual)
+	assert.NotZero(t, first.BucketSeconds)
+	assert.Empty(t, first.Algorithms, "no forecast was read")
+	assert.Contains(t, first.Timings, "actual_ms")
+	assert.NotContains(t, first.Timings, "predictions_ms")
+
+	// the forecasts only: no query reaches Prometheus, and they use the bucket the first answer gave
+	f.querier.mu.Lock()
+	f.querier.queries = nil
+	f.querier.mu.Unlock()
+	forecastsOnly := window
+	forecastsOnly.WithPredictions, forecastsOnly.SkipActual, forecastsOnly.BucketSeconds = true, true, first.BucketSeconds
+	second, err := f.svc.Compare(ctx, f.module.ID, forecastsOnly)
+	require.NoError(t, err)
+	assert.Nil(t, second.Actual)
+	require.NotEmpty(t, second.Algorithms)
+	assert.Equal(t, first.BucketSeconds, second.BucketSeconds)
+	assert.Contains(t, second.Timings, "predictions_ms")
+	f.querier.mu.Lock()
+	assert.Empty(t, f.querier.queries, "Prometheus was not read for the forecasts")
+	f.querier.mu.Unlock()
+
+	// without the bucket the grid is worked out from the window, and it is the one the actual values got
+	forecastsOnly.BucketSeconds = 0
+	worked, err := f.svc.Compare(ctx, f.module.ID, forecastsOnly)
+	require.NoError(t, err)
+	assert.Equal(t, first.BucketSeconds, worked.BucketSeconds)
+
+	// both together are what they always were
+	both := window
+	both.WithPredictions = true
+	together, err := f.svc.Compare(ctx, f.module.ID, both)
+	require.NoError(t, err)
+	assert.NotNil(t, together.Actual)
+	assert.Equal(t, len(second.Algorithms), len(together.Algorithms))
+	assert.Contains(t, together.Timings, "actual_ms")
+	assert.Contains(t, together.Timings, "predictions_ms")
+}
