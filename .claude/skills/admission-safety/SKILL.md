@@ -11,6 +11,8 @@ description: 用于 kube-res-foresight Pod 资源准入、固定周期、默认�
 
 `admission_decision` 只由 `GET /admission/recommendations` 写，预测、周期计算、副本决策从不写。策略传 `revision`（pod-template-hash 或 controller-revision-hash）：创建工作负载的询问（`container=-`）记「创建」，一个版本的第一个 Pod 记「部署／更新」，同版本其余 Pod（扩容、替换）不是准入操作：照常回答但**不记录，也没有开关**（2026-10-31 删除了 `forecast.admission_record_scaling` 与「扩容／替换」来源；`--migration` 会删掉已有的这类记录）。`rollout restart` 在 Kyverno 看来和更新一样是新版本的第一个 Pod，无法区分，仍记为「部署／更新」。判断与写入在 `RuntimeRouter.admissionMu` 下完成。改这里要同步 `TestOnlyARolloutAndTheCreationOfAWorkloadAreKeptAsAdmissionRecords` 和 `deploy/kyverno/kube-res-foresight-requests.yaml`。
 
+**成本方案不越过安全底线（P9 暂缓；候选 C3 暂缓前已实现，台账与回滚 C5、C6 未实现；P10 的超配建议值同样不得低于 OOM 与节流保护算出的下限）**：成本最优的 requests 不得低于现有推荐（含 OOM 地板、规格保持、目标利用率口径），不在其上再叠第二层余量或再下调；CPU limit 过低会节流、内存 limit 不合理会 OOM，所以 limits 不按 requests 的百分比统一缩减，内存 limit 仍按模块 `limit_memory_ratio` 且不自动调低。节省台账用推荐 ID、规格版本和准入记录的 `record_id` **关联**准入记录，从不写 `admission_decision`；成本回滚（退回上一规格版本）同样只对新建的 Pod 生效。详见 [cost-closure-p9.md](../requirements/references/cost-closure-p9.md)。
+
 ## 实施流程
 
 1. 实现 API Server 调用的 Mutating Admission Webhook，不改 kubelet。明确处理范围、AdmissionReview 版本、TLS、超时、对象选择、JSON Patch 和幂等。

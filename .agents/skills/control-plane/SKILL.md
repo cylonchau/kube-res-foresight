@@ -24,6 +24,12 @@ description: 用于 kube-res-foresight Operator、副本执行和 Platform Prome
 
 验证 HPA 冲突、重启恢复、过期推荐、重复 reconcile、限幅、API 失败、Ready 延迟及指标审计对账。Observe→Recommend→Admission→Auto 逐阶段推进，使用隔离集群及实际验证证据。
 
+## 集群快照上报（P10 A1 规划，未实现；需要用户确认 E2）与节点、成本的边界
+
+P10 要求 Controller 上报 Kubernetes 的资源配置与元数据：operator 新增**只读** RBAC（nodes、pods、daemonsets、namespaces 的 get/list/watch），按周期和变化把快照上报到平台 API（带唯一 ID，离线进发件箱，沿用 R21），operator 仍不连数据库、不写任何集群资源。这一步要先得到用户确认才能改 RBAC。下面是成本相关的边界（暂缓的 P9，C4 当时只读 kube-state-metrics，没有 operator 上报）：
+
+成本闭环（[cost-closure-p9.md](../requirements/references/cost-closure-p9.md)）不改变控制权：副本只由 operator 写，**不把 HPA 当成本方案的执行后端**，外部 HPA/KEDA 只报冲突并在成本模拟里标“不可优化”；Karpenter 与 Cluster Autoscaler 只管节点，平台和 operator **不创建集群资源、不 cordon、不 drain、不删节点**，只模拟和记录。节点与 Pod 快照若需要 Kubernetes API 才有的信息（亲和性、拓扑分布、PDB），由 operator **只读**上报到平台 API（新增的是 nodes、pods、poddisruptionbudgets 的 list/watch，不写任何东西），operator 仍不连数据库。这一项要用户确认（P9 的 D2）后才能动 RBAC。
+
 ## kube-res-foresight-operator：模块就是配置，没有 CRD
 
 **2026-10-31 删除了 CRD**：`PredictiveScaler` 只是把模块里已有的内容（工作负载、上下界、fallback、节奏）再写一遍，两处会不同步，现在 operator 只读平台的模块，不在集群里创建任何资源，只写目标的副本。删掉的有：`pkg/operator/api/v1alpha1`、`deploy/operator/crd` 与示例、Helm 的 `crds/`、控制器与状态条件、Static 和 Prometheus 决策来源、Observe 模式、命令行 `--predictivescaler-crd`，RBAC 里对 `predictivescalers`、`secrets`、`events` 的权限，以及 `kube_res_foresight_operator_prometheus_*` 指标。集群里残留的 CRD 与对象由部署者自己删除（`kubectl delete crd predictivescalers.autoscaling.kube-res-foresight.io`），没有任何东西再读它们。

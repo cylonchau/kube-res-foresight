@@ -1,6 +1,6 @@
 # kube-res-foresight 实施计划与执行进度
 
-更新日期：2026-11-02。当前里程碑：P1～P6 的非真实环境部分与「预测系统优化」8 项需求（M1～M7）与「预测系统功能与页面优化」6 部分（R1～R10）均已实现并通过自动化测试与浏览器验收；真实环境验证仍缺。P7 算法质量：A0 基线测量、A1 回测公平、A2 低估敏感评分、A3 保形分位数、A4 Holt-Winters 补强与 Theta、A5 直接多步、A6 KNN 互斥区与时刻约束、A7 MSTL、A9 基础模型离线评估已完成，A8 未开始。官网已调整为项目首页与分层文档中心，中英文各有 33 篇独立指南（含 15 篇算法与模型参数手册），保留明暗主题、语言切换及 GitHub Pages 流程。
+更新日期：2026-11-19（当前阶段改为 P10 资源超配分析与可观测大盘，只有计划、未开始；另整理了 P11 AI 与性能（异步计算、502/504）的计划，未开始；P9 成本闭环暂缓，其 C1～C4 在暂缓前已实现，只读，只在合成数据上验证；见第 4 节 P9、P10 行与末尾记录）。当前里程碑：P1～P6 的非真实环境部分与「预测系统优化」8 项需求（M1～M7）与「预测系统功能与页面优化」6 部分（R1～R10）均已实现并通过自动化测试与浏览器验收；真实环境验证仍缺。P7 算法质量：A0 基线测量、A1 回测公平、A2 低估敏感评分、A3 保形分位数、A4 Holt-Winters 补强与 Theta、A5 直接多步、A6 KNN 互斥区与时刻约束、A7 MSTL、A9 基础模型离线评估已完成，A8 未开始。官网已调整为项目首页与分层文档中心，中英文各有 33 篇独立指南（含 15 篇算法与模型参数手册），保留明暗主题、语言切换及 GitHub Pages 流程。
 
 | 本次工作包 | 状态 | 范围 |
 |---|---|---|
@@ -49,6 +49,7 @@
 | 模块绑定、推荐快照、固定周期、fallback（P3） | 已实现 | 模型/API/页面/定时任务；admission 与 auto 模式受系统设置控制，开关在每次准入/决策回答时检查 |
 | Kyverno 资源准入与 kubeforecast-operator（P4A/P4B） | 部分完成 | 准入接口、operator（CRD、MakePlan、Reconciler、PlatformAPI 决策与上报、HPA/KEDA/重复 scaler 冲突检测）、`kubeforecast operator` 命令、CRD/RBAC/manager 清单已实现，用 fake client 与 httptest 测试；Kyverno 策略仅为未验证的参考草稿；无 envtest、无集群演练，CRD 组名 autoscaling.kubeforecast.io 为暂定 |
 | LDAP/LDAPS（P6-01） | 已实现 | LDAPS 或 ldap+StartTLS（明文被拒绝）、CA、用户/组查询与组到角色映射、禁用同步（目录不可达不改任何账号）、本地账号永不走目录（应急管理员）、连接测试、LDAP 页面；go-ldap 客户端对本地 TLS 测试服务器验证了转义、空密码、证书校验；StartTLS 与真实 AD/OpenLDAP 未验证 |
+| 成本与浪费（P9 C1～C4，**暂缓**，产品面已移出，代码保留） | 已实现，部分验证 | 价格规则（手填，按全部节点/标签/节点名匹配）、从 kube-state-metrics 读集群、节点价格按 requests 分摊（Σ工作负载 + 闲置 = 节点价格，单测守恒）、每个工作负载请求对用量与安全值的比较、激进/平衡/保守三档候选（不低于安全值、不高于现在）、节点装箱模拟（估计）；一个页面「预测结果 → 成本与浪费」。**页面没在浏览器里看过；kube-state-metrics 的指标名没对着真实环境验证；金额是估计，不是账单；没有节省台账和回滚（C5、C6）** |
 
 ## 2. 实施设计基线
 
@@ -86,6 +87,9 @@ P0 的结果应落入技能与 schema；P1 数据接入可在边界明确的部�
 | P6 完整需求与增强 | P6-01 LDAP；P6-02 增强算法；P6-03 其他决策来源 | LDAP/禁用同步/应急管理员；其他 Go 实现的 challenger 算法；其余决策适配器 | 基础闭环稳定，数据和预算具备 | 状态：P6-01 LDAP 已实现；P6-02 增强算法未做；P6-03 中 Prometheus 决策来源已实现，Adapter 有意不做 |
 | P7 算法质量 | A0 基线测量；A1 回测公平；A2 低估敏感评分；A3 保形分位数；A4 Holt-Winters 补强与 Theta；A5 直接多步；A6 KNN 修正；A7 MSTL；A8 全局模型设计；A9 小型时序基础模型离线评估；A10 周期画像分位数；A11 峰值包络趋势；A12 组合预测；A13 变点后重置 | 先量化现状，再修评估，再补算法；每个包有单测与无泄漏回测；四类主力算法（季节朴素+分位数基线、ETS/Holt-Winters、Theta、GBDT 直接多步分位数）的现状与缺口逐项对应工作包，见改进计划 2.1 | P2 回测与评分已存在 | 状态：A0～A7、A10～A13 已完成（A6 KNN 互斥区与时刻约束、A7 MSTL、A10 周期画像分位数、A11 峰值包络趋势、A12 组合预测、A13 变点后重置，见 [改进计划](../.agents/skills/algorithm-library/references/improvement-plan.md) 第 4 节与 [A0 基线](../.agents/skills/algorithm-library/references/baseline-a0.md)）；A8、A9 未开始；准确率结论只来自测试环境约 2.9 小时的数据，不是生产结论 |
 | P8 产品闭环 | B1 预测效果报告；B2 变更影响预览；B3 告警联动 | B1：按模块汇总准确、及时、浪费、稳定性与算法采用情况，一个主视图、不含数据列表；B2：用历史回放预览配置变更的影响，只读不写预测与推荐；B3：预测变差、延迟验收不达标、模型服务不可用、持续降级时经现有通知通道告警，去重、冷却、恢复通知，默认关闭。范围、验收和顺序见 [product-closure-p8.md](../.agents/skills/requirements/references/product-closure-p8.md) | P7 指标与延迟验收、预测回填评估、现有通知通道 | 状态：B1、B2 已实现并部分验证（见 2026-10-30 条目与 product-closure-p8.md 的“实际实现”），B3 未开始；建议顺序 B3 紧接 B1 的指标 |
+| P9 成本闭环 | C0 设计收敛（D1–D7 待用户决定）；C1 价格与成本数据层；C2 浪费诊断；C3 候选方案与风险等级；C4 节点装箱模拟器；C5 节省台账与效果验证；C6 SLO 保护与自动回滚；C7 成本总览页；C8 成本与预算预测 | 把平台从“预测 CPU、内存”扩展到“可证明地少花钱而不伤稳定”：先看见成本、浪费和机会（C0–C2），再给候选方案并模拟节点能否释放（C3–C4），再用台账验证实际节省并能回滚（C5–C6）。四个财务口径（资源释放量、预计节省、成本避免量、实际节省）不混用，“已实现”必须有节点小时或账单依据。范围、七项待决、验收和顺序见 [cost-closure-p9.md](../.agents/skills/requirements/references/cost-closure-p9.md) | P8 的效果报告与容量 SLO 已有；C1 起需要 D1–D2 的决定；C6、C8 依赖 B3 | 状态：**暂缓（2026-11-19 用户决定移出当前阶段，需求见 [cost-module-requirements.md](../.agents/skills/requirements/references/cost-module-requirements.md)）**。暂缓前 C1～C4 已实现（只读，合成数据验证，页面没在浏览器里看过，kube-state-metrics 指标名没对着真实环境验证）；C5～C8 未开始；代码没删；产品面（菜单、页面、接口、系统参数、数据表）已于 2026-11-19 移出（P10 A6） |
+| P10 资源超配分析与可观测大盘 | A0 设计收敛（E2、E3、E10 已答复，E1、E4～E9 待确认）；A1 数据采集与持久化（Controller 只读上报、集群与工作负载配置、JVM、本地存储）；A2 超配分析引擎（多窗口分位数、MA、CPU/内存/JVM、公式、可信度、历史）；A3 系统内大盘与详情；A4 Grafana Dashboard 与深链；A5 LLM 周期建议；A6 移出成本（已完成 2026-11-19）| 当前阶段：先建一个只依据真实历史指标、可解释、可追溯的资源超配分析系统，再考虑预测、自动优化和成本。本阶段超配判断**不用预测模型**，**不做成本**，以 Observe/Recommend 为主、不自动改资源。范围、现状对照、公式提议、待确认、验收见 [overprovision-p10.md](../.agents/skills/requirements/references/overprovision-p10.md) | operator 新增只读权限已确认（E2：节点；Pod 与工作负载只统计已配置的模块，不自动发现全部）；A2 依赖 A1；A3、A4、A5 依赖 A2 | 状态：**A6 已完成，A0～A5 未开始，只有计划**（A5 已并入 P11 的 C6）；只能用合成数据和假 Prometheus 验证，Grafana 无法在真实实例里加载 |
+| P11 AI 资源智能分析与对话、异步计算与 502/504 治理 | T1 性能与异步：B0 定位 502/504；B1 异步任务框架；B2 进度与结果反馈；B3 结果缓存与复用；B4 历史结果持久化与查询；B5 前端体验；B6 超时配置治理。T2 AI：C1 会话持久化；C2 独立对话页面；C3 Tool Registry；C4 AI 权限与审计；C5 对话流式输出；C6 分析、推荐、洞察、报告引擎；C7 动态上下文注入；C8 连接能力探测与工具模式；C9 文本协议与规则路由；C10 业务对象关联与指标；C11 两种接入方式的验证 | AI 只分析、评估、推荐，**不执行任何资源修改**，数字由规则引擎给、LLM 只解释，不重复做预测；独立对话页面与悬浮窗共享入库的会话；异步任务有任务 ID、进度、缓存、持久化、断线恢复；502/504 先定位再治理。范围、现状证据、状态生命周期、AI 权限与审计、验收指标、待确认见 [ai-and-performance-p11.md](../.agents/skills/requirements/references/ai-and-performance-p11.md) | T1 不依赖 P10，建议先做；B0 要用户提供出问题的接口和网关日志（G0）；C3～C6 的分析工具依赖 P10 A1、A2；C1 会改变“对话不入库”的现有设计，要用户确认（G1） | 状态：**B0、B5、B6 已做第一部分（2026-11-19：诊断手段、可配置的超时、同步操作的预算压在网关超时之内、浏览器报错与重试与取消）；G0 已答复（历史数据页、预测结果、扩缩容记录慢，PostgreSQL 预测数据太多），已加目标时间索引、历史页分批并行读取、列表计数上限、预测清理分批，主因待用你的数据确认；B1～B4、C1～C11 未开始**（C7～C11 是 2026-11-19 补充的 AI 业务感知能力）；只能用合成数据和故障注入验证，没有对着真实网关验证 |
 
 P4A 与 P4B 在 P3 后可独立推进，但新工作负载先 Observe，再 Recommend，分别验证 Admission/Auto 才开放相应写入。P5 的模型评估和审计从 P2/P3 起建设，不能拖到执行上线后补证据。
 
@@ -773,3 +777,60 @@ all ten management pages and the shared product title. Screenshots were inspecte
 - **新增页面**：`smtp`（邮件（SMTP）配置）：参数表（默认值、范围）、加密与密码何时发送、按常见邮件服务填写的示例、邮件长什么样、测试邮件按钮、逐条错误的原因。内容对着 `pkg/notify/email` 的实现写，不是凭印象。`ldap` 页加了 OpenLDAP 与 AD 的完整配置示例和「alice 登录时发生了什么」的逐步说明。`ai-tasks` 里「邮件为纯文本」已过时（HTML 邮件做过），改成准确的说法并链到 SMTP 页；`administration` 也链到 SMTP 页。
 - **验证**：`go test ./pkg/forecast`、`go run ./scripts/check-algorithm-docs`、`python scripts/build-site.py`、`python scripts/check-site.py`（79 页）通过。没有在浏览器里看页面的排版（表格、公式块、移动端），也没有人对论文引用逐条核对出版信息：作者、期刊、卷期页码是凭记忆写的，arXiv 编号和 FPP3 链接是常用的已知地址；发布前建议抽查几条。
 - **不是**：没有新做任何算法，也没有改 SMTP/LDAP 的行为。
+
+2026-11-19：P9 成本闭环的执行计划（只有计划，没有任何代码）
+- **起因**：用户给了一份方案，要把平台定位从“预测 CPU、内存”升级为“Kubernetes 资源成本优化与容量决策”（FinOps + 资源优化 + 容量规划），核心 KPI 是“在不损害业务性能的前提下节省多少钱”。我把方案对照现有代码和规则整理成 P9（C0～C8），写进 [cost-closure-p9.md](../.agents/skills/requirements/references/cost-closure-p9.md)。
+- **对照现有实现的结论**：方案的七个模块里，智能资源决策、自动执行与安全控制、资源诊断的一部分已经有（副本求解、单 Pod 规格与保持、OOM 地板、准入、operator 冷却与降级、容量 SLO 与 Pod·小时）；**成本中心、节点与容量优化完全没有**（平台没有价格、成本或节点概念），效果验证缺基线与成本，预算预测缺节点规模与费用（还依赖没开始的 B3 告警）。
+- **没有照搬的**：①“HPA 控制副本”：副本只由 operator 写，不把 HPA 当执行后端；②“跨集群优化、规格选择”：项目是单集群，不在 P9 内；③方案里的金额和百分比是界面示意，不当作产品数据；④“已实现节省”不接受预计值，必须有节点小时或账单依据，还加了“预计节省”这个口径，避免把情景说成账单。
+- **要你决定（D1–D7，未决不开发）**：价格来源（建议手填节点价格表 + 可选 OpenCost，账单只做手工录入核对）、节点数据来源（建议先用 kube-state-metrics，亲和性/PDB 需要 operator 只读上报，要动 RBAC）、基线窗口、首页是否替换、模拟器保真度（结果标乐观上界）、自动执行与回滚、币种。详见规格“待你决定”表。
+- **改了的文档与技能（两边已同步）**：新增 `requirements/references/cost-closure-p9.md`；`requirements/SKILL.md` 与 `acceptance.md` 加 P9 入口和验收口径；`integration-decisions.md` 记规划扩展与七项待决；`official-sources.md` 加 OpenCost、Karpenter、Kubernetes 资源管理三条（均标“按目标版本核实”）；`control-plane` 写节点与成本的边界；`admission-safety` 写成本方案不越过安全底线；`model-evaluation` 写四个财务口径与基线；`AGENTS.md` 加一段规划说明。本文第 4 节新增 P9 行。
+- **没做**：没有写任何 Go 或前端代码，没有新增表、接口、菜单或页面；OpenCost 的指标名、Karpenter 的行为都没有核实，只是列为待核实的资料；P0-02～04 和真实环境验证仍是更靠前的缺口（P9 的所有包也只能用合成数据验证）。没有提交。
+
+2026-11-19 续：P9 C1～C4（价格与成本、浪费诊断、候选方案、节点装箱模拟）
+- **起因**：用户要求把 C1～C4 做完；D1–D7 没有逐项答复，所以按计划里的建议默认值做（手填价格规则、节点数据来自 kube-state-metrics、不做 operator 只读上报）。
+- **做了**：`pkg/cost`（价格规则、成本分摊、用量分位、浪费诊断、候选、节点装箱模拟、从 kube-state-metrics 读集群，都是纯函数）；`promclient.QueryVector`；价格规则表 `cost_price_rule` 和四个系统参数（`cost.datasource_id`、`cost.cpu_share_percent`、`cost.candidate_margin_percent`、`cost.idle_percent`）；`forecastsvc` 的 `CostOverview`、`CostModules`、`Simulate`；接口 `/api/v1/cost/{prices,overview,modules,simulate}`；菜单 `forecast-results_cost`；前端页面「预测结果 → 成本与浪费」（一个视图，价格规则、详情、模拟是弹窗，没有页签）。口径、与原计划的差别、没验证的见 `cost-closure-p9.md` 末尾「C1～C4 实际实现」。
+- **有意不同于原计划**：候选档位不含规格保持时间；候选证据没有 OOM、节流次数；模拟结果标「估计」而不是「乐观上界」（贪心装箱不保证上界，我上一版的措辞是错的，已改）；没有做 OpenCost 来源和 operator 只读上报。
+- **验证**：`go test ./pkg/...` 通过，新增 `pkg/cost`（价格匹配与优先级、守恒、分位、候选属性、模拟、快照读取）、`forecastsvc/cost_test.go`（金额、没有价格或集群时只给资源量、没有推荐/请求/样本、外部控制器、模拟、不写任何表）、`handle_cost_test.go`、`promclient.QueryVector`、菜单种子；`GOOS=linux` 构建通过；前端 `vue-tsc`、eslint、`pnpm run build`、locale 与单元测试通过。
+- **没验证／限制**：**页面没有在浏览器里看过**（没渲染过，没点过任何弹窗）；kube-state-metrics 的指标名和标签是按 v2 的资料写的，没有对着真实环境验证，集群快照只用假的查询答案测过；没有 MySQL/PostgreSQL；没有真实用量和真实账单；模拟没有亲和性、拓扑分布、PDB、真实 tolerations，ReplicaSet 到 Deployment 靠去掉哈希；金额按 730 小时一个月、CPU/内存各占节点价格的 50%（可调）估算，是假设不是测量。
+- **没做**：C5 节省台账、C6 SLO 保护与回滚、C7 的完整成本总览、C8 预算预测；operator 只读上报节点；OpenCost 来源；官网没有写成本页。没有提交。
+
+2026-11-19 续：阶段调整，P10 资源超配分析与可观测大盘（只有计划，没有代码），P9 成本暂缓
+- **起因**：用户给了新阶段需求（资源超配分析与可观测性系统升级）和一组参考大盘截图：系统内大盘、Grafana Dashboard、Controller 上报集群与工作负载配置、本地持久化、多周期 CPU/内存/JVM 真实超配分析、LLM 周期建议；明确**本阶段不引入预测模型**，**成本相关内容暂时移除并重新规划**，只出独立成本模块需求表。
+- **做了（文档，没有代码）**：新增 [overprovision-p10.md](../.agents/skills/requirements/references/overprovision-p10.md)（现状对照、参考截图到我们做法、A0～A6 工作包、A2 的公式和阈值提议、待确认的 E1～E10、验收与验证方式）和 [cost-module-requirements.md](../.agents/skills/requirements/references/cost-module-requirements.md)（独立成本模块需求表：数据来源、字段、计算依据、实现方式、待确认的 F1～F7、P9 已有代码对应）；cost-closure-p9.md、AGENTS.md、`requirements`/`control-plane`/`admission-safety`/`model-evaluation` 技能、验收参考、融合约定、代码地图和本文第 4 节都改成“当前是 P10，P9 暂缓”。
+- **对照现有代码的发现**：operator 的 RBAC 只有 deployments、statefulsets、HPA、KEDA、leases，没有 nodes、pods、daemonsets，所以 Controller 上报要新增只读权限；现有 Grafana 看板只覆盖平台和 operator 自己的 45 个查询；JVM 指标种类有 Heap Used/Max、Non-Heap Used、GC 暂停、线程数，没有 Committed 和 GC 次数；平台没有集群级的持久化。
+- **与已做工作的冲突**：P9 的 C2、C3 把“平台的推荐值”当安全值，那是预测算法的结果，违背“本阶段不用预测”，要用 A2 的公式重做；`pkg/cost` 里的 kube-state-metrics 快照读取和分位数 `UsageOf` 与成本无关，A2 会复用，需要从成本包里拆出。
+- **参考截图里没照搬的**：顶部“负载分析 / 资源大屏”和“Top 10 / 命名空间占比”“单 Pod / 全副本”的切换（用户的页面规则禁止页签含分段切换，改成下拉）；所有金额口径和“降本”字样；平台预测副本的显示。
+- **用户的答复（同日）**：E10：成本代码从产品面拿掉、代码保留；E2：operator 只读，**产品只做节点相关的配置，Pod 信息只统计已配置的模块**（所以 E3 也定了：工作负载只统计模块，不自动发现全部）。其余 E1、E4～E9 还没答复。
+- **A6 已做（移出成本产品面）**：去掉菜单种子并把 `forecast-results_cost` 放进已退役菜单（旧库升级时删掉）；不再注册 `/api/v1/cost/*`；`CostPriceRule` 不再进迁移（新库没有 `cost_price_rule` 表）；四个 `cost.*` 不再播种；页面从 `views` 移到 `web/src/parked/cost`，去掉路由和菜单标题；`pkg/cost` 等代码都留着，测试照跑。验证：`go test` 通过 migration、timing、model、forecastsvc、app/...、cost；前端 `vue-tsc`、eslint、locale 测试、`pnpm run build` 通过，重新构建没有把路由生成回来。**没有跑实例确认菜单确实消失**；已经跑过带成本菜单迁移的库要再跑一次 `--migration` 才会删掉菜单行。
+- **没做**：任何 P10 的 A1～A5 代码；Grafana 的 JSON 没写；没有提交。
+
+2026-11-19 续：整理 P11（AI 资源智能分析与对话、异步计算与 502/504 治理），只有计划，没有代码
+- **起因**：用户给了两份需求：AI 重新规划为“Kubernetes 资源智能分析与决策引擎”（8 个能力、P0 到 P2 优先级、核心原则：不直接执行资源修改、不重复开发预测）；AI 对话页面与性能优化（独立页面、悬浮窗共享会话、Tool Calling、持久化；502/504 全链路、异步任务、进度、缓存、前端体验、超时治理、可靠性），并补充要求 AI 权限与审计、异步任务状态与生命周期、502/504 验收指标。让我按现在的内容和进度整理。
+- **做了（文档）**：新增 [ai-and-performance-p11.md](../.agents/skills/requirements/references/ai-and-performance-p11.md)：把两份需求合并去重成 AI-1～14、PF-1～11 并逐项对照现状；现状证据表；502/504 全链路检查清单（8 层，每层写了现象、线索、验证办法）；异步任务状态、转换和字段；AI 权限与审计表；AI 八个模块的落地方式与依赖；T1、T2 两条轨道的 B0～B6、C1～C6；与 P10 合并的总体顺序；验收指标；待确认的 G0～G9。AGENTS.md、`requirements` 技能、验收参考、融合约定和本文第 4 节同步；P10 的 A5 并入 P11 的 C6。
+- **对照代码的发现**：对话只存浏览器 `sessionStorage`，不入库，操作日志也明确不记它（与“持久化”“审计”直接冲突）；前端请求统一 60 秒超时；Helm 的 `ingress.annotations`、`gateway.timeouts` 都是空的，用网关默认值；主服务没有设 Read/Write 超时；手动流水线步骤（上限默认 300 秒）、变更预览（60 秒）、AI 对话（一次提问最长 90 秒 × 7 = 630 秒）都是同步请求，大于 60 秒就会被前端或网关先断；助手包里没有按角色过滤数据的代码；任务中心的 `Job` 有认领、心跳、重试，没有进度、取消、去重；算法结果、评分、评估、回测已入库；实时推送是 WebSocket。
+- **要先说清楚**：“同步长请求最可能是 504 的来源”是我从代码和配置推出的假设，**没有看到你的网关日志，也不知道出问题的是哪几个接口**；验收指标的数值是提议，现在没有任何基线测量。
+- **和 P10 的关系**：T1（性能与异步）不依赖 P10，502/504 是线上问题，建议先做；T2 的对话部分（C1、C2）用现有工具就能做；分析类工具和引擎（C3～C6）依赖 P10 的 A1、A2。
+- **要你确认**：G0～G9；最先要的是 G0（出问题的接口路径、时间、网关日志、Pod 重启记录），其次是 G1（会话入库、只有本人可见，会改变“对话不入库”的现有设计）。
+- **没做**：任何 P11 代码；没有测任何耗时基线；没有提交。
+
+2026-11-19 续：P11 的 B0、B5、B6 第一部分（504 的诊断与配置、前端体验），根因未定位
+- **起因**：用户要求先完成“1（504）”和“7（前端体验）”，并且 1 的配置要在系统设置里配置；同时要求系统参数页的“参数名称”一列只留标签。
+- **做了（后端）**：新增系统参数 `http.gateway_timeout_seconds`（60）、`http.slow_request_seconds`（3，0 关闭）、`ui.request_timeout_seconds`（60）、`ui.request_retries`（1）；慢请求日志的阈值改读系统参数，并单独记“客户端或网关在回答之前断开”的请求（带请求号、路由、耗时）；每个响应带 `X-Request-Id`；任何 `context deadline exceeded` 回 504、说明和 `X-Timeout-Source: platform`，不再是 500；手动流水线步骤、变更预览、评分、AI 提问的预算压在“网关超时 − 5 秒”之内；登录用户可读 `http.*`。
+- **做了（前端）**：请求层读这些参数（超时、网关、重试），已知长操作用“网关超时 + 10 秒”；超时、断网、网关错误各一句说明并带请求号；GET 在 502/503/断网时按参数自动重试（超时和 504 永不重试）；变更预览和评分显示已等待秒数并可取消（取消断开请求，平台随之停止，离开页面也取消）；系统参数页新增“接口与超时”分类，“参数名称”一列只留分类标签；Helm values 在 ingress 与 gateway 旁写明要把同一个数填进 `http.gateway_timeout_seconds`。
+- **验证**：`go test ./pkg/...`、`GOOS=linux` 构建；前端 `vue-tsc`、locale 测试、24 个单元测试、`pnpm run build` 通过。详见 [ai-and-performance-p11.md](../.agents/skills/requirements/references/ai-and-performance-p11.md) 末尾“已做的第一部分”。
+- **没验证／没做**：**没有在你的网关后面试过，根因没有定位**（G0：出问题的接口、时间、网关日志仍待你提供）；前端新行为没在浏览器里看过，没有注入 502 试过重试；手动流水线步骤被压到 55 秒是“先于网关停下并说明原因”，不是“能跑完”，能跑完要靠 B1（异步任务）；AI 提问仍是同步请求（C5 才是解决）；分批加载与逐步展示、聊天可停止没做；数据库连接池、Prometheus 并发、平台资源限制没核对；没有提交。
+
+2026-11-19 续：P11 增加“AI 业务感知能力”（C3 调整、C7～C11），只有计划，没有代码
+- **起因**：用户补充“AI 业务感知能力修复”：系统能力注册、按权限与当前页面注入上下文、Codex CLI 反代兼容检查、统一 AI 适配层（反代不支持 Tool Calling 时由后端走受控的结构化任务路由）、业务数据真实关联、会话上下文持久化、能力验证。目标是无论走反代还是标准 API，AI 都理解系统功能并真的调用已有业务分析能力，而不是只能普通聊天。
+- **查了什么**：平台这边读了 `pkg/assistant`（用 openai-go 的 Chat Completions，工具是手写的一组只读工具，系统提示是静态的一段话，前端只送消息和语言，没有页面、对象、权限，连接测试带一个 `ping` 工具）；反代那边读了 `openwebui-codex/codex-api/server.mjs`（仓库之外，只读代码，没运行，没登录）。
+- **关键发现**：Codex 反代只有 `/v1/chat/completions`、`/v1/models`、`/v1/usage`，**忽略 `tools`、不返回 `tool_calls`**，回答只有文本且 `finish_reason` 恒为 `stop`，没看到对 `tool` 角色消息的处理。所以平台的工具对这条连接完全不可用，这就是“AI 只能普通聊天、不知道系统功能”的直接原因。平台现有的连接测试只验证“服务接受 `tools` 参数”，不验证会返回 `tool_calls`，“测试通过”是误导的。反代是带自己工具的代理（`codex exec`，有沙箱设置），能在容器里执行命令，要核对沙箱只读、容器里没有凭据（G10）。多轮靠“聊天 → codex 线程”的对应关系续线程，条件含系统消息的哈希（我从代码推断），所以对这类反代，动态内容要放进用户消息，系统消息保持不变。
+- **做了（文档）**：[ai-and-performance-p11.md](../.agents/skills/requirements/references/ai-and-performance-p11.md) 新增“AI 业务感知能力”一节：需求对照 AW-1～7、Codex 反代检查结果表、三种工具模式（`native`、`text` 文本协议、`router` 规则路由）和 `tool_mode` 探测、能力注册表与覆盖检查测试、上下文注入（功能清单、当前对象、不能做的事，有 token 预算）、业务对象与指标（不让模型写任意 PromQL）、验收矩阵、C3 调整与 C7～C11、G10～G15；总体顺序改成先做 C3、C8、C7、C9。AGENTS.md、`requirements` 技能、验收参考和本文同步。
+- **没做**：任何代码；没有运行 Codex 反代，没有登录，所以“它不支持工具调用”是读代码的结论，**没有实测**；没有核对反代的沙箱设置；真实反代的验证只能你在自己的环境里手动走一遍；没有提交。
+
+2026-11-19 续：G0 的答复与 B0 的处理（历史数据页、预测结果、扩缩容记录的 502/504，预测表太大）
+- **G0 的答复**：历史数据页（dashboard）、预测结果、扩缩容记录等出现 502/504，用户判断是 PostgreSQL 里的预测数据太多。
+- **读代码的发现**：`forecast_prediction` 每次运行每个算法每个点每个分位数一行，估算每模块每天十几万行（假设数字，不是实际值）；历史页的 `compare` 在一个同步请求里依次读 Prometheus 实际值、副本数、PostgreSQL 预测，耗时是三者之和；预测查询按目标时间范围取数，但三个索引都不能按目标时间走，所以不管窗口多短都要读完该模块该指标的全部预测再过滤，还读两遍；`/predictions` 精确 `COUNT(*)` 加混合方向排序（网页没调用）；每小时清理是一条几亿行上的 `DELETE`，大事务和死元组会拖慢同库所有页面；扩缩容记录表应该比预测表小得多，更可能是被连累（推断）；`compare` 处理器把超时当成 400 报给前端。
+- **改了**：新索引 `idx_prediction_target`（PostgreSQL 用 `CREATE INDEX CONCURRENTLY` 在迁移前建，不阻塞写入，中断留下的无效索引会重建）；`compare` 的三项读取并行，支持 `predictions=false` 与 `actual=false`+`bucket_seconds`，响应带 `timings_ms`，慢阶段写日志；前端历史页先画实际值、再单独加预测，预测失败有提示和“重试预测”，删除写死的 6 分钟超时；`BadRequest` 里的超时统一回 504+原因；`/predictions` 和扩缩容记录的总数最多数到 10 万行（`total_capped`）；预测清理改成每批 1 万行、不超过新系统参数 `forecast.prune_budget_seconds`（120 秒）。
+- **验证**：`go test`（新增：索引列顺序、受限计数、分批删除与预算、forecasts-only 模式与网格对齐、`BadRequest` 超时）、Linux 构建；前端 `vue-tsc`、locale 测试、24 个单元测试、`pnpm run build`。**全部只在 SQLite 上**；PostgreSQL 的并发建索引、查询计划、清理分批没跑过；前端两步加载没在浏览器里看过。
+- **还要你决定／提供**：预测数据本身太多怎么办（缩短保留期、疏化旧数据、少存、分区、长窗口实际值改读本地样本），见 P11 文档 B0 一节；请在 PostgreSQL 上跑文档里的 5 条只读查询并贴出历史页 `compare` 响应里的 `timings_ms`，部署后先在低峰期跑 `--migration` 建索引。
+- **没做**：疏化旧数据、分区、改读本地样本；扩缩容记录的关键字 `LIKE` 查询没改；其他列表的计数没加上限；没有提交。

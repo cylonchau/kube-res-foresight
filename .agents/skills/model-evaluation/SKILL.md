@@ -27,6 +27,14 @@ description: 用于 kube-res-foresight 准确率、时间滚动回测、算法�
 
 评估缺口已按 P7 的 A1/A2 修复（2026-10-28，计划与状态见 [算法改进计划](../algorithm-library/references/improvement-plan.md)，实测基线见 [A0 基线](../algorithm-library/references/baseline-a0.md)）：候选与基线在共同起点上比较（`backtest.Origins`，起点铺开、默认 10 个、避开日周期整数倍，判定要求点数与起点数相同）；排名与晋升加入 RiskWAPE（低估按 3 倍计，定义见 [评估契约](references/evaluation.md)）。改评估时保持无泄漏，并用 `go run ./scripts/baseline -db <库>` 在同一份数据副本上对比前后；页面上的排名依据列要默认可见并配「?」说明。
 
+## 超配分析的评估口径（P10 规划）与成本与节省的评估口径（P9 暂缓）
+
+P10 的超配判断只依据真实历史（不用预测）：多窗口的 P50/P95/P99/Max、`MA(n, 步长)`、节流、OOM、JVM；每个结论带公式版本、代入的数、数据覆盖率和可信度，历史分析结果可对比可追溯；口径与默认值见 [overprovision-p10.md](../requirements/references/overprovision-p10.md)，它们没有经过真实数据验证，必须是可调的系统参数。
+
+下面是暂缓的成本口径（P9：C1～C4 只给“预计”；台账与“实际节省”C5 未实现）：
+
+成本闭环要区分四件事：**资源释放量**（前后 requests 之差 × 时间，是资源量不是钱）、**预计节省**（释放量按价格折算或装箱模拟的节点数，标“预计”）、**成本避免量**（需要增长假设，单列不进 KPI）、**实际节省**（与基线比，经节点小时或账单核实，只在节点数确实下降且价格已知时才有）。基线是优化生效前的窗口，同时记录负载量，负载变了就写“负载变化 x%”；没有基线依据不给“实际节省”。已有的 Pod·小时“多占”不是节省。机会不直接相加，合计由对合并结果重新模拟得出。调整后若容量 SLO、OOM、节流退化要记“未达标”并写原因，不静默当成功。全部口径、验收和顺序见 [cost-closure-p9.md](../requirements/references/cost-closure-p9.md)。
+
 ## 算法评分的准确度口径（R11）
 
 评分针对资源（CPU、内存、GPU）而不是副本数：负载需要的资源 ÷ 一个 Pod 的规格得出副本数，副本数不是独立的准确度。资源准确度 = 1 − Σ|预测−实际| ÷ Σ实际（低估乘 `Under`，下限 0）；每个资源有自己的分与排名，内存分另扣 OOM；综合分按权重合成，只有模块没有任何资源来源时才退回副本数。公式、例子与保留数量（`forecast.score_max_per_module`）见 [algorithm-framework-spec 第 17 节](../requirements/references/algorithm-framework-spec.md)；代码在 `pkg/scoring`。
