@@ -63,6 +63,8 @@ func TestPlatformCleanupPreservesGenericTasksAndAuthorization(t *testing.T) {
 	require.Contains(t, ask.BeApis, "POST /api/v1/assistant/chat")
 	require.Contains(t, ask.BeApis, "POST /api/v1/assistant/skill")
 	require.Contains(t, ask.BeApis, "GET /api/v1/assistant/export")
+	require.Contains(t, ask.BeApis, "POST /api/v1/assistant/conversations*", "the chat button also lets a user keep and read their own conversations")
+	require.Contains(t, ask.BeApis, "DELETE /api/v1/assistant/conversations*")
 	for _, root := range roots {
 		require.True(t, model.IsPlatformRoute(root.Code))
 	}

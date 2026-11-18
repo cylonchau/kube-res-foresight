@@ -63,6 +63,8 @@ type Service struct {
 	SkillStore *rdb.AssistantSkillDAO
 	// Tasks holds the AI scheduled tasks and their runs.
 	Tasks *rdb.AssistantTaskDAO
+	// Conversations holds the stored conversations of the users; nil keeps none.
+	Conversations *rdb.AssistantConversationDAO
 	// Started is when this platform process started; Database names its driver.
 	Started  time.Time
 	Database string

@@ -158,7 +158,7 @@ func seedPlatformPermissions() error {
 		{permission: model.Permission{Name: "Skill Management", Code: "ai-config_skill", Type: "MENU", FeRoute: "/ai-config/skill", FeComponent: "view.ai-config_skill", Icon: "carbon:flow", Sort: 2, Visible: true, Status: true,
 			BeApis: `["GET /api/v1/assistant/skills*","POST /api/v1/assistant/skills*","PUT /api/v1/assistant/skills*","DELETE /api/v1/assistant/skills*","GET /api/v1/assistant/connection-options"]`}, parentCode: "ai-config"},
 		{permission: model.Permission{Name: "AI Assistant Chat", Code: "assistant:chat", Type: "BUTTON", Status: true,
-			BeApis: `["GET /api/v1/assistant/status","POST /api/v1/assistant/chat","POST /api/v1/assistant/skill","GET /api/v1/assistant/export"]`}},
+			BeApis: `["GET /api/v1/assistant/status","POST /api/v1/assistant/chat","POST /api/v1/assistant/skill","GET /api/v1/assistant/export","GET /api/v1/assistant/conversations*","POST /api/v1/assistant/conversations*","PUT /api/v1/assistant/conversations*","DELETE /api/v1/assistant/conversations*"]`}},
 		{permission: model.Permission{Name: "Authorization", Code: "authorization", Type: "DIRECTORY", FeRoute: "/authorization", FeComponent: "layout.base", Icon: "carbon:user-role", Sort: 60, Visible: true, Status: true}},
 		{permission: model.Permission{Name: "Users", Code: "authorization_user", Type: "MENU", FeRoute: "/authorization/user", FeComponent: "view.authorization_user", Icon: "carbon:user", Sort: 1, Visible: true, Status: true}, parentCode: "authorization"},
 		{permission: model.Permission{Name: "Roles", Code: "authorization_role", Type: "MENU", FeRoute: "/authorization/role", FeComponent: "view.authorization_role", Icon: "carbon:group", Sort: 2, Visible: true, Status: true}, parentCode: "authorization"},

@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/cylonchau/kube-res-foresight/pkg/assistant"
@@ -67,17 +68,39 @@ func (q *Queue) HasOpen(ctx context.Context, taskID uint) (bool, error) {
 type Schedule struct {
 	Service *assistant.Service
 	Queue   *Queue
+	// lastPrune is when the conversations were last cleaned up (unix seconds): the job runs every minute, the clean-up every hour.
+	lastPrune atomic.Int64
 }
 
 func (t *Schedule) Type() string { return ScheduleJobType }
 
 // Execute queues the AI tasks that are due. An error is returned only when the tasks could not be read, so the job is tried again.
 func (t *Schedule) Execute(ctx context.Context, _ *model.Job) error {
+	t.pruneConversations(ctx)
 	n, err := t.Service.ScheduleDue(ctx, t.Queue)
 	if n > 0 {
 		logger.Info("queued AI scheduled tasks", logger.Int("count", n))
 	}
 	return err
+}
+
+// pruneConversations deletes the conversations that have been quiet longer than their retention (a system parameter), at most once an hour. A failure
+// is logged and tried again at the next hour: the queueing of the tasks does not wait for it.
+func (t *Schedule) pruneConversations(ctx context.Context) {
+	now := time.Now().Unix()
+	last := t.lastPrune.Load()
+	if now-last < 3600 || !t.lastPrune.CompareAndSwap(last, now) {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	n, err := t.Service.PruneConversations(ctx)
+	if err != nil {
+		logger.Error("could not delete the old AI conversations", logger.Err(err))
+	}
+	if n > 0 {
+		logger.Info("deleted old AI conversations", logger.Int("count", int(n)))
+	}
 }
 
 // Run is the ai.run job.

@@ -59,6 +59,8 @@ type AssistantChatReq struct {
 	Lang string `json:"lang"`
 	// Context is where the user is: the page and the object on it. The platform checks that the user may see the object.
 	Context *assistant.PageContext `json:"context"`
+	// ConversationID is a stored conversation of the user: the model is given what it holds, and the question and the answer are kept in it. Empty asks without keeping anything.
+	ConversationID uint `json:"conversation_id"`
 }
 
 // AssistantSkillReq runs a skill: its name (without the slash) and what the user typed after it.
@@ -66,6 +68,8 @@ type AssistantSkillReq struct {
 	Name string `json:"name" binding:"required"`
 	Args string `json:"args"`
 	Lang string `json:"lang"`
+	// ConversationID keeps the command and its answer in a stored conversation of the user.
+	ConversationID uint `json:"conversation_id"`
 }
 
 func assistantLang(raw string) string {
@@ -101,6 +105,8 @@ func (r *AssistantRouter) reply(c *gin.Context, reply *assistant.Reply, err erro
 	case errors.Is(err, context.DeadlineExceeded):
 		// the question took more than one request may: answered with the reason, before the gateway cuts it
 		query.TimedOut(c, err)
+	case errors.Is(err, assistant.ErrNoConversation):
+		query.ErrorResponse(c, http.StatusNotFound, err)
 	case assistant.IsRequestError(err):
 		query.BadRequest(c, err)
 	default:
@@ -121,7 +127,18 @@ func (r *AssistantRouter) Chat(c *gin.Context) {
 	}
 	ctx, cancel := r.questionContext(c)
 	defer cancel()
-	reply, err := r.Service.ChatIn(ctx, req.Messages, assistantLang(req.Lang), req.Context)
+	var reply *assistant.Reply
+	var err error
+	if req.ConversationID != 0 {
+		if len(req.Messages) == 0 {
+			query.BadRequest(c, errors.New("there is no question"))
+			return
+		}
+		// the conversation is the history; the question is the last message the page sent
+		reply, err = r.Service.ChatConversation(ctx, req.ConversationID, req.Messages[len(req.Messages)-1].Content, assistantLang(req.Lang), req.Context)
+	} else {
+		reply, err = r.Service.ChatIn(ctx, req.Messages, assistantLang(req.Lang), req.Context)
+	}
 	r.reply(c, reply, err)
 }
 
@@ -137,7 +154,14 @@ func (r *AssistantRouter) RunSkill(c *gin.Context) {
 	}
 	ctx, cancel := r.questionContext(c)
 	defer cancel()
-	reply, err := r.Service.RunSkill(ctx, strings.TrimPrefix(strings.TrimSpace(req.Name), "/"), req.Args, assistantLang(req.Lang))
+	name := strings.TrimPrefix(strings.TrimSpace(req.Name), "/")
+	var reply *assistant.Reply
+	var err error
+	if req.ConversationID != 0 {
+		reply, err = r.Service.SkillConversation(ctx, req.ConversationID, name, req.Args, assistantLang(req.Lang))
+	} else {
+		reply, err = r.Service.RunSkill(ctx, name, req.Args, assistantLang(req.Lang))
+	}
 	r.reply(c, reply, err)
 }
 
