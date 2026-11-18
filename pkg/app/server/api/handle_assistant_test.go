@@ -78,7 +78,7 @@ func newAssistantRig(t *testing.T, ready bool) *assistantRig {
 	t.Helper()
 	_, cpu := forecastTestRouter(t) // opens the database and creates the tables
 	db := model.DB
-	require.NoError(t, db.AutoMigrate(&model.AssistantConnection{}, &model.AssistantSkill{}, &model.AssistantTask{}, &model.AssistantTaskRun{}, &model.AssistantConversation{}, &model.AssistantMessage{}))
+	require.NoError(t, db.AutoMigrate(&model.AssistantConnection{}, &model.AssistantSkill{}, &model.AssistantTask{}, &model.AssistantTaskRun{}, &model.AssistantConversation{}, &model.AssistantMessage{}, &model.AssistantAudit{}))
 	modules, preds, cfg := rdb.NewModuleDAO(db), rdb.NewPredictionDAO(db), rdb.NewSysConfigDAO(db)
 	fc := forecastsvc.New(modules, rdb.NewMetricMappingDAO(db), rdb.NewDatasourceDAO(db), rdb.NewSampleDAO(db), preds)
 	for _, c := range assistant.DefaultConfigs() {
@@ -86,7 +86,7 @@ func newAssistantRig(t *testing.T, ready bool) *assistantRig {
 		require.NoError(t, db.Create(&row).Error)
 	}
 	rig := &assistantRig{llm: &scriptedLLM{}, config: cfg, conns: rdb.NewAssistantConnectionDAO(db), skills: rdb.NewAssistantSkillDAO(db), tasks: rdb.NewAssistantTaskDAO(db)}
-	rig.svc = assistant.NewService(&assistant.Service{DB: db, Forecast: fc, Modules: modules, Predictions: preds, Config: cfg, Connections: rig.conns, SkillStore: rig.skills, Tasks: rig.tasks, Conversations: rdb.NewAssistantConversationDAO(db), Database: "sqlite",
+	rig.svc = assistant.NewService(&assistant.Service{DB: db, Forecast: fc, Modules: modules, Predictions: preds, Config: cfg, Connections: rig.conns, SkillStore: rig.skills, Tasks: rig.tasks, Conversations: rdb.NewAssistantConversationDAO(db), Audits: rdb.NewAssistantAuditDAO(db), Database: "sqlite",
 		Started: runtimeNow.Add(-2 * time.Hour), Now: func() time.Time { return runtimeNow },
 		NewLLM: func(c assistant.Connection) assistant.LLM { rig.llm.conns = append(rig.llm.conns, c); return rig.llm }})
 	h := &AssistantRouter{Service: rig.svc}
@@ -112,6 +112,7 @@ func newAssistantRig(t *testing.T, ready bool) *assistantRig {
 	rig.r.GET("/assistant/status", h.Status)
 	rig.r.POST("/assistant/chat", h.Chat)
 	rig.r.POST("/assistant/skill", h.RunSkill)
+	rig.r.GET("/assistant/audit", h.ListAudits)
 	rig.r.GET("/assistant/conversations", h.ListConversations)
 	rig.r.POST("/assistant/conversations", h.CreateConversation)
 	rig.r.POST("/assistant/conversations/batch-delete", h.BatchDeleteConversations)

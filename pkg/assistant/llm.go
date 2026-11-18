@@ -42,6 +42,8 @@ type ToolSpec struct {
 type Completion struct {
 	Content   string
 	ToolCalls []ToolCall
+	// PromptTokens and CompletionTokens are what the service says the request cost; 0 when it does not say.
+	PromptTokens, CompletionTokens int
 }
 
 // LLM is a language model that can call tools.
@@ -128,7 +130,7 @@ func (o *openAI) Complete(ctx context.Context, messages []Message, tools []ToolS
 		return nil, errors.New("the language model answered nothing")
 	}
 	msg := res.Choices[0].Message
-	out := &Completion{Content: msg.Content}
+	out := &Completion{Content: msg.Content, PromptTokens: int(res.Usage.PromptTokens), CompletionTokens: int(res.Usage.CompletionTokens)}
 	for _, call := range msg.ToolCalls {
 		if fn := call.AsFunction(); fn.ID != "" && fn.Function.Name != "" {
 			out.ToolCalls = append(out.ToolCalls, ToolCall{ID: fn.ID, Name: fn.Function.Name, Arguments: fn.Function.Arguments})

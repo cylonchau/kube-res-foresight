@@ -215,12 +215,13 @@ func RegisteredRouter(e *gin.Engine) {
 	v1Group.GET("/operator/settings", runtimeHandler.OperatorSettings)
 	v1Group.GET("/dashboard", forecastHandler.Dashboard)
 	assistantHandler := &v1.AssistantRouter{Service: assistant.NewService(&assistant.Service{DB: model.DB, Forecast: forecastService, Modules: rdb.NewModuleDAO(model.DB),
-		Predictions: rdb.NewPredictionDAO(model.DB), Config: configHandler.DAO, Connections: rdb.NewAssistantConnectionDAO(model.DB), SkillStore: rdb.NewAssistantSkillDAO(model.DB), Tasks: rdb.NewAssistantTaskDAO(model.DB), Conversations: rdb.NewAssistantConversationDAO(model.DB), Database: databaseDriver(), Authorizer: v1.AssistantAuthorizer{Permissions: rdb.NewPermissionDAO(model.DB)}}),
+		Predictions: rdb.NewPredictionDAO(model.DB), Config: configHandler.DAO, Connections: rdb.NewAssistantConnectionDAO(model.DB), SkillStore: rdb.NewAssistantSkillDAO(model.DB), Tasks: rdb.NewAssistantTaskDAO(model.DB), Conversations: rdb.NewAssistantConversationDAO(model.DB), Audits: rdb.NewAssistantAuditDAO(model.DB), Database: databaseDriver(), Authorizer: v1.AssistantAuthorizer{Permissions: rdb.NewPermissionDAO(model.DB)}}),
 		Queue: &aitask.Queue{Jobs: rdb.NewJobDAO(model.DB)}}
 	// the assistant reads its settings through the DAO the settings page writes with: a change is seen at once, not after the cache of another DAO expires
 	v1Group.GET("/assistant/status", assistantHandler.Status)
 	v1Group.POST("/assistant/chat", assistantHandler.Chat)
 	v1Group.POST("/assistant/skill", assistantHandler.RunSkill)
+	v1Group.GET("/assistant/audit", assistantHandler.ListAudits)
 	v1Group.GET("/assistant/conversations", assistantHandler.ListConversations)
 	v1Group.POST("/assistant/conversations", assistantHandler.CreateConversation)
 	v1Group.POST("/assistant/conversations/batch-delete", assistantHandler.BatchDeleteConversations)

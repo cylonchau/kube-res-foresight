@@ -62,7 +62,7 @@ func (s *Service) StartConversation(ctx context.Context, title string) (*model.A
 	if n >= MaxConversations {
 		return nil, RequestError{Msg: "there are already 200 conversations: delete some before you start a new one"}
 	}
-	now := s.now()
+	now := s.now().UTC()
 	c := &model.AssistantConversation{OwnerID: o.ID, Title: TitleOf(title), CreatedAt: now, UpdatedAt: now}
 	return c, s.Conversations.Create(ctx, c)
 }
@@ -168,7 +168,7 @@ func (s *Service) record(ctx context.Context, o Owner, id uint, question string,
 		}
 	}
 	// the clock of the question, not of the answer, so the messages keep their order; the answer is a moment later
-	now := s.now()
+	now := s.now().UTC()
 	return s.Conversations.Append(ctx, o.ID, id, now, TitleOf(question), asked, answer)
 }
 
@@ -186,6 +186,7 @@ func (s *Service) ChatConversation(ctx context.Context, id uint, question, lang 
 	if stored+2 > MaxStoredMessages {
 		return nil, RequestError{Msg: "this conversation is full: start a new one"}
 	}
+	ctx = withConversation(ctx, id)
 	reply, askErr := s.ChatIn(ctx, append(history, Turn{Role: "user", Content: question}), lang, page)
 	if err := s.record(ctx, o, id, question, reply, askErr); err != nil && askErr == nil {
 		return nil, err
@@ -203,6 +204,7 @@ func (s *Service) SkillConversation(ctx context.Context, id uint, name, args, la
 	if _, err := s.Conversations.Get(ctx, o.ID, id); err != nil {
 		return nil, notFound(err)
 	}
+	ctx = withConversation(ctx, id)
 	reply, askErr := s.RunSkill(ctx, name, args, lang)
 	command := strings.TrimSpace("/" + name + " " + args)
 	if err := s.record(ctx, o, id, command, reply, askErr); err != nil && askErr == nil {

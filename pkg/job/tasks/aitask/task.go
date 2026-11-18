@@ -101,6 +101,11 @@ func (t *Schedule) pruneConversations(ctx context.Context) {
 	if n > 0 {
 		logger.Info("deleted old AI conversations", logger.Int("count", int(n)))
 	}
+	if n, err := t.Service.PruneAudits(ctx); err != nil {
+		logger.Error("could not delete the old AI audit records", logger.Err(err))
+	} else if n > 0 {
+		logger.Info("deleted old AI audit records", logger.Int("count", int(n)))
+	}
 }
 
 // Run is the ai.run job.

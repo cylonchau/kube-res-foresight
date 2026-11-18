@@ -282,7 +282,7 @@ func (s *Service) RunTask(ctx context.Context, taskID, jobID uint, trigger strin
 		if err != nil {
 			return finish(model.AIRunFailed, err.Error(), nil) // not set up: a retry would not mend it
 		}
-		reply, err := s.answer(ctx, *conn, []Turn{{Role: "user", Content: taskQuestion(t)}}, t.Lang, nil)
+		reply, err := s.answer(withSource(ctx, model.AIAuditTask), *conn, []Turn{{Role: "user", Content: taskQuestion(t)}}, t.Lang, nil)
 		if err != nil {
 			var notReady ErrNotReady
 			if errors.As(err, &notReady) {

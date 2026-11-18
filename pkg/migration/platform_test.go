@@ -51,6 +51,12 @@ func TestPlatformCleanupPreservesGenericTasksAndAuthorization(t *testing.T) {
 	var aiTask model.Permission
 	require.NoError(t, db.Where("code = ?", "ai-config_task").First(&aiTask).Error)
 	require.Equal(t, dir.ID, aiTask.ParentID)
+	var aiChat model.Permission
+	require.NoError(t, db.Where("code = ?", "ai-config_chat").First(&aiChat).Error)
+	require.Equal(t, dir.ID, aiChat.ParentID)
+	require.Equal(t, "view.ai-config_chat", aiChat.FeComponent)
+	require.Contains(t, aiChat.BeApis, "POST /api/v1/assistant/chat")
+	require.Contains(t, aiChat.BeApis, "GET /api/v1/assistant/conversations*")
 	require.Contains(t, aiTask.BeApis, "POST /api/v1/assistant/tasks*")
 	require.Contains(t, aiTask.BeApis, "DELETE /api/v1/assistant/tasks*")
 	require.NotContains(t, aiTask.BeApis, "assistant/chat")

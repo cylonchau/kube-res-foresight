@@ -411,7 +411,7 @@ func (s *Service) RunSkill(ctx context.Context, name, arg, lang string) (*Reply,
 			question += "\n\nArgument: " + arg
 		}
 	}
-	return s.answer(ctx, *conn, []Turn{{Role: "user", Content: question}}, lang, nil)
+	return s.answer(withSource(ctx, model.AIAuditSkill), *conn, []Turn{{Role: "user", Content: question}}, lang, nil)
 }
 
 // ProbeResult is the answer of a language model to the test of a connection.

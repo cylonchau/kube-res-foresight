@@ -77,6 +77,8 @@ type Service struct {
 	Authorizer Authorizer
 
 	slots chan struct{}
+	// Audits keeps the audit records of the questions; nil keeps none.
+	Audits *rdb.AssistantAuditDAO
 	// known remembers the tool mode found for each connection.
 	known modeKnown
 }
@@ -304,6 +306,21 @@ func (s *Service) ChatIn(ctx context.Context, history []Turn, lang string, page 
 // answer asks the language model, which reads what it needs through the tools, and returns its reply. How it reads depends on the connection: a
 // model that calls tools does (native); one that ignores them is given the plan protocol (text) or the platform reads for it (router).
 func (s *Service) answer(ctx context.Context, conn Connection, history []Turn, lang string, page *PageContext) (*Reply, error) {
+	t := &trail{}
+	ctx = context.WithValue(ctx, trailKey{}, t)
+	started := s.now()
+	reply, err := s.converse(ctx, conn, history, lang, page)
+	if err == nil || !notRecorded(err) {
+		// the record is written even when the request was cancelled (the question was asked), and never holds the answer back for long
+		actx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		s.audit(actx, conn, page, conversationOf(ctx), started, t, reply, err)
+	}
+	return reply, err
+}
+
+// converse is answer without the audit.
+func (s *Service) converse(ctx context.Context, conn Connection, history []Turn, lang string, page *PageContext) (*Reply, error) {
 	if s.slots == nil {
 		return nil, errors.New("the assistant is not initialised")
 	}
@@ -322,7 +339,7 @@ func (s *Service) answer(ctx context.Context, conn Connection, history []Turn, l
 	}
 	ctx, cancel := context.WithTimeout(ctx, total)
 	defer cancel()
-	llm := s.llmFor(conn)
+	var llm LLM = metered{inner: s.llmFor(conn), trail: trailOf(ctx)}
 	history = trimHistory(history, conn.ContextLength, conn.MaxTokens)
 
 	tools := s.tools(ctx)
@@ -332,7 +349,13 @@ func (s *Service) answer(ctx context.Context, conn Connection, history []Turn, l
 		byName[t.spec.Name] = t
 		specs = append(specs, t.spec)
 	}
-	switch s.modeOf(ctx, conn) {
+	mode := s.modeOf(ctx, conn)
+	if tr := trailOf(ctx); tr != nil {
+		tr.mu.Lock()
+		tr.mode = mode
+		tr.mu.Unlock()
+	}
+	switch mode {
 	case ModeText:
 		return s.answerText(ctx, conn, llm, history, lang, page, tools, byName)
 	case ModeRouter:
@@ -394,6 +417,12 @@ func (s *Service) runTool(ctx context.Context, byName map[string]tool, call Tool
 	}
 	t, ok := byName[call.Name]
 	if !ok {
+		if _, known := toolMetas[call.Name]; known {
+			// a tool of the registry that this user was not offered: it is recorded in the audit
+			if tr := trailOf(ctx); tr != nil {
+				tr.refuse(call.Name)
+			}
+		}
 		return fail(fmt.Errorf("there is no tool named %q", call.Name))
 	}
 	tctx, cancel := context.WithTimeout(ctx, toolTimeout)
