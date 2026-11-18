@@ -156,3 +156,40 @@ func conversationOf(ctx context.Context) uint {
 	id, _ := ctx.Value(conversationKey{}).(uint)
 	return id
 }
+
+type progressKey struct{}
+
+// WithProgress gives a question a function that is told what it does as it goes (a tool was read): an async task shows it to its owner while the
+// answer is still being made. The function is called from the goroutine of the question and must not block.
+func WithProgress(ctx context.Context, report func(kind string, data any)) context.Context {
+	return context.WithValue(ctx, progressKey{}, report)
+}
+
+func reportProgress(ctx context.Context, kind string, data any) {
+	if report, ok := ctx.Value(progressKey{}).(func(string, any)); ok && report != nil {
+		report(kind, data)
+	}
+}
+
+// PruneAsync deletes the finished background tasks older than the retention parameter, in batches, and returns how many went.
+func (s *Service) PruneAsync(ctx context.Context) (int64, error) {
+	if s.AsyncTasks == nil {
+		return 0, nil
+	}
+	hours := timing.AsyncRetentionHours.Default
+	if s.Config != nil {
+		if raw, err := s.Config.GetValueOrDefault(ctx, timing.AsyncRetentionHours.Key, ""); err == nil {
+			hours = timing.AsyncRetentionHours.Parse(raw)
+		}
+	}
+	cutoff := s.now().UTC().Add(-time.Duration(hours) * time.Hour)
+	var total int64
+	for ctx.Err() == nil {
+		n, err := s.AsyncTasks.PruneBefore(ctx, cutoff, pruneBatch)
+		total += n
+		if err != nil || n < pruneBatch {
+			return total, err
+		}
+	}
+	return total, ctx.Err()
+}

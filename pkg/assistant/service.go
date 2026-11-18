@@ -79,6 +79,8 @@ type Service struct {
 	slots chan struct{}
 	// Audits keeps the audit records of the questions; nil keeps none.
 	Audits *rdb.AssistantAuditDAO
+	// AsyncTasks holds the questions answered in the background; nil keeps none.
+	AsyncTasks *rdb.AsyncTaskDAO
 	// known remembers the tool mode found for each connection.
 	known modeKnown
 }
@@ -409,6 +411,12 @@ func (s *Service) converse(ctx context.Context, conn Connection, history []Turn,
 // runTool runs one call of the model. A failure is not an error of the question: it goes back to the model as the tool's answer, so it can
 // correct the arguments or say what it could not read.
 func (s *Service) runTool(ctx context.Context, byName map[string]tool, call ToolCall) (string, ToolTrace, *Attachment) {
+	content, trace, attachment := s.runToolCore(ctx, byName, call)
+	reportProgress(ctx, "tool", trace)
+	return content, trace, attachment
+}
+
+func (s *Service) runToolCore(ctx context.Context, byName map[string]tool, call ToolCall) (string, ToolTrace, *Attachment) {
 	trace := ToolTrace{Name: call.Name, Arguments: clip(call.Arguments, 200)}
 	fail := func(err error) (string, ToolTrace, *Attachment) {
 		trace.Error = clip(err.Error(), 200)

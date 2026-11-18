@@ -198,7 +198,7 @@ func bodyNotKept(path string) bool {
 	if key, ok := strings.CutPrefix(path, "/api/v1/configs/"); ok {
 		return model.IsSecretConfig(key)
 	}
-	return path == "/api/v1/assistant/chat"
+	return path == "/api/v1/assistant/chat" || path == "/api/v1/assistant/chat/async"
 }
 
 // redactJSON walks a JSON object/array replacing any value whose key looks

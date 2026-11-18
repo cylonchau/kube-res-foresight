@@ -14,6 +14,7 @@ import (
 	"github.com/cylonchau/kube-res-foresight/pkg/assistant"
 	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
 	"github.com/cylonchau/kube-res-foresight/pkg/forecastsvc"
+	"github.com/cylonchau/kube-res-foresight/pkg/job/tasks/asyncrun"
 	"github.com/cylonchau/kube-res-foresight/pkg/model"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -62,6 +63,7 @@ type assistantRig struct {
 	skills *rdb.AssistantSkillDAO
 	tasks  *rdb.AssistantTaskDAO
 	module *model.ForecastModule
+	async  *asyncrun.Queue
 }
 
 const rigKey = "sk-live-key-must-never-leak"
@@ -78,7 +80,7 @@ func newAssistantRig(t *testing.T, ready bool) *assistantRig {
 	t.Helper()
 	_, cpu := forecastTestRouter(t) // opens the database and creates the tables
 	db := model.DB
-	require.NoError(t, db.AutoMigrate(&model.AssistantConnection{}, &model.AssistantSkill{}, &model.AssistantTask{}, &model.AssistantTaskRun{}, &model.AssistantConversation{}, &model.AssistantMessage{}, &model.AssistantAudit{}))
+	require.NoError(t, db.AutoMigrate(&model.AssistantConnection{}, &model.AssistantSkill{}, &model.AssistantTask{}, &model.AssistantTaskRun{}, &model.AssistantConversation{}, &model.AssistantMessage{}, &model.AssistantAudit{}, &model.Job{}, &model.AsyncTask{}, &model.AsyncTaskEvent{}))
 	modules, preds, cfg := rdb.NewModuleDAO(db), rdb.NewPredictionDAO(db), rdb.NewSysConfigDAO(db)
 	fc := forecastsvc.New(modules, rdb.NewMetricMappingDAO(db), rdb.NewDatasourceDAO(db), rdb.NewSampleDAO(db), preds)
 	for _, c := range assistant.DefaultConfigs() {
@@ -86,10 +88,11 @@ func newAssistantRig(t *testing.T, ready bool) *assistantRig {
 		require.NoError(t, db.Create(&row).Error)
 	}
 	rig := &assistantRig{llm: &scriptedLLM{}, config: cfg, conns: rdb.NewAssistantConnectionDAO(db), skills: rdb.NewAssistantSkillDAO(db), tasks: rdb.NewAssistantTaskDAO(db)}
-	rig.svc = assistant.NewService(&assistant.Service{DB: db, Forecast: fc, Modules: modules, Predictions: preds, Config: cfg, Connections: rig.conns, SkillStore: rig.skills, Tasks: rig.tasks, Conversations: rdb.NewAssistantConversationDAO(db), Audits: rdb.NewAssistantAuditDAO(db), Database: "sqlite",
+	rig.svc = assistant.NewService(&assistant.Service{DB: db, Forecast: fc, Modules: modules, Predictions: preds, Config: cfg, Connections: rig.conns, SkillStore: rig.skills, Tasks: rig.tasks, Conversations: rdb.NewAssistantConversationDAO(db), Audits: rdb.NewAssistantAuditDAO(db), AsyncTasks: rdb.NewAsyncTaskDAO(db), Database: "sqlite",
 		Started: runtimeNow.Add(-2 * time.Hour), Now: func() time.Time { return runtimeNow },
 		NewLLM: func(c assistant.Connection) assistant.LLM { rig.llm.conns = append(rig.llm.conns, c); return rig.llm }})
-	h := &AssistantRouter{Service: rig.svc}
+	rig.async = &asyncrun.Queue{Tasks: rdb.NewAsyncTaskDAO(db), Jobs: rdb.NewJobDAO(db), Now: func() time.Time { return runtimeNow }}
+	h := &AssistantRouter{Service: rig.svc, Async: rig.async}
 	gin.SetMode(gin.TestMode)
 	rig.r = gin.New()
 	rig.r.Use(func(c *gin.Context) {
@@ -112,6 +115,11 @@ func newAssistantRig(t *testing.T, ready bool) *assistantRig {
 	rig.r.GET("/assistant/status", h.Status)
 	rig.r.POST("/assistant/chat", h.Chat)
 	rig.r.POST("/assistant/skill", h.RunSkill)
+	rig.r.POST("/assistant/chat/async", h.ChatAsync)
+	rig.r.GET("/assistant/async/:id", h.GetAsync)
+	rig.r.GET("/assistant/async/:id/events", h.AsyncEvents)
+	rig.r.POST("/assistant/async/:id/cancel", h.CancelAsync)
+	rig.r.POST("/assistant/async/:id/retry", h.RetryAsync)
 	rig.r.GET("/assistant/audit", h.ListAudits)
 	rig.r.GET("/assistant/conversations", h.ListConversations)
 	rig.r.POST("/assistant/conversations", h.CreateConversation)

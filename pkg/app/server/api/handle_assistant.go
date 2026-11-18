@@ -15,6 +15,7 @@ import (
 	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
 	"github.com/cylonchau/kube-res-foresight/pkg/forecastsvc"
 	"github.com/cylonchau/kube-res-foresight/pkg/job/tasks/aitask"
+	"github.com/cylonchau/kube-res-foresight/pkg/job/tasks/asyncrun"
 	"github.com/cylonchau/kube-res-foresight/pkg/model"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -26,6 +27,8 @@ type AssistantRouter struct {
 	Service *assistant.Service
 	// Queue asks the task center to run an AI scheduled task now; nil in a process that has no job table to write.
 	Queue *aitask.Queue
+	// Async queues the questions of the chat that are answered in the background; nil in a process that has no job table to write.
+	Async *asyncrun.Queue
 }
 
 // withOwner puts the signed-in user in the context of a question: with one, the assistant may make and manage that user's scheduled tasks.

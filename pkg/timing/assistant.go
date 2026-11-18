@@ -10,3 +10,8 @@ var ConversationRetentionDays = Param{Key: "assistant.conversation_retention_day
 var AuditRetentionDays = Param{Key: "assistant.audit_retention_days", Default: 15, Min: 1, Max: 3650,
 	Name:   "AI Audit Retention (days)",
 	Remark: "How many days the audit records of the AI assistant are kept: who asked, from which page, which model and mode, which tools were read or refused, how long it took and the tokens it used. A record holds no question, answer or tool result. The hourly clean-up deletes the older ones (1-3650)."}
+
+// AsyncRetentionHours is how long a finished async task, with its answer, is kept for its owner to come back to.
+var AsyncRetentionHours = Param{Key: "assistant.async_retention_hours", Default: 72, Min: 1, Max: 720,
+	Name:   "Background Task Retention (hours)",
+	Remark: "How many hours a finished background task of the assistant (a question answered in the background) is kept, with its answer, for the user who asked to come back to. The hourly clean-up deletes the older ones (1-720)."}

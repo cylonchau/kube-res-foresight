@@ -236,3 +236,22 @@ func (s *Service) PruneConversations(ctx context.Context) (int64, error) {
 	}
 	return total, ctx.Err()
 }
+
+// Preflight checks what a question needs before it is queued as an async task: the question is valid, the assistant is on and a model is set up,
+// and a stored conversation, if one is named, is the user's. It asks nothing of the model.
+func (s *Service) Preflight(ctx context.Context, history []Turn, conversationID uint) error {
+	if conversationID != 0 {
+		o, err := s.conversationOwner(ctx)
+		if err != nil {
+			return err
+		}
+		if _, err := s.Conversations.Get(ctx, o.ID, conversationID); err != nil {
+			return notFound(err)
+		}
+	}
+	if err := s.validate(history); err != nil {
+		return err
+	}
+	_, err := s.ready(ctx)
+	return err
+}
