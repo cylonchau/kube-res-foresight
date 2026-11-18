@@ -154,3 +154,32 @@ func TestQueryRangeBadQueryIsPermanent(t *testing.T) {
 	assert.True(t, IsPermanent(err))
 	assert.False(t, IsPermanent(errors.New("connection refused")))
 }
+
+func TestQueryVectorReturnsEverySeriesWithItsLabels(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/query", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.FormValue("query") == "empty" {
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[]}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[` +
+			`{"metric":{"__name__":"kube_node_status_allocatable","node":"n1","resource":"cpu"},"value":[1700000000,"3.9"]},` +
+			`{"metric":{"__name__":"kube_node_status_allocatable","node":"n2","resource":"cpu"},"value":[1700000000,"8"]}]}}`))
+	})
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+	client, err := New(Config{BaseURL: server.URL, Timeout: 5 * time.Second})
+	require.NoError(t, err)
+
+	got, err := client.QueryVector(context.Background(), "kube_node_status_allocatable", time.Unix(1700000000, 0))
+	require.NoError(t, err)
+	require.Len(t, got, 2, "unlike a range query, several series are an answer")
+	assert.Equal(t, map[string]string{"node": "n1", "resource": "cpu"}, got[0].Labels, "the metric name is not a label")
+	assert.InDelta(t, 3.9, got[0].Value, 1e-9)
+
+	none, err := client.QueryVector(context.Background(), "empty", time.Now())
+	require.NoError(t, err)
+	assert.Empty(t, none)
+	assert.NotNil(t, none)
+}

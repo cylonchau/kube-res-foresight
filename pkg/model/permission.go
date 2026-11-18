@@ -21,6 +21,8 @@ var retiredMenuCodes = map[string]bool{
 	"datasource_presets": true,
 	// the menu of the AI assistant became the directory AI configuration (LLM management and skill management)
 	"assistant": true,
+	// the cost page is out of the product while the cost module waits for its requirements (P9 on hold, 2026-11-19); a database that seeded it drops it
+	"forecast-results_cost": true,
 }
 
 // retiredButtonCodes are API permissions of removed features; the upgrade deletes them with their grants.

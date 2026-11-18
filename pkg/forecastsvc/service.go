@@ -49,7 +49,10 @@ type Service struct {
 	Telemetry *Telemetry
 
 	NewQuerier QuerierFactory
-	Now        func() time.Time
+	// Prices holds the price rules of the cost and NewCostQuerier builds the instant querier of its data source (nil: Prometheus).
+	Prices         *rdb.CostPriceDAO
+	NewCostQuerier CostQuerierFactory
+	Now            func() time.Time
 	// FetchOptions overrides the request budget; the datasource concurrency is applied on top.
 	FetchOptions collector.Options
 
@@ -67,7 +70,7 @@ type Service struct {
 // New builds a service on the shared database handle.
 func New(modules *rdb.ModuleDAO, mappings *rdb.MetricMappingDAO, datasources *rdb.DatasourceDAO, samples *rdb.SampleDAO, predictions *rdb.PredictionDAO) *Service {
 	return &Service{Modules: modules, Mappings: mappings, Datasources: datasources, Samples: samples, Predictions: predictions,
-		NewQuerier: PromQuerierFactory, Now: time.Now, Telemetry: SharedTelemetry(), RunStates: rdb.NewRunStateDAO(modules.DB()), Config: rdb.NewSysConfigDAO(modules.DB()),
+		NewQuerier: PromQuerierFactory, NewCostQuerier: PromCostQuerier, Prices: rdb.NewCostPriceDAO(modules.DB()), Now: time.Now, Telemetry: SharedTelemetry(), RunStates: rdb.NewRunStateDAO(modules.DB()), Config: rdb.NewSysConfigDAO(modules.DB()),
 		Algorithms: rdb.NewAlgorithmDAO(modules.DB())}
 }
 

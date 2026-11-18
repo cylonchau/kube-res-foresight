@@ -178,6 +178,38 @@ func IsPermanent(err error) bool {
 	return errors.As(err, &apiErr) && apiErr.Type == promv1.ErrBadData
 }
 
+// VectorSample is one series of an instant query: its labels (without the metric name) and its value.
+type VectorSample struct {
+	Labels map[string]string
+	Value  float64
+}
+
+// QueryVector runs one instant query at a moment and returns every series of the answer, unlike QueryRange which insists on one. An
+// empty answer is an empty slice, not an error.
+func (c *Client) QueryVector(ctx context.Context, query string, at time.Time) ([]VectorSample, error) {
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+	value, _, err := c.api.Query(ctx, query, at)
+	if err != nil {
+		return nil, err
+	}
+	vector, ok := value.(model.Vector)
+	if !ok {
+		return nil, fmt.Errorf("unexpected result type %s for an instant query", value.Type())
+	}
+	out := make([]VectorSample, 0, len(vector))
+	for _, s := range vector {
+		labels := make(map[string]string, len(s.Metric))
+		for k, v := range s.Metric {
+			if k != model.MetricNameLabel {
+				labels[string(k)] = string(v)
+			}
+		}
+		out = append(out, VectorSample{Labels: labels, Value: float64(s.Value)})
+	}
+	return out, nil
+}
+
 // QueryRange runs one query_range and returns its single series ordered by time. An empty result is a nil
 // slice, not an error: the window simply has no data.
 func (c *Client) QueryRange(ctx context.Context, query string, start, end time.Time, step time.Duration) ([]Sample, error) {

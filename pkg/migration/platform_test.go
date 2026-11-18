@@ -168,7 +168,7 @@ func TestSeedPlatformPermissionsIncludesTheSplitForecastMenus(t *testing.T) {
 		require.NotEmpty(t, menu.Icon, code)
 		require.True(t, model.IsPlatformRoute(code), code)
 	}
-	for _, code := range []string{"forecast_history", "forecast_evaluation", "forecast_recommendations", "forecast_metrics", "authorization_ldap", "forecast_modules", "forecast_algorithm-templates", "forecast_input-sets", "forecast_catalog", "forecast_sources", "forecast-modules_bindings"} {
+	for _, code := range []string{"forecast_history", "forecast_evaluation", "forecast_recommendations", "forecast_metrics", "authorization_ldap", "forecast_modules", "forecast_algorithm-templates", "forecast_input-sets", "forecast_catalog", "forecast_sources", "forecast-modules_bindings", "forecast-results_cost"} {
 		var n int64
 		require.NoError(t, db.Model(&model.Permission{}).Where("code = ?", code).Count(&n).Error)
 		require.Zero(t, n, "the retired menu %s is not seeded", code)
