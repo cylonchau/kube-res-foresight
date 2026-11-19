@@ -108,3 +108,34 @@ func setupPlatformDB(t *testing.T) *gorm.DB {
 	require.NoError(t, seedPlatformPermissions())
 	return db
 }
+
+func TestThePagesOfUsersRolesAndLogsHaveTheirButtonsSeededUnderTheirMenusAndTheAdministratorHoldsThem(t *testing.T) {
+	db := setupPlatformDB(t)
+	want := map[string]string{
+		"authorization:user:add": "authorization_user", "authorization:user:batchDelete": "authorization_user", "authorization:user:edit": "authorization_user",
+		"authorization:user:resetOtp": "authorization_user", "authorization:user:delete": "authorization_user",
+		"authorization:role:add": "authorization_role", "authorization:role:batchDelete": "authorization_role", "authorization:role:edit": "authorization_role",
+		"authorization:role:delete": "authorization_role", "system:operation-log:clear": "system_operation-log",
+	}
+	var admin model.Role
+	require.NoError(t, db.Preload("Permissions").Where("code = ?", "ADMIN").First(&admin).Error)
+	held := map[string]bool{}
+	for _, p := range admin.Permissions {
+		held[p.Code] = true
+	}
+	for code, menuCode := range want {
+		var button, menu model.Permission
+		require.NoError(t, db.Where("code = ?", code).First(&button).Error, code)
+		require.NoError(t, db.Where("code = ?", menuCode).First(&menu).Error, menuCode)
+		assert.Equal(t, "BUTTON", button.Type, code)
+		assert.Equal(t, menu.ID, button.ParentID, "%s sits under %s: the page reads its buttons from there", code, menuCode)
+		assert.Contains(t, []string{"row", "header"}, button.Position, code)
+		assert.NotEmpty(t, button.BeApis, "%s carries the route it needs", code)
+		assert.True(t, held[code], "the administrator holds %s", code)
+	}
+	// a second run changes nothing
+	require.NoError(t, seedPlatformPermissions())
+	var count int64
+	require.NoError(t, db.Model(&model.Permission{}).Where("code = ?", "authorization:role:edit").Count(&count).Error)
+	assert.EqualValues(t, 1, count)
+}

@@ -207,6 +207,7 @@ func seedPlatformPermissions() error {
 		{permission: model.Permission{Name: "Read APIs", Code: "sys:all:read", Type: "BUTTON", BeApis: `["GET /api/v1/*"]`, Status: true}},
 		{permission: model.Permission{Name: "Write APIs", Code: "sys:all:write", Type: "BUTTON", BeApis: `["POST /api/v1/*","PUT /api/v1/*","DELETE /api/v1/*"]`, Status: true}},
 	}
+	seeds = append(seeds, pageButtons()...)
 	ids := make(map[string]uint)
 	for i := range seeds {
 		seed := &seeds[i]
