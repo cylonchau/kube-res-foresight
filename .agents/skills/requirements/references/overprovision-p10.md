@@ -226,4 +226,4 @@
 
 ## 资源大盘改版（2026-11-19）
 
-用户给了“资源大盘与模块分析页面优化需求”（紧凑小卡片、四项配置、动态指标、窗口修复、选模块后只看该模块、P90/P95/P99、历史分析、一键 AI 分析）和一张 Grafana 参考图。做了什么、没做什么见 [platform-progress.md](../../../../docs/platform-progress.md) 末尾同日条目；要点：模块页只显示该模块；其他指标只显示配置了的（Container、JVM、限流、OOM）；P90 已加；上限无指标时用模块的上限系数并标明来源；集群现读 kube-state-metrics（未验证）；一键 AI 分析走助手的后台任务；**分位数仍是平台存下的样本算的，不是对 Prometheus 实时查**。参考图里的节点明细表、HPA 扩容趋势、Ready 节点趋势没有做（要 A1 的节点数据或另外写 PromQL）。
+用户给了“资源大盘与模块分析页面优化需求”（紧凑小卡片、四项配置、动态指标、窗口修复、选模块后只看该模块、P90/P95/P99、历史分析、一键 AI 分析）和一张 Grafana 参考图。做了什么、没做什么见 [platform-progress.md](../../../../docs/platform-progress.md) 末尾同日条目；要点：模块页只显示该模块；其他指标只显示配置了的（Container、JVM、限流、OOM）；P90 已加；上限无指标时用模块的上限系数并标明来源；集群向模块数据源（Prometheus）现查（未对真实实例试过）；一键 AI 分析走助手的后台任务；**分位数向模块数据源（Prometheus）现查（quantile_over_time），判定仍用平台存下的样本；见 platform-progress 同日“数据来源是 Prometheus”条目**。参考图里的节点明细表、HPA 扩容趋势、Ready 节点趋势没有做（要 A1 的节点数据或另外写 PromQL）。

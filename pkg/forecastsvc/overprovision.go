@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cylonchau/kube-res-foresight/pkg/cost"
 	"github.com/cylonchau/kube-res-foresight/pkg/model"
 	"github.com/cylonchau/kube-res-foresight/pkg/overprovision"
 	"github.com/cylonchau/kube-res-foresight/pkg/timing"
@@ -806,23 +807,41 @@ func (l *opLoader) metrics(from, to int64) []MetricStat {
 	return out
 }
 
-// ClusterCapacity is what the cluster of a module's data source has to give and has given out right now: the nodes, what they can allocate, and what the
-// Running Pods request. It is read live from kube-state-metrics (the snapshot of the parked cost module, which reads the cluster and nothing else), not from
-// what the platform stored, and none of it is stored; a data source without kube-state-metrics has none of it and the page says so.
+// ClusterCapacity is what the cluster of a module's data source has to give, has given out and uses right now: the nodes, what they can allocate, what the
+// Running Pods request and what the containers use. Every figure is the answer of the Prometheus data source of the module to the queries listed in
+// Queries (the series names are the usual ones of the node, the Pod and the container metrics, and are shown so that they can be checked in Grafana),
+// asked now; none of it is stored, and a figure Prometheus has no series for is left out with a note.
 type ClusterCapacity struct {
 	Datasource CostSource `json:"datasource"`
 	At         time.Time  `json:"at"`
 	Nodes      int        `json:"nodes"`
 	Pods       int        `json:"pods"`
 	// AllocatableCPU is in cores, AllocatableMemory in bytes; RequestedCPU and RequestedMemory are the sums of the requests of the Running Pods.
-	AllocatableCPU    float64  `json:"allocatable_cpu"`
-	AllocatableMemory float64  `json:"allocatable_memory"`
-	RequestedCPU      float64  `json:"requested_cpu"`
-	RequestedMemory   float64  `json:"requested_memory"`
-	Notes             []string `json:"notes"`
+	AllocatableCPU    float64 `json:"allocatable_cpu"`
+	AllocatableMemory float64 `json:"allocatable_memory"`
+	RequestedCPU      float64 `json:"requested_cpu"`
+	RequestedMemory   float64 `json:"requested_memory"`
+	// UsedCPU is in cores and UsedMemory in bytes: what all the containers use now; 0 with a note when Prometheus has no such series.
+	UsedCPU    float64 `json:"used_cpu"`
+	UsedMemory float64 `json:"used_memory"`
+	// Queries are the PromQL that was sent, by what it asks for.
+	Queries []ClusterQuery `json:"queries"`
+	Notes   []string       `json:"notes"`
 }
 
-// ClusterCapacityOf reads the cluster of the data source of a module (its first source's mapping); datasourceID overrides it when it is not 0.
+// ClusterQuery is a query sent for the capacity of the cluster.
+type ClusterQuery struct {
+	Name  string `json:"name"`
+	Query string `json:"query"`
+}
+
+// The queries for what the containers of the cluster use (cAdvisor, as the Prometheus of the data source holds it).
+const (
+	ClusterUsedCPUQuery    = `sum(rate(container_cpu_usage_seconds_total{container!="",container!="POD"}[5m]))`
+	ClusterUsedMemoryQuery = `sum(container_memory_working_set_bytes{container!="",container!="POD"})`
+)
+
+// ClusterCapacityOf asks the Prometheus data source of a module (its first source's mapping) about its cluster; datasourceID overrides it when it is not 0.
 func (s *Service) ClusterCapacityOf(ctx context.Context, moduleID, datasourceID uint) (*ClusterCapacity, error) {
 	if datasourceID == 0 {
 		sources, err := s.Modules.Sources(ctx, moduleID)
@@ -845,7 +864,20 @@ func (s *Service) ClusterCapacityOf(ctx context.Context, moduleID, datasourceID 
 	if err != nil {
 		return nil, err
 	}
-	out := &ClusterCapacity{Datasource: CostSource{ID: ds.ID, Name: ds.Name}, At: snap.At, Nodes: len(snap.Nodes), Pods: len(snap.Pods), Notes: append([]string{}, snap.Notes...)}
+	out := &ClusterCapacity{Datasource: CostSource{ID: ds.ID, Name: ds.Name}, At: snap.At, Nodes: len(snap.Nodes), Pods: len(snap.Pods), Notes: append([]string{}, snap.Notes...),
+		Queries: []ClusterQuery{{"allocatable", cost.QueryAllocatable}, {"requests", cost.QueryRequests}, {"pods", cost.QueryPods}, {"used_cpu", ClusterUsedCPUQuery}, {"used_memory", ClusterUsedMemoryQuery}}}
+	if q, err := s.vectorQuerierOf(ctx, ds); err == nil {
+		if v, err := scalarOf(ctx, q, ClusterUsedCPUQuery, snap.At); err == nil {
+			out.UsedCPU = v
+		} else {
+			out.Notes = append(out.Notes, "used CPU: "+err.Error())
+		}
+		if v, err := scalarOf(ctx, q, ClusterUsedMemoryQuery, snap.At); err == nil {
+			out.UsedMemory = v
+		} else {
+			out.Notes = append(out.Notes, "used memory: "+err.Error())
+		}
+	}
 	for _, n := range snap.Nodes {
 		out.AllocatableCPU += float64(n.CPUMilli) / 1000
 		out.AllocatableMemory += float64(n.MemoryBytes)

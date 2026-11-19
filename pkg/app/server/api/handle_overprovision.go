@@ -102,7 +102,7 @@ func (r *ForecastRouter) ModuleOverprovision(c *gin.Context) {
 }
 
 // OverprovisionCluster serves GET /overprovision/cluster?module_id=&datasource_id=: what the cluster of the data source of the module has to give and
-// has given out (nodes, allocatable, the requests of the Running Pods), read live from kube-state-metrics. Nothing is stored.
+// has given out (nodes, allocatable, the requests of the Running Pods), asked of the Prometheus data source now. Nothing is stored.
 // @Summary The capacity of the cluster
 // @Tags Forecast
 // @Router /api/v1/overprovision/cluster [get]
@@ -113,6 +113,36 @@ func (r *ForecastRouter) OverprovisionCluster(c *gin.Context) {
 			query.BadRequest(c, err)
 			return
 		}
+		r.writeError(c, err)
+		return
+	}
+	query.SuccessResponse(c, nil, out)
+}
+
+// ModulePrometheusStats serves GET /modules/:id/overprovision/prometheus?window=&from=&to=: the P50, P90, P95, P99 and the maximum of the CPU, the memory and every
+// other metric of the module, as the Prometheus data source computes them now (quantile_over_time over a subquery of the PromQL of the metric mapping), with
+// the PromQL that was sent. Nothing is stored.
+// @Summary The quantiles of a module, from Prometheus
+// @Tags Forecast
+// @Router /api/v1/modules/{id}/overprovision/prometheus [get]
+func (r *ForecastRouter) ModulePrometheusStats(c *gin.Context) {
+	id, ok := parseUintParam(c, "id")
+	if !ok {
+		return
+	}
+	minutes, ok := windowQuery(c)
+	if !ok {
+		return
+	}
+	var from, to time.Time
+	if f := timeQuery(c, "from"); f != nil {
+		from = *f
+	}
+	if t := timeQuery(c, "to"); t != nil {
+		to = *t
+	}
+	out, err := r.Service.PrometheusStats(c.Request.Context(), id, minutes, from, to)
+	if err != nil {
 		r.writeError(c, err)
 		return
 	}

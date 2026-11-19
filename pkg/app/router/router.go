@@ -182,6 +182,7 @@ func RegisteredRouter(e *gin.Engine) {
 	moduleGroup.GET("/:id/effect-report", forecastHandler.ModuleEffectReport)
 	moduleGroup.GET("/:id/metric-catalog", forecastHandler.ModuleMetricCatalog)
 	moduleGroup.GET("/:id/overprovision", forecastHandler.ModuleOverprovision)
+	moduleGroup.GET("/:id/overprovision/prometheus", forecastHandler.ModulePrometheusStats)
 	moduleGroup.POST("/:id/change-preview", forecastHandler.ModuleChangePreview)
 	moduleGroup.POST("/:id/run", forecastHandler.ModuleRun)
 	moduleGroup.POST("/:id/steps/:step", forecastHandler.ModuleStepAsync)
