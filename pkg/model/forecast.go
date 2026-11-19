@@ -560,9 +560,9 @@ type Prediction struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
 	CreatedAt time.Time `gorm:"index" json:"created_at"`
 
-	ModuleID         uint      `gorm:"not null;uniqueIndex:idx_prediction,priority:1;index:idx_prediction_lookup,priority:1;index:idx_prediction_target,priority:1" json:"module_id"`
-	Metric           string    `gorm:"type:varchar(20);not null;uniqueIndex:idx_prediction,priority:2;index:idx_prediction_lookup,priority:2;index:idx_prediction_target,priority:2" json:"metric"`
-	PredictionTime   time.Time `gorm:"not null;uniqueIndex:idx_prediction,priority:3;index:idx_prediction_lookup,priority:3;index:idx_prediction_target,priority:5" json:"prediction_time"`
+	ModuleID         uint      `gorm:"not null;uniqueIndex:idx_prediction,priority:1;index:idx_prediction_target,priority:1" json:"module_id"`
+	Metric           string    `gorm:"type:varchar(20);not null;uniqueIndex:idx_prediction,priority:2;index:idx_prediction_target,priority:2" json:"metric"`
+	PredictionTime   time.Time `gorm:"not null;uniqueIndex:idx_prediction,priority:3;index:idx_prediction_target,priority:5" json:"prediction_time"`
 	TargetTime       time.Time `gorm:"not null;uniqueIndex:idx_prediction,priority:4;index:idx_prediction_target,priority:3" json:"target_time"`
 	AlgorithmID      string    `gorm:"type:varchar(40);not null;uniqueIndex:idx_prediction,priority:5;index:idx_prediction_target,priority:4" json:"algorithm_id"`
 	ModelVersion     string    `gorm:"type:varchar(64);not null;uniqueIndex:idx_prediction,priority:6" json:"model_version"`

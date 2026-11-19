@@ -527,6 +527,9 @@ type Retention struct {
 	// PredictionPruneBudget is the longest one run of the clean-up spends deleting old forecasts, a batch of ten thousand rows at a time; what is
 	// left is for the next run. The forecast table is the biggest of the platform, and one DELETE of millions of rows is a transaction of minutes.
 	PredictionPruneBudget time.Duration
+	// PredictionThinAfter is the age from which a forecast that a newer run replaced is deleted (see timing.PredictionThinAfter); 0 = never. The clean-up
+	// spends PredictionPruneBudget on it as well, after the deletion of the expired forecasts.
+	PredictionThinAfter time.Duration
 }
 
 // DefaultEvaluationsPerModule is how many measured evaluations a module keeps unless the system parameter says otherwise.
@@ -568,6 +571,13 @@ func (dao *PredictionDAO) Prune(ctx context.Context, now time.Time, r Retention)
 	if r.Predictions > 0 {
 		n, err := deleteInBatches(ctx, dao.db, &model.Prediction{}, "created_at < ?", []interface{}{now.Add(-r.Predictions)}, 10000, r.PredictionPruneBudget)
 		removed["predictions"] = n
+		if err != nil {
+			return removed, err
+		}
+	}
+	if r.PredictionThinAfter > 0 {
+		n, err := dao.ThinPredictions(ctx, now.Add(-r.PredictionThinAfter), r.PredictionPruneBudget)
+		removed["predictions_thinned"] = n
 		if err != nil {
 			return removed, err
 		}

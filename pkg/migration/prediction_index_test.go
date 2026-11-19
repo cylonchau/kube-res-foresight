@@ -21,7 +21,8 @@ func TestThePredictionTargetIndexIsCreatedFromTheModelOutsidePostgres(t *testing
 	require.NoError(t, db.AutoMigrate(&model.Prediction{}))
 	require.NoError(t, ensurePredictionTargetIndex(db))
 	assert.True(t, db.Migrator().HasIndex(&model.Prediction{}, predictionTargetIndex))
-	assert.True(t, db.Migrator().HasIndex(&model.Prediction{}, "idx_prediction_lookup"), "the older indexes are kept")
+	assert.False(t, db.Migrator().HasIndex(&model.Prediction{}, "idx_prediction_lookup"), "the model no longer declares the redundant index")
+	assert.True(t, db.Migrator().HasIndex(&model.Prediction{}, "idx_prediction"), "the unique index starts with the same columns")
 
 	var columns []string
 	require.NoError(t, db.Raw(`SELECT name FROM pragma_index_info(?) ORDER BY seqno`, predictionTargetIndex).Scan(&columns).Error)
@@ -41,4 +42,18 @@ func TestTheListIndexesAreInTheModelsAndTheirNamesAreTheOnesTheMigrationBuildsOn
 		require.NoError(t, db.Raw(`SELECT name FROM pragma_index_info(?) ORDER BY seqno`, ix.name).Scan(&cols).Error)
 		assert.Equal(t, ix.columns, strings.Join(cols, ", "), "%s has the columns the PostgreSQL build uses", ix.name)
 	}
+}
+
+// A database that has the index drops it; the unique index, which starts with the same columns, stays.
+func TestTheRedundantPredictionIndexIsDroppedFromAnExistingDatabase(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, dropRedundantPredictionIndex(db), "no table: nothing to do")
+	require.NoError(t, db.AutoMigrate(&model.Prediction{}))
+	require.NoError(t, db.Exec("CREATE INDEX "+redundantPredictionIndex+" ON forecast_prediction (module_id, metric, prediction_time)").Error)
+	require.True(t, db.Migrator().HasIndex("forecast_prediction", redundantPredictionIndex))
+	require.NoError(t, dropRedundantPredictionIndex(db))
+	assert.False(t, db.Migrator().HasIndex("forecast_prediction", redundantPredictionIndex))
+	assert.True(t, db.Migrator().HasIndex("forecast_prediction", "idx_prediction"))
+	require.NoError(t, dropRedundantPredictionIndex(db), "idempotent")
 }

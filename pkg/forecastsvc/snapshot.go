@@ -145,6 +145,7 @@ func (s *Service) RetentionPolicy(ctx context.Context) rdb.Retention {
 			}
 		}
 		r.PredictionPruneBudget = s.Timing(ctx, timing.PruneBudget)
+		r.PredictionThinAfter = time.Duration(s.Count(ctx, timing.PredictionThinAfter)) * time.Hour
 		if days := s.HistoryDays(ctx, 0); days > 0 {
 			d := time.Duration(days) * 24 * time.Hour
 			r.Predictions, r.Backtests, r.Recommendations, r.Evaluations, r.Trainings = d, d, d, d, d

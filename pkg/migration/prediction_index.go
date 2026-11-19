@@ -111,3 +111,29 @@ func ensureListIndexes(db *gorm.DB) error {
 	}
 	return nil
 }
+
+// redundantPredictionIndex was (module, metric, prediction time) on the forecast table: the unique index of the table starts with the same three
+// columns, so every read it served is served by that one, and it cost a third of the space of the indexes of the biggest table of the platform
+// and a write on every insert. The model does not declare it any more; an existing database drops it here (without blocking the writes on
+// PostgreSQL, where a plain DROP INDEX waits for every statement on the table).
+const redundantPredictionIndex = "idx_prediction_lookup"
+
+func dropRedundantPredictionIndex(db *gorm.DB) error {
+	if db == nil || db.Dialector == nil || !db.Migrator().HasTable("forecast_prediction") {
+		return nil
+	}
+	if !db.Migrator().HasIndex("forecast_prediction", redundantPredictionIndex) {
+		return nil
+	}
+	fmt.Printf("upgrade: dropping the redundant index %s of forecast_prediction (the unique index starts with the same columns)\n", redundantPredictionIndex)
+	if db.Dialector.Name() == "postgres" {
+		if err := db.Exec("DROP INDEX CONCURRENTLY IF EXISTS " + redundantPredictionIndex).Error; err != nil {
+			return fmt.Errorf("drop index %s: %w", redundantPredictionIndex, err)
+		}
+		return nil
+	}
+	if err := db.Migrator().DropIndex("forecast_prediction", redundantPredictionIndex); err != nil {
+		return fmt.Errorf("drop index %s: %w", redundantPredictionIndex, err)
+	}
+	return nil
+}
