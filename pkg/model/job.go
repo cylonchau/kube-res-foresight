@@ -9,7 +9,7 @@ import (
 // Using the database instead of MQ ensures traceability and stateless multi-instance deployment.
 type Job struct {
 	ID        int64          `gorm:"primaryKey;autoIncrement" json:"id" column_setting:"true"`
-	CreatedAt time.Time      `json:"created_at" column_setting:"false"`
+	CreatedAt time.Time      `gorm:"index" json:"created_at" column_setting:"false"`
 	UpdatedAt time.Time      `json:"updated_at" column_setting:"false"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"-" column_setting:"false"`
 

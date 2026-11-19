@@ -2,6 +2,7 @@ package rdb
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/cylonchau/kube-res-foresight/pkg/model"
@@ -716,4 +717,56 @@ func (dao *PredictionDAO) RunForecast(ctx context.Context, moduleID uint, metric
 	err := dao.db.WithContext(ctx).Where("module_id = ? AND metric = ? AND algorithm_id = ? AND prediction_time >= ? AND prediction_time <= ?",
 		moduleID, metric, algorithmID, predictionTime.Add(-time.Second), predictionTime.Add(time.Second)).Order("target_time ASC").Limit(maxCompareRows).Find(&rows).Error
 	return rows, err
+}
+
+// LatestForModule is the newest timestamp stored in any series of the module (0 when there is none): one number that moves whenever the history of the module
+// gets a newer sample.
+func (dao *SampleDAO) LatestForModule(ctx context.Context, moduleID uint) (int64, error) {
+	var ts *int64
+	err := dao.db.WithContext(ctx).Model(&model.MetricSample{}).
+		Where("series_id IN (?)", dao.db.Model(&model.MetricSeries{}).Select("id").Where("module_id = ?", moduleID)).
+		Select("MAX(ts)").Scan(&ts).Error
+	if err != nil || ts == nil {
+		return 0, err
+	}
+	return *ts, nil
+}
+
+// ActivityStamp is what the platform has written about a module lately, as one text that changes when any of it does: the newest forecast run, the newest
+// recommendation, the newest applied scaling and the newest evaluation. A cached report of the module is good only while this is the same.
+func (dao *PredictionDAO) ActivityStamp(ctx context.Context, moduleID uint) (string, error) {
+	db := dao.db.WithContext(ctx)
+	newestID := func(table string) (uint, error) {
+		var ids []uint
+		err := db.Table(table).Where("module_id = ?", moduleID).Order("id DESC").Limit(1).Pluck("id", &ids).Error
+		if err != nil || len(ids) == 0 {
+			return 0, err
+		}
+		return ids[0], nil
+	}
+	newestTime := func(table string) (int64, error) {
+		var times []time.Time
+		err := db.Table(table).Where("module_id = ?", moduleID).Order("prediction_time DESC").Limit(1).Pluck("prediction_time", &times).Error
+		if err != nil || len(times) == 0 {
+			return 0, err
+		}
+		return times[0].UnixNano(), nil
+	}
+	rec, err := newestID("recommendation")
+	if err != nil {
+		return "", err
+	}
+	exec, err := newestID("scaling_execution")
+	if err != nil {
+		return "", err
+	}
+	eval, err := newestTime("prediction_evaluation")
+	if err != nil {
+		return "", err
+	}
+	train, err := newestTime("forecast_training_run")
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("r%d|x%d|e%d|t%d", rec, exec, eval, train), nil
 }

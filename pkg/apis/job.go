@@ -37,6 +37,8 @@ type JobLogReq struct {
 	TargetKeyword string `form:"target_keyword"`
 	Status        string `form:"status"`
 	Latest        bool   `form:"latest"`
+	// Since is set by the platform, never by the caller: a text search that names no range reads the last days only (see searchWindow).
+	Since *time.Time `form:"-"`
 }
 
 type JobRetryReq struct {

@@ -53,8 +53,9 @@ func (dao *OperationLogDAO) List(ctx context.Context, filter OperationLogListFil
 		q = q.Where("created_at <= ?", *filter.Until)
 	}
 
+	// counted up to a bound, so a log that grew pages in the time of the bound, not of the table
 	var total int64
-	if err := q.Count(&total).Error; err != nil {
+	if err := countBounded(q, &total); err != nil {
 		return nil, 0, err
 	}
 

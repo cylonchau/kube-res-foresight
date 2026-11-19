@@ -11,7 +11,6 @@ import (
 	"github.com/cylonchau/kube-res-foresight/pkg/forecast"
 	"github.com/cylonchau/kube-res-foresight/pkg/model"
 	"github.com/cylonchau/kube-res-foresight/pkg/multimetric"
-	"github.com/cylonchau/kube-res-foresight/pkg/timing"
 )
 
 // The change preview answers "what would the replicas have been if this setting had been in force": it replays the recent past twice, with
@@ -136,9 +135,11 @@ func (s *Service) PreviewChange(ctx context.Context, moduleID uint, hours int, c
 		return nil, err
 	}
 
-	budget := s.SyncBudget(ctx, timing.PreviewBudget)
+	budget := s.previewBudget(ctx)
+	reportCtx := ctx
 	ctx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
+	stepReport(reportCtx, "preview: history", 0, 4, nil)
 
 	bs := boundSet(runs)
 	replicaGrid := s.signalGrid(ctx, bs, "replicas")
@@ -187,16 +188,19 @@ func (s *Service) PreviewChange(ctx context.Context, moduleID uint, hours int, c
 	truthModule := *m
 	truthModule.HeadroomRatio = 1
 	need := s.replayNeed(&truthModule, cur, curGrids, curWhy, specs, currentReplicas)
+	stepReport(reportCtx, "preview: saved setting", 1, 4, nil)
 
 	curPred, err := s.replaySide(ctx, budget, m, cur, curGrids, curWhy, specs, currentReplicas)
 	if err != nil {
 		return nil, err
 	}
+	stepReport(reportCtx, "preview: proposed setting", 2, 4, nil)
 	propPred, err := s.replaySide(ctx, budget, proposedModule, proposedRun, propGrids, propWhy, specs, currentReplicas)
 	if err != nil {
 		return nil, err
 	}
 
+	stepReport(reportCtx, "preview: compare", 3, 4, nil)
 	rep := &PreviewReport{ModuleID: moduleID, Since: specs[0].start, Until: end, Hours: hours, WindowMinutes: int(window.Minutes()), Points: []PreviewPoint{},
 		Current: PreviewSide{Algorithm: cur.Key()}, Proposed: PreviewSide{Algorithm: proposedRun.Key()}, Notes: []string{}}
 	for i, w := range specs {

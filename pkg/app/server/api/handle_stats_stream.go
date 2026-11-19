@@ -26,6 +26,8 @@ const (
 // when one fires; the push carries no numbers.
 var statsTopics = map[string][]string{
 	"tasks": {"job", "task_definition"},
+	// the background tasks of the users: a page re-reads its own list when one changes state, reports progress or ends (P11 B2)
+	"async": {"async_task"},
 }
 var appendOnlyTables = map[string]bool{"job": true}
 

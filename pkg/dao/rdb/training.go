@@ -208,3 +208,14 @@ func (dao *PredictionDAO) SummarizeTrainings(ctx context.Context, f TrainingFilt
 	}
 	return out, nil
 }
+
+// LatestOKTraining is the newest record of a run that made a forecast of this algorithm on this source of the module, nil when there is none.
+func (dao *PredictionDAO) LatestOKTraining(ctx context.Context, moduleID uint, metric, algorithmID string) (*model.TrainingRun, error) {
+	var t model.TrainingRun
+	err := dao.db.WithContext(ctx).Where("module_id = ? AND metric = ? AND algorithm_id = ? AND status = ?", moduleID, metric, algorithmID, model.TrainingOK).
+		Order("id DESC").Limit(1).Find(&t).Error
+	if err != nil || t.ID == 0 {
+		return nil, err
+	}
+	return &t, nil
+}

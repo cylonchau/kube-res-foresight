@@ -49,7 +49,11 @@ func (s *Service) TrainingData(ctx context.Context, id uint) (*TrainingData, err
 		}
 	}
 	if run.Status == model.TrainingOK {
-		rows, err := s.Predictions.RunForecast(ctx, run.ModuleID, run.Metric, run.AlgorithmID, run.PredictionTime)
+		at := run.PredictionTime
+		if run.ReusedFrom != nil {
+			at = *run.ReusedFrom // nothing was stored for a run that was not made again: its forecast is the rows of the run it stands for
+		}
+		rows, err := s.Predictions.RunForecast(ctx, run.ModuleID, run.Metric, run.AlgorithmID, at)
 		if err != nil {
 			return nil, err
 		}

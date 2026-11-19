@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cylonchau/kube-res-foresight/pkg/app/middleware"
 	"github.com/cylonchau/kube-res-foresight/pkg/assistant"
 	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
 	"github.com/cylonchau/kube-res-foresight/pkg/forecastsvc"
@@ -97,6 +98,7 @@ func newAssistantRig(t *testing.T, ready bool) *assistantRig {
 	rig.steps = &ForecastRouter{Modules: modules, Service: fc, Async: rig.async}
 	gin.SetMode(gin.TestMode)
 	rig.r = gin.New()
+	rig.r.Use(middleware.SlowRequests(nil)) // gives every request its id, as the server does
 	rig.r.Use(func(c *gin.Context) {
 		if id := c.GetHeader("X-Test-User"); id != "" {
 			n, _ := strconv.Atoi(id)
@@ -118,6 +120,8 @@ func newAssistantRig(t *testing.T, ready bool) *assistantRig {
 	rig.r.POST("/assistant/chat", h.Chat)
 	rig.r.POST("/assistant/skill", h.RunSkill)
 	rig.r.POST("/modules/:id/steps/:step", rig.steps.ModuleStepAsync)
+	rig.r.POST("/modules/:id/change-preview/async", rig.steps.ModuleChangePreviewAsync)
+	rig.r.GET("/assistant/async", h.ListAsync)
 	rig.r.POST("/assistant/chat/async", h.ChatAsync)
 	rig.r.GET("/assistant/async/:id", h.GetAsync)
 	rig.r.GET("/assistant/async/:id/events", h.AsyncEvents)

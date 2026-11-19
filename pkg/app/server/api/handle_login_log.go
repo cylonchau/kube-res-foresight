@@ -14,6 +14,8 @@ import (
 // LoginLogRouter serves the login history page.
 type LoginLogRouter struct {
 	DAO *rdb.LoginAuditLogDAO
+	// Config gives a search by name or address that names no time range the last http.list_search_days days.
+	Config *rdb.SysConfigDAO
 }
 
 // loginLogListReq mirrors the login-log page's filter bar. Paging, ordering and filtering are done in the
@@ -71,10 +73,12 @@ func (h *LoginLogRouter) List(c *gin.Context) {
 		failed := false
 		filter.Success = &failed
 	}
+	var days int
+	filter.Since, days = searchWindow(c.Request.Context(), h.Config, filter.Username != "" || filter.ClientIP != "", filter.Since)
 	logs, total, err := h.DAO.List(c.Request.Context(), filter)
 	if err != nil {
 		query.InternalError(c, err)
 		return
 	}
-	query.SuccessResponse(c, nil, gin.H{"list": logs, "total": total, "page": req.Page, "pageSize": req.PageSize})
+	query.SuccessResponse(c, nil, gin.H{"list": logs, "total": total, "page": req.Page, "pageSize": req.PageSize, "search_window_days": days})
 }

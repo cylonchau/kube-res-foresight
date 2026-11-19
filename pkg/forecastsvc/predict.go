@@ -55,6 +55,11 @@ type PredictOutcome struct {
 	// the ones that could not be supplied (with the reason).
 	Covariates []string          `json:"covariates,omitempty"`
 	Dropped    map[string]string `json:"dropped_covariates,omitempty"`
+	// Reused says the forecast was not made again: the run of ReusedFrom was made from the same inputs and its rows stand for this one (P11 B3).
+	Reused     bool       `json:"reused,omitempty"`
+	ReusedFrom *time.Time `json:"reused_from,omitempty"`
+	// InputHash is the hash of what the run was given; it is kept in the record of the run.
+	InputHash string `json:"-"`
 }
 
 // boundModel is a validated algorithm run ready to run.
@@ -149,9 +154,10 @@ func (s *Service) Predict(ctx context.Context, moduleID uint) ([]PredictOutcome,
 		return nil, fmt.Errorf("%w: the module has no metric source to forecast", ErrNotConfigured)
 	}
 	var all []PredictOutcome
-	for _, b := range runs {
+	for i, b := range runs {
 		out, err := s.predictRun(ctx, b)
 		all = append(all, out...)
+		stepReport(ctx, "predict: "+b.Key(), i+1, len(runs), all)
 		if err != nil {
 			return all, err
 		}
@@ -200,6 +206,18 @@ func (s *Service) predictRun(ctx context.Context, b *model.AlgorithmRun) ([]Pred
 
 		s.keepTuned(ctx, b, bm, key, &in, h, step, predictedAt)
 
+		out.InputHash = inputHash(bm, &in, h)
+		if from, points, ok := s.reusable(ctx, b, bm, key, out.InputHash, predictedAt); ok {
+			// the same inputs as the last run: its forecast stands for this one, nothing is computed or stored again, and the record says so
+			out.Status, out.Points, out.Reused, out.ReusedFrom = StatusOK, points, true, &from
+			out.Reason = fmt.Sprintf("reused: the same inputs as the run of %s", from.UTC().Format(time.RFC3339))
+			reused.Add(1)
+			s.Telemetry.recordPredict(key, b.Key(), "reused", 0)
+			s.recordTraining(ctx, b, bm, out, &in, step, h, 0, predictedAt)
+			outcomes = append(outcomes, out)
+			continue
+		}
+		computed.Add(1)
 		fctx, cancel := context.WithTimeout(ctx, s.budgetFor(ctx, b))
 		started := time.Now()
 		values, err := bm.model.Forecast(fctx, in, h)
@@ -300,7 +318,7 @@ func NormalizedParams(algorithmID, raw string) (map[string]any, string, error) {
 func (s *Service) recordTraining(ctx context.Context, b *model.AlgorithmRun, bm *boundModel, out PredictOutcome, in *forecast.Input, step time.Duration, horizon int, took time.Duration, at time.Time) {
 	t := &model.TrainingRun{ModuleID: b.ID, Metric: out.Metric, AlgorithmID: out.AlgorithmID, ModelVersion: out.ModelVersion, Status: out.Status,
 		Reason: truncate(out.Reason, 500), Points: out.Points, DurationMs: took.Milliseconds(), PredictionTime: at,
-		StepSeconds: int(step / time.Second), HorizonSteps: horizon}
+		StepSeconds: int(step / time.Second), HorizonSteps: horizon, InputHash: out.InputHash, ReusedFrom: out.ReusedFrom}
 	if bm != nil {
 		t.ImplVersion, t.Params = bm.def.ImplVersion, bm.params
 		if bm.def.Custom {

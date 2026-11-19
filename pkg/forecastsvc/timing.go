@@ -85,3 +85,12 @@ func (s *Service) SyncBudget(ctx context.Context, p timing.Param) time.Duration 
 func (s *Service) GatewayRoom(ctx context.Context) time.Duration {
 	return timing.Under(s.gatewayTimeout(ctx), 0)
 }
+
+// previewBudget is the time a preview may take: its own parameter kept under the gateway timeout when a request waits for it, the pipeline limit when it
+// runs as a background task.
+func (s *Service) previewBudget(ctx context.Context) time.Duration {
+	if isBackground(ctx) {
+		return s.Timing(ctx, timing.PipelineTimeout)
+	}
+	return s.SyncBudget(ctx, timing.PreviewBudget)
+}

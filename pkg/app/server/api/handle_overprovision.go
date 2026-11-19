@@ -141,10 +141,11 @@ func (r *ForecastRouter) ModulePrometheusStats(c *gin.Context) {
 	if t := timeQuery(c, "to"); t != nil {
 		to = *t
 	}
-	out, err := r.Service.PrometheusStats(c.Request.Context(), id, minutes, from, to)
+	out, kept, err := r.Service.PrometheusStatsCached(c.Request.Context(), id, minutes, from, to)
 	if err != nil {
 		r.writeError(c, err)
 		return
 	}
+	cacheHeaders(c, kept)
 	query.SuccessResponse(c, nil, out)
 }

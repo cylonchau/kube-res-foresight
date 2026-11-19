@@ -190,7 +190,11 @@ func reportProgress(ctx context.Context, kind string, data any) {
 	}
 }
 
-// PruneAsync deletes the finished background tasks older than the retention parameter, in batches, and returns how many went.
+// AsyncRecordDays is how long the record of a task stays after its result expired.
+const AsyncRecordDays = 30
+
+// PruneAsync expires the finished background tasks older than the retention parameter (their result and what they were given go) and deletes the records of
+// the ones that expired a month ago, in batches, and returns how many records went.
 func (s *Service) PruneAsync(ctx context.Context) (int64, error) {
 	if s.AsyncTasks == nil {
 		return 0, nil
@@ -201,10 +205,21 @@ func (s *Service) PruneAsync(ctx context.Context) (int64, error) {
 			hours = timing.AsyncRetentionHours.Parse(raw)
 		}
 	}
-	cutoff := s.now().UTC().Add(-time.Duration(hours) * time.Hour)
+	// the result is dropped when the retention has passed (the task becomes expired), and the record itself a month after that
+	expireCutoff := s.now().UTC().Add(-time.Duration(hours) * time.Hour)
+	for ctx.Err() == nil {
+		n, err := s.AsyncTasks.Expire(ctx, expireCutoff, pruneBatch)
+		if err != nil || n < pruneBatch {
+			if err != nil {
+				return 0, err
+			}
+			break
+		}
+	}
+	deleteCutoff := expireCutoff.AddDate(0, 0, -AsyncRecordDays)
 	var total int64
 	for ctx.Err() == nil {
-		n, err := s.AsyncTasks.PruneBefore(ctx, cutoff, pruneBatch)
+		n, err := s.AsyncTasks.PruneBefore(ctx, deleteCutoff, pruneBatch)
 		total += n
 		if err != nil || n < pruneBatch {
 			return total, err

@@ -2,6 +2,8 @@ package rdb
 
 import (
 	"context"
+	"fmt"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -86,4 +88,21 @@ func (dao *AlgorithmDAO) Create(ctx context.Context, c *model.AlgorithmConfig) e
 // Delete removes a config for good: a custom algorithm leaves no row behind, so its id can be used again.
 func (dao *AlgorithmDAO) Delete(ctx context.Context, algorithmID string) error {
 	return dao.db.WithContext(ctx).Where("algorithm_id = ?", algorithmID).Delete(&model.AlgorithmConfig{}).Error
+}
+
+// Stamp is one text that changes when any algorithm is added, removed, enabled or has its parameters changed.
+func (dao *AlgorithmDAO) Stamp(ctx context.Context) (string, error) {
+	var newest []time.Time
+	if err := dao.db.WithContext(ctx).Model(&model.AlgorithmConfig{}).Order("updated_at DESC").Limit(1).Pluck("updated_at", &newest).Error; err != nil {
+		return "", err
+	}
+	var total int64
+	if err := dao.db.WithContext(ctx).Model(&model.AlgorithmConfig{}).Count(&total).Error; err != nil {
+		return "", err
+	}
+	at := int64(0)
+	if len(newest) > 0 {
+		at = newest[0].UnixNano()
+	}
+	return fmt.Sprintf("%d#%d", at, total), nil
 }

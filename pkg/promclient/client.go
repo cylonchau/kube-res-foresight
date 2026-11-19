@@ -239,3 +239,20 @@ func (c *Client) QueryRange(ctx context.Context, query string, start, end time.T
 	}
 	return out, nil
 }
+
+// IsTransient reports whether asking Prometheus again later can succeed: the server failed (5xx), it timed out, or the request did not get there. A bad query
+// or an ambiguous answer is permanent; so is a cancelled request, which somebody asked for.
+func IsTransient(err error) bool {
+	if err == nil || IsPermanent(err) {
+		return false
+	}
+	var apiErr *promv1.Error
+	if errors.As(err, &apiErr) {
+		switch apiErr.Type {
+		case promv1.ErrServer, promv1.ErrTimeout, promv1.ErrBadResponse:
+			return true
+		}
+		return false
+	}
+	return false
+}

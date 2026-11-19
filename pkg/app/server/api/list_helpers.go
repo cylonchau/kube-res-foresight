@@ -1,6 +1,7 @@
 package api
 
 import (
+	"github.com/cylonchau/kube-res-foresight/pkg/resultcache"
 	"github.com/gin-gonic/gin"
 	"strconv"
 	"strings"
@@ -60,4 +61,13 @@ func paginate[T any](items []T, page, pageSize int) ([]T, int) {
 		end = total
 	}
 	return items[start:end], total
+}
+
+// cacheHeaders says how a cached report was got: X-Cache is hit (a kept answer), shared (the answer of a request that was working it out), miss (worked out for
+// this request) or off, and X-Cache-Age how old a kept answer is, in seconds.
+func cacheHeaders(c *gin.Context, r resultcache.Result) {
+	c.Header("X-Cache", string(r.Source))
+	if r.Source == resultcache.Cached {
+		c.Header("X-Cache-Age", strconv.Itoa(int(r.Age/time.Second)))
+	}
 }

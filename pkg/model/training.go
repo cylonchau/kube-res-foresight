@@ -52,6 +52,12 @@ type TrainingRun struct {
 	Dropped    string `gorm:"type:text" json:"dropped_covariates" column_setting:"false"`
 
 	PredictionTime time.Time `gorm:"not null;index:idx_training_time,priority:1" json:"prediction_time" column_setting:"true"`
+
+	// InputHash is the hash of everything the run was given (the history and its end, the grid, the horizon, the parameters, the model version and the covariates):
+	// a run that would be given the same is not made again, the forecast of this one stands for it (P11 B3).
+	InputHash string `gorm:"type:varchar(40)" json:"input_hash" column_setting:"false"`
+	// ReusedFrom is the time of the run whose forecast this record stands for: nothing was computed or stored for it, the rows of that run are its forecast.
+	ReusedFrom *time.Time `json:"reused_from" column_setting:"false"`
 }
 
 func (TrainingRun) TableName() string { return "forecast_training_run" }

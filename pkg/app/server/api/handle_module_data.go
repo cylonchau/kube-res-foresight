@@ -468,11 +468,18 @@ func (r *ForecastRouter) ModuleEffectReport(c *gin.Context) {
 		}
 		hours = n
 	}
-	rep, err := r.Service.EffectReport(c.Request.Context(), id, hours)
+	// a page that draws the report in pieces asks for them one by one: parts=delay,usage,capacity,tuning (all of them when it names none)
+	parts, err := forecastsvc.ParseEffectParts(c.Query("parts"))
+	if err != nil {
+		query.BadRequest(c, err)
+		return
+	}
+	rep, kept, err := r.Service.EffectReportCached(c.Request.Context(), id, hours, parts)
 	if err != nil {
 		r.writeError(c, err)
 		return
 	}
+	cacheHeaders(c, kept)
 	query.SuccessResponse(c, nil, rep)
 }
 
@@ -520,11 +527,12 @@ func (r *ForecastRouter) ModuleChangePreview(c *gin.Context) {
 		query.BadRequest(c, err)
 		return
 	}
-	rep, err := r.Service.PreviewChange(c.Request.Context(), id, req.SinceHours, req.PreviewChange)
+	rep, kept, err := r.Service.PreviewChangeCached(c.Request.Context(), id, req.SinceHours, req.PreviewChange)
 	if err != nil {
 		r.writeError(c, err)
 		return
 	}
+	cacheHeaders(c, kept)
 	query.SuccessResponse(c, nil, rep)
 }
 

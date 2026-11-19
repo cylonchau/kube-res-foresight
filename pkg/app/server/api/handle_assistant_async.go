@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/cylonchau/kube-res-foresight/pkg/app/query"
@@ -33,19 +34,40 @@ type AssistantAsyncDTO struct {
 	Stage    string `json:"stage"`
 	Error    string `json:"error"`
 	// Partial is the answer written so far, while the task runs.
-	Partial    string          `json:"partial,omitempty"`
-	Attempts   int             `json:"attempts"`
-	CreatedAt  time.Time       `json:"created_at"`
-	StartedAt  *time.Time      `json:"started_at"`
-	FinishedAt *time.Time      `json:"finished_at"`
-	Result     json.RawMessage `json:"result,omitempty"`
+	Partial    string     `json:"partial,omitempty"`
+	Attempts   int        `json:"attempts"`
+	CreatedAt  time.Time  `json:"created_at"`
+	StartedAt  *time.Time `json:"started_at"`
+	FinishedAt *time.Time `json:"finished_at"`
+	// MaxAttempts is how many times the task is run for a failure that can be tried again; Retryable says the last failure was one, and NextRunAt when
+	// the next attempt starts while the task waits for it.
+	MaxAttempts int        `json:"max_attempts"`
+	Retryable   bool       `json:"retryable"`
+	NextRunAt   *time.Time `json:"next_run_at,omitempty"`
+	// HeartbeatAt is the last time the worker said it was alive; ExpiresAt when the result is dropped.
+	HeartbeatAt *time.Time `json:"heartbeat_at,omitempty"`
+	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
+	// HasPartial says PartialResult holds what the task has done so far (it is there while the task runs and when it failed or was cancelled).
+	HasPartial    bool            `json:"has_partial"`
+	PartialResult json.RawMessage `json:"partial_result,omitempty"`
+	FromCache     bool            `json:"from_cache"`
+	ErrorCode     string          `json:"error_code,omitempty"`
+	TraceID       string          `json:"trace_id,omitempty"`
+	Result        json.RawMessage `json:"result,omitempty"`
 }
 
 func asyncDTO(t *model.AsyncTask) AssistantAsyncDTO {
 	out := AssistantAsyncDTO{ID: t.ID, Kind: t.Kind, Title: t.Title, Status: t.Status, Progress: t.Progress, Stage: t.Stage, Error: t.Error, Attempts: t.Attempts,
-		CreatedAt: t.CreatedAt, StartedAt: t.StartedAt, FinishedAt: t.FinishedAt}
+		CreatedAt: t.CreatedAt, StartedAt: t.StartedAt, FinishedAt: t.FinishedAt, MaxAttempts: t.MaxAttempts, Retryable: t.Retryable, HeartbeatAt: t.HeartbeatAt, ExpiresAt: t.ExpiresAt,
+		FromCache: t.FromCache, ErrorCode: t.ErrorCode, TraceID: t.TraceID, HasPartial: t.HasPartial}
+	if t.Status == model.AsyncQueued {
+		out.NextRunAt = t.NextRunAt
+	}
 	if t.Status == model.AsyncRunning {
 		out.Partial = t.Partial
+	}
+	if t.HasPartial && json.Valid([]byte(t.PartialResult)) && t.Status != model.AsyncSucceeded && t.Status != model.AsyncExpired {
+		out.PartialResult = json.RawMessage(t.PartialResult)
 	}
 	if t.Status == model.AsyncSucceeded && json.Valid([]byte(t.Result)) {
 		out.Result = json.RawMessage(t.Result)
@@ -70,6 +92,8 @@ func (r *AssistantRouter) asyncFailure(c *gin.Context, err error) {
 		query.ErrorResponse(c, http.StatusTooManyRequests, err)
 	case errors.Is(err, asyncrun.ErrNotFinal):
 		query.ErrorResponse(c, http.StatusConflict, err)
+	case errors.Is(err, asyncrun.ErrExpired):
+		query.ErrorResponse(c, http.StatusGone, err)
 	default:
 		r.reply(c, nil, err)
 	}
@@ -101,7 +125,8 @@ func (r *AssistantRouter) ChatAsync(c *gin.Context) {
 		OwnerID: owner.ID, OwnerName: owner.Name, Principal: principal}
 	question := req.Messages[len(req.Messages)-1].Content
 	sum := sha256.Sum256([]byte(fmt.Sprintf("%d|%d|%s", owner.ID, req.ConversationID, question)))
-	task, err := r.Async.Submit(ctx, owner.ID, owner.Name, aitask.ChatKind, assistant.TitleOf(question), "chat-"+hex.EncodeToString(sum[:8]), in)
+	task, err := r.Async.SubmitSpec(ctx, asyncrun.Spec{Owner: owner.ID, OwnerName: owner.Name, Kind: aitask.ChatKind, Title: assistant.TitleOf(question),
+		Dedup: "chat-" + hex.EncodeToString(sum[:8]), TraceID: c.GetString("requestId"), MaxAttempts: 2, Input: in})
 	if err != nil {
 		r.asyncFailure(c, err)
 		return
@@ -193,4 +218,35 @@ func (r *AssistantRouter) RetryAsync(c *gin.Context) {
 		return
 	}
 	query.SuccessResponse(c, nil, asyncDTO(task))
+}
+
+// ListAsync serves GET /assistant/async?kinds=a,b&hours=24: the tasks of the signed-in user that have not ended and the ones created in the last hours,
+// the newest first. It is how a page that was closed finds the tasks it queued, and the only way the user sees what is running in the background.
+func (r *AssistantRouter) ListAsync(c *gin.Context) {
+	owner, ok := asyncOwner(c)
+	if !ok {
+		return
+	}
+	hours, _ := strconv.Atoi(c.DefaultQuery("hours", "24"))
+	if hours < 1 || hours > 720 {
+		hours = 24
+	}
+	var kinds []string
+	for _, k := range strings.Split(c.Query("kinds"), ",") {
+		if k = strings.TrimSpace(k); k != "" {
+			kinds = append(kinds, k)
+		}
+	}
+	rows, err := r.Async.Tasks.ListOwned(c.Request.Context(), owner.ID, kinds, time.Now().Add(-time.Duration(hours)*time.Hour), 50)
+	if err != nil {
+		r.asyncFailure(c, err)
+		return
+	}
+	out := make([]AssistantAsyncDTO, 0, len(rows))
+	for _, row := range rows {
+		dto := asyncDTO(row)
+		dto.Result = nil // the list says what exists; the result is read for one task
+		out = append(out, dto)
+	}
+	query.SuccessResponse(c, nil, out)
 }

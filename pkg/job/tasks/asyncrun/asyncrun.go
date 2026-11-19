@@ -1,18 +1,23 @@
-// Package asyncrun runs the async tasks of the users (B1): work that takes longer than one request may. A task is a row (who asked, what, its state,
-// progress and result) and a job of the task center that runs it, so it has the claim, the heartbeat and the recovery of every job: a task that
-// was running when the platform stopped is run again when its claim has expired, and one that was queued is not lost. The handlers, one for each
-// kind of task, are given by the packages that know the work.
+// Package asyncrun runs the async tasks of the users (P11 B1, B2): work that takes longer than one request may. A task is a row (who asked, what, its state,
+// progress, what it has done so far and its result) and a job of the task center that runs it, so it has the claim, the heartbeat and the recovery of every
+// job: a task that was running when the platform stopped is run again, and one that was queued is not lost. On top of that the task has its own life: a
+// failure that can be tried again (a timeout, a data source that could not be reached) is tried again after a wait until its attempts are used; a worker
+// that stops saying it is alive for a minute is found by the sweeper and its task is queued again; a stop asked for is cancelling until the worker has
+// stopped; a result that is old enough is dropped (expired) and the record stays. The handlers, one for each kind of task, are given by the packages
+// that know the work.
 package asyncrun
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
-	"github.com/cylonchau/kube-res-foresight/pkg/logger"
 	"github.com/cylonchau/kube-res-foresight/pkg/model"
 )
 
@@ -25,21 +30,28 @@ const TargetType = "async_task"
 // MaxOpenPerUser is how many queued or running tasks one user may have.
 const MaxOpenPerUser = 5
 
+// DefaultRetention is how long the result of a finished task is kept when the system parameter cannot be read.
+const DefaultRetention = 72 * time.Hour
+
 // Errors of submitting a task.
 var (
 	ErrTooMany   = errors.New("there are already 5 tasks running or waiting: wait for one to finish or cancel one")
 	ErrNotFinal  = errors.New("the task is still queued or running")
 	ErrNotQueued = errors.New("the task cannot be changed in its state")
+	ErrExpired   = errors.New("the result of the task has expired: ask again")
 )
 
 // Reporter is how a handler tells its owner how far it is.
 type Reporter interface {
-	// Progress says how far the task is (0-100) and what it is doing.
+	// Progress says how far the task is (0-100) and what it is doing. Calls that come faster than four a second are folded: the last one is written.
 	Progress(percent int, stage string)
 	// Event adds a step the owner can read on, numbered in order.
 	Event(kind string, data any)
 	// Partial keeps the text of the answer written so far, for the owner who is watching.
 	Partial(text string)
+	// PartialResult keeps what the task has done so far (any value that marshals to JSON): the owner reads it while the task runs, and it stays if the
+	// task fails or is cancelled.
+	PartialResult(v any)
 }
 
 // Handler does the work of one kind of task. It returns the result (kept as JSON for the owner) or an error. It must stop when ctx ends: the
@@ -51,6 +63,8 @@ type Queue struct {
 	Tasks *rdb.AsyncTaskDAO
 	Jobs  *rdb.JobDAO
 	Now   func() time.Time
+	// Retention is how long the result of a finished task is kept; DefaultRetention when nil.
+	Retention func(context.Context) time.Duration
 }
 
 func (q *Queue) now() time.Time {
@@ -60,44 +74,110 @@ func (q *Queue) now() time.Time {
 	return time.Now()
 }
 
+func (q *Queue) expiry(ctx context.Context, from time.Time) *time.Time {
+	d := DefaultRetention
+	if q.Retention != nil {
+		if got := q.Retention(ctx); got > 0 {
+			d = got
+		}
+	}
+	at := from.UTC().Add(d)
+	return &at
+}
+
+// jobSeq makes the key of every job different, whatever the clock says.
+var jobSeq atomic.Int64
+
 type payload struct {
 	TaskID uint `json:"task_id"`
 }
 
-func (q *Queue) enqueue(ctx context.Context, t *model.AsyncTask, attempt int) error {
+// enqueue makes the job of the task center that runs the task and returns its id. The key is unique to the run, so a task that is queued again has a
+// new job.
+func (q *Queue) enqueue(ctx context.Context, t *model.AsyncTask) (int64, error) {
 	body, err := json.Marshal(payload{TaskID: t.ID})
 	if err != nil {
-		return err
+		return 0, err
 	}
 	job := &model.Job{JobType: JobType, Status: "pending", Payload: string(body), MaxRetry: 1, RetryInitialSeconds: 5, RetryBackoffFactor: 2, RetryMaxSeconds: 60,
-		IdempotencyKey: fmt.Sprintf("async-%d-%d", t.ID, attempt), TargetType: TargetType, TargetID: int64(t.ID), TargetName: t.Title}
+		IdempotencyKey: fmt.Sprintf("async-%d-%d-%d", t.ID, q.now().UnixNano(), jobSeq.Add(1)), TargetType: TargetType, TargetID: int64(t.ID), TargetName: t.Title}
 	if _, err := q.Jobs.Create(ctx, job); err != nil {
-		return err
+		return 0, err
 	}
-	return q.Tasks.SetJob(ctx, t.ID, job.ID)
+	return job.ID, nil
+}
+
+// Spec is a task to queue.
+type Spec struct {
+	Owner     uint
+	OwnerName string
+	// Kind says which handler runs it; Title is what the owner sees; Dedup makes a second identical request while one is open the same task.
+	Kind  string
+	Title string
+	Dedup string
+	// TraceID is the request id of the request that asks: it is kept with the task.
+	TraceID string
+	// MaxAttempts is how many times the task may be run for a failure that can be tried again (1 when zero: it is not tried again by itself).
+	MaxAttempts int
+	// Input is what the handler is given (JSON).
+	Input any
+	// Cached, when it answers a result, ends the task at once as succeeded with that result and from_cache set: the same question was already worked out
+	// and nothing has changed since (P11 B3).
+	Cached func(ctx context.Context) (result any, ok bool)
+}
+
+// Hash is the hash of what a task is given, the key two identical requests have in common.
+func Hash(kind string, input []byte) string {
+	sum := sha256.Sum256(append([]byte(kind+"|"), input...))
+	return hex.EncodeToString(sum[:])
 }
 
 // Submit makes a task of the owner and queues it. A second identical request (the same dedup key) while one is open returns the open task.
 func (q *Queue) Submit(ctx context.Context, owner uint, ownerName, kind, title, dedup string, input any) (*model.AsyncTask, error) {
-	if open, err := q.Tasks.Open(ctx, owner, kind, dedup); err != nil || open != nil {
+	return q.SubmitSpec(ctx, Spec{Owner: owner, OwnerName: ownerName, Kind: kind, Title: title, Dedup: dedup, Input: input})
+}
+
+// SubmitSpec is Submit with the options of a Spec.
+func (q *Queue) SubmitSpec(ctx context.Context, sp Spec) (*model.AsyncTask, error) {
+	if open, err := q.Tasks.Open(ctx, sp.Owner, sp.Kind, sp.Dedup); err != nil || open != nil {
 		return open, err
 	}
-	if n, err := q.Tasks.CountOpen(ctx, owner); err != nil {
+	if n, err := q.Tasks.CountOpen(ctx, sp.Owner); err != nil {
 		return nil, err
 	} else if n >= MaxOpenPerUser {
 		return nil, ErrTooMany
 	}
-	body, err := json.Marshal(input)
+	body, err := json.Marshal(sp.Input)
 	if err != nil {
 		return nil, err
 	}
-	t := &model.AsyncTask{OwnerID: owner, OwnerName: ownerName, Kind: kind, Title: title, Status: model.AsyncQueued, Payload: string(body), DedupKey: dedup,
-		CreatedAt: q.now().UTC(), UpdatedAt: q.now().UTC()}
+	now := q.now().UTC()
+	if sp.MaxAttempts < 1 {
+		sp.MaxAttempts = 1
+	}
+	t := &model.AsyncTask{OwnerID: sp.Owner, OwnerName: sp.OwnerName, Kind: sp.Kind, Title: sp.Title, Status: model.AsyncQueued, Payload: string(body), DedupKey: sp.Dedup,
+		ParamsHash: Hash(sp.Kind, body), MaxAttempts: sp.MaxAttempts, TraceID: sp.TraceID, CreatedAt: now, UpdatedAt: now}
+	if sp.Cached != nil {
+		if result, ok := sp.Cached(ctx); ok {
+			if raw, err := json.Marshal(result); err == nil {
+				t.Status, t.Result, t.FromCache, t.Progress = model.AsyncSucceeded, string(raw), true, 100
+				t.StartedAt, t.FinishedAt, t.ExpiresAt = &now, &now, q.expiry(ctx, now)
+				if err := q.Tasks.Create(ctx, t); err != nil {
+					return nil, err
+				}
+				return t, nil
+			}
+		}
+	}
 	if err := q.Tasks.Create(ctx, t); err != nil {
 		return nil, err
 	}
-	if err := q.enqueue(ctx, t, 1); err != nil {
-		_ = q.Tasks.Finish(ctx, t.ID, model.AsyncFailed, "", "could not be queued", q.now().UTC())
+	jobID, err := q.enqueue(ctx, t)
+	if err == nil {
+		err = q.Tasks.SetJob(ctx, t.ID, jobID)
+	}
+	if err != nil {
+		_, _ = q.Tasks.Finish(ctx, t.ID, rdb.FinishInfo{Status: model.AsyncFailed, Error: "could not be queued", ErrorCode: model.AsyncCodeFailed, At: now})
 		return nil, err
 	}
 	return q.Tasks.Get(ctx, t.ID)
@@ -105,7 +185,8 @@ func (q *Queue) Submit(ctx context.Context, owner uint, ownerName, kind, title, 
 
 // Cancel asks the owner's task to stop: a queued one is cancelled at once, a running one when its worker next looks (within a second).
 func (q *Queue) Cancel(ctx context.Context, owner, id uint) (*model.AsyncTask, error) {
-	return q.Tasks.RequestCancel(ctx, owner, id, q.now().UTC())
+	now := q.now().UTC()
+	return q.Tasks.RequestCancel(ctx, owner, id, now, q.expiry(ctx, now))
 }
 
 // Retry queues a failed or cancelled task of the owner again, with what it was given the first time.
@@ -113,6 +194,9 @@ func (q *Queue) Retry(ctx context.Context, owner, id uint) (*model.AsyncTask, er
 	t, err := q.Tasks.GetOwned(ctx, owner, id)
 	if err != nil {
 		return nil, err
+	}
+	if t.Status == model.AsyncExpired {
+		return nil, ErrExpired
 	}
 	if t.Status != model.AsyncFailed && t.Status != model.AsyncCancelled {
 		return nil, ErrNotFinal
@@ -125,139 +209,12 @@ func (q *Queue) Retry(ctx context.Context, owner, id uint) (*model.AsyncTask, er
 	if err := q.Tasks.ClearEvents(ctx, id); err != nil {
 		return nil, err
 	}
-	if err := q.enqueue(ctx, t, t.Attempts+1); err != nil {
+	jobID, err := q.enqueue(ctx, t)
+	if err != nil {
+		return nil, err
+	}
+	if err := q.Tasks.SetJob(ctx, id, jobID); err != nil {
 		return nil, err
 	}
 	return q.Tasks.GetOwned(ctx, owner, id)
-}
-
-// Runner is the async.run job.
-type Runner struct {
-	Tasks    *rdb.AsyncTaskDAO
-	Handlers map[string]Handler
-	Now      func() time.Time
-	// CancelPoll is how often a running task is asked whether its owner cancelled it; a second when zero.
-	CancelPoll time.Duration
-}
-
-func (r *Runner) Type() string { return JobType }
-
-func (r *Runner) now() time.Time {
-	if r.Now != nil {
-		return r.Now().UTC()
-	}
-	return time.Now().UTC()
-}
-
-type reporter struct {
-	ctx   context.Context
-	tasks *rdb.AsyncTaskDAO
-	id    uint
-	now   func() time.Time
-}
-
-func (p reporter) Progress(percent int, stage string) {
-	if percent < 0 {
-		percent = 0
-	}
-	if percent > 99 {
-		percent = 99 // 100 is the state succeeded
-	}
-	_ = p.tasks.Progress(context.WithoutCancel(p.ctx), p.id, percent, stage)
-}
-
-func (p reporter) Partial(text string) {
-	_ = p.tasks.SetPartial(context.WithoutCancel(p.ctx), p.id, text)
-}
-
-func (p reporter) Event(kind string, data any) {
-	body, err := json.Marshal(data)
-	if err != nil {
-		return
-	}
-	_ = p.tasks.AddEvent(context.WithoutCancel(p.ctx), p.id, kind, string(body), p.now())
-}
-
-// Execute runs the task of the payload. A failure of the work is the state of the task, not an error of the job: the owner retries a task, the job
-// engine does not run it again behind their back. A job that finds the platform stopping returns the error, so it is run again.
-func (r *Runner) Execute(ctx context.Context, job *model.Job) error {
-	var p payload
-	if err := json.Unmarshal([]byte(job.Payload), &p); err != nil || p.TaskID == 0 {
-		return fmt.Errorf("invalid async.run payload: %v", err)
-	}
-	t, err := r.Tasks.Get(ctx, p.TaskID)
-	if err != nil {
-		return nil // the task was deleted (its retention ended): nothing to run
-	}
-	switch t.Status {
-	case model.AsyncSucceeded, model.AsyncFailed, model.AsyncCancelled:
-		return nil
-	}
-	if t.JobID != 0 && t.JobID != job.ID {
-		return nil // a newer run of the task was queued
-	}
-	started, err := r.Tasks.Start(ctx, t.ID, r.now())
-	if err != nil {
-		return err
-	}
-	if !started {
-		_ = r.Tasks.Finish(ctx, t.ID, model.AsyncCancelled, "", "", r.now())
-		return nil
-	}
-	handler, ok := r.Handlers[t.Kind]
-	if !ok {
-		_ = r.Tasks.Finish(ctx, t.ID, model.AsyncFailed, "", "no handler for this kind of task", r.now())
-		return nil
-	}
-
-	runCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	cancelled := make(chan struct{})
-	go func() {
-		poll := r.CancelPoll
-		if poll <= 0 {
-			poll = time.Second
-		}
-		ticker := time.NewTicker(poll)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-runCtx.Done():
-				return
-			case <-ticker.C:
-				if asked, err := r.Tasks.CancelRequested(runCtx, t.ID); err == nil && asked {
-					close(cancelled)
-					cancel()
-					return
-				}
-			}
-		}
-	}()
-
-	result, runErr := handler(runCtx, t, reporter{ctx: ctx, tasks: r.Tasks, id: t.ID, now: r.now})
-	finish := context.WithoutCancel(ctx)
-	select {
-	case <-cancelled:
-		_ = r.Tasks.Finish(finish, t.ID, model.AsyncCancelled, "", "", r.now())
-		return nil
-	default:
-	}
-	if ctx.Err() != nil {
-		return ctx.Err() // the platform is stopping: the claim expires and the task is run again
-	}
-	if runErr != nil {
-		logger.Warn("an async task failed", logger.Int("task_id", int(t.ID)), logger.String("kind", t.Kind), logger.Err(runErr))
-		msg := runErr.Error()
-		if len([]rune(msg)) > 480 {
-			msg = string([]rune(msg)[:480])
-		}
-		_ = r.Tasks.Finish(finish, t.ID, model.AsyncFailed, "", msg, r.now())
-		return nil
-	}
-	body, err := json.Marshal(result)
-	if err != nil {
-		_ = r.Tasks.Finish(finish, t.ID, model.AsyncFailed, "", "the result could not be kept", r.now())
-		return nil
-	}
-	return r.Tasks.Finish(finish, t.ID, model.AsyncSucceeded, string(body), "", r.now())
 }

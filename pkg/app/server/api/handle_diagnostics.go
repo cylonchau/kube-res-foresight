@@ -7,7 +7,9 @@ import (
 
 	"github.com/cylonchau/kube-res-foresight/pkg/app/query"
 	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
+	"github.com/cylonchau/kube-res-foresight/pkg/forecastsvc"
 	"github.com/cylonchau/kube-res-foresight/pkg/reqstat"
+	"github.com/cylonchau/kube-res-foresight/pkg/resultcache"
 	"github.com/cylonchau/kube-res-foresight/pkg/timing"
 	"github.com/gin-gonic/gin"
 )
@@ -65,5 +67,13 @@ func (r *DiagnosticsRouter) Requests(c *gin.Context) {
 		query.InternalError(c, err)
 		return
 	}
-	query.SuccessResponse(c, nil, report)
+	query.SuccessResponse(c, nil, RequestDiagnostics{Report: report, Cache: resultcache.Default().Stats(), Reuse: forecastsvc.Reuse()})
+}
+
+// RequestDiagnostics is the baseline of the routes with what the platform saved by not working things out again (P11 B3): the hit rate of the cache of the heavy
+// reports, and how many forecasts were made and how many were not made again because the last one stood for them. The counters are those of this process since it started.
+type RequestDiagnostics struct {
+	*reqstat.Report
+	Cache resultcache.Stats      `json:"cache"`
+	Reuse forecastsvc.ReuseStats `json:"reuse"`
 }

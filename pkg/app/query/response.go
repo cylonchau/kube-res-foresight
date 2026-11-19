@@ -11,13 +11,48 @@ import (
 	"reflect"
 )
 
+// CappedTotal is the count a list stops counting at (rdb.MaxCountedRows): a total of exactly this many is "at least this many".
+const CappedTotal = 100000
+
+// markCapped says, in a page of a list whose total reached the bound, that the total is a floor: the page shows "more than" and not a count that is not true.
+// A list that carries total_capped already says it itself.
+func markCapped(data interface{}) interface{} {
+	m, ok := data.(gin.H)
+	if !ok {
+		plain, isMap := data.(map[string]interface{})
+		if !isMap {
+			return data
+		}
+		m = plain
+	}
+	if _, isList := m["list"]; !isList {
+		return data
+	}
+	if _, said := m["total_capped"]; said {
+		return data
+	}
+	var total int64
+	switch n := m["total"].(type) {
+	case int64:
+		total = n
+	case int:
+		total = int64(n)
+	default:
+		return data
+	}
+	if total == CappedTotal {
+		m["total_capped"] = true
+	}
+	return m
+}
+
 // SuccessResponse handles successful API requests
 func SuccessResponse(ctx *gin.Context, err error, data interface{}) {
 	returnCode, message := DecodeErr(err)
 	ctx.JSON(http.StatusOK, Response{
 		Code: returnCode,
 		Msg:  message,
-		Data: data,
+		Data: markCapped(data),
 	})
 }
 

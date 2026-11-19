@@ -13,6 +13,8 @@ import (
 
 type JobRouter struct {
 	jobDAO *rdb.JobDAO
+	// Config gives a text search that names no time range the last http.list_search_days days.
+	Config *rdb.SysConfigDAO
 }
 
 func jobDTO(j *model.Job) *apis.JobDTO {
@@ -52,6 +54,8 @@ func (r *JobRouter) List(c *gin.Context) {
 		return
 	}
 
+	var days int
+	req.Since, days = searchWindow(c.Request.Context(), r.Config, req.Keyword != "" || req.TargetKeyword != "", nil)
 	jobs, total, err := r.jobDAO.List(c.Request.Context(), req)
 	if err != nil {
 		query.InternalError(c, err)
@@ -59,8 +63,9 @@ func (r *JobRouter) List(c *gin.Context) {
 	}
 
 	query.SuccessResponse(c, nil, map[string]interface{}{
-		"list":  jobDTOs(jobs),
-		"total": total,
+		"list":               jobDTOs(jobs),
+		"total":              total,
+		"search_window_days": days,
 	})
 }
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -1113,6 +1114,12 @@ func TestTheEffectReportIsServedWithEverySectionAndRefusesABadWindow(t *testing.
 		assert.Equal(t, http.StatusBadRequest, performJSON(t, r, http.MethodGet, fmt.Sprintf("/modules/%d/effect-report?since_hours=%s", id, bad), "", nil).Code, bad)
 	}
 	assert.Equal(t, http.StatusNotFound, performJSON(t, r, http.MethodGet, "/modules/9999/effect-report", "", nil).Code)
+
+	// the page asks for the report in parts and draws each as it arrives
+	part := performJSON(t, r, http.MethodGet, fmt.Sprintf("/modules/%d/effect-report?since_hours=48&parts=capacity", id), "", nil)
+	require.Equal(t, http.StatusOK, part.Code, part.Body.String())
+	assert.Equal(t, []any{"capacity"}, decodeData(t, part.Body.Bytes())["parts"])
+	assert.Equal(t, http.StatusBadRequest, performJSON(t, r, http.MethodGet, fmt.Sprintf("/modules/%d/effect-report?parts=nothing", id), "", nil).Code, "a part that does not exist")
 }
 
 func TestTheChangePreviewRefusesAnEmptyOrInvalidChangeAndUnknownModules(t *testing.T) {
@@ -1257,4 +1264,26 @@ func TestTheOverprovisionCallsServeTheBoardTheDetailAndTheRunAndRefuseABadWindow
 	}
 	assert.Equal(t, http.StatusBadRequest, performJSON(t, r, http.MethodGet, "/overprovision?window=2d", "", nil).Code)
 	assert.Equal(t, http.StatusNotFound, performJSON(t, r, http.MethodGet, "/modules/9999/overprovision", "", nil).Code)
+}
+
+func TestAHeavyReportSaysWhereItsAnswerCameFromAndIsMadeAgainWhenTheModuleChanges(t *testing.T) {
+	r, _ := forecastTestRouter(t)
+	id := createModule(t, r, map[string]any{"name": "cache", "namespace": "prod", "workload": "cache"})
+	get := func() *httptest.ResponseRecorder {
+		rec := performJSON(t, r, http.MethodGet, fmt.Sprintf("/modules/%d/effect-report?since_hours=24", id), "", nil)
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		return rec
+	}
+	first := get()
+	assert.Equal(t, "miss", first.Header().Get("X-Cache"), "worked out for this request")
+	second := get()
+	assert.Equal(t, "hit", second.Header().Get("X-Cache"))
+	assert.NotEmpty(t, second.Header().Get("X-Cache-Age"), "how old the kept answer is")
+	assert.JSONEq(t, first.Body.String(), second.Body.String(), "the same answer")
+
+	// the module is changed: the answer that was kept is not given
+	update := performJSON(t, r, http.MethodPut, fmt.Sprintf("/modules/%d", id), "", map[string]any{"name": "cache", "namespace": "prod", "workload": "cache", "headroom_ratio": 1.5})
+	require.Equal(t, http.StatusOK, update.Code, update.Body.String())
+	assert.Equal(t, "miss", get().Header().Get("X-Cache"))
+	assert.Equal(t, "hit", get().Header().Get("X-Cache"))
 }

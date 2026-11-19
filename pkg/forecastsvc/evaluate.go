@@ -83,7 +83,9 @@ func (s *Service) Evaluate(ctx context.Context, moduleID uint) ([]EvaluateResult
 	}
 	m := dataOf(mod)
 	var results []EvaluateResult
-	for _, metric := range configuredMetrics(m) {
+	metrics := configuredMetrics(m)
+	for i, metric := range metrics {
+		stepReport(ctx, "evaluate: "+metric, i, len(metrics), results)
 		res := EvaluateResult{Metric: metric}
 		series, err := s.Samples.Series(ctx, m.ID, metric)
 		if err != nil {

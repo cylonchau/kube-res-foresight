@@ -370,6 +370,9 @@ func (dao *JobDAO) List(ctx context.Context, opt *apis.JobLogReq) ([]model.Job, 
 	if opt.Keyword != "" {
 		db = db.Where("result LIKE ?", "%"+opt.Keyword+"%")
 	}
+	if opt.Since != nil {
+		db = db.Where("created_at >= ?", *opt.Since)
+	}
 	if opt.Latest {
 		db = db.Where(`id IN (
 			SELECT MAX(j2.id)
@@ -379,7 +382,7 @@ func (dao *JobDAO) List(ctx context.Context, opt *apis.JobLogReq) ([]model.Job, 
 		)`)
 	}
 
-	if err := db.Count(&total).Error; err != nil {
+	if err := countBounded(db, &total); err != nil {
 		return nil, 0, err
 	}
 	err := db.Order("id desc").Offset(int(opt.Offset())).Limit(int(opt.PageSize)).Find(&jobs).Error

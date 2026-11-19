@@ -54,10 +54,10 @@ func RegisteredRouter(e *gin.Engine) {
 	authGroup.PUT("/profile", authHandler.UpdateProfile)
 	authGroup.PUT("/language", authHandler.UpdateLanguage)
 
-	operationLogHandler := &v1.OperationLogRouter{DAO: rdb.NewOperationLogDAO(model.DB)}
+	operationLogHandler := &v1.OperationLogRouter{DAO: rdb.NewOperationLogDAO(model.DB), Config: rdb.NewSysConfigDAO(model.DB)}
 	v1Group.GET("/operation-logs", operationLogHandler.List)
 	v1Group.DELETE("/operation-logs", operationLogHandler.Clear)
-	loginLogHandler := &v1.LoginLogRouter{DAO: rdb.NewLoginAuditLogDAO(model.DB)}
+	loginLogHandler := &v1.LoginLogRouter{DAO: rdb.NewLoginAuditLogDAO(model.DB), Config: rdb.NewSysConfigDAO(model.DB)}
 	v1Group.GET("/login-logs", loginLogHandler.List)
 
 	userHandler := &v1.UserRouter{DAO: rdb.NewUserDAO(model.DB), RefreshDAO: rdb.NewRefreshTokenSessionDAO(model.DB), LoginAuditDAO: rdb.NewLoginAuditLogDAO(model.DB)}
@@ -184,6 +184,7 @@ func RegisteredRouter(e *gin.Engine) {
 	moduleGroup.GET("/:id/overprovision", forecastHandler.ModuleOverprovision)
 	moduleGroup.GET("/:id/overprovision/prometheus", forecastHandler.ModulePrometheusStats)
 	moduleGroup.POST("/:id/change-preview", forecastHandler.ModuleChangePreview)
+	moduleGroup.POST("/:id/change-preview/async", forecastHandler.ModuleChangePreviewAsync)
 	moduleGroup.POST("/:id/run", forecastHandler.ModuleRun)
 	moduleGroup.POST("/:id/steps/:step", forecastHandler.ModuleStepAsync)
 	moduleGroup.POST("/:id/backtest", forecastHandler.ModuleBacktest)
@@ -236,6 +237,7 @@ func RegisteredRouter(e *gin.Engine) {
 	v1Group.POST("/assistant/chat", assistantHandler.Chat)
 	v1Group.POST("/assistant/skill", assistantHandler.RunSkill)
 	v1Group.POST("/assistant/chat/async", assistantHandler.ChatAsync)
+	v1Group.GET("/assistant/async", assistantHandler.ListAsync)
 	v1Group.GET("/assistant/async/:id", assistantHandler.GetAsync)
 	v1Group.GET("/assistant/async/:id/events", assistantHandler.AsyncEvents)
 	v1Group.POST("/assistant/async/:id/cancel", assistantHandler.CancelAsync)
@@ -289,6 +291,7 @@ func RegisteredRouter(e *gin.Engine) {
 	taskGroup.PUT("/:id", taskHandler.Update)
 
 	jobHandler := v1.NewJobRouter(rdb.NewJobDAO(model.DB))
+	jobHandler.Config = rdb.NewSysConfigDAO(model.DB)
 	jobGroup := v1Group.Group("/jobs")
 	jobGroup.GET("", jobHandler.List)
 	jobGroup.GET("/types", jobHandler.Types)

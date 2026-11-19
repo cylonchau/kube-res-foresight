@@ -11,6 +11,8 @@ import (
 
 type OperationLogRouter struct {
 	DAO *rdb.OperationLogDAO
+	// Config gives a text search that names no time range the last http.list_search_days days.
+	Config *rdb.SysConfigDAO
 }
 
 // operationLogListReq mirrors the "系统管理/操作日志" page's filter bar:
@@ -68,17 +70,21 @@ func (h *OperationLogRouter) List(c *gin.Context) {
 		filter.Until = &t
 	}
 
-	logs, total, err := h.DAO.List(context.Background(), filter)
+	// no index serves a LIKE '%word%': a text search that names no time range reads the last days, not the whole log
+	var days int
+	filter.Since, days = searchWindow(c.Request.Context(), h.Config, filter.Keyword != "", filter.Since)
+	logs, total, err := h.DAO.List(c.Request.Context(), filter)
 	if err != nil {
 		query.InternalError(c, err)
 		return
 	}
 
 	query.SuccessResponse(c, nil, gin.H{
-		"list":     logs,
-		"total":    total,
-		"page":     req.Page,
-		"pageSize": req.PageSize,
+		"list":               logs,
+		"total":              total,
+		"page":               req.Page,
+		"pageSize":           req.PageSize,
+		"search_window_days": days,
 	})
 }
 

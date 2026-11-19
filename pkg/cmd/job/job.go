@@ -97,6 +97,7 @@ func (r *Runtime) Run(ctx context.Context) error {
 		logger.Info("Closed scheduled runs that had piled up", logger.Int64("count", closed))
 	}
 	go runTaskScanner(ctx, r.taskDAO, r.jobDAO)
+	tasks.StartBackground(ctx)
 	r.scheduler.Start(ctx)
 	return nil
 }

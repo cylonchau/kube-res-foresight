@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -58,7 +59,8 @@ func (r *ForecastRouter) ModuleStepAsync(c *gin.Context) {
 	if len(dedup) > 100 {
 		dedup = dedup[:100]
 	}
-	task, err := r.Async.Submit(c.Request.Context(), owner.ID, owner.Name, steprun.Kind, step+": "+m.Name, dedup, steprun.Input{ModuleID: id, Step: step, Body: body})
+	task, err := r.Async.SubmitSpec(c.Request.Context(), asyncrun.Spec{Owner: owner.ID, OwnerName: owner.Name, Kind: steprun.Kind, Title: step + ": " + m.Name, Dedup: dedup,
+		TraceID: c.GetString("requestId"), MaxAttempts: steprun.Attempts[step], Input: steprun.Input{ModuleID: id, Step: step, Body: body}})
 	if err != nil {
 		if errors.Is(err, asyncrun.ErrTooMany) {
 			query.ErrorResponse(c, http.StatusTooManyRequests, err)
@@ -77,11 +79,12 @@ func (r *ForecastRouter) ModuleStepAsync(c *gin.Context) {
 // @Router /api/v1/resource-analysis [get]
 func (r *ForecastRouter) ResourceAnalysis(c *gin.Context) {
 	days, _ := strconv.Atoi(c.Query("days"))
-	out, err := r.Service.ResourceAnalysis(c.Request.Context(), uintQuery(c, "module_id"), days)
+	out, kept, err := r.Service.ResourceAnalysisCached(c.Request.Context(), uintQuery(c, "module_id"), days)
 	if err != nil {
 		r.writeError(c, err)
 		return
 	}
+	cacheHeaders(c, kept)
 	query.SuccessResponse(c, nil, out)
 }
 
@@ -100,4 +103,53 @@ func (r *ForecastRouter) ModuleMetricCatalog(c *gin.Context) {
 		return
 	}
 	query.SuccessResponse(c, nil, out)
+}
+
+// ModuleChangePreviewAsync serves POST /modules/:id/change-preview/async: the preview of a change, queued as a background task of the signed-in user. It
+// answers at once with the task, which holds the report the synchronous preview would have answered and is held only to forecast.pipeline_timeout_seconds,
+// not to the room under the gateway timeout, so a long replay no longer ends in a 504. The same preview asked while one is open is the same task.
+func (r *ForecastRouter) ModuleChangePreviewAsync(c *gin.Context) {
+	if r.Async == nil {
+		query.InternalError(c, errors.New("background tasks are not set up"))
+		return
+	}
+	owner, ok := ownerOfRequest(c)
+	if !ok {
+		query.BadRequest(c, errors.New("background tasks are for a signed-in user only: use the synchronous endpoint"))
+		return
+	}
+	id, ok := parseUintParam(c, "id")
+	if !ok {
+		return
+	}
+	var req ChangePreviewReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		query.BadRequest(c, err)
+		return
+	}
+	m, err := r.Modules.Get(c.Request.Context(), id)
+	if err != nil {
+		r.writeError(c, err)
+		return
+	}
+	in := steprun.PreviewInput{ModuleID: id, SinceHours: req.SinceHours, Change: req.PreviewChange}
+	raw, _ := json.Marshal(in)
+	task, err := r.Async.SubmitSpec(c.Request.Context(), asyncrun.Spec{Owner: owner.ID, OwnerName: owner.Name, Kind: steprun.PreviewKind, Title: "preview: " + m.Name,
+		Dedup: "preview-" + asyncrun.Hash("p", raw)[:24], TraceID: c.GetString("requestId"), MaxAttempts: steprun.PreviewAttempts, Input: in,
+		// the same replay that was made lately, from the same data, is not queued: the task is the answer that is kept
+		Cached: func(ctx context.Context) (any, bool) {
+			if rep, ok := r.Service.PreviewKept(ctx, id, req.SinceHours, req.PreviewChange); ok {
+				return rep, true
+			}
+			return nil, false
+		}})
+	if err != nil {
+		if errors.Is(err, asyncrun.ErrTooMany) {
+			query.ErrorResponse(c, http.StatusTooManyRequests, err)
+			return
+		}
+		query.InternalError(c, err)
+		return
+	}
+	query.SuccessResponse(c, nil, asyncDTO(task))
 }

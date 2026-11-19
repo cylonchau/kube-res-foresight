@@ -3,6 +3,8 @@ package forecastsvc
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"math"
 	"sort"
 	"strings"
@@ -47,7 +49,57 @@ type EffectReport struct {
 	Tuning    *TuningSection  `json:"tuning,omitempty"`
 	// Timings is how long each part took to read, in milliseconds: when the report is slow it says which part was.
 	Timings map[string]int64 `json:"timings_ms,omitempty"`
+	// Parts says which parts of the report this answer holds (see EffectParts): the others are empty because they were not asked for.
+	Parts []string `json:"parts"`
 }
+
+// The parts of the effect report, which a page may ask for one by one (P11 B5): it draws each as it arrives, and a part that fails or is slow takes none of the
+// others with it.
+const (
+	// PartDelay is the delay report and the accuracy of the algorithm in use.
+	PartDelay = "delay"
+	// PartUsage is what was wasted, how steady the replicas were and who decided: they are made of the same recommendations and executions.
+	PartUsage = "usage"
+	// PartCapacity is the capacity against the measured load.
+	PartCapacity = "capacity"
+	// PartTuning is the fine-tuned copy of a model service.
+	PartTuning = "tuning"
+)
+
+// EffectParts lists the parts in the order the page shows them.
+var EffectParts = []string{PartDelay, PartUsage, PartCapacity, PartTuning}
+
+// ParseEffectParts reads a comma separated list of parts; empty is all of them, and one that is not a part is an error.
+func ParseEffectParts(raw string) ([]string, error) {
+	if strings.TrimSpace(raw) == "" {
+		return append([]string(nil), EffectParts...), nil
+	}
+	want := map[string]bool{}
+	for _, name := range strings.Split(raw, ",") {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		known := false
+		for _, p := range EffectParts {
+			known = known || p == name
+		}
+		if !known {
+			return nil, fmt.Errorf("%w: %q is not a part of the report (one of %s)", ErrEffectPart, name, strings.Join(EffectParts, ", "))
+		}
+		want[name] = true
+	}
+	out := make([]string, 0, len(want))
+	for _, p := range EffectParts {
+		if want[p] {
+			out = append(out, p)
+		}
+	}
+	return out, nil
+}
+
+// ErrEffectPart is a part that is not one of the report.
+var ErrEffectPart = errors.New("unknown part of the effect report")
 
 // AccuracyRow is the back-filled accuracy of one metric of the algorithm in use: the runs whose actuals have arrived.
 type AccuracyRow struct {
@@ -113,8 +165,20 @@ type TuningSection struct {
 	LastFailure  string     `json:"last_failure,omitempty"`
 }
 
-// EffectReport builds the report of a module over the last hours (DefaultDelayHours when 0).
+// EffectReport builds the whole report of a module over the last hours (DefaultDelayHours when 0).
 func (s *Service) EffectReport(ctx context.Context, moduleID uint, hours int) (*EffectReport, error) {
+	return s.EffectReportParts(ctx, moduleID, hours, nil)
+}
+
+// EffectReportParts builds the parts of the report that are asked for (all when none are), each read only when it is asked for.
+func (s *Service) EffectReportParts(ctx context.Context, moduleID uint, hours int, parts []string) (*EffectReport, error) {
+	if len(parts) == 0 {
+		parts = EffectParts
+	}
+	want := map[string]bool{}
+	for _, p := range parts {
+		want[p] = true
+	}
 	m, err := s.Modules.Get(ctx, moduleID)
 	if err != nil {
 		return nil, err
@@ -127,12 +191,19 @@ func (s *Service) EffectReport(ctx context.Context, moduleID uint, hours int) (*
 	}
 	now := s.now()
 	since := now.Add(-time.Duration(hours) * time.Hour)
-	rep := &EffectReport{ModuleID: moduleID, Since: since, Hours: hours, Accuracy: []AccuracyRow{}}
-
-	if rep.Delay, err = s.DelayReport(ctx, moduleID, hours); err != nil {
-		return nil, err
+	rep := &EffectReport{ModuleID: moduleID, Since: since, Hours: hours, Accuracy: []AccuracyRow{}, Parts: []string{}, Adoption: AdoptionPart{Rows: []AdoptionRow{}}, Stability: StabilityPart{Reasons: map[string]int{}}}
+	for _, p := range EffectParts {
+		if want[p] {
+			rep.Parts = append(rep.Parts, p)
+		}
 	}
-	rep.Algorithm = rep.Delay.Algorithm
+
+	if want[PartDelay] {
+		if rep.Delay, err = s.DelayReport(ctx, moduleID, hours); err != nil {
+			return nil, err
+		}
+		rep.Algorithm = rep.Delay.Algorithm
+	}
 
 	// the parts read different tables and need nothing from each other, so they are read together: the report takes as long as its slowest part, not the sum
 	rep.Timings = map[string]int64{}
@@ -141,7 +212,10 @@ func (s *Service) EffectReport(ctx context.Context, moduleID uint, hours int) (*
 	var firstErr error
 	var recs []*model.Recommendation
 	var execs []*model.ScalingExecution
-	stage := func(name string, fn func() error) {
+	stage := func(name string, on bool, fn func() error) {
+		if !on {
+			return // a part that was not asked for is not read, and has no time
+		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -155,7 +229,7 @@ func (s *Service) EffectReport(ctx context.Context, moduleID uint, hours int) (*
 			}
 		}()
 	}
-	stage("accuracy", func() error {
+	stage("accuracy", want[PartDelay], func() error {
 		if rep.Algorithm == "" {
 			return nil
 		}
@@ -166,7 +240,7 @@ func (s *Service) EffectReport(ctx context.Context, moduleID uint, hours int) (*
 		rep.Accuracy = accuracyOf(evals)
 		return nil
 	})
-	stage("recommendations", func() error {
+	stage("recommendations", want[PartUsage], func() error {
 		var err error
 		if recs, err = s.Predictions.RecommendationsSince(ctx, moduleID, since); err != nil {
 			return err
@@ -175,16 +249,16 @@ func (s *Service) EffectReport(ctx context.Context, moduleID uint, hours int) (*
 		rep.Adoption = adoptionOf(recs)
 		return nil
 	})
-	stage("capacity", func() error {
+	stage("capacity", want[PartCapacity], func() error {
 		rep.Capacity = s.capacityOf(ctx, m, since, now, hours)
 		return nil
 	})
-	stage("executions", func() error {
+	stage("executions", want[PartUsage], func() error {
 		var err error
 		execs, err = s.Predictions.AppliedExecutionsSince(ctx, moduleID, since)
 		return err
 	})
-	stage("tuning", func() error {
+	stage("tuning", want[PartTuning], func() error {
 		var err error
 		rep.Tuning, err = s.tuningOf(ctx, moduleID, since, now)
 		return err
@@ -193,7 +267,9 @@ func (s *Service) EffectReport(ctx context.Context, moduleID uint, hours int) (*
 	if firstErr != nil {
 		return nil, firstErr
 	}
-	rep.Stability = stabilityOf(recs, execs)
+	if want[PartUsage] {
+		rep.Stability = stabilityOf(recs, execs)
+	}
 	return rep, nil
 }
 

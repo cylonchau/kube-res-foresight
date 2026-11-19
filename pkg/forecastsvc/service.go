@@ -19,6 +19,7 @@ import (
 	"github.com/cylonchau/kube-res-foresight/pkg/forecast"
 	"github.com/cylonchau/kube-res-foresight/pkg/model"
 	"github.com/cylonchau/kube-res-foresight/pkg/promclient"
+	"github.com/cylonchau/kube-res-foresight/pkg/resultcache"
 )
 
 // ErrNotConfigured means the module lacks something the step needs (a source, a mapping, a datasource, an enabled
@@ -49,6 +50,8 @@ type Service struct {
 
 	// Telemetry is optional: counters and histograms of the pipeline work.
 	Telemetry *Telemetry
+	// Cache keeps the answers of the heavy reports (P11 B3); nil is the cache of the process.
+	Cache *resultcache.Cache
 
 	NewQuerier QuerierFactory
 	// Prices holds the price rules of the cost and NewCostQuerier builds the instant querier of its data source (nil: Prometheus).

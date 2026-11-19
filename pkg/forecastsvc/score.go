@@ -124,7 +124,8 @@ func (s *Service) ScoreModule(ctx context.Context, moduleID uint) ([]*model.Algo
 
 	var rows []*model.AlgorithmScore
 	weight := map[string]float64{}
-	for _, b := range bs {
+	for i, b := range bs {
+		stepReport(ctx, "score: "+b.Key(), i, len(bs), rows)
 		row, err := s.scoreInstance(ctx, m, b, currentReplicas, oomGrid)
 		if err != nil {
 			continue // an instance with nothing to replay has no score yet; the others are still ranked

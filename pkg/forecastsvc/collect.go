@@ -40,7 +40,7 @@ func (s *Service) Collect(ctx context.Context, moduleID uint) ([]CollectResult, 
 	}
 	results := make([]CollectResult, 0, len(metrics))
 	runs := s.runsForCollect(ctx, mod)
-	for _, metric := range metrics {
+	for i, metric := range metrics {
 		res := CollectResult{Metric: metric}
 		started := time.Now()
 		err := s.collectMetric(ctx, m, runs, metric, &res)
@@ -49,6 +49,7 @@ func (s *Service) Collect(ctx context.Context, moduleID uint) ([]CollectResult, 
 			res.Error = err.Error()
 		}
 		results = append(results, res)
+		stepReport(ctx, "collect: "+metric, i+1, len(metrics), results)
 	}
 	return results, nil
 }

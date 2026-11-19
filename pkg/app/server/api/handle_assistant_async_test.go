@@ -23,7 +23,7 @@ import (
 )
 
 func (a *assistantRig) runner() *asyncrun.Runner {
-	return &asyncrun.Runner{Tasks: rdb.NewAsyncTaskDAO(model.DB), Handlers: map[string]asyncrun.Handler{aitask.ChatKind: aitask.ChatHandler(a.svc), steprun.Kind: steprun.Handler(a.svc.Forecast)},
+	return &asyncrun.Runner{Tasks: rdb.NewAsyncTaskDAO(model.DB), Handlers: map[string]asyncrun.Handler{aitask.ChatKind: aitask.ChatHandler(a.svc), steprun.Kind: steprun.Handler(a.svc.Forecast), steprun.PreviewKind: steprun.PreviewHandler(a.svc.Forecast)},
 		Now: func() time.Time { return runtimeNow }, CancelPoll: 10 * time.Millisecond}
 }
 
@@ -198,7 +198,7 @@ func TestAFailedTaskKeepsItsReasonAndIsRetriedByItsOwner(t *testing.T) {
 	a.runJobs(t)
 	again := a.task(t, 1, id)
 	assert.Equal(t, "succeeded", again["status"])
-	assert.EqualValues(t, 2, again["attempts"])
+	assert.EqualValues(t, 1, again["attempts"], "a retry of the owner starts the attempts again: this is the first run of the new attempt")
 	assert.Equal(t, "second time lucky", again["result"].(map[string]any)["content"])
 }
 
@@ -214,13 +214,13 @@ func TestAQuestionThatCannotBeAskedIsRefusedBeforeItIsQueued(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, a.as(t, 0, http.MethodPost, "/assistant/chat/async", map[string]any{"messages": []assistant.Turn{user("hi")}}).Code)
 }
 
-func TestFinishedTasksOlderThanTheRetentionAreDeletedWithTheirEvents(t *testing.T) {
+func TestFinishedTasksOlderThanTheRetentionExpireAndTheirRecordsAreDeletedAMonthLaterWithTheirEvents(t *testing.T) {
 	a := newAssistantRig(t, true)
 	assert.Equal(t, 72, timing.AsyncRetentionHours.Default)
 	now := a.svc.Now().UTC()
 	mk := func(age time.Duration, status string) uint {
 		finished := now.Add(-age)
-		task := model.AsyncTask{OwnerID: 1, Kind: "assistant.chat", Status: status, CreatedAt: finished, FinishedAt: &finished}
+		task := model.AsyncTask{OwnerID: 1, Kind: "assistant.chat", Status: status, CreatedAt: finished, FinishedAt: &finished, Result: "{\"answer\":1}", Payload: "{}"}
 		if status == model.AsyncRunning {
 			task.FinishedAt = nil
 		}
@@ -229,16 +229,30 @@ func TestFinishedTasksOlderThanTheRetentionAreDeletedWithTheirEvents(t *testing.
 		return task.ID
 	}
 	old, fresh, running := mk(80*time.Hour, "succeeded"), mk(10*time.Hour, "succeeded"), mk(500*time.Hour, "running")
+	gone := mk(80*time.Hour+time.Duration(assistant.AsyncRecordDays)*24*time.Hour, "failed")
 	n, err := a.svc.PruneAsync(context.Background())
 	require.NoError(t, err)
-	assert.EqualValues(t, 1, n)
-	var ids []uint
-	require.NoError(t, model.DB.Model(&model.AsyncTask{}).Order("id").Pluck("id", &ids).Error)
-	assert.Equal(t, []uint{fresh, running}, ids)
-	assert.NotContains(t, ids, old)
+	assert.EqualValues(t, 1, n, "only the record that expired a month ago is deleted")
+	var tasks []model.AsyncTask
+	require.NoError(t, model.DB.Order("id").Find(&tasks).Error)
+	status := map[uint]string{}
+	for _, task := range tasks {
+		status[task.ID] = task.Status
+	}
+	assert.Equal(t, map[uint]string{old: model.AsyncExpired, fresh: model.AsyncSucceeded, running: model.AsyncRunning}, status)
+	assert.NotContains(t, status, gone)
+	for _, task := range tasks {
+		if task.ID == old {
+			assert.Empty(t, task.Result, "the result of an expired task is gone")
+			assert.Empty(t, task.Payload)
+		}
+		if task.ID == fresh {
+			assert.NotEmpty(t, task.Result)
+		}
+	}
 	var events int64
 	require.NoError(t, model.DB.Model(&model.AsyncTaskEvent{}).Count(&events).Error)
-	assert.EqualValues(t, 2, events)
+	assert.EqualValues(t, 2, events, "the events of the expired and the deleted tasks went")
 }
 
 // asRoles sends a request as the signed-in user id with the roles (the roles the permission system knows the user by).
@@ -356,4 +370,93 @@ func TestTheAnswerOfABackgroundQuestionCanBeReadWhileItIsBeingWritten(t *testing
 	assert.Equal(t, "succeeded", done["status"])
 	assert.Equal(t, "Hello world.", done["result"].(map[string]any)["content"])
 	assert.Nil(t, done["partial"], "once it is done the answer is the result, not the partial text")
+}
+
+func TestTheChangePreviewRunsInTheBackgroundAndAnEmptyChangeFailsOnceAndIsNotTriedAgain(t *testing.T) {
+	a := newAssistantRig(t, true)
+	module := strconv.Itoa(int(a.module.ID))
+	rec := a.asRoles(t, 1, "", http.MethodPost, "/modules/"+module+"/change-preview/async", map[string]any{"since_hours": 6, "headroom_ratio": 1.2})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	queued := decodeData(t, rec.Body.Bytes())
+	assert.Equal(t, "queued", queued["status"])
+	assert.Equal(t, "forecast.preview", queued["kind"])
+	assert.EqualValues(t, steprun.PreviewAttempts, queued["max_attempts"])
+	assert.NotEmpty(t, queued["trace_id"], "the request id of the request that queued it")
+
+	again := decodeData(t, a.asRoles(t, 1, "", http.MethodPost, "/modules/"+module+"/change-preview/async", map[string]any{"since_hours": 6, "headroom_ratio": 1.2}).Body.Bytes())
+	assert.Equal(t, queued["id"], again["id"], "the same preview while it is open is the same task")
+	other := decodeData(t, a.asRoles(t, 1, "", http.MethodPost, "/modules/"+module+"/change-preview/async", map[string]any{"since_hours": 6, "headroom_ratio": 1.5}).Body.Bytes())
+	assert.NotEqual(t, queued["id"], other["id"], "another change is another task")
+
+	empty := decodeData(t, a.asRoles(t, 1, "", http.MethodPost, "/modules/"+module+"/change-preview/async", map[string]any{"since_hours": 6}).Body.Bytes())
+	a.runJobs(t)
+	failed := a.task(t, 1, empty["id"])
+	assert.Equal(t, "failed", failed["status"])
+	assert.Contains(t, failed["error"], "nothing to compare")
+	assert.EqualValues(t, 1, failed["attempts"], "a request that is not valid is not tried again")
+	assert.Equal(t, false, failed["retryable"])
+
+	assert.Equal(t, http.StatusNotFound, a.asRoles(t, 1, "", http.MethodPost, "/modules/99999/change-preview/async", map[string]any{"headroom_ratio": 1.2}).Code)
+	assert.Equal(t, http.StatusBadRequest, a.asRoles(t, 0, "", http.MethodPost, "/modules/"+module+"/change-preview/async", map[string]any{"headroom_ratio": 1.2}).Code)
+}
+
+func TestTheTasksOfTheSignedInUserAreListedSoAClosedPageFindsThemAgain(t *testing.T) {
+	a := newAssistantRig(t, true)
+	module := strconv.Itoa(int(a.module.ID))
+	mine := decodeData(t, a.asRoles(t, 1, "", http.MethodPost, "/modules/"+module+"/steps/evaluate", map[string]any{}).Body.Bytes())
+	theirs := decodeData(t, a.asRoles(t, 2, "", http.MethodPost, "/modules/"+module+"/steps/collect", map[string]any{}).Body.Bytes())
+	require.NotEqual(t, mine["id"], theirs["id"])
+
+	list := func(uid int, query string) []map[string]any {
+		rec := a.as(t, uid, http.MethodGet, "/assistant/async"+query, nil)
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		var body struct {
+			Data []map[string]any `json:"data"`
+		}
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+		return body.Data
+	}
+	got := list(1, "")
+	require.Len(t, got, 1, "only the tasks of the signed-in user")
+	assert.Equal(t, mine["id"], got[0]["id"])
+	assert.NotContains(t, got[0], "result", "the list says what exists, the result is read for one task")
+	assert.Len(t, list(1, "?kinds=forecast.step"), 1)
+	assert.Empty(t, list(1, "?kinds=assistant.chat"))
+	assert.Equal(t, http.StatusBadRequest, a.as(t, 0, http.MethodGet, "/assistant/async", nil).Code)
+}
+
+func TestTheViewOfATaskSaysWhatItHasDoneSoFarWhileItRunsAndAfterItFailedButNotOnceItSucceeded(t *testing.T) {
+	a := newAssistantRig(t, true)
+	module := strconv.Itoa(int(a.module.ID))
+	queued := decodeData(t, a.asRoles(t, 1, "", http.MethodPost, "/modules/"+module+"/steps/evaluate", map[string]any{}).Body.Bytes())
+	id := uint(queued["id"].(float64))
+	require.NoError(t, model.DB.Model(&model.AsyncTask{}).Where("id = ?", id).UpdateColumns(map[string]any{"status": "failed", "has_partial": true, "partial_result": `{"done":2}`,
+		"error_code": "timeout", "retryable": true, "next_run_at": time.Now()}).Error)
+	failed := a.task(t, 1, queued["id"])
+	assert.Equal(t, true, failed["has_partial"])
+	assert.JSONEq(t, `{"done":2}`, string(mustJSON(t, failed["partial_result"])))
+	assert.Equal(t, "timeout", failed["error_code"])
+	assert.Equal(t, true, failed["retryable"])
+	assert.NotContains(t, failed, "next_run_at", "only a task that is waiting for its next attempt shows when")
+
+	require.NoError(t, model.DB.Model(&model.AsyncTask{}).Where("id = ?", id).UpdateColumns(map[string]any{"status": "queued"}).Error)
+	waiting := a.task(t, 1, queued["id"])
+	assert.Contains(t, waiting, "next_run_at")
+
+	require.NoError(t, model.DB.Model(&model.AsyncTask{}).Where("id = ?", id).UpdateColumns(map[string]any{"status": "succeeded", "result": `{"ok":true}`}).Error)
+	ok := a.task(t, 1, queued["id"])
+	assert.NotContains(t, ok, "partial_result", "a result that is complete needs no part of itself")
+
+	require.NoError(t, model.DB.Model(&model.AsyncTask{}).Where("id = ?", id).UpdateColumns(map[string]any{"status": "expired", "result": ""}).Error)
+	gone := a.task(t, 1, queued["id"])
+	assert.Equal(t, "expired", gone["status"])
+	assert.NotContains(t, gone, "result")
+	assert.Equal(t, http.StatusGone, a.as(t, 1, http.MethodPost, "/assistant/async/"+idText(queued["id"])+"/retry", nil).Code, "there is nothing left to run again")
+}
+
+func mustJSON(t *testing.T, v any) []byte {
+	t.Helper()
+	b, err := json.Marshal(v)
+	require.NoError(t, err)
+	return b
 }

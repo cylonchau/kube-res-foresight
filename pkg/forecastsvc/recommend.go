@@ -916,8 +916,8 @@ func (s *Service) RunData(ctx context.Context, moduleID uint, failed map[string]
 		return nil, err
 	}
 	res := &PipelineResult{}
-	s.collectInto(ctx, a, res)
-	if predicted, err := s.Predict(ctx, a.ID); errors.Is(err, ErrPredictionOff) {
+	s.collectInto(withPhase(ctx, 0, 2), a, res)
+	if predicted, err := s.Predict(withPhase(ctx, 1, 2), a.ID); errors.Is(err, ErrPredictionOff) {
 		// not an error: the module is not asked to forecast
 	} else if err != nil {
 		res.Errors = append(res.Errors, a.Name+" predict: "+err.Error())

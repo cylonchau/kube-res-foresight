@@ -140,7 +140,7 @@ func (dao *LoginAuditLogDAO) List(ctx context.Context, filter LoginAuditListFilt
 		q = q.Where("created_at <= ?", *filter.Until)
 	}
 	var total int64
-	if err := q.Count(&total).Error; err != nil {
+	if err := countBounded(q, &total); err != nil {
 		return nil, 0, err
 	}
 	column, ok := loginAuditSortColumns[filter.SortBy]

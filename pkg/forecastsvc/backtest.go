@@ -46,7 +46,8 @@ func (s *Service) Backtest(ctx context.Context, moduleID uint, metric string, cu
 	}
 	var out []*model.BacktestRun
 	var last error
-	for _, m := range runs {
+	for i, m := range runs {
+		stepReport(ctx, "backtest: "+m.Key(), i, len(runs), out)
 		rows, err := s.backtestRun(ctx, m, metric, cutoffs)
 		if err != nil {
 			// one algorithm that cannot run (a missing parameter, too little history) does not stop the others
