@@ -65,7 +65,7 @@ type WriteRate struct {
 	Rows     int64 `json:"rows"`
 }
 
-// DatabaseReport is what the diagnostics say. Sections the driver cannot answer are empty and named in Unavailable.
+// DatabaseReport is what the diagnostics say. A section the driver cannot answer is empty; Unavailable names only what failed or ran out of its time.
 type DatabaseReport struct {
 	Driver      string         `json:"driver"`
 	Pool        PoolStats      `json:"pool"`
@@ -113,10 +113,8 @@ func (dao *DiagnosticsDAO) Report(ctx context.Context) (*DatabaseReport, error) 
 	case "mysql":
 		read("tables", dao.mysqlTables(out))
 		read("writes", dao.writes(out))
-		out.Unavailable = append(out.Unavailable, "indexes and running statements: read only on PostgreSQL")
 	default:
 		read("tables", dao.countedTables(out))
-		out.Unavailable = append(out.Unavailable, "sizes, indexes, running statements and write rates: read only on PostgreSQL and MySQL")
 	}
 	return out, nil
 }

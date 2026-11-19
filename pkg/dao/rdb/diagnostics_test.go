@@ -25,7 +25,7 @@ func TestTheDiagnosticsReadThePoolAndCountTheTablesOnSQLiteAndSayWhatTheyCannotR
 	assert.EqualValues(t, 2, byName["scaling_execution"].Rows)
 	assert.Contains(t, byName, "forecast_prediction", "an empty table is listed too")
 	assert.NotContains(t, byName, "metric_sample", "a table that does not exist is not")
-	assert.NotEmpty(t, report.Unavailable, "what SQLite cannot say is said")
+	assert.Empty(t, report.Unavailable, "a driver that cannot say a section just has none: that is not an error to show")
 	assert.NotNil(t, report.Indexes)
 	assert.NotNil(t, report.Running)
 }
