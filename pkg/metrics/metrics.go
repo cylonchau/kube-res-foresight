@@ -53,7 +53,11 @@ func Handler(ready func() error) http.Handler {
 		gatherer = withLegacyNames(Registry)
 	}
 	mux.Handle("/metrics", promhttp.HandlerFor(gatherer, promhttp.HandlerOpts{}))
-	probe := func(w http.ResponseWriter, _ *http.Request) {
+	// /healthz (liveness) says the process answers: it does not ask the database. A database that is slow or out of connections must not make the
+	// platform look dead: the kubelet restarts a Pod that fails its liveness probe, and a restart is a 502 for every request in flight, on top of the slowness
+	// that was the problem. /readyz (readiness) asks, and a Pod that cannot reach its database is taken out of the Service until it can.
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) })
+	mux.HandleFunc("/readyz", func(w http.ResponseWriter, _ *http.Request) {
 		if ready != nil {
 			if err := ready(); err != nil {
 				http.Error(w, err.Error(), http.StatusServiceUnavailable)
@@ -61,9 +65,7 @@ func Handler(ready func() error) http.Handler {
 			}
 		}
 		_, _ = w.Write([]byte("ok"))
-	}
-	mux.HandleFunc("/healthz", probe)
-	mux.HandleFunc("/readyz", probe)
+	})
 	return mux
 }
 

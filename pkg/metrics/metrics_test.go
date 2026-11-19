@@ -27,8 +27,11 @@ func TestEndpoints(t *testing.T) {
 		t.Fatalf("healthz = %d", rec.Code)
 	}
 	bad := Handler(func() error { return errors.New("stale") })
-	if rec := get(bad, "/healthz"); rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("unhealthy healthz = %d", rec.Code)
+	if rec := get(bad, "/healthz"); rec.Code != 200 {
+		t.Fatalf("liveness asked the database: healthz = %d with a readiness check that fails", rec.Code)
+	}
+	if rec := get(bad, "/readyz"); rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("unready readyz = %d", rec.Code)
 	}
 }
 

@@ -69,7 +69,7 @@ func (s *Service) LiveHistory(ctx context.Context, moduleID uint, metric string,
 	if err != nil {
 		return nil, err
 	}
-	querier, err := s.NewQuerier(setup.ds)
+	querier, err := s.querierOf(ctx, setup.ds)
 	if err != nil {
 		return nil, err
 	}

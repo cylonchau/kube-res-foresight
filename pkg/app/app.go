@@ -83,7 +83,10 @@ func NewHTTPServer(ctx context.Context) error {
 	// Register Routers
 	router.RegisteredRouter(engine)
 
-	server := &http.Server{Addr: addr, Handler: engine}
+	// the limits of a connection that is not working: a client that sends its headers slowly does not hold a connection for ever, and an idle one is closed after longer
+	// than the idle time of the gateways in front (a proxy that keeps connections open for a minute would otherwise find the platform has closed one it is about to use,
+	// which is a 502). There is no read or write time-out of the whole request: the time of a request is bounded by its own deadline (see middleware.ReadDeadline).
+	server := &http.Server{Addr: addr, Handler: engine, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 3 * time.Minute}
 	serveErrors := make(chan error, 1)
 	go func() {
 		serveErrors <- server.ListenAndServe()
@@ -97,7 +100,9 @@ func NewHTTPServer(ctx context.Context) error {
 		return err
 	case <-ctx.Done():
 		logger.Info("kube-res-foresight HTTP server shutting down")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		// a request that is running gets the time a read request may take (30 seconds by default) to finish before the process goes: a rolling update does not
+		// cut the page that was being answered
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownDrain)
 		defer cancel()
 		if err := server.Shutdown(shutdownCtx); err != nil {
 			_ = server.Close()
@@ -158,3 +163,7 @@ func readBudget() func() time.Duration {
 		return timing.Under(value(timing.HTTPGatewayTimeout), value(timing.ListQuery))
 	}
 }
+
+// shutdownDrain is how long the server waits for the requests that are running when it is told to stop. The pod is given more time than this
+// (terminationGracePeriodSeconds of the chart) so the process ends by itself and is not killed.
+const shutdownDrain = 40 * time.Second

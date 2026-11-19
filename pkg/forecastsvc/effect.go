@@ -6,6 +6,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
@@ -44,6 +45,8 @@ type EffectReport struct {
 	Stability StabilityPart   `json:"stability"`
 	Adoption  AdoptionPart    `json:"adoption"`
 	Tuning    *TuningSection  `json:"tuning,omitempty"`
+	// Timings is how long each part took to read, in milliseconds: when the report is slow it says which part was.
+	Timings map[string]int64 `json:"timings_ms,omitempty"`
 }
 
 // AccuracyRow is the back-filled accuracy of one metric of the algorithm in use: the runs whose actuals have arrived.
@@ -131,31 +134,66 @@ func (s *Service) EffectReport(ctx context.Context, moduleID uint, hours int) (*
 	}
 	rep.Algorithm = rep.Delay.Algorithm
 
-	if rep.Algorithm != "" {
+	// the parts read different tables and need nothing from each other, so they are read together: the report takes as long as its slowest part, not the sum
+	rep.Timings = map[string]int64{}
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	var firstErr error
+	var recs []*model.Recommendation
+	var execs []*model.ScalingExecution
+	stage := func(name string, fn func() error) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			began := time.Now()
+			err := fn()
+			mu.Lock()
+			defer mu.Unlock()
+			rep.Timings[name] = time.Since(began).Milliseconds()
+			if err != nil && firstErr == nil {
+				firstErr = err
+			}
+		}()
+	}
+	stage("accuracy", func() error {
+		if rep.Algorithm == "" {
+			return nil
+		}
 		evals, err := s.Predictions.AllEvaluations(ctx, rdb.EvaluationFilter{ModuleID: moduleID, AlgorithmID: rep.Algorithm, Since: &since})
 		if err != nil {
-			return nil, err
+			return err
 		}
 		rep.Accuracy = accuracyOf(evals)
-	}
-
-	recs, err := s.Predictions.RecommendationsSince(ctx, moduleID, since)
-	if err != nil {
-		return nil, err
-	}
-	rep.Waste = s.wasteOf(ctx, m, recs, since, now)
-	rep.Capacity = s.capacityOf(ctx, m, since, now, hours)
-	rep.Adoption = adoptionOf(recs)
-
-	execs, err := s.Predictions.AppliedExecutionsSince(ctx, moduleID, since)
-	if err != nil {
-		return nil, err
+		return nil
+	})
+	stage("recommendations", func() error {
+		var err error
+		if recs, err = s.Predictions.RecommendationsSince(ctx, moduleID, since); err != nil {
+			return err
+		}
+		rep.Waste = s.wasteOf(ctx, m, recs, since, now)
+		rep.Adoption = adoptionOf(recs)
+		return nil
+	})
+	stage("capacity", func() error {
+		rep.Capacity = s.capacityOf(ctx, m, since, now, hours)
+		return nil
+	})
+	stage("executions", func() error {
+		var err error
+		execs, err = s.Predictions.AppliedExecutionsSince(ctx, moduleID, since)
+		return err
+	})
+	stage("tuning", func() error {
+		var err error
+		rep.Tuning, err = s.tuningOf(ctx, moduleID, since, now)
+		return err
+	})
+	wg.Wait()
+	if firstErr != nil {
+		return nil, firstErr
 	}
 	rep.Stability = stabilityOf(recs, execs)
-
-	if rep.Tuning, err = s.tuningOf(ctx, moduleID, since, now); err != nil {
-		return nil, err
-	}
 	return rep, nil
 }
 

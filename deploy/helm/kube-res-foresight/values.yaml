@@ -177,6 +177,13 @@ resources:
     cpu: "2"
     memory: 1Gi
 
+# The Go memory limit of the platform (GOMEMLIMIT): about nine tenths of resources.limits.memory, so the garbage collector works harder before the
+# Pod is OOM-killed (a kill is a 502 for every request in flight). Change it with the memory limit; empty leaves it unset.
+goMemLimit: "900MiB"
+
+# How long a Pod is given to stop: the server waits up to 40 seconds for the requests that are running, so a rolling update does not cut a page.
+terminationGracePeriodSeconds: 60
+
 serviceAccount:
   create: true
   name: ""

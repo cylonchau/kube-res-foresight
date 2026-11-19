@@ -66,3 +66,8 @@ var ListSearchDays = Param{Key: "http.list_search_days", Default: 7, Min: 1, Max
 var SummaryWindowHours = Param{Key: "http.summary_window_hours", Default: 24, Min: 1, Max: 720,
 	Name:   "Summary Window (hours)",
 	Remark: "The counts of a summary page (the algorithm run status, for example) read this many hours back when the request gives no time range: the totals of a table that grows are the slowest read of a page. The page says so; give a time range to read further back (1-720)."}
+
+// PrometheusTotalConcurrency is how many queries to one data source may be in flight at once in the whole platform process.
+var PrometheusTotalConcurrency = Param{Key: "forecast.prometheus_total_concurrency", Default: 8, Min: 1, Max: 64,
+	Name:   "Prometheus Queries In Flight Per Data Source",
+	Remark: "The most range queries the platform has in flight to one data source at once, for every request together (pages, collections, query tests). The max concurrency of the data source limits one fetch; this limits all of them, so many people opening the history page at once do not make Prometheus answer everyone slowly. A query waits for its turn and gives up with its request. Raise it when Prometheus is idle and queries wait, lower it when Prometheus is slow under the load (1-64)."}

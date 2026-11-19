@@ -246,6 +246,9 @@ var exportDescsMu sync.Mutex
 
 // Ready reports whether the forecasting store can be read; it backs /readyz.
 func (s *Service) Ready(ctx context.Context) error {
+	// a database that does not answer in three seconds is not ready: the probe must not wait as long as the statement it checks
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
 	_, _, err := s.Modules.List(ctx, moduleFilterAll, 1, 1)
 	return err
 }

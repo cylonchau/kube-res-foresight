@@ -59,7 +59,7 @@ func (s *Service) collectMetric(ctx context.Context, m *model.AlgorithmRun, runs
 	if err != nil {
 		return err
 	}
-	querier, err := s.NewQuerier(setup.ds)
+	querier, err := s.querierOf(ctx, setup.ds)
 	if err != nil {
 		return err
 	}

@@ -225,3 +225,13 @@ func TestThePodHoursNeedAReadyReplicasSeries(t *testing.T) {
 	assert.Equal(t, decision.IndicatorInsufficient, rep.Capacity.Verdict)
 	assert.Contains(t, rep.Capacity.Note, "ready-replicas")
 }
+
+func TestTheEffectReportSaysHowLongEachPartTookToRead(t *testing.T) {
+	f := newFixture(t)
+	rep, err := f.svc.EffectReport(context.Background(), f.module.ID, 24)
+	require.NoError(t, err)
+	for _, part := range []string{"accuracy", "recommendations", "capacity", "executions", "tuning"} {
+		_, ok := rep.Timings[part]
+		assert.True(t, ok, "%s has its time", part)
+	}
+}

@@ -123,7 +123,7 @@ func (s *Service) TestQuery(ctx context.Context, q QueryTest) (*QueryTestResult,
 	from, to = floorToStep(from, stepD), floorToStep(to, stepD)
 	res.From, res.To = from, to
 
-	querier, err := s.NewQuerier(ds)
+	querier, err := s.querierOf(ctx, ds)
 	if err != nil {
 		return fail("datasource", err)
 	}

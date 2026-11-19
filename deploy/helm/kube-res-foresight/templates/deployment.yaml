@@ -32,6 +32,8 @@ spec:
         {{- end }}
     spec:
       serviceAccountName: {{ include "kube-res-foresight.serviceAccountName" . }}
+      # time to finish the requests that are running (the server waits up to 40 seconds for them) before the Pod is killed
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
       automountServiceAccountToken: false
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
@@ -72,6 +74,11 @@ spec:
           args: [{{ ternary "platform" "all" (eq .Values.mode "split") | quote }}, "-c", "/etc/kube-res-foresight/config.yaml", "--sql-driver", {{ $driver | quote }}]
           env:
             {{- include "kube-res-foresight.env" . | nindent 12 }}
+            {{- if .Values.goMemLimit }}
+            # the Go memory limit: the collector works harder before the Pod reaches its memory limit and is OOM-killed (a killed Pod is a 502 for every request in flight)
+            - name: GOMEMLIMIT
+              value: {{ .Values.goMemLimit | quote }}
+            {{- end }}
           ports:
             - name: http
               containerPort: {{ .Values.server.port }}
@@ -81,21 +88,24 @@ spec:
               protocol: TCP
           startupProbe:
             httpGet:
-              path: /healthz
+              path: /readyz
               port: metrics
             periodSeconds: 5
+            timeoutSeconds: 5
             failureThreshold: 60
           livenessProbe:
             httpGet:
               path: /healthz
               port: metrics
             periodSeconds: 20
+            timeoutSeconds: 5
             failureThreshold: 3
           readinessProbe:
             httpGet:
               path: /readyz
               port: metrics
             periodSeconds: 10
+            timeoutSeconds: 5
             failureThreshold: 3
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
