@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cylonchau/kube-res-foresight/pkg/reqstat"
 	"github.com/cylonchau/kube-res-foresight/pkg/version"
 	"github.com/prometheus/client_golang/api"
 	promv1 "github.com/prometheus/client_golang/api/prometheus/v1"
@@ -187,6 +188,7 @@ type VectorSample struct {
 // QueryVector runs one instant query at a moment and returns every series of the answer, unlike QueryRange which insists on one. An
 // empty answer is an empty slice, not an error.
 func (c *Client) QueryVector(ctx context.Context, query string, at time.Time) ([]VectorSample, error) {
+	defer reqstat.TimeProm(ctx)()
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 	value, _, err := c.api.Query(ctx, query, at)
@@ -213,6 +215,7 @@ func (c *Client) QueryVector(ctx context.Context, query string, at time.Time) ([
 // QueryRange runs one query_range and returns its single series ordered by time. An empty result is a nil
 // slice, not an error: the window simply has no data.
 func (c *Client) QueryRange(ctx context.Context, query string, start, end time.Time, step time.Duration) ([]Sample, error) {
+	defer reqstat.TimeProm(ctx)()
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 	value, _, err := c.api.QueryRange(ctx, query, promv1.Range{Start: start, End: end, Step: step})

@@ -19,6 +19,8 @@ func SlowRequests(limit func() time.Duration) gin.HandlerFunc {
 		id := requestIDOf(c)
 		c.Writer.Header().Set(RequestIDHeader, id)
 		c.Set("requestId", id)
+		// the context the server made: the one a handler sees may be given a deadline by a middleware that cancels it when it returns, which is not the other side giving up
+		original := c.Request.Context()
 		start := time.Now()
 		c.Next()
 		took := time.Since(start)
@@ -26,7 +28,7 @@ func SlowRequests(limit func() time.Duration) gin.HandlerFunc {
 		if strings.Contains(path, "/stream") {
 			return
 		}
-		abandoned := c.Request.Context().Err() != nil
+		abandoned := original.Err() != nil
 		threshold := time.Duration(0)
 		if limit != nil {
 			threshold = limit()

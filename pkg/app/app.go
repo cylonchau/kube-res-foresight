@@ -12,7 +12,9 @@ import (
 	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
 	"github.com/cylonchau/kube-res-foresight/pkg/logger"
 	"github.com/cylonchau/kube-res-foresight/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/reqstat"
 	"github.com/cylonchau/kube-res-foresight/pkg/timing"
+	"github.com/cylonchau/kube-res-foresight/pkg/version"
 	"github.com/gin-gonic/gin"
 	"io/fs"
 	"net/http"
@@ -30,10 +32,14 @@ func NewHTTPServer(ctx context.Context) error {
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)
 	logger.Info("kube-res-foresight HTTP server listening", logger.String("addr", addr))
 
+	// the record of the runs of this process and the statistics of its requests (P11 B0): what the diagnostics say about a 502 or a 504 is read from here
+	stats := startRequestStats(ctx)
+	defer stats.Stop()
+
 	// Initialize Gin
 	gin.SetMode(gin.ReleaseMode)
 	engine := gin.New()
-	engine.Use(gin.Logger(), gin.Recovery(), middleware.CORS(cfg.Server.CORSAllowedOrigins), middleware.SlowRequests(slowRequestLimit()), middleware.ReadDeadline(readBudget()), middleware.PageDepth(20000))
+	engine.Use(gin.Logger(), gin.Recovery(), middleware.CORS(cfg.Server.CORSAllowedOrigins), middleware.SlowRequests(slowRequestLimit()), middleware.Measure(reqstat.DefaultRecorder()), middleware.ReadDeadline(readBudget()), middleware.PageDepth(20000))
 
 	// Custom 404/Static Handler
 	engine.NoRoute(func(c *gin.Context) {
@@ -167,3 +173,15 @@ func readBudget() func() time.Duration {
 // shutdownDrain is how long the server waits for the requests that are running when it is told to stop. The pod is given more time than this
 // (terminationGracePeriodSeconds of the chart) so the process ends by itself and is not killed.
 const shutdownDrain = 40 * time.Second
+
+// startRequestStats writes this run of the process and starts storing the request statistics. Without a database there is nothing to store them in, and the
+// diagnostics report that.
+func startRequestStats(ctx context.Context) *reqstat.Service {
+	if model.DB == nil {
+		return nil
+	}
+	svc := reqstat.New(rdb.NewRequestStatDAO(model.DB), rdb.NewProcessBootDAO(model.DB), reqstat.DefaultRecorder(), version.Version)
+	reqstat.SetDefault(svc)
+	svc.Start(ctx)
+	return svc
+}

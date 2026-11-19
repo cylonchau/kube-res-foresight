@@ -226,3 +226,12 @@ func (dao *DiagnosticsDAO) writes(out *DatabaseReport) func(context.Context) err
 		return err
 	}
 }
+
+// Pool is the connection pool of this process, without the rest of the report.
+func (dao *DiagnosticsDAO) Pool() PoolStats {
+	sqlDB, err := dao.db.DB()
+	if err != nil {
+		return PoolStats{}
+	}
+	return dao.pool(sqlDB)
+}

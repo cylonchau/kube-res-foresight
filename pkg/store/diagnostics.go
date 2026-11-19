@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"github.com/cylonchau/kube-res-foresight/pkg/logger"
+	"github.com/cylonchau/kube-res-foresight/pkg/reqstat"
 	"github.com/cylonchau/kube-res-foresight/pkg/utils"
 	"gorm.io/gorm"
 	"net/http"
@@ -38,6 +39,10 @@ func (s *statementStats) record(tx *gorm.DB, op string) {
 		return
 	}
 	elapsed := time.Since(started.(time.Time))
+	// the time of the request that sent the statement: the diagnostics say how much of a slow route is the database
+	if tx.Statement != nil {
+		reqstat.AddDB(tx.Statement.Context, elapsed)
+	}
 	table := "?"
 	if tx.Statement != nil {
 		if tx.Statement.Table != "" {

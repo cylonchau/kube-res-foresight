@@ -224,8 +224,9 @@ func RegisteredRouter(e *gin.Engine) {
 	v1Group.GET("/operator/modules", runtimeHandler.OperatorModules)
 	v1Group.GET("/operator/settings", runtimeHandler.OperatorSettings)
 	v1Group.GET("/dashboard", forecastHandler.Dashboard)
-	diagnosticsHandler := &v1.DiagnosticsRouter{Diagnostics: rdb.NewDiagnosticsDAO(model.DB)}
+	diagnosticsHandler := &v1.DiagnosticsRouter{Diagnostics: rdb.NewDiagnosticsDAO(model.DB), Config: rdb.NewSysConfigDAO(model.DB)}
 	v1Group.GET("/diagnostics/database", diagnosticsHandler.Database)
+	v1Group.GET("/diagnostics/requests", diagnosticsHandler.Requests)
 	assistantHandler := &v1.AssistantRouter{Service: assistant.NewService(&assistant.Service{DB: model.DB, Forecast: forecastService, Modules: rdb.NewModuleDAO(model.DB),
 		Predictions: rdb.NewPredictionDAO(model.DB), Config: configHandler.DAO, Connections: rdb.NewAssistantConnectionDAO(model.DB), SkillStore: rdb.NewAssistantSkillDAO(model.DB), Tasks: rdb.NewAssistantTaskDAO(model.DB), Conversations: rdb.NewAssistantConversationDAO(model.DB), Audits: rdb.NewAssistantAuditDAO(model.DB), AsyncTasks: rdb.NewAsyncTaskDAO(model.DB), Database: databaseDriver(), Authorizer: v1.AssistantAuthorizer{Permissions: rdb.NewPermissionDAO(model.DB)}}),
 		Queue: &aitask.Queue{Jobs: rdb.NewJobDAO(model.DB)},
