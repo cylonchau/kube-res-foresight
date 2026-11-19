@@ -225,6 +225,9 @@ func (s *Service) Read(ctx context.Context, hours int, lim Limits) (*Report, err
 		return nil, err
 	}
 	routes := Summarize(rows)
+	if boots == nil {
+		boots = []model.ProcessBoot{}
+	}
 	return &Report{Hours: hours, From: since, To: now, Routes: routes, Boots: boots, Findings: Diagnose(routes, boots, lim), BucketBounds: Bounds,
 		GatewayS: int(lim.Gateway / time.Second), ListS: int(lim.ListBudget / time.Second), RetentionDay: RetentionDays}, nil
 }

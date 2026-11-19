@@ -2,6 +2,7 @@ package reqstat
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync/atomic"
 	"testing"
@@ -255,4 +256,25 @@ func TestTheSpanOfARequestCollectsTheTimeOfTheLayersFromAnyGoroutine(t *testing.
 	AddDB(context.Background(), time.Second) // work with no request is not an error
 	stop := TimeProm(context.Background())
 	stop()
+}
+
+// the answer is read by a page that takes the length of each list: a list with nothing in it is [], never null
+func TestTheReportHasNoNullListsWhenThereIsNothingToSay(t *testing.T) {
+	svc, _ := testService(t)
+	rep, err := svc.Read(context.Background(), 24, Limits{Gateway: time.Minute})
+	require.NoError(t, err)
+	raw, err := json.Marshal(rep)
+	require.NoError(t, err)
+	var generic map[string]any
+	require.NoError(t, json.Unmarshal(raw, &generic))
+	for _, key := range []string{"routes", "boots", "findings", "bucket_bounds"} {
+		assert.NotNil(t, generic[key], "%s is a list, not null", key)
+	}
+	// a route that never had an example is still a list
+	svc.Recorder.Observe(obs("/a", time.Millisecond, 200))
+	rep, err = svc.Read(context.Background(), 24, Limits{Gateway: time.Minute})
+	require.NoError(t, err)
+	require.Len(t, rep.Routes, 1)
+	raw, _ = json.Marshal(rep.Routes[0])
+	assert.NotContains(t, string(raw), `"examples":null`)
 }

@@ -98,6 +98,9 @@ func fromRow(r model.RequestStat) *Hour {
 		}
 	}
 	_ = json.Unmarshal([]byte(r.Examples), &h.Examples)
+	if h.Examples == nil {
+		h.Examples = []Slowest{}
+	}
 	return h
 }
 
@@ -179,7 +182,7 @@ const memoryNear = 0.85
 // Diagnose writes down what the numbers say: which route is slow, which layer its time is in, and why a request ends in a 502 or a 504. Every finding
 // has the figures it rests on. The most serious come first.
 func Diagnose(routes []RouteSummary, boots []model.ProcessBoot, lim Limits) []Finding {
-	var out []Finding
+	out := []Finding{} // never null in the answer
 	var total int64
 	for _, r := range routes {
 		total += r.Count
