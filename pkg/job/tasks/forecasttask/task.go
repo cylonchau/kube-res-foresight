@@ -138,6 +138,25 @@ func (t *Score) Execute(ctx context.Context, _ *model.Job) error {
 	return joinFailures(failed)
 }
 
+// OverprovisionJobType analyses what the Pods of every module request against what they used (P10 A2).
+const OverprovisionJobType = "forecast.overprovision"
+
+// Overprovision is the over-provisioning analysis job: every enabled module over the seven windows, stored; it also trims the results past the
+// retention. It reads the samples the platform stored and changes nothing in the cluster.
+type Overprovision struct {
+	Service *forecastsvc.Service
+}
+
+func (t *Overprovision) Type() string { return OverprovisionJobType }
+
+func (t *Overprovision) Execute(ctx context.Context, _ *model.Job) error {
+	done, err := t.Service.RunOverprovision(ctx, 0)
+	if done > 0 {
+		logger.Info("over-provisioning analysis", logger.Int("modules", done))
+	}
+	return err
+}
+
 func joinFailures(failed []string) error {
 	if len(failed) == 0 {
 		return nil

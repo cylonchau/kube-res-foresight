@@ -182,6 +182,7 @@ func seedPlatformPermissions() error {
 		{permission: model.Permission{Name: "Forecast Effect Report", Code: "forecast-results_effect", Type: "MENU", FeRoute: "/forecast-results/effect", FeComponent: "view.forecast-results_effect", Icon: "carbon:report-data", Sort: 2, Visible: true, Status: true}, parentCode: "forecast-results"},
 		{permission: model.Permission{Name: "Measured Accuracy Records", Code: "forecast-results_evaluations", Type: "MENU", FeRoute: "/forecast-results/evaluations", FeComponent: "view.forecast-results_evaluations", Icon: "carbon:chart-evaluation", Sort: 3, Visible: true, Status: true}, parentCode: "forecast-results"},
 		{permission: model.Permission{Name: "Algorithm Leaderboard", Code: "forecast-results_leaderboard", Type: "MENU", FeRoute: "/forecast-results/leaderboard", FeComponent: "view.forecast-results_leaderboard", Icon: "carbon:trophy", Sort: 4, Visible: true, Status: true}, parentCode: "forecast-results"},
+		{permission: model.Permission{Name: "Resource Dashboard", Code: "forecast-results_overprovision", Type: "MENU", FeRoute: "/forecast-results/overprovision", FeComponent: "view.forecast-results_overprovision", Icon: "carbon:chart-multitype", Sort: 5, Visible: true, Status: true}, parentCode: "forecast-results"},
 		{permission: model.Permission{Name: "Algorithm Run Status", Code: "forecast-results_algorithm-runs", Type: "MENU", FeRoute: "/forecast-results/algorithm-runs", FeComponent: "view.forecast-results_algorithm-runs", Icon: "carbon:analytics", Sort: 7, Visible: true, Status: true}, parentCode: "forecast-results"},
 		{permission: model.Permission{Name: "Recommendations and Execution", Code: "forecast-actions", Type: "DIRECTORY", FeRoute: "/forecast-actions", FeComponent: "layout.base", Icon: "carbon:recommend", Sort: 27, Visible: true, Status: true}},
 		{permission: model.Permission{Name: "Resource Recommendations", Code: "forecast-actions_recommendations", Type: "MENU", FeRoute: "/forecast-actions/recommendations", FeComponent: "view.forecast-actions_recommendations", Icon: "carbon:recommend", Sort: 1, Visible: true, Status: true}, parentCode: "forecast-actions"},
@@ -439,6 +440,7 @@ func ensureForecastTasks() error {
 		{TaskType: "forecast.score", Description: "Score and rank the algorithm instances of every module", CronExpr: "@every 6h", Enabled: true},
 		{TaskType: "forecast.evaluate", Description: "Score finished predictions against the actuals collected since", CronExpr: "@every 1h", Enabled: true},
 		{TaskType: "forecast.backtest", Description: "Backtest every enabled algorithm against the baselines", CronExpr: "@every 6h", Enabled: true},
+		{TaskType: "forecast.overprovision", Description: "Analyse what the Pods of every enabled module request against what they used, over seven windows", CronExpr: "@every 6h", Enabled: true},
 	}
 	for i := range defaults {
 		if err := model.DB.Where("task_type = ?", defaults[i].TaskType).FirstOrCreate(&defaults[i]).Error; err != nil {

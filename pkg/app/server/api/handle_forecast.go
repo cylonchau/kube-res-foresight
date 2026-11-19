@@ -65,7 +65,7 @@ func (r *ForecastRouter) modeAllowed(ctx context.Context, mode string) error {
 func (r *ForecastRouter) writeError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, rdb.ErrNameTaken), errors.Is(err, rdb.ErrModuleEnabled), errors.Is(err, forecastsvc.ErrNotConfigured), errors.Is(err, forecastsvc.ErrPredictionOff), errors.Is(err, rdb.ErrWorkloadTaken),
-		errors.Is(err, forecastsvc.ErrPreviewInvalid), errors.Is(err, forecastsvc.ErrPreviewTooLong):
+		errors.Is(err, forecastsvc.ErrPreviewInvalid), errors.Is(err, forecastsvc.ErrPreviewTooLong), errors.Is(err, forecastsvc.ErrOverprovisionWindow):
 		query.BadRequest(c, err)
 	case errors.Is(err, forecastsvc.ErrObserveOnly), errors.Is(err, forecastsvc.ErrStale):
 		query.ErrorResponse(c, http.StatusConflict, err)

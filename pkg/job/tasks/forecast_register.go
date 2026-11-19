@@ -20,6 +20,7 @@ func registerForecast() {
 	job.Register(&forecasttask.Backtest{Modules: modules, Service: service})
 	job.Register(&forecasttask.Score{Modules: modules, Service: service})
 	job.Register(&forecasttask.Evaluate{Modules: modules, Service: service})
+	job.Register(&forecasttask.Overprovision{Service: service})
 }
 
 // registerLDAP registers the directory sync job.

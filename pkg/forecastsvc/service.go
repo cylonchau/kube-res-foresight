@@ -44,6 +44,8 @@ type Service struct {
 	Predictions *rdb.PredictionDAO
 	// RunStates holds what the scheduled pipeline remembers per module; built from the module DAO's handle.
 	RunStates *rdb.RunStateDAO
+	// Overprovision keeps the results of the over-provisioning analysis (P10 A2).
+	Overprovision *rdb.OverprovisionDAO
 
 	// Telemetry is optional: counters and histograms of the pipeline work.
 	Telemetry *Telemetry
@@ -71,7 +73,7 @@ type Service struct {
 func New(modules *rdb.ModuleDAO, mappings *rdb.MetricMappingDAO, datasources *rdb.DatasourceDAO, samples *rdb.SampleDAO, predictions *rdb.PredictionDAO) *Service {
 	return &Service{Modules: modules, Mappings: mappings, Datasources: datasources, Samples: samples, Predictions: predictions,
 		NewQuerier: PromQuerierFactory, NewCostQuerier: PromCostQuerier, Prices: rdb.NewCostPriceDAO(modules.DB()), Now: time.Now, Telemetry: SharedTelemetry(), RunStates: rdb.NewRunStateDAO(modules.DB()), Config: rdb.NewSysConfigDAO(modules.DB()),
-		Algorithms: rdb.NewAlgorithmDAO(modules.DB())}
+		Algorithms: rdb.NewAlgorithmDAO(modules.DB()), Overprovision: rdb.NewOverprovisionDAO(modules.DB())}
 }
 
 // PromQuerierFactory builds a Prometheus querier from a stored datasource.

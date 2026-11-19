@@ -116,7 +116,8 @@ func All() []Param {
 	return []Param{DecisionRefreshWait, DecisionForecastMaxAge, CapacitySLOTarget, RefreshBudget, PipelineTimeout, PreviewBudget, FineTuneBudget, TrainBudget,
 		OperatorRequestTimeout, OperatorSyncInterval, OperatorDecisionCacheTTL, OperatorModuleCacheTTL, OperatorRecoverAnswers, OperatorSettingsRefresh,
 		OperatorDegradeHold, OperatorDegradeCooldown, OperatorRecoverStable, NotifyEmailTimeout, LeadPercentile, JudgePercentile, UncertaintyPercentile, MinSeasons,
-		HTTPGatewayTimeout, HTTPSlowRequest, UIRequestTimeout, UIRequestRetries, ListQuery, ListSearchDays, SummaryWindowHours, PrometheusTotalConcurrency, PruneBudget, ConversationRetentionDays, AuditRetentionDays, AsyncRetentionHours, OverprovisionUtilization, TightUtilization}
+		HTTPGatewayTimeout, HTTPSlowRequest, UIRequestTimeout, UIRequestRetries, ListQuery, ListSearchDays, SummaryWindowHours, PrometheusTotalConcurrency, PruneBudget, ConversationRetentionDays, AuditRetentionDays, AsyncRetentionHours, OverprovisionUtilization, TightUtilization,
+		OPCPUMargin, OPMemoryMargin, OPMemoryPeak, OPOOMUplift, OPThrottle, OPBaselineDays, OPGradeSevere, OPGradeModerate, OPGradeMild, OPCoverageHigh, OPCoverageMid, OPRetentionDays}
 }
 
 // Clamp brings a number into the range of the limit.

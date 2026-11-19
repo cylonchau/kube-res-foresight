@@ -85,6 +85,7 @@ var menuAPIs = map[string][]string{
 		both("/api/v1/algorithms", readMethods...)),
 	"forecast-results_leaderboard": apiList2(moduleReads(), both("/api/v1/algorithm-scores", readMethods...), both("/api/v1/algorithm-rankings", readMethods...),
 		both("/api/v1/algorithms", readMethods...)),
+	"forecast-results_overprovision":   apiList2(moduleReads(), get("/api/v1/overprovision"), []string{"POST /api/v1/overprovision/run"}),
 	"forecast-results_algorithm-runs":  apiList2(moduleReads(), both("/api/v1/training-runs", readMethods...), both("/api/v1/algorithms", readMethods...)),
 	"forecast-actions_recommendations": apiList2(moduleReads(), get("/api/v1/recommendations", "/api/v1/resource-analysis"), both("/api/v1/snapshots", readMethods...)),
 	"forecast-actions_executions":      apiList2(moduleReads(), get("/api/v1/scaling-decisions", "/api/v1/scale-outcomes")),
@@ -117,7 +118,7 @@ const BusinessRoleCode = "BIZ"
 // data sources, the algorithms, the task center, the AI configuration (models, skills, tasks, audit) or the diagnostics.
 var businessPermissions = []string{
 	"forecast-modules", "forecast-modules_modules",
-	"forecast-results", "forecast-results_history", "forecast-results_effect", "forecast-results_evaluations", "forecast-results_leaderboard", "forecast-results_algorithm-runs",
+	"forecast-results", "forecast-results_history", "forecast-results_effect", "forecast-results_evaluations", "forecast-results_leaderboard", "forecast-results_overprovision", "forecast-results_algorithm-runs",
 	"forecast-actions", "forecast-actions_recommendations", "forecast-actions_executions", "forecast-actions_fallbacks", "forecast-actions_admissions",
 	"ai-config", "ai-config_chat", "assistant:chat",
 }

@@ -137,7 +137,7 @@ func TestEnsureForecastTasksIsIdempotentAndKeepsAdminChanges(t *testing.T) {
 
 	var tasks []model.TaskDefinition
 	require.NoError(t, db.Where("task_type LIKE ?", "forecast.%").Find(&tasks).Error)
-	require.Len(t, tasks, 4) // forecast.*; ldap.sync is separate
+	require.Len(t, tasks, 5) // forecast.*; ldap.sync is separate
 	var ai model.TaskDefinition
 	require.NoError(t, db.Where("task_type = ?", "ai.schedule").First(&ai).Error)
 	require.Equal(t, "@every 1m", ai.CronExpr, "the minute is how often the due AI tasks are looked for")

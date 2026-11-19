@@ -899,3 +899,10 @@ all ten management pages and the shared product title. Screenshots were inspecte
 - **做了**：Prometheus 整个平台的并发闸门（`forecast.prometheus_total_concurrency` 默认 8）；HTTP 服务器的请求头与空闲超时、停机等待 40 秒；Helm 的 `terminationGracePeriodSeconds` 和 `goMemLimit`；效果报告各部分并行读取并带耗时；超时、并发与资源限制总表（docs/timeouts-and-limits.md）。
 - **验证**：`go test -p 1 ./pkg/...` 通过；**没有在真实集群和网关后面验证，Helm 没渲染过**。
 - **B0 根因仍未确认**：要你在 504 发生时贴诊断页、`timings_ms`，并看 Pod 的重启和 OOM。
+
+2026-11-19 续：P10 A2 超配分析引擎和 A3 资源大盘
+- **起因**：用户要求完成 A2、A3。A2 的依赖 A1（operator 只读上报）没做，E1、E4～E9 也没答复，所以只补了 A2 需要的一小部分：用平台已存的样本和模块上记录的请求，不读集群；E4、E6、E7 按建议值做，全部做成系统参数。
+- **做了**：`pkg/overprovision` 纯函数（七个窗口、分位数、CPU 与内存的建议值公式、限流与 OOM 保护、分级、可信度、风险、移动平均 `MA5@5m` 这样的标签带步长、公式和代入的数）；表 `overprovision_analysis`（每次分析每个窗口每个资源一行，保留 90 天）；12 个系统参数；定时任务 `forecast.overprovision`（每 6 小时）；接口 `GET /overprovision`、`POST /overprovision/run`、`GET /modules/:id/overprovision`；页面“预测结果 > 资源大盘”（汇总卡、可回收资源排行图、筛选、工作负载表、详情窗口：图、分位数、公式、依据、JVM、历史）；业务角色 BIZ 的种子带上这个菜单。
+- **验证**：`go test -p 1 ./pkg/...`；前端 `vue-tsc`、oxlint、eslint、30 个单元测试；在真浏览器里（临时库、5 个合成模块）打开页面、立即分析、看汇总与排行与表、打开详情并滚动。**发现并修了**：国际化文字里的 `@` 被当成链接语法，详情窗口整个不显示；图的移动平均标签被抽稀改成了 `MA5@35m`（现在先按窗口步长算再抽稀）；图上的请求线和建议线画不出来（图表钩子没有注册标线组件）。
+- **没做**：A1 的 operator 上报、集群与节点表和卡片；A4 Grafana 与深链；公式和阈值没有真实数据验证；没在 PostgreSQL、MySQL 上跑；没用 BIZ 账号走过页面。
+- **注意**：升级后要跑 `--migration`（建表、播种菜单和任务）；已有的 BIZ 角色不会自动加这个菜单；列表页默认只显示系统参数 `ui.table.default_visible_columns` 指定的列数，其余在“列设置”里勾选。

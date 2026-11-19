@@ -33,7 +33,7 @@ func forecastTestRouter(t *testing.T) (*gin.Engine, *model.MetricMapping) {
 	gin.SetMode(gin.TestMode)
 	db := apiTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.Datasource{}, &model.MetricMapping{}, &model.ForecastModule{PredictEnabled: true}, &model.AlgorithmConfig{},
-		&model.ModulePeriod{}, &model.MetricSeries{}, &model.MetricSample{}, &model.Prediction{}, &model.BacktestRun{}, &model.Recommendation{}, &model.PredictionEvaluation{}, &model.ScalingExecution{}, &model.MetricSource{}, &model.AlgorithmScore{}, &model.AdmissionDecision{}, &model.TrainingRun{}, &model.ScaleOutcome{}, &model.ModuleRunState{}, &model.SysConfig{}, &model.TaskDefinition{}, &model.Job{}))
+		&model.ModulePeriod{}, &model.MetricSeries{}, &model.MetricSample{}, &model.Prediction{}, &model.BacktestRun{}, &model.Recommendation{}, &model.PredictionEvaluation{}, &model.ScalingExecution{}, &model.MetricSource{}, &model.AlgorithmScore{}, &model.AdmissionDecision{}, &model.TrainingRun{}, &model.ScaleOutcome{}, &model.ModuleRunState{}, &model.SysConfig{}, &model.TaskDefinition{}, &model.Job{}, &model.OverprovisionAnalysis{}))
 	previous := model.DB
 	model.DB = db
 	t.Cleanup(func() { model.DB = previous })
@@ -91,6 +91,9 @@ func forecastTestRouter(t *testing.T) (*gin.Engine, *model.MetricMapping) {
 	r.POST("/modules/:id/predict", h.ModulePredict)
 	r.GET("/modules/:id/delay-report", h.ModuleDelayReport)
 	r.GET("/modules/:id/effect-report", h.ModuleEffectReport)
+	r.GET("/modules/:id/overprovision", h.ModuleOverprovision)
+	r.GET("/overprovision", h.OverprovisionBoard)
+	r.POST("/overprovision/run", h.OverprovisionRun)
 	r.POST("/modules/:id/change-preview", h.ModuleChangePreview)
 	r.POST("/modules/:id/run", h.ModuleRun)
 	r.POST("/modules/:id/backtest", h.ModuleBacktest)
@@ -1219,4 +1222,39 @@ func TestTheDashboardIsServedWithEverySectionAndRefusesABadWindow(t *testing.T) 
 	for _, bad := range []string{"0", "-1", "x", "721"} {
 		assert.Equal(t, http.StatusBadRequest, performJSON(t, r, http.MethodGet, "/dashboard?since_hours="+bad, "", nil).Code, bad)
 	}
+}
+
+func TestTheOverprovisionCallsServeTheBoardTheDetailAndTheRunAndRefuseABadWindow(t *testing.T) {
+	r, _ := forecastTestRouter(t)
+	id := createModule(t, r, map[string]any{"name": "op", "namespace": "prod", "workload": "op", "pod_cpu_request_milli": 1000})
+
+	// nothing is analysed yet: the board lists the module, with no result
+	rec := performJSON(t, r, http.MethodGet, "/overprovision", "", nil)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	got := decodeData(t, rec.Body.Bytes())
+	assert.EqualValues(t, 7*24*60, got["window_minutes"])
+	assert.Equal(t, "7d", got["window"])
+	assert.EqualValues(t, 1, got["modules"])
+	assert.EqualValues(t, 0, got["analyzed"])
+	rows := got["rows"].([]any)
+	require.Len(t, rows, 1)
+	assert.Equal(t, "unknown", rows[0].(map[string]any)["health"])
+
+	// the run answers how many modules it analysed, and the detail serves the seven windows' one
+	rec = performJSON(t, r, http.MethodPost, "/overprovision/run", "", nil)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.EqualValues(t, 1, decodeData(t, rec.Body.Bytes())["analyzed"])
+	rec = performJSON(t, r, http.MethodGet, fmt.Sprintf("/modules/%d/overprovision?window=1d", id), "", nil)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	detail := decodeData(t, rec.Body.Bytes())
+	assert.EqualValues(t, id, detail["module_id"])
+	assert.Len(t, detail["windows"].([]any), 1)
+	assert.Contains(t, detail, "params")
+	assert.Contains(t, detail, "history")
+
+	for _, bad := range []string{"window=2d", "window_minutes=17", "window_minutes=x", "from=2026-01-01T00:00:00Z&to=2025-01-01T00:00:00Z"} {
+		assert.Equal(t, http.StatusBadRequest, performJSON(t, r, http.MethodGet, fmt.Sprintf("/modules/%d/overprovision?%s", id, bad), "", nil).Code, bad)
+	}
+	assert.Equal(t, http.StatusBadRequest, performJSON(t, r, http.MethodGet, "/overprovision?window=2d", "", nil).Code)
+	assert.Equal(t, http.StatusNotFound, performJSON(t, r, http.MethodGet, "/modules/9999/overprovision", "", nil).Code)
 }
