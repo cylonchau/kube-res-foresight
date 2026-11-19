@@ -102,17 +102,18 @@ func (s *Service) loadTarget(ctx context.Context, m *model.AlgorithmRun, metric 
 	if m.MinPoints > 0 && len(in.Values) < m.MinPoints {
 		return forecast.Input{}, series, fmt.Errorf("%w: %s has %d usable points, the module needs at least %d", ErrInsufficientData, metric, len(in.Values), m.MinPoints)
 	}
-	if lag := to.Sub(in.End); lag > staleSteps*step {
+	if lag := to.Sub(in.End); lag > staleAfter(m, step) {
 		return forecast.Input{}, series, fmt.Errorf("%w: newest %s sample is %s old", ErrStale, metric, lag.Round(time.Second))
 	}
 	if len(samples) > 1 {
 		span := int((samples[len(samples)-1].TS-samples[0].TS)/int64(series.StepSeconds)) + 1
 		detail := func() string { return runDetail(samples, in, series.StepSeconds, m.MaxFillSteps) }
-		if err := checkQuality(m, metric, len(samples), len(in.Values), span, detail); err != nil {
+		present, usable, span := qualityWindow(samples, len(in.Values), span, series.StepSeconds, need, m.WindowSteps)
+		if err := checkQuality(m, metric, present, usable, span, detail); err != nil {
 			return forecast.Input{}, series, err
 		}
 	}
-	// the training window: the newest steps of the history range (the quality above is judged on the whole range)
+	// the training window: the newest steps of the history range (the quality above is judged over the newest steps the algorithm needs)
 	if window := windowFor(m.WindowSteps, need); window > 0 && len(in.Values) > window {
 		in.Values = in.Values[len(in.Values)-window:]
 	}
@@ -227,4 +228,27 @@ func instanceSignature(b *model.AlgorithmRun, def forecast.Definition) string {
 		parts = append(parts, fmt.Sprintf("lb:%d", b.LookbackHours))
 	}
 	return strings.Join(parts, "|")
+}
+
+// qualityWindow says over how many steps the quality of a history is judged, and what is present and usable in them. A history is judged over the
+// newest steps an algorithm needs (with the room needMarginPercent keeps, or its training window when that is longer), not over everything
+// that is stored, and never over less than a day (a window of a few steps judges nothing): a hole of a day in a month of history, long ago, does not change what the algorithm trains on, and it used to keep the
+// coverage under the minimum for weeks, until the run after the hole had grown to the share asked for. When the observed span is no longer than
+// that window, or the need is not known, it is the whole span as before.
+func qualityWindow(samples []model.MetricSample, run, span, stepSeconds, need, windowSteps int) (present, usable, steps int) {
+	present, usable, steps = len(samples), run, span
+	w := windowFor(windowSteps, need)
+	if need <= 0 || stepSeconds <= 0 {
+		return // what the algorithm needs is not known: the whole span, as before
+	}
+	w = max(w, need*needMarginPercent/100, int(24*time.Hour/time.Second)/stepSeconds)
+	if w >= span {
+		return
+	}
+	cut := samples[len(samples)-1].TS - int64(w-1)*int64(stepSeconds)
+	present = 0
+	for i := len(samples) - 1; i >= 0 && samples[i].TS >= cut; i-- {
+		present++
+	}
+	return present, min(run, w), w
 }

@@ -139,7 +139,7 @@
 | 原因码 | 触发条件 | 检测位置 |
 |---|---|---|
 | `no_metric_data` | 目标指标没有映射 / 数据源禁用或不可达 / 查询无序列 / 最新样本比 `3×step` 更旧 | Collect、loadInput |
-| `insufficient_history` | 有效样本少于算法最小样本；或历史覆盖率（有效点/期望点）< `fallback_min_history_ratio`（默认 0.8）；或缺失率 > `max_missing_ratio`（默认 0.3） | loadInput、Predict |
+| `insufficient_history` | 有效样本少于算法最小样本；或历史覆盖率（有效点/期望点）< `fallback_min_history_ratio`（默认 0.8）；或缺失率 > `max_missing_ratio`（默认 0.3） ；**覆盖率和缺失率只按算法需要的最近这段步数算（需要的最小历史乘 1.5，或训练窗口，最少一天），不按整个回看期算（2026-11-19）**；采集每小时对每个序列找一次历史里的洞，向数据源重取（最多 3 个，最大的先取，取不到的 24 小时内不再取） | loadInput、Predict |
 | `all_algorithms_failed` | 该指标所有已绑定且合格的算法均报错、被跳过或未晋升（基线也失败） | Recommend |
 | `prediction_stale` | 最新预测早于模块 TTL，或预测任务（forecast.run）超过 `2×TTL` 没有成功 | Recommend、查询时 |
 | `prediction_system_error` | 预测服务内部错误（panic 被恢复、数据库不可读、任务连续失败 ≥ 3 次） | RunPipeline、任务 |

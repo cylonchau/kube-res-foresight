@@ -65,6 +65,9 @@ type Service struct {
 	flights sync.Map
 	// tunings holds the series whose fine-tune is under way, so one series is never submitted twice at once.
 	tunings sync.Map
+	// gapScans holds when a series was last looked at for holes, gapTries when a hole was last asked for (see repairGaps).
+	gapScans sync.Map
+	gapTries sync.Map
 	// TuneInline runs a fine-tune inside the forecast that asked for it instead of in the background (tests).
 	TuneInline bool
 }

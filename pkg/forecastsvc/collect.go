@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"sort"
 	"time"
 
 	"github.com/cylonchau/kube-res-foresight/pkg/collector"
@@ -12,14 +13,16 @@ import (
 
 // CollectResult is the outcome of collecting one metric.
 type CollectResult struct {
-	Metric  string            `json:"metric"`
-	From    time.Time         `json:"from"`
-	To      time.Time         `json:"to"`
-	Fetched int               `json:"fetched"`
-	Stored  int               `json:"stored"`
-	Pruned  int64             `json:"pruned"`
-	Quality collector.Quality `json:"quality"`
-	Error   string            `json:"error,omitempty"`
+	Metric  string    `json:"metric"`
+	From    time.Time `json:"from"`
+	To      time.Time `json:"to"`
+	Fetched int       `json:"fetched"`
+	Stored  int       `json:"stored"`
+	Pruned  int64     `json:"pruned"`
+	// Repaired is how many samples of holes in the stored history were fetched again from the data source.
+	Repaired int               `json:"repaired,omitempty"`
+	Quality  collector.Quality `json:"quality"`
+	Error    string            `json:"error,omitempty"`
 }
 
 // Collect pulls the history of every metric source of a module that is missing from storage. The first run
@@ -100,14 +103,35 @@ func (s *Service) collectMetric(ctx context.Context, m *model.AlgorithmRun, runs
 		opt.Concurrency = setup.ds.MaxConcurrency
 	}
 	// the query runs at its own step and starts early enough for the first bucket of the dataset to be complete
-	fetched, err := collector.Fetch(ctx, querier, query, shaping.FetchStart(from), to, shaping.QueryStep, opt)
+	fetched, points, stored, err := s.storeRange(ctx, querier, query, shaping, series.ID, from, to, opt)
 	if err != nil {
 		return err
 	}
-	res.Fetched = len(fetched)
-	points, err := collector.Shape(fetched, shaping)
+	res.Fetched, res.Stored = fetched, stored
+	res.Quality = collector.Analyze(points, from, to, setup.step, now)
+	histFrom := now.Add(-time.Duration(hours) * time.Hour)
+	// the holes the collection left behind (the source was down, a request failed, the platform was stopped for longer than a range holds) are
+	// asked for again from the data source, in segments like the first backfill; what it never had stays a hole
+	repaired, rerr := s.repairGaps(ctx, querier, query, shaping, series, floorToStep(histFrom, setup.step), to, opt)
+	res.Repaired = repaired
+	if rerr != nil {
+		res.Error = "repairing the gaps: " + rerr.Error()
+	}
+	pruned, err := s.Samples.PruneBefore(ctx, series.ID, histFrom)
+	res.Pruned = pruned
+	return err
+}
+
+// storeRange fetches [from, to] of a query in segments, shapes it into the dataset step and stores the samples from "from" on (idempotent).
+func (s *Service) storeRange(ctx context.Context, querier collector.RangeQuerier, query string, shaping collector.Shaping, seriesID uint,
+	from, to time.Time, opt collector.Options) (fetched int, points []collector.Point, stored int, err error) {
+	raw, err := collector.Fetch(ctx, querier, query, shaping.FetchStart(from), to, shaping.QueryStep, opt)
 	if err != nil {
-		return err
+		return 0, nil, 0, err
+	}
+	points, err = collector.Shape(raw, shaping)
+	if err != nil {
+		return len(raw), nil, 0, err
 	}
 	samples := make([]model.MetricSample, 0, len(points))
 	for _, p := range points {
@@ -116,14 +140,74 @@ func (s *Service) collectMetric(ctx context.Context, m *model.AlgorithmRun, runs
 		}
 		samples = append(samples, model.MetricSample{TS: p.Time.Unix(), Value: p.Value})
 	}
-	if err := s.Samples.Upsert(ctx, series.ID, samples); err != nil {
-		return err
+	if err := s.Samples.Upsert(ctx, seriesID, samples); err != nil {
+		return len(raw), points, 0, err
 	}
-	res.Stored = len(samples)
-	res.Quality = collector.Analyze(points, from, to, setup.step, now)
-	pruned, err := s.Samples.PruneBefore(ctx, series.ID, now.Add(-time.Duration(hours)*time.Hour))
-	res.Pruned = pruned
-	return err
+	return len(raw), points, len(samples), nil
+}
+
+const (
+	// gapScanEvery is how often a series is looked at for holes (reading its stored range is not free), gapRetryAfter how long a hole that the data
+	// source could not fill is left alone, and maxGapsPerScan how many holes one look asks for: the largest first.
+	gapScanEvery   = time.Hour
+	gapRetryAfter  = 24 * time.Hour
+	maxGapsPerScan = 3
+)
+
+type gapRange struct {
+	from, to time.Time
+	steps    int
+}
+
+// findGaps lists the holes inside the stored samples: runs of steps with no sample between two that exist, the largest first.
+func findGaps(samples []model.MetricSample, step time.Duration) []gapRange {
+	var out []gapRange
+	sec := int64(step / time.Second)
+	if sec <= 0 {
+		return nil
+	}
+	for i := 1; i < len(samples); i++ {
+		if missing := int((samples[i].TS-samples[i-1].TS)/sec) - 1; missing > 0 {
+			out = append(out, gapRange{from: time.Unix(samples[i-1].TS+sec, 0).UTC(), to: time.Unix(samples[i].TS-sec, 0).UTC(), steps: missing})
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].steps > out[j].steps })
+	return out
+}
+
+// repairGaps asks the data source again for the holes inside the stored history of a series (at most maxGapsPerScan an hour a series, and a hole
+// that stayed empty is not asked for again for gapRetryAfter) and returns how many samples it stored. The first collection backfills the
+// range, later ones continue from the newest sample, so before this a hole stayed one for good, and a history with a hole in it had a
+// coverage that only grew by a step a step.
+func (s *Service) repairGaps(ctx context.Context, querier collector.RangeQuerier, query string, shaping collector.Shaping, series *model.MetricSeries,
+	histFrom, to time.Time, opt collector.Options) (int, error) {
+	now := s.now()
+	if last, ok := s.gapScans.Load(series.ID); ok && now.Sub(last.(time.Time)) < gapScanEvery {
+		return 0, nil
+	}
+	s.gapScans.Store(series.ID, now)
+	samples, err := s.Samples.Range(ctx, series.ID, histFrom, to)
+	if err != nil || len(samples) < 2 {
+		return 0, err
+	}
+	total, asked := 0, 0
+	for _, g := range findGaps(samples, shaping.Step) {
+		if asked >= maxGapsPerScan {
+			break
+		}
+		key := fmt.Sprintf("%d/%d", series.ID, g.from.Unix())
+		if at, ok := s.gapTries.Load(key); ok && now.Sub(at.(time.Time)) < gapRetryAfter {
+			continue
+		}
+		s.gapTries.Store(key, now)
+		asked++
+		_, _, stored, err := s.storeRange(ctx, querier, query, shaping, series.ID, g.from, g.to, opt)
+		if err != nil {
+			return total, err
+		}
+		total += stored
+	}
+	return total, nil
 }
 
 // History is the stored window of one metric with its quality report. Quality is computed on every stored

@@ -24,6 +24,18 @@ var ErrTimeout = errors.New("the forecast timed out")
 // staleSteps is how many steps behind the newest sample may be before history is considered stale.
 const staleSteps = 5
 
+// staleAfter is how old the newest stored sample may be before the history counts as stale: five steps, but never less than two cycles of the
+// collection. The history is collected once a cycle (the scheduled task runs every DefaultRunCycleMinutes, or the run interval of the module when
+// that is longer), so with a step of 30 seconds a limit of five steps (2.5 minutes) was passed during half of every cycle, and everything that read
+// the stored history between two collections, the estimate of the resource need among them, was told it was stale.
+func staleAfter(m *model.AlgorithmRun, step time.Duration) time.Duration {
+	cycle := time.Duration(model.DefaultRunCycleMinutes) * time.Minute
+	if run := time.Duration(m.RunIntervalMinutes) * time.Minute; run > cycle {
+		cycle = run
+	}
+	return max(staleSteps*step, 2*cycle)
+}
+
 // Outcome statuses of a per-algorithm step.
 const (
 	StatusOK      = "ok"
