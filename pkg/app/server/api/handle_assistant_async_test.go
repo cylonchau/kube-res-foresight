@@ -15,6 +15,7 @@ import (
 	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
 	"github.com/cylonchau/kube-res-foresight/pkg/job/tasks/aitask"
 	"github.com/cylonchau/kube-res-foresight/pkg/job/tasks/asyncrun"
+	"github.com/cylonchau/kube-res-foresight/pkg/job/tasks/steprun"
 	"github.com/cylonchau/kube-res-foresight/pkg/model"
 	"github.com/cylonchau/kube-res-foresight/pkg/timing"
 	"github.com/stretchr/testify/assert"
@@ -22,7 +23,7 @@ import (
 )
 
 func (a *assistantRig) runner() *asyncrun.Runner {
-	return &asyncrun.Runner{Tasks: rdb.NewAsyncTaskDAO(model.DB), Handlers: map[string]asyncrun.Handler{aitask.ChatKind: aitask.ChatHandler(a.svc)},
+	return &asyncrun.Runner{Tasks: rdb.NewAsyncTaskDAO(model.DB), Handlers: map[string]asyncrun.Handler{aitask.ChatKind: aitask.ChatHandler(a.svc), steprun.Kind: steprun.Handler(a.svc.Forecast)},
 		Now: func() time.Time { return runtimeNow }, CancelPoll: 10 * time.Millisecond}
 }
 
@@ -254,4 +255,53 @@ func (a *assistantRig) asRoles(t *testing.T, id int, roles, method, path string,
 	rec := httptest.NewRecorder()
 	a.r.ServeHTTP(rec, req)
 	return rec
+}
+
+func TestALongStepOfAModuleRunsInTheBackgroundAndItsResultIsTheOneTheSynchronousStepGives(t *testing.T) {
+	a := newAssistantRig(t, true)
+	module := strconv.Itoa(int(a.module.ID))
+	rec := a.asRoles(t, 1, "", http.MethodPost, "/modules/"+module+"/steps/evaluate", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	queued := decodeData(t, rec.Body.Bytes())
+	assert.Equal(t, "queued", queued["status"])
+	assert.Equal(t, "forecast.step", queued["kind"])
+	assert.Contains(t, queued["title"], "evaluate")
+
+	// the same step of the same module while it is open is the same task
+	again := decodeData(t, a.asRoles(t, 1, "", http.MethodPost, "/modules/"+module+"/steps/evaluate", map[string]any{}).Body.Bytes())
+	assert.Equal(t, queued["id"], again["id"])
+
+	a.runJobs(t)
+	done := a.task(t, 1, queued["id"])
+	assert.Equal(t, "succeeded", done["status"], done["error"])
+	assert.Contains(t, done, "result", "the result is what the synchronous endpoint answers")
+
+	// only its owner reads it; the task calls are the same as for a question
+	assert.Equal(t, http.StatusNotFound, a.as(t, 2, http.MethodGet, "/assistant/async/"+idText(queued["id"]), nil).Code)
+}
+
+func TestAStepThatCannotBeRunInTheBackgroundIsRefusedBeforeItIsQueued(t *testing.T) {
+	a := newAssistantRig(t, true)
+	module := strconv.Itoa(int(a.module.ID))
+	for name, c := range map[string]struct {
+		uid  int
+		path string
+		body any
+		want int
+	}{
+		"a step that does not exist":       {1, "/modules/" + module + "/steps/delete", map[string]any{}, http.StatusBadRequest},
+		"a backtest with no metric":        {1, "/modules/" + module + "/steps/backtest", nil, http.StatusBadRequest},
+		"a module that does not exist":     {1, "/modules/99999/steps/evaluate", map[string]any{}, http.StatusNotFound},
+		"a call with no user":              {0, "/modules/" + module + "/steps/evaluate", map[string]any{}, http.StatusBadRequest},
+		"a module id that is not a number": {1, "/modules/abc/steps/evaluate", map[string]any{}, http.StatusBadRequest},
+	} {
+		rec := a.asRoles(t, c.uid, "", http.MethodPost, c.path, c.body)
+		assert.Equal(t, c.want, rec.Code, name+": "+rec.Body.String())
+	}
+	var n int64
+	require.NoError(t, model.DB.Model(&model.AsyncTask{}).Count(&n).Error)
+	assert.Zero(t, n)
+
+	rec := a.asRoles(t, 1, "", http.MethodPost, "/modules/"+module+"/steps/backtest", map[string]any{"metric": "cpu", "cutoffs": 3})
+	assert.Equal(t, http.StatusOK, rec.Code, "a backtest with its metric is queued")
 }

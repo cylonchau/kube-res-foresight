@@ -7,6 +7,7 @@ import (
 	"github.com/cylonchau/kube-res-foresight/pkg/job"
 	"github.com/cylonchau/kube-res-foresight/pkg/job/tasks/aitask"
 	"github.com/cylonchau/kube-res-foresight/pkg/job/tasks/asyncrun"
+	"github.com/cylonchau/kube-res-foresight/pkg/job/tasks/steprun"
 	"github.com/cylonchau/kube-res-foresight/pkg/model"
 	"github.com/cylonchau/kube-res-foresight/pkg/notify"
 	"github.com/cylonchau/kube-res-foresight/pkg/notify/email"
@@ -30,5 +31,5 @@ func registerAI(config *rdb.SysConfigDAO) {
 	job.Register(&aitask.Schedule{Service: service, Queue: queue})
 	job.Register(&aitask.Run{Service: service})
 	asyncTasks := rdb.NewAsyncTaskDAO(model.DB)
-	job.Register(&asyncrun.Runner{Tasks: asyncTasks, Handlers: map[string]asyncrun.Handler{aitask.ChatKind: aitask.ChatHandler(service)}})
+	job.Register(&asyncrun.Runner{Tasks: asyncTasks, Handlers: map[string]asyncrun.Handler{aitask.ChatKind: aitask.ChatHandler(service), steprun.Kind: steprun.Handler(forecast)}})
 }

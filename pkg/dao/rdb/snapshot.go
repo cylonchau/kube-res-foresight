@@ -52,7 +52,7 @@ func (dao *PredictionDAO) SearchSnapshots(ctx context.Context, f SnapshotFilter,
 		q = q.Where("version <= ?", f.CoversVersion)
 	}
 	var total int64
-	if err := q.Count(&total).Error; err != nil {
+	if err := countBounded(q, &total); err != nil {
 		return nil, 0, err
 	}
 	order := "created_at DESC, id DESC"

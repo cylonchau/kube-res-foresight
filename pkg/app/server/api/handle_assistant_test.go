@@ -64,6 +64,7 @@ type assistantRig struct {
 	tasks  *rdb.AssistantTaskDAO
 	module *model.ForecastModule
 	async  *asyncrun.Queue
+	steps  *ForecastRouter
 }
 
 const rigKey = "sk-live-key-must-never-leak"
@@ -93,6 +94,7 @@ func newAssistantRig(t *testing.T, ready bool) *assistantRig {
 		NewLLM: func(c assistant.Connection) assistant.LLM { rig.llm.conns = append(rig.llm.conns, c); return rig.llm }})
 	rig.async = &asyncrun.Queue{Tasks: rdb.NewAsyncTaskDAO(db), Jobs: rdb.NewJobDAO(db), Now: func() time.Time { return runtimeNow }}
 	h := &AssistantRouter{Service: rig.svc, Async: rig.async}
+	rig.steps = &ForecastRouter{Modules: modules, Service: fc, Async: rig.async}
 	gin.SetMode(gin.TestMode)
 	rig.r = gin.New()
 	rig.r.Use(func(c *gin.Context) {
@@ -115,6 +117,7 @@ func newAssistantRig(t *testing.T, ready bool) *assistantRig {
 	rig.r.GET("/assistant/status", h.Status)
 	rig.r.POST("/assistant/chat", h.Chat)
 	rig.r.POST("/assistant/skill", h.RunSkill)
+	rig.r.POST("/modules/:id/steps/:step", rig.steps.ModuleStepAsync)
 	rig.r.POST("/assistant/chat/async", h.ChatAsync)
 	rig.r.GET("/assistant/async/:id", h.GetAsync)
 	rig.r.GET("/assistant/async/:id/events", h.AsyncEvents)

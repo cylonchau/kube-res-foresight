@@ -137,7 +137,8 @@ func RegisteredRouter(e *gin.Engine) {
 	forecastService := forecastsvc.New(rdb.NewModuleDAO(model.DB), rdb.NewMetricMappingDAO(model.DB), rdb.NewDatasourceDAO(model.DB),
 		rdb.NewSampleDAO(model.DB), rdb.NewPredictionDAO(model.DB))
 	forecastHandler := &v1.ForecastRouter{Modules: rdb.NewModuleDAO(model.DB), Configs: rdb.NewAlgorithmDAO(model.DB), Mappings: rdb.NewMetricMappingDAO(model.DB),
-		Predictions: rdb.NewPredictionDAO(model.DB), Service: forecastService, Config: rdb.NewSysConfigDAO(model.DB)}
+		Predictions: rdb.NewPredictionDAO(model.DB), Service: forecastService, Config: rdb.NewSysConfigDAO(model.DB),
+		Async: &asyncrun.Queue{Tasks: rdb.NewAsyncTaskDAO(model.DB), Jobs: rdb.NewJobDAO(model.DB)}}
 	centerHandler := &v1.AlgorithmCenterRouter{Modules: rdb.NewModuleDAO(model.DB), Algorithms: rdb.NewAlgorithmDAO(model.DB), Predictions: rdb.NewPredictionDAO(model.DB),
 		Tasks: rdb.NewTaskDefinitionDAO(model.DB), Jobs: rdb.NewJobDAO(model.DB), RunStates: rdb.NewRunStateDAO(model.DB), Service: forecastService}
 	presetHandler := &v1.PresetRouter{Datasources: rdb.NewDatasourceDAO(model.DB), Mappings: rdb.NewMetricMappingDAO(model.DB)}
@@ -181,6 +182,7 @@ func RegisteredRouter(e *gin.Engine) {
 	moduleGroup.GET("/:id/effect-report", forecastHandler.ModuleEffectReport)
 	moduleGroup.POST("/:id/change-preview", forecastHandler.ModuleChangePreview)
 	moduleGroup.POST("/:id/run", forecastHandler.ModuleRun)
+	moduleGroup.POST("/:id/steps/:step", forecastHandler.ModuleStepAsync)
 	moduleGroup.POST("/:id/backtest", forecastHandler.ModuleBacktest)
 	moduleGroup.GET("/:id/backtests", forecastHandler.ModuleBacktests)
 	moduleGroup.POST("/:id/evaluate", forecastHandler.ModuleEvaluate)
@@ -215,6 +217,8 @@ func RegisteredRouter(e *gin.Engine) {
 	v1Group.GET("/operator/modules", runtimeHandler.OperatorModules)
 	v1Group.GET("/operator/settings", runtimeHandler.OperatorSettings)
 	v1Group.GET("/dashboard", forecastHandler.Dashboard)
+	diagnosticsHandler := &v1.DiagnosticsRouter{Diagnostics: rdb.NewDiagnosticsDAO(model.DB)}
+	v1Group.GET("/diagnostics/database", diagnosticsHandler.Database)
 	assistantHandler := &v1.AssistantRouter{Service: assistant.NewService(&assistant.Service{DB: model.DB, Forecast: forecastService, Modules: rdb.NewModuleDAO(model.DB),
 		Predictions: rdb.NewPredictionDAO(model.DB), Config: configHandler.DAO, Connections: rdb.NewAssistantConnectionDAO(model.DB), SkillStore: rdb.NewAssistantSkillDAO(model.DB), Tasks: rdb.NewAssistantTaskDAO(model.DB), Conversations: rdb.NewAssistantConversationDAO(model.DB), Audits: rdb.NewAssistantAuditDAO(model.DB), AsyncTasks: rdb.NewAsyncTaskDAO(model.DB), Database: databaseDriver(), Authorizer: v1.AssistantAuthorizer{Permissions: rdb.NewPermissionDAO(model.DB)}}),
 		Queue: &aitask.Queue{Jobs: rdb.NewJobDAO(model.DB)},

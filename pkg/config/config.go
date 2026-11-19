@@ -124,9 +124,24 @@ func Load(cfgPath string) (*Config, error) {
 		}
 	}
 
+	cfg.readPoolKeys(v)
 	globalConfig = cfg
 	CONFIG = cfg
 	return cfg, nil
+}
+
+// readPoolKeys reads the pool size of each database section from the keys the file and the Helm chart use (max_open_connection, max_idle_connection).
+// The fields have no tags, so the decoder only knows the run-together spelling (maxopenconnection); without this the pool of a deployment stayed at the
+// default whatever the file said.
+func (c *Config) readPoolKeys(v *viper.Viper) {
+	for section, target := range map[string]*store.DatabaseConfig{"database": &c.Database, "mysql": &c.MySQL, "sqlite": &c.SQLite} {
+		if value := strings.TrimSpace(v.GetString(section + ".max_open_connection")); value != "" {
+			target.MaxOpenConnection = value
+		}
+		if value := strings.TrimSpace(v.GetString(section + ".max_idle_connection")); value != "" {
+			target.MaxIdleConnection = value
+		}
+	}
 }
 
 // Get 获取全局配置单例

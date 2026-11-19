@@ -88,7 +88,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- $_ := set $cfg "mysql" (dict "host" $db.host "port" (int (default 3306 $db.port)) "database" $db.name "username" $db.username "password" "" "max_open_connection" $db.maxOpenConnection "max_idle_connection" $db.maxIdleConnection) -}}
 {{- else -}}
 {{- if not $db.host -}}{{- fail "database.host is required with postgres" -}}{{- end -}}
-{{- $_ := set $cfg "database" (dict "host" $db.host "port" (int (default 5432 $db.port)) "database" $db.name "username" $db.username "password" "" "sslmode" $db.sslMode) -}}
+{{- $_ := set $cfg "database" (dict "host" $db.host "port" (int (default 5432 $db.port)) "database" $db.name "username" $db.username "password" "" "sslmode" $db.sslMode "max_open_connection" (toString (default "25" $db.postgresMaxOpenConnection)) "max_idle_connection" (toString (default "10" $db.postgresMaxIdleConnection))) -}}
 {{- end -}}
 {{- toYaml (mergeOverwrite $cfg .Values.extraConfig) -}}
 {{- end -}}

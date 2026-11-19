@@ -53,7 +53,7 @@ func (dao *PredictionDAO) SearchScores(ctx context.Context, f ScoreFilter, page,
 		q = q.Where("created_at <= ?", *f.Until)
 	}
 	var total int64
-	if err := q.Count(&total).Error; err != nil {
+	if err := countBounded(q, &total); err != nil {
 		return nil, 0, err
 	}
 	page, pageSize = normalizePage(page, pageSize)
@@ -153,7 +153,7 @@ func (dao *PredictionDAO) SearchAdmissions(ctx context.Context, f AdmissionFilte
 		q = q.Where("created_at <= ?", *f.Until)
 	}
 	var total int64
-	if err := q.Count(&total).Error; err != nil {
+	if err := countBounded(q, &total); err != nil {
 		return nil, 0, err
 	}
 	page, pageSize = normalizePage(page, pageSize)

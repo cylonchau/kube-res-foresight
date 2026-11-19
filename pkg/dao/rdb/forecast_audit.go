@@ -80,7 +80,7 @@ func (f RecommendationFilter) apply(q *gorm.DB) *gorm.DB {
 func (dao *PredictionDAO) SearchRecommendations(ctx context.Context, f RecommendationFilter, page, pageSize int) ([]*model.Recommendation, int64, error) {
 	q := f.apply(dao.db.WithContext(ctx).Model(&model.Recommendation{}))
 	var total int64
-	if err := q.Count(&total).Error; err != nil {
+	if err := countBounded(q, &total); err != nil {
 		return nil, 0, err
 	}
 	page, pageSize = normalizePage(page, pageSize)
@@ -122,7 +122,7 @@ func (dao *PredictionDAO) SearchFallbacks(ctx context.Context, f FallbackFilter,
 		q = q.Where("created_at <= ?", *f.Until)
 	}
 	var total int64
-	if err := q.Count(&total).Error; err != nil {
+	if err := countBounded(q, &total); err != nil {
 		return nil, 0, err
 	}
 	page, pageSize = normalizePage(page, pageSize)
@@ -236,7 +236,7 @@ func (dao *PredictionDAO) SearchBacktests(ctx context.Context, f BacktestFilter,
 		q = q.Where("created_at <= ?", *f.Until)
 	}
 	var total int64
-	if err := q.Count(&total).Error; err != nil {
+	if err := countBounded(q, &total); err != nil {
 		return nil, 0, err
 	}
 	page, pageSize = normalizePage(page, pageSize)

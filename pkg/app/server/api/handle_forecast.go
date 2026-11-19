@@ -15,6 +15,7 @@ import (
 	"github.com/cylonchau/kube-res-foresight/pkg/decision"
 	"github.com/cylonchau/kube-res-foresight/pkg/forecast"
 	"github.com/cylonchau/kube-res-foresight/pkg/forecastsvc"
+	"github.com/cylonchau/kube-res-foresight/pkg/job/tasks/asyncrun"
 	"github.com/cylonchau/kube-res-foresight/pkg/model"
 	"github.com/gin-gonic/gin"
 )
@@ -28,6 +29,8 @@ type ForecastRouter struct {
 	Predictions *rdb.PredictionDAO
 	Service     *forecastsvc.Service
 	Config      *rdb.SysConfigDAO
+	// Async queues the long steps of a module as background tasks; nil in a process that has no job table to write.
+	Async *asyncrun.Queue
 }
 
 // Configuration keys that open the modes writing to the cluster. They default to false: Admission and Auto

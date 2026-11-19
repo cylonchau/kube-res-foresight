@@ -55,3 +55,11 @@ func deleteInBatches(ctx context.Context, db *gorm.DB, table any, where string, 
 		}
 	}
 }
+
+// countBounded sets *total to the number of rows the query matches, counted up to MaxCountedRows, and says it was cut by returning the bound
+// itself: a list of a table that has grown past the bound still pages and answers in the time of the bound, never in the time of the table.
+func countBounded(q *gorm.DB, total *int64) error {
+	n, err := boundedCount(q)
+	*total = n
+	return err
+}

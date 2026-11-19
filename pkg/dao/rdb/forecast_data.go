@@ -266,7 +266,7 @@ func (dao *PredictionDAO) ListBacktests(ctx context.Context, instanceID uint, me
 		q = q.Where("metric = ?", metric)
 	}
 	var total int64
-	if err := q.Count(&total).Error; err != nil {
+	if err := countBounded(q, &total); err != nil {
 		return nil, 0, err
 	}
 	page, pageSize = normalizePage(page, pageSize)
@@ -306,7 +306,7 @@ func (dao *PredictionDAO) ListRecommendations(ctx context.Context, moduleID uint
 		q = q.Where("module_id = ?", moduleID)
 	}
 	var total int64
-	if err := q.Count(&total).Error; err != nil {
+	if err := countBounded(q, &total); err != nil {
 		return nil, 0, err
 	}
 	page, pageSize = normalizePage(page, pageSize)
@@ -394,7 +394,7 @@ var evaluationSorts = map[string]string{"prediction_time": "prediction_time", "w
 func (dao *PredictionDAO) ListEvaluations(ctx context.Context, f EvaluationFilter, page, pageSize int) ([]*model.PredictionEvaluation, int64, error) {
 	q := dao.evaluationQuery(ctx, f)
 	var total int64
-	if err := q.Count(&total).Error; err != nil {
+	if err := countBounded(q, &total); err != nil {
 		return nil, 0, err
 	}
 	page, pageSize = normalizePage(page, pageSize)
@@ -469,7 +469,7 @@ func (dao *PredictionDAO) ListExecutions(ctx context.Context, moduleID uint, res
 		q = q.Where("result = ?", result)
 	}
 	var total int64
-	if err := q.Count(&total).Error; err != nil {
+	if err := countBounded(q, &total); err != nil {
 		return nil, 0, err
 	}
 	page, pageSize = normalizePage(page, pageSize)

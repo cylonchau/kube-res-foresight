@@ -52,9 +52,14 @@ database:
   username: kube-res-foresight
   # postgres only: disable, require, verify-ca or verify-full
   sslMode: disable
-  # mysql only
+  # mysql only: the size of the pool of connections of each platform Pod
   maxOpenConnection: "100"
   maxIdleConnection: "50"
+  # postgres only: the size of the pool of connections of each platform Pod. The connections of all the Pods together must stay under max_connections
+  # of the server (100 by default) with room for the operator, the migration and an administrator. The platform reads the forecasts of a page in
+  # parallel, so a pool that is too small shows as statements waiting for a connection (System > Database diagnostics, "wait count").
+  postgresMaxOpenConnection: "25"
+  postgresMaxIdleConnection: "10"
 
 # Credentials. Give an existing Secret, or let the chart make one.
 secrets:
