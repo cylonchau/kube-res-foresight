@@ -29,6 +29,7 @@ func TestTheQuantilesAreTheNearestRank(t *testing.T) {
 	u := UsageOf(ramp(100, 1))
 	assert.Equal(t, 100, u.Points)
 	assert.Equal(t, 50.0, u.P50)
+	assert.Equal(t, 90.0, u.P90)
 	assert.Equal(t, 95.0, u.P95)
 	assert.Equal(t, 99.0, u.P99)
 	assert.Equal(t, 100.0, u.Max)

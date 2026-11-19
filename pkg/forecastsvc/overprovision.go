@@ -239,6 +239,8 @@ type ModuleOverprovision struct {
 	Windows []*WindowOverprovision `json:"windows"`
 	JVM     *JVMInfo               `json:"jvm,omitempty"`
 	Charts  []*ResourceChart       `json:"charts,omitempty"`
+	// Metrics are the other metrics the module has set up (container, JVM, throttling, OOM ...), over the window.
+	Metrics []MetricStat `json:"metrics"`
 }
 
 // WindowOverprovision is the result of one window.
@@ -280,7 +282,7 @@ func (l *opLoader) analyzeWindow(label string, minutes int, p overprovision.Para
 		}
 	}
 
-	one := func(resource, useKind, requestKind, limitKind string, requestFixed float64, round func(float64) float64) *overprovision.Result {
+	one := func(resource, useKind, requestKind, limitKind string, requestFixed, limitRatio float64, round func(float64) float64) *overprovision.Result {
 		use := l.get(useKind)
 		if use == nil {
 			return nil
@@ -294,7 +296,13 @@ func (l *opLoader) analyzeWindow(label string, minutes int, p overprovision.Para
 			}
 		}
 		if ls := l.get(limitKind); ls != nil {
-			in.Limit = lastValue(sliceFrom(ls.pod, from, to))
+			if v := lastValue(sliceFrom(ls.pod, from, to)); v > 0 {
+				in.Limit, in.LimitFrom = v, "metric"
+			}
+		}
+		if in.Limit <= 0 && limitRatio >= 1 && in.Request > 0 {
+			// admission gives a new Pod the request times this ratio as its limit: it is what the module is configured to, not what was measured
+			in.Limit, in.LimitFrom = in.Request*limitRatio, "module"
 		}
 		if resource == overprovision.CPU {
 			if ts := l.get("k8s_cpu_throttle"); ts != nil {
@@ -309,8 +317,8 @@ func (l *opLoader) analyzeWindow(label string, minutes int, p overprovision.Para
 		return &r
 	}
 	return &WindowOverprovision{Label: label, WindowMinutes: minutes,
-		CPU:    one(overprovision.CPU, "cpu", "k8s_cpu_requests", "k8s_cpu_limits", float64(l.m.PodCPURequestMilli)/1000, cpuRound),
-		Memory: one(overprovision.Memory, "memory", "k8s_mem_requests", "k8s_mem_limits", float64(l.m.PodMemoryRequestBytes), memRound)}
+		CPU:    one(overprovision.CPU, "cpu", "k8s_cpu_requests", "k8s_cpu_limits", float64(l.m.PodCPURequestMilli)/1000, l.m.LimitCPURatio, cpuRound),
+		Memory: one(overprovision.Memory, "memory", "k8s_mem_requests", "k8s_mem_limits", float64(l.m.PodMemoryRequestBytes), l.m.LimitMemoryRatio, memRound)}
 }
 
 func (s *Service) moduleHeader(m *model.ForecastModule, replicas int, at time.Time) *ModuleOverprovision {
@@ -344,12 +352,12 @@ func (s *Service) AnalyzeOverprovision(ctx context.Context, m *model.ForecastMod
 
 func resultRow(moduleID uint, replicas int, at time.Time, r *overprovision.Result) *model.OverprovisionAnalysis {
 	row := &model.OverprovisionAnalysis{CreatedAt: at, ModuleID: moduleID, Resource: r.Resource, WindowMinutes: r.WindowMinutes, Replicas: replicas, Request: r.Request,
-		Limit: r.Limit, Points: r.Usage.Points, ExpectedPoints: r.ExpectedPoints, Coverage: r.Coverage, P50: r.Usage.P50, P95: r.Usage.P95, P99: r.Usage.P99, Max: r.Usage.Max,
+		Limit: r.Limit, LimitFrom: r.LimitFrom, Points: r.Usage.Points, ExpectedPoints: r.ExpectedPoints, Coverage: r.Coverage, P50: r.Usage.P50, P90: r.Usage.P90, P95: r.Usage.P95, P99: r.Usage.P99, Max: r.Usage.Max,
 		Suggested: r.Suggested, Ratio: r.Ratio, Numerator: r.Numerator, Denominator: r.Denominator, Reclaimable: r.Reclaimable, Status: r.Status, Grade: r.Grade,
 		Confidence: r.Confidence, Risk: r.Risk, Throttle: r.Throttle, OOMKills: r.OOMKills, OOMWorkingSet: r.OOMWorkingSet,
 		Reasons: overprovision.JoinReasons(r.Reasons), Formula: clip(r.Formula, 600), FormulaVersion: r.FormulaVersion}
 	if r.Total != nil {
-		row.TotalP50, row.TotalP95, row.TotalP99, row.TotalMax = r.Total.P50, r.Total.P95, r.Total.P99, r.Total.Max
+		row.TotalP50, row.TotalP90, row.TotalP95, row.TotalP99, row.TotalMax = r.Total.P50, r.Total.P90, r.Total.P95, r.Total.P99, r.Total.Max
 	}
 	return row
 }
@@ -450,6 +458,7 @@ func (s *Service) OverprovisionDetail(ctx context.Context, moduleID uint, window
 		mo.Charts = append(mo.Charts, opChart(c.kind, sliceFrom(use.pod, fromTS, toTS), use.step, windowMinutes, c.res))
 	}
 	mo.JVM = l.jvm(fromTS, toTS, wr)
+	mo.Metrics = l.metrics(fromTS, toTS)
 
 	hist, err := s.Overprovision.History(ctx, moduleID, "", windowMinutes, opHistoryRows*2)
 	if err != nil {
@@ -729,5 +738,121 @@ func (s *Service) OverprovisionBoard(ctx context.Context, windowMinutes int) (*O
 		return best
 	}
 	sort.SliceStable(out.Rows, func(i, j int) bool { return reclaim(out.Rows[i]) > reclaim(out.Rows[j]) })
+	return out, nil
+}
+
+// MetricStat is one of the other metrics a module has set up, over the window: what the page shows besides the CPU and the memory, and only what is
+// configured (a module without JVM metrics has no JVM tile). Group is container (the mapping reads one container), jvm, throttle, oom or other.
+type MetricStat struct {
+	Key    string  `json:"key"`
+	Name   string  `json:"name"`
+	Kind   string  `json:"kind"`
+	Group  string  `json:"group"`
+	Level  string  `json:"level"`
+	Unit   string  `json:"unit"`
+	Points int     `json:"points"`
+	Latest float64 `json:"latest"`
+	P50    float64 `json:"p50"`
+	P90    float64 `json:"p90"`
+	P95    float64 `json:"p95"`
+	P99    float64 `json:"p99"`
+	Max    float64 `json:"max"`
+}
+
+// configKinds are the kinds the page shows as configuration or as the main figures, not as tiles of their own.
+var configKinds = map[string]bool{"cpu": true, "memory": true, "replicas": true, "k8s_cpu_requests": true, "k8s_cpu_limits": true, "k8s_mem_requests": true, "k8s_mem_limits": true}
+
+func metricGroup(kind, level string) string {
+	switch {
+	case level == "container":
+		return "container"
+	case strings.HasPrefix(kind, "jvm_"):
+		return "jvm"
+	case kind == "k8s_cpu_throttle":
+		return "throttle"
+	case kind == "oom" || kind == "oom_working_set":
+		return "oom"
+	}
+	return "other"
+}
+
+// metrics reads the other enabled sources of the module over the window. A source with nothing stored in it is still listed (with no points), so the
+// page can say it is configured and empty.
+func (l *opLoader) metrics(from, to int64) []MetricStat {
+	out := []MetricStat{}
+	seen := map[string]bool{}
+	for _, src := range l.run.ActiveSources() {
+		if configKinds[src.Kind] || seen[src.Kind] {
+			continue
+		}
+		seen[src.Kind] = true
+		ms := MetricStat{Key: src.Key, Name: src.Name, Kind: src.Kind, Unit: model.MetricKinds[src.Kind]}
+		level := ""
+		if mp, err := l.s.Mappings.GetByID(l.ctx, src.MappingID); err == nil {
+			level, ms.Unit = mp.Level, mp.Unit
+		}
+		ms.Level, ms.Group = level, metricGroup(src.Kind, level)
+		if s := l.get(src.Kind); s != nil {
+			pts := sliceFrom(s.pod, from, to)
+			if len(pts) == 0 {
+				pts = sliceFrom(s.raw, from, to)
+			}
+			u := overprovision.UsageOf(pts)
+			ms.Points, ms.P50, ms.P90, ms.P95, ms.P99, ms.Max = u.Points, u.P50, u.P90, u.P95, u.P99, u.Max
+			ms.Latest = lastValue(pts)
+		}
+		out = append(out, ms)
+	}
+	return out
+}
+
+// ClusterCapacity is what the cluster of a module's data source has to give and has given out right now: the nodes, what they can allocate, and what the
+// Running Pods request. It is read live from kube-state-metrics (the snapshot of the parked cost module, which reads the cluster and nothing else), not from
+// what the platform stored, and none of it is stored; a data source without kube-state-metrics has none of it and the page says so.
+type ClusterCapacity struct {
+	Datasource CostSource `json:"datasource"`
+	At         time.Time  `json:"at"`
+	Nodes      int        `json:"nodes"`
+	Pods       int        `json:"pods"`
+	// AllocatableCPU is in cores, AllocatableMemory in bytes; RequestedCPU and RequestedMemory are the sums of the requests of the Running Pods.
+	AllocatableCPU    float64  `json:"allocatable_cpu"`
+	AllocatableMemory float64  `json:"allocatable_memory"`
+	RequestedCPU      float64  `json:"requested_cpu"`
+	RequestedMemory   float64  `json:"requested_memory"`
+	Notes             []string `json:"notes"`
+}
+
+// ClusterCapacityOf reads the cluster of the data source of a module (its first source's mapping); datasourceID overrides it when it is not 0.
+func (s *Service) ClusterCapacityOf(ctx context.Context, moduleID, datasourceID uint) (*ClusterCapacity, error) {
+	if datasourceID == 0 {
+		sources, err := s.Modules.Sources(ctx, moduleID)
+		if err != nil {
+			return nil, err
+		}
+		for _, src := range sources {
+			if src.Enabled && src.MappingID != 0 {
+				if mp, err := s.Mappings.GetByID(ctx, src.MappingID); err == nil && mp.DatasourceID != 0 {
+					datasourceID = mp.DatasourceID
+					break
+				}
+			}
+		}
+	}
+	if datasourceID == 0 {
+		return nil, ErrCostNoDatasource
+	}
+	ds, snap, err := s.readCluster(ctx, datasourceID, costParams{})
+	if err != nil {
+		return nil, err
+	}
+	out := &ClusterCapacity{Datasource: CostSource{ID: ds.ID, Name: ds.Name}, At: snap.At, Nodes: len(snap.Nodes), Pods: len(snap.Pods), Notes: append([]string{}, snap.Notes...)}
+	for _, n := range snap.Nodes {
+		out.AllocatableCPU += float64(n.CPUMilli) / 1000
+		out.AllocatableMemory += float64(n.MemoryBytes)
+	}
+	for _, p := range snap.Pods {
+		out.RequestedCPU += float64(p.CPUMilli) / 1000
+		out.RequestedMemory += float64(p.MemoryBytes)
+	}
 	return out, nil
 }

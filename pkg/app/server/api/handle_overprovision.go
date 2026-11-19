@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"time"
 
@@ -94,6 +95,24 @@ func (r *ForecastRouter) ModuleOverprovision(c *gin.Context) {
 	}
 	out, err := r.Service.OverprovisionDetail(c.Request.Context(), id, minutes, from, to)
 	if err != nil {
+		r.writeError(c, err)
+		return
+	}
+	query.SuccessResponse(c, nil, out)
+}
+
+// OverprovisionCluster serves GET /overprovision/cluster?module_id=&datasource_id=: what the cluster of the data source of the module has to give and
+// has given out (nodes, allocatable, the requests of the Running Pods), read live from kube-state-metrics. Nothing is stored.
+// @Summary The capacity of the cluster
+// @Tags Forecast
+// @Router /api/v1/overprovision/cluster [get]
+func (r *ForecastRouter) OverprovisionCluster(c *gin.Context) {
+	out, err := r.Service.ClusterCapacityOf(c.Request.Context(), uintQuery(c, "module_id"), uintQuery(c, "datasource_id"))
+	if err != nil {
+		if errors.Is(err, forecastsvc.ErrCostNoDatasource) || errors.Is(err, forecastsvc.ErrCostCluster) {
+			query.BadRequest(c, err)
+			return
+		}
 		r.writeError(c, err)
 		return
 	}

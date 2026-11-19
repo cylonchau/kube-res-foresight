@@ -56,7 +56,7 @@ func TestTheBusinessRoleHasThePagesOfTheForecastsAndTheChatAndNothingOfTheSystem
 		{"GET", "/api/v1/evaluations"}, {"GET", "/api/v1/training-runs/summary"}, {"GET", "/api/v1/training-runs/7"}, {"GET", "/api/v1/algorithm-scores/latest"},
 		{"GET", "/api/v1/recommendations"}, {"GET", "/api/v1/scaling-decisions"}, {"GET", "/api/v1/fallbacks"}, {"GET", "/api/v1/admissions"},
 		{"GET", "/api/v1/resource-analysis"}, {"GET", "/api/v1/snapshots/9"},
-		{"GET", "/api/v1/overprovision"}, {"POST", "/api/v1/overprovision/run"}, {"GET", "/api/v1/modules/5/overprovision"},
+		{"GET", "/api/v1/overprovision"}, {"GET", "/api/v1/overprovision/cluster"}, {"POST", "/api/v1/overprovision/run"}, {"GET", "/api/v1/modules/5/overprovision"},
 		{"POST", "/api/v1/assistant/chat/async"}, {"GET", "/api/v1/assistant/async/3"}, {"GET", "/api/v1/assistant/async/3/events"}, {"POST", "/api/v1/assistant/async/3/cancel"},
 		{"GET", "/api/v1/assistant/conversations"}, {"POST", "/api/v1/assistant/conversations"}, {"GET", "/api/v1/assistant/conversations/4"},
 		{"PUT", "/api/v1/assistant/conversations/4"}, {"DELETE", "/api/v1/assistant/conversations/4"}, {"POST", "/api/v1/assistant/conversations/batch-delete"},

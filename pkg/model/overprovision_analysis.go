@@ -18,18 +18,21 @@ type OverprovisionAnalysis struct {
 	Resource      string `gorm:"type:varchar(8);not null;index:idx_op_latest,priority:2" json:"resource"`
 	WindowMinutes int    `gorm:"not null;index:idx_op_latest,priority:3" json:"window_minutes"`
 
-	Replicas int     `gorm:"not null;default:0" json:"replicas"`
-	Request  float64 `gorm:"not null;default:0" json:"request"`
-	Limit    float64 `gorm:"column:limit_value;not null;default:0" json:"limit"`
+	Replicas  int     `gorm:"not null;default:0" json:"replicas"`
+	Request   float64 `gorm:"not null;default:0" json:"request"`
+	Limit     float64 `gorm:"column:limit_value;not null;default:0" json:"limit"`
+	LimitFrom string  `gorm:"type:varchar(8);not null;default:''" json:"limit_from"`
 
 	Points         int     `gorm:"not null;default:0" json:"points"`
 	ExpectedPoints int     `gorm:"not null;default:0" json:"expected_points"`
 	Coverage       float64 `gorm:"not null;default:0" json:"coverage"`
 	P50            float64 `gorm:"not null;default:0" json:"p50"`
+	P90            float64 `gorm:"column:p90;not null;default:0" json:"p90"`
 	P95            float64 `gorm:"not null;default:0" json:"p95"`
 	P99            float64 `gorm:"not null;default:0" json:"p99"`
 	Max            float64 `gorm:"column:max_value;not null;default:0" json:"max"`
 	TotalP50       float64 `gorm:"not null;default:0" json:"total_p50"`
+	TotalP90       float64 `gorm:"column:total_p90;not null;default:0" json:"total_p90"`
 	TotalP95       float64 `gorm:"not null;default:0" json:"total_p95"`
 	TotalP99       float64 `gorm:"not null;default:0" json:"total_p99"`
 	TotalMax       float64 `gorm:"column:total_max_value;not null;default:0" json:"total_max"`

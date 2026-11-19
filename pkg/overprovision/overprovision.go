@@ -129,6 +129,7 @@ type Point struct {
 type Usage struct {
 	Points int     `json:"points"`
 	P50    float64 `json:"p50"`
+	P90    float64 `json:"p90"`
 	P95    float64 `json:"p95"`
 	P99    float64 `json:"p99"`
 	Max    float64 `json:"max"`
@@ -146,7 +147,7 @@ func UsageOf(points []Point) Usage {
 		return Usage{}
 	}
 	sort.Float64s(vals)
-	return Usage{Points: len(vals), P50: rank(vals, 50), P95: rank(vals, 95), P99: rank(vals, 99), Max: vals[len(vals)-1]}
+	return Usage{Points: len(vals), P50: rank(vals, 50), P90: rank(vals, 90), P95: rank(vals, 95), P99: rank(vals, 99), Max: vals[len(vals)-1]}
 }
 
 func rank(sorted []float64, p float64) float64 {
@@ -166,6 +167,7 @@ type Input struct {
 	Resource      string
 	Request       float64
 	Limit         float64 // 0 = not known
+	LimitFrom     string
 	Points        []Point
 	Total         []Point
 	StepSeconds   int
@@ -188,7 +190,9 @@ type Result struct {
 	WindowMinutes int     `json:"window_minutes"`
 	Request       float64 `json:"request"`
 	Limit         float64 `json:"limit"`
-	Usage         Usage   `json:"usage"`
+	// LimitFrom says where the limit comes from: metric (a limits source of the module), module (the request times the limit ratio the module sets for admission) or empty (not known).
+	LimitFrom string `json:"limit_from"`
+	Usage     Usage  `json:"usage"`
 	// Total is the quantiles of the sum over all the Pods (nil when it could not be made).
 	Total *Usage `json:"total,omitempty"`
 	// Coverage is the share of the window that has data (0 to 1).
@@ -246,7 +250,7 @@ func num(resource string, v float64) string {
 
 // Analyze analyses one resource. It never panics on missing data: it says unknown, with the reason.
 func Analyze(in Input, p Params) Result {
-	r := Result{Resource: in.Resource, WindowMinutes: in.WindowMinutes, Request: in.Request, Limit: in.Limit, Usage: UsageOf(in.Points), Reasons: []string{},
+	r := Result{Resource: in.Resource, WindowMinutes: in.WindowMinutes, Request: in.Request, Limit: in.Limit, LimitFrom: in.LimitFrom, Usage: UsageOf(in.Points), Reasons: []string{},
 		Confidence: Low, Risk: Low, Status: StatusUnknown, Grade: "", Throttle: in.Throttle, OOMKills: in.OOMKills, OOMWorkingSet: in.OOMWorkingSet,
 		FormulaVersion: FormulaVersion}
 	if r.Throttle < 0 {

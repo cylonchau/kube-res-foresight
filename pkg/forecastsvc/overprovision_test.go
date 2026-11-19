@@ -239,3 +239,77 @@ func TestOpChartThinsLongSeriesAndKeepsTheLabelsTrue(t *testing.T) {
 	// the second point of the thinned series is the 8th point of the full one (stride 7): the label's step is not the thinned step
 	assert.Equal(t, pts[7].TS, c.TS[1])
 }
+
+// The page shows the metrics the module has set up and nothing else: the throttle and the JVM here, not the CPU and the memory (they are the main
+// figures) and not what is not configured.
+func TestTheDetailListsTheOtherMetricsTheModuleHasSetUp(t *testing.T) {
+	f := opFixture(t)
+	for _, kind := range []string{"k8s_cpu_throttle", "jvm_heap_used", "jvm_heap_max"} {
+		f.addAux(t, kind)
+	}
+	f.values(map[string]func(ts time.Time) float64{
+		"memory":           func(ts time.Time) float64 { return daily(4*float64(costGiB), 1*float64(costGiB), ts) },
+		"cpu":              func(ts time.Time) float64 { return daily(2, 0.8, ts) },
+		"k8s_cpu_throttle": func(time.Time) float64 { return 0.04 },
+		"jvm_heap_used":    func(time.Time) float64 { return 2 * float64(costGiB) },
+		"jvm_heap_max":     func(time.Time) float64 { return 8 * float64(costGiB) },
+	})
+	ctx := context.Background()
+	_, err := f.collect(ctx)
+	require.NoError(t, err)
+	d, err := f.svc.OverprovisionDetail(ctx, f.module.ID, 24*60, time.Time{}, time.Time{})
+	require.NoError(t, err)
+	groups := map[string]string{}
+	for _, m := range d.Metrics {
+		groups[m.Kind] = m.Group
+		assert.Greater(t, m.Points, 0, m.Kind)
+		assert.GreaterOrEqual(t, m.P99, m.P90, m.Kind)
+		assert.GreaterOrEqual(t, m.P90, m.P50, m.Kind)
+	}
+	assert.Equal(t, map[string]string{"k8s_cpu_throttle": "throttle", "jvm_heap_used": "jvm", "jvm_heap_max": "jvm", "rps": "other"}, groups, "the request rate of the fixture is a source too")
+	// the P90, the P95 and the P99 are all there, and stored
+	cpu := d.Windows[0].CPU
+	require.NotNil(t, cpu)
+	assert.LessOrEqual(t, cpu.Usage.P90, cpu.Usage.P95)
+	assert.LessOrEqual(t, cpu.Usage.P95, cpu.Usage.P99)
+	assert.Greater(t, cpu.Usage.P90, 0.0)
+	_, err = f.svc.RunOverprovision(ctx, f.module.ID)
+	require.NoError(t, err)
+	stored, err := f.svc.Overprovision.Latest(ctx, 24*60)
+	require.NoError(t, err)
+	require.NotEmpty(t, stored)
+	for _, r := range stored {
+		assert.Greater(t, r.P90, 0.0, "the P90 is stored with the rest")
+	}
+}
+
+// With no limits metric the limit is what the module is configured to give a new Pod: the request times the ratio, said to come from the module.
+func TestTheLimitComesFromTheModuleRatioWhenNoMetricSaysIt(t *testing.T) {
+	f := opFixture(t)
+	f.setModule(t, func(m *model.ForecastModule) { m.LimitCPURatio, m.LimitMemoryRatio = 2, 1.5 })
+	d, err := f.svc.OverprovisionDetail(context.Background(), f.module.ID, 24*60, time.Time{}, time.Time{})
+	require.NoError(t, err)
+	cpu, mem := d.Windows[0].CPU, d.Windows[0].Memory
+	require.NotNil(t, cpu)
+	require.NotNil(t, mem)
+	assert.InDelta(t, 8.0, cpu.Limit, 1e-9, "4 cores x 2")
+	assert.Equal(t, "module", cpu.LimitFrom)
+	assert.InDelta(t, 6*float64(costGiB), mem.Limit, 1, "4 GiB x 1.5")
+	f.setModule(t, func(m *model.ForecastModule) { m.LimitCPURatio, m.LimitMemoryRatio = 0, 0 })
+	d, err = f.svc.OverprovisionDetail(context.Background(), f.module.ID, 24*60, time.Time{}, time.Time{})
+	require.NoError(t, err)
+	assert.Equal(t, 0.0, d.Windows[0].CPU.Limit)
+	assert.Empty(t, d.Windows[0].CPU.LimitFrom)
+}
+
+func TestTheClusterCapacityIsReadFromTheDataSourceOfTheModule(t *testing.T) {
+	f := opFixture(t)
+	got, err := f.svc.ClusterCapacityOf(context.Background(), f.module.ID, 0)
+	require.NoError(t, err)
+	assert.Equal(t, 2, got.Nodes)
+	assert.InDelta(t, 16.0, got.AllocatableCPU, 1e-9)
+	assert.InDelta(t, 64*float64(costGiB), got.AllocatableMemory, 1)
+	assert.NotEmpty(t, got.Datasource.Name)
+	_, err = f.svc.ClusterCapacityOf(context.Background(), 9999, 0)
+	assert.Error(t, err)
+}
