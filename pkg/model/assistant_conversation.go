@@ -33,6 +33,8 @@ type AssistantMessage struct {
 	Role           string `gorm:"type:varchar(10);not null" json:"role"`
 	Content        string `gorm:"type:text;not null" json:"content"`
 	// Tools and Attachments are the JSON of what the assistant read and the files it offered, kept so a restored answer shows where it came from.
+	// Context is the JSON of the page and the object the user was looking at when they asked (the user's messages only): a restored conversation knows what "this module" was.
+	Context     string `gorm:"type:text" json:"-"`
 	Tools       string `gorm:"type:text" json:"-"`
 	Attachments string `gorm:"type:text" json:"-"`
 	// Failed marks the reason a question could not be answered: it is shown, and never sent back to the model.

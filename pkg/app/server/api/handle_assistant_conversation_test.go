@@ -237,3 +237,24 @@ func TestConversationsQuietForLongerThanTheRetentionAreDeletedWithTheirMessages(
 	assert.Equal(t, 1, timing.ConversationRetentionDays.Parse("0"))
 	assert.Equal(t, 3650, timing.ConversationRetentionDays.Parse("99999"))
 }
+
+func TestAConversationKeepsWhereTheUserWasAndAPreviewOfWhatEachToolReturned(t *testing.T) {
+	a := newAssistantRig(t, true)
+	id := startConversation(t, a, 1)
+	a.llm.steps = []step{ask(assistant.ToolCall{ID: "c1", Name: "list_modules", Arguments: `{}`}), say("One module.")}
+	rec := a.as(t, 1, http.MethodPost, "/assistant/chat", map[string]any{"messages": []assistant.Turn{user("what is this module?")}, "lang": "en", "conversation_id": id,
+		"context": map[string]any{"page": "forecast-modules_modules", "title": "Modules", "module_id": a.module.ID}})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	reply := decodeData(t, rec.Body.Bytes())
+	step0 := reply["tools"].([]any)[0].(map[string]any)
+	assert.Contains(t, step0["result"], "shop", "the answer shows what the tool returned, for the user to check it against")
+
+	msgs := decodeData(t, a.as(t, 1, http.MethodGet, convPath(id), nil).Body.Bytes())["messages"].([]any)
+	require.Len(t, msgs, 2)
+	ctx := msgs[0].(map[string]any)["context"].(map[string]any)
+	assert.Equal(t, "forecast-modules_modules", ctx["page"], "a restored question knows where it was asked")
+	assert.EqualValues(t, a.module.ID, ctx["module_id"])
+	stored := msgs[1].(map[string]any)["tools"].([]any)[0].(map[string]any)
+	assert.Contains(t, stored["result"], "shop", "and a restored answer keeps what the tool returned")
+	assert.NotContains(t, msgs[1].(map[string]any), "context", "only a question has a context")
+}

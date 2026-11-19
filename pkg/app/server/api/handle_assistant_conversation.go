@@ -37,6 +37,8 @@ type AssistantStoredMessage struct {
 	Failed      bool                   `json:"failed"`
 	Tools       []assistant.ToolTrace  `json:"tools"`
 	Attachments []assistant.Attachment `json:"attachments"`
+	// Context is where the user was when they asked (a user message only).
+	Context *assistant.PageContext `json:"context,omitempty"`
 }
 
 func storedMessages(rows []*model.AssistantMessage) []AssistantStoredMessage {
@@ -44,6 +46,12 @@ func storedMessages(rows []*model.AssistantMessage) []AssistantStoredMessage {
 	for _, m := range rows {
 		item := AssistantStoredMessage{ID: m.ID, CreatedAt: m.CreatedAt, Role: m.Role, Content: m.Content, Failed: m.Failed,
 			Tools: []assistant.ToolTrace{}, Attachments: []assistant.Attachment{}}
+		if m.Context != "" {
+			var pc assistant.PageContext
+			if json.Unmarshal([]byte(m.Context), &pc) == nil {
+				item.Context = &pc
+			}
+		}
 		if m.Tools != "" {
 			_ = json.Unmarshal([]byte(m.Tools), &item.Tools)
 		}

@@ -100,6 +100,14 @@ func (s *Service) route(ctx context.Context, question string, p *PageContext, by
 	if containsAny(q, "准入", "admission", "kyverno") {
 		add("list_admissions", withHours(withModule(map[string]any{})))
 	}
+	if module != "" && containsAny(q, "超配", "浪费", "资源占用", "可以降", "能降", "调低", "over-provision", "overprovision", "right-siz", "rightsiz", "lower the request", "reclaim") {
+		add("analyze_resources", withModule(map[string]any{}))
+	} else if containsAny(q, "超配", "资源浪费", "哪些模块浪费", "over-provision", "overprovision", "most wasted", "right-siz") {
+		add("analyze_resources", nil)
+	}
+	if module != "" && containsAny(q, "有哪些指标", "指标", "数据从", "数据有多久", "多久的数据", "metrics of", "which metrics", "how far back", "what data") {
+		add("list_module_metrics", withModule(map[string]any{}))
+	}
 	if containsAny(q, "算法", "algorithm") {
 		add("list_algorithms", nil)
 	}

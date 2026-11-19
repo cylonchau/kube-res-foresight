@@ -104,6 +104,8 @@ type ToolTrace struct {
 	Arguments string `json:"arguments,omitempty"`
 	OK        bool   `json:"ok"`
 	Error     string `json:"error,omitempty"`
+	// Result is the start of what the tool returned (cut short): the steps of an answer show it, and a restored conversation keeps it. It is what the model read, for the user to check the answer against.
+	Result string `json:"result,omitempty"`
 }
 
 // Reply is the answer to one question.
@@ -341,7 +343,17 @@ func (s *Service) converse(ctx context.Context, conn Connection, history []Turn,
 	}
 	ctx, cancel := context.WithTimeout(ctx, total)
 	defer cancel()
-	var llm LLM = metered{inner: s.llmFor(conn), trail: trailOf(ctx)}
+	var llm LLM = s.llmFor(conn)
+	redactor := s.newRedactor(ctx)
+	if redactor != nil {
+		llm = redactingLLM{inner: llm, r: redactor}
+		if tr := trailOf(ctx); tr != nil {
+			tr.mu.Lock()
+			tr.redacted = true
+			tr.mu.Unlock()
+		}
+	}
+	llm = metered{inner: llm, trail: trailOf(ctx)}
 	history = trimHistory(history, conn.ContextLength, conn.MaxTokens)
 
 	tools := s.tools(ctx)
@@ -411,7 +423,9 @@ func (s *Service) converse(ctx context.Context, conn Connection, history []Turn,
 // runTool runs one call of the model. A failure is not an error of the question: it goes back to the model as the tool's answer, so it can
 // correct the arguments or say what it could not read.
 func (s *Service) runTool(ctx context.Context, byName map[string]tool, call ToolCall) (string, ToolTrace, *Attachment) {
+	reportProgress(ctx, "tool_start", ToolTrace{Name: call.Name, Arguments: clip(call.Arguments, 200)})
 	content, trace, attachment := s.runToolCore(ctx, byName, call)
+	trace.Result = clip(content, maxTraceResult)
 	reportProgress(ctx, "tool", trace)
 	return content, trace, attachment
 }
@@ -446,6 +460,9 @@ func (s *Service) runToolCore(ctx context.Context, byName map[string]tool, call 
 	trace.OK = true
 	return capOutput(b), trace, res.Attachment
 }
+
+// maxTraceResult is how much of a tool result a step of an answer keeps for the user.
+const maxTraceResult = 1200
 
 // NewService is a Service with its limits ready.
 func NewService(s *Service) *Service {

@@ -183,7 +183,7 @@ func TestTheSwitchIsTheOnlySystemParameterAndTheConnectionIsNotOne(t *testing.T)
 	a := newAssistantRig(t, false)
 	var keys []string
 	require.NoError(t, model.DB.Model(&model.SysConfig{}).Where("config_key LIKE ?", "assistant.%").Pluck("config_key", &keys).Error)
-	assert.Equal(t, []string{"assistant.enabled"}, keys, "the endpoint, the model, the key and the limits are a connection, not parameters")
+	assert.ElementsMatch(t, []string{"assistant.enabled", "assistant.redact_names"}, keys, "the endpoint, the model, the key and the limits are a connection, not parameters")
 
 	// off: the assistant says so, and nothing is asked
 	st := a.status(t)
@@ -392,7 +392,7 @@ func TestAQuestionIsAnsweredFromWhatAToolReturnsAndTheAnswerShowsWhereItCameFrom
 			assert.NotContains(t, spec.Name, verb, "no tool writes")
 		}
 	}
-	assert.ElementsMatch(t, []string{"get_service_status", "list_modules", "get_module_effect_report", "list_scaling_actions", "list_admissions", "export_status_report", "list_algorithms", "get_module_recommendation", "describe_capabilities"}, names)
+	assert.ElementsMatch(t, []string{"get_service_status", "list_modules", "get_module_effect_report", "list_scaling_actions", "list_admissions", "export_status_report", "list_algorithms", "get_module_recommendation", "describe_capabilities", "analyze_resources", "list_module_metrics"}, names)
 }
 
 func TestAToolThatFailsGoesBackToTheModelAsItsAnswerSoItCanCorrectItself(t *testing.T) {

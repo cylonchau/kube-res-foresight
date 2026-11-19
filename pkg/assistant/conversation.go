@@ -149,12 +149,17 @@ func (s *Service) storedHistory(ctx context.Context, o Owner, id uint) ([]Turn, 
 
 // record keeps a question and what came of it. A question that was not asked at all (the assistant is off, the request is not valid, the
 // service is busy) leaves no trace.
-func (s *Service) record(ctx context.Context, o Owner, id uint, question string, reply *Reply, askErr error) error {
+func (s *Service) record(ctx context.Context, o Owner, id uint, question string, page *PageContext, reply *Reply, askErr error) error {
 	var notAsked ErrNotReady
 	if askErr != nil && (errors.As(askErr, &notAsked) || IsRequestError(askErr) || errors.Is(askErr, ErrBusy)) {
 		return nil
 	}
 	asked := &model.AssistantMessage{Role: "user", Content: question}
+	if page != nil {
+		if b, err := json.Marshal(page); err == nil {
+			asked.Context = string(b)
+		}
+	}
 	answer := &model.AssistantMessage{Role: "assistant"}
 	if askErr != nil {
 		answer.Content, answer.Failed = clip(askErr.Error(), 500), true
@@ -188,7 +193,7 @@ func (s *Service) ChatConversation(ctx context.Context, id uint, question, lang 
 	}
 	ctx = withConversation(ctx, id)
 	reply, askErr := s.ChatIn(ctx, append(history, Turn{Role: "user", Content: question}), lang, page)
-	if err := s.record(ctx, o, id, question, reply, askErr); err != nil && askErr == nil {
+	if err := s.record(ctx, o, id, question, page.Clean(), reply, askErr); err != nil && askErr == nil {
 		return nil, err
 	}
 	return reply, askErr
@@ -207,7 +212,7 @@ func (s *Service) SkillConversation(ctx context.Context, id uint, name, args, la
 	ctx = withConversation(ctx, id)
 	reply, askErr := s.RunSkill(ctx, name, args, lang)
 	command := strings.TrimSpace("/" + name + " " + args)
-	if err := s.record(ctx, o, id, command, reply, askErr); err != nil && askErr == nil {
+	if err := s.record(ctx, o, id, command, nil, reply, askErr); err != nil && askErr == nil {
 		return nil, err
 	}
 	return reply, askErr

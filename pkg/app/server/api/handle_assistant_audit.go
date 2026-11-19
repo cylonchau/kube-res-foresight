@@ -30,6 +30,7 @@ type AssistantAuditDTO struct {
 	ConnectionID     uint                    `json:"connection_id"`
 	Model            string                  `json:"model"`
 	ToolMode         string                  `json:"tool_mode"`
+	Redacted         bool                    `json:"redacted"`
 	Status           string                  `json:"status"`
 	Error            string                  `json:"error"`
 	DurationMS       int64                   `json:"duration_ms"`
@@ -42,7 +43,7 @@ type AssistantAuditDTO struct {
 
 func auditDTO(a *model.AssistantAudit) AssistantAuditDTO {
 	out := AssistantAuditDTO{ID: a.ID, CreatedAt: a.CreatedAt, UserID: a.UserID, UserName: a.UserName, Source: a.Source, ConversationID: a.ConversationID,
-		Page: a.Page, ConnectionID: a.ConnectionID, Model: a.Model, ToolMode: a.ToolMode, Status: a.Status, Error: a.Error, DurationMS: a.DurationMS,
+		Page: a.Page, ConnectionID: a.ConnectionID, Model: a.Model, ToolMode: a.ToolMode, Redacted: a.Redacted, Status: a.Status, Error: a.Error, DurationMS: a.DurationMS,
 		LLMCalls: a.LLMCalls, PromptTokens: a.PromptTokens, CompletionTokens: a.CompletionTokens, Tools: []AssistantAuditToolDTO{}, Refused: []string{}}
 	if a.Tools != "" {
 		_ = json.Unmarshal([]byte(a.Tools), &out.Tools)

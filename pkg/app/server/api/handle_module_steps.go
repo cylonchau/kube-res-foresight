@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 
 	"github.com/cylonchau/kube-res-foresight/pkg/apis"
 	"github.com/cylonchau/kube-res-foresight/pkg/app/query"
@@ -67,4 +68,36 @@ func (r *ForecastRouter) ModuleStepAsync(c *gin.Context) {
 		return
 	}
 	query.SuccessResponse(c, nil, asyncDTO(task))
+}
+
+// ResourceAnalysis serves GET /resource-analysis?module_id=&days=: for each module, what a Pod requests against what it used over the window, and
+// what it could be lowered to. It reads what the platform stored; nothing is read from the cluster and nothing is changed.
+// @Summary Resource analysis of the modules
+// @Tags Forecast
+// @Router /api/v1/resource-analysis [get]
+func (r *ForecastRouter) ResourceAnalysis(c *gin.Context) {
+	days, _ := strconv.Atoi(c.Query("days"))
+	out, err := r.Service.ResourceAnalysis(c.Request.Context(), uintQuery(c, "module_id"), days)
+	if err != nil {
+		r.writeError(c, err)
+		return
+	}
+	query.SuccessResponse(c, nil, out)
+}
+
+// ModuleMetricCatalog serves GET /modules/:id/metric-catalog: the metrics of the module, with their units and the span of what is stored.
+// @Summary Metrics of a module
+// @Tags Forecast
+// @Router /api/v1/modules/{id}/metric-catalog [get]
+func (r *ForecastRouter) ModuleMetricCatalog(c *gin.Context) {
+	id, ok := parseUintParam(c, "id")
+	if !ok {
+		return
+	}
+	out, err := r.Service.MetricCatalog(c.Request.Context(), id)
+	if err != nil {
+		r.writeError(c, err)
+		return
+	}
+	query.SuccessResponse(c, nil, out)
 }

@@ -392,3 +392,80 @@ m = g(r.sub, p.sub) && keyMatch2(r.obj, p.obj) && r.act == p.act
 	assert.False(t, authz.Allows(ctx, assistant.Principal{Name: "bob", Roles: []string{"VIEWER"}}, "GET", "/api/v1/dashboard"))
 	assert.False(t, authz.Allows(ctx, ann, "POST", "/api/v1/dashboard"), "the method counts")
 }
+
+func TestWithRedactionOnTheModelNeverSeesAModuleNameAndTheUserStillReadsIt(t *testing.T) {
+	a := newAssistantRig(t, true)
+	require.NoError(t, a.config.UpdateValue(context.Background(), assistant.KeyRedactNames, "true"))
+	a.llm.steps = []step{
+		ask(assistant.ToolCall{ID: "c1", Name: "get_module_effect_report", Arguments: `{"module":"module-1"}`}),
+		func(messages []assistant.Message, _ []assistant.ToolSpec) (*assistant.Completion, error) {
+			return &assistant.Completion{Content: "module-1 wastes little."}, nil
+		},
+	}
+	rec := a.askAs(t, 1, "ADMIN", "how is shop doing?", map[string]any{"page": "x", "module_id": a.module.ID})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	data := decodeData(t, rec.Body.Bytes())
+	assert.Equal(t, "shop wastes little.", data["content"], "the user reads the real name")
+	tools := data["tools"].([]any)
+	require.Len(t, tools, 1)
+	assert.Equal(t, true, tools[0].(map[string]any)["ok"], "the tool was run with the real module name, so it found the module")
+
+	for i, call := range a.llm.calls {
+		for _, m := range call {
+			assert.NotContains(t, m.Content, "shop", "call %d: no name goes to the model", i)
+			for _, c := range m.ToolCalls {
+				assert.NotContains(t, c.Arguments, "shop")
+			}
+		}
+	}
+	rows := audits(t)
+	require.Len(t, rows, 1)
+	assert.True(t, rows[0].Redacted, "the audit says the names were hidden")
+
+	// off: the name goes as it is
+	require.NoError(t, a.config.UpdateValue(context.Background(), assistant.KeyRedactNames, "false"))
+	a.llm.calls = nil
+	a.llm.steps = []step{say("shop is fine")}
+	require.Equal(t, http.StatusOK, a.askAs(t, 1, "ADMIN", "how is shop doing?", nil).Code)
+	assert.Contains(t, a.llm.calls[0][len(a.llm.calls[0])-1].Content, "shop")
+}
+
+func TestTheAnalysisToolsAnswerFromWhatThePlatformStoredAndSayWhenTheyKnowNothing(t *testing.T) {
+	a := newAssistantRig(t, true)
+	var analysis, metrics string
+	a.llm.steps = []step{
+		ask(assistant.ToolCall{ID: "a", Name: "analyze_resources", Arguments: `{"module":"shop","days":7}`},
+			assistant.ToolCall{ID: "b", Name: "list_module_metrics", Arguments: `{"module":"shop"}`},
+			assistant.ToolCall{ID: "c", Name: "analyze_resources", Arguments: `{"module":"ghost"}`}),
+		func(messages []assistant.Message, _ []assistant.ToolSpec) (*assistant.Completion, error) {
+			last := messages[len(messages)-3:]
+			analysis, metrics = last[0].Content, last[1].Content
+			assert.Contains(t, last[2].Content, "no module is named", "an unknown module is said, not guessed")
+			return &assistant.Completion{Content: "ok"}, nil
+		},
+	}
+	require.Equal(t, http.StatusOK, a.chat(t, user("is shop over-provisioned?")).Code)
+
+	var got map[string]any
+	require.NoError(t, json.Unmarshal([]byte(analysis), &got))
+	assert.EqualValues(t, 7, got["window_days"])
+	assert.Contains(t, got["basis"], "nothing was read from the cluster", "the answer carries what it rests on")
+	mods := got["modules"].([]any)
+	require.Len(t, mods, 1)
+	cpu := mods[0].(map[string]any)["cpu"].(map[string]any)
+	assert.Equal(t, "unknown", cpu["verdict"], "a module with no request and no samples is not called over-provisioned")
+	assert.NotEmpty(t, cpu["why"])
+	assert.Contains(t, metrics, `"metrics"`)
+}
+
+func TestTheRulesOfTheRouterNameTheAnalysisToolsForAQuestionAboutWaste(t *testing.T) {
+	a := newAssistantRig(t, true)
+	a.setMode(t, "router")
+	a.llm.steps = []step{func(messages []assistant.Message, _ []assistant.ToolSpec) (*assistant.Completion, error) {
+		last := messages[len(messages)-1].Content
+		assert.Contains(t, last, "analyze_resources")
+		assert.Contains(t, last, `"module":"shop"`)
+		return &assistant.Completion{Content: "ok"}, nil
+	}}
+	require.Equal(t, http.StatusOK, a.chat(t, user("shop 是不是超配了？")).Code)
+}

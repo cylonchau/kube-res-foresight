@@ -34,12 +34,13 @@ type trailKey struct{}
 
 // trail collects what one question did, for its audit record.
 type trail struct {
-	mu      sync.Mutex
-	calls   int
-	prompt  int
-	reply   int
-	refused []string
-	mode    ToolMode
+	mu       sync.Mutex
+	calls    int
+	prompt   int
+	reply    int
+	refused  []string
+	mode     ToolMode
+	redacted bool
 }
 
 func (t *trail) refuse(name string) {
@@ -102,6 +103,7 @@ func (s *Service) audit(ctx context.Context, conn Connection, page *PageContext,
 	rec.LLMCalls, rec.PromptTokens, rec.CompletionTokens = t.calls, t.prompt, t.reply
 	refused := append([]string{}, t.refused...)
 	rec.ToolMode = string(t.mode)
+	rec.Redacted = t.redacted
 	t.mu.Unlock()
 	type used struct {
 		Name string `json:"name"`

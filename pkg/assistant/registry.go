@@ -68,6 +68,10 @@ var toolMetas = map[string]toolMeta{
 		api: "GET /api/v1/modules", pages: []string{"forecast-modules_modules"}},
 	"get_module_effect_report": {summary: "How good the forecasts of one module were: accuracy, scale-ups in time, capacity wasted or missing, stability",
 		api: "GET /api/v1/modules/:id/effect-report", pages: []string{"forecast-results_effect", "forecast-results_history"}},
+	"analyze_resources": {summary: "Is a module over-provisioned: the Pod request against the measured use (P50, P95, P99), a verdict, and the values it could be lowered to",
+		api: "GET /api/v1/resource-analysis", pages: []string{"forecast-modules_modules", "forecast-results_effect"}},
+	"list_module_metrics": {summary: "The metrics stored for one module, with units and how far back the data goes",
+		api: "GET /api/v1/modules/:id/metric-catalog", pages: []string{"forecast-modules_modules"}},
 	"get_module_recommendation": {summary: "The newest recommendation of one module: CPU, memory, replicas, who decided it, whether it fell back",
 		api: "GET /api/v1/recommendations", pages: []string{"forecast-actions_recommendations", "forecast-modules_modules"}},
 	"list_scaling_actions": {summary: "What the operator did: scale-ups and scale-downs with their results and reasons",
@@ -235,6 +239,58 @@ func (s *Service) registryTools() []tool {
 					out = append(out, r)
 				}
 				return toolResult{Data: out}, nil
+			},
+		},
+		{
+			spec: ToolSpec{Name: "analyze_resources", Description: "Is a module over-provisioned? For each module: the CPU and memory a Pod requests against the P50, P95, P99 and highest use of the window, the utilization, a verdict (idle, overprovisioned, ok, tight, unknown) with the reason, how much of the request is above what the platform recommends, and the values the request could be lowered to. Modules with the most to give back come first. It reads what the platform stored (no cluster query) and only modules that are set up. Never say a module can be lowered when the verdict is unknown. These are measurements and the recommendation of the platform, not a promise: the limits of the verdicts are system parameters that no real data has tested.",
+				Parameters: object(map[string]any{"module": moduleProp, "days": map[string]any{"type": "integer", "description": "Look-back in days (1-30, default 7)."}, "limit": map[string]any{"type": "integer", "description": "How many modules (1-20, default 10)."}})},
+			run: func(ctx context.Context, args json.RawMessage) (toolResult, error) {
+				var a struct {
+					Module string
+					Days   int
+					Limit  int
+				}
+				if err := parse(args, &a); err != nil {
+					return toolResult{}, err
+				}
+				var id uint
+				if strings.TrimSpace(a.Module) != "" {
+					var err error
+					if id, err = s.moduleByName(ctx, a.Module); err != nil {
+						return toolResult{}, err
+					}
+				}
+				out, err := s.Forecast.ResourceAnalysis(ctx, id, a.Days)
+				if err != nil {
+					return toolResult{}, err
+				}
+				limit := a.Limit
+				if limit < 1 || limit > 20 {
+					limit = 10
+				}
+				if len(out.Modules) > limit {
+					out.Modules = out.Modules[:limit]
+				}
+				return toolResult{Data: out}, nil
+			},
+		},
+		{
+			spec: ToolSpec{Name: "list_module_metrics", Description: "The metrics the platform stores for one module: for each, its name, what resource it feeds, its unit, how it is reduced, the step of the series and the time of the earliest and the latest stored sample. Call it to know what a question about a module can be answered from, and how far back the data goes, before you say something is not known. It never queries the cluster or Prometheus.",
+				Parameters: object(map[string]any{"module": moduleProp}, "module")},
+			run: func(ctx context.Context, args json.RawMessage) (toolResult, error) {
+				var a struct{ Module string }
+				if err := parse(args, &a); err != nil {
+					return toolResult{}, err
+				}
+				id, err := s.moduleByName(ctx, a.Module)
+				if err != nil {
+					return toolResult{}, err
+				}
+				out, err := s.Forecast.MetricCatalog(ctx, id)
+				if err != nil {
+					return toolResult{}, err
+				}
+				return toolResult{Data: map[string]any{"module": a.Module, "metrics": out}}, nil
 			},
 		},
 		{

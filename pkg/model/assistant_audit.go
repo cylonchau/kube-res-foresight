@@ -32,6 +32,8 @@ type AssistantAudit struct {
 	ConnectionID uint   `gorm:"not null;default:0" json:"connection_id"`
 	Model        string `gorm:"type:varchar(100)" json:"model"`
 	ToolMode     string `gorm:"type:varchar(10)" json:"tool_mode"`
+	// Redacted says the names of the platform were replaced by aliases in what was sent to the model (assistant.redact_names).
+	Redacted bool `gorm:"not null;default:false" json:"redacted"`
 
 	// Status is success or failed; Error is why it failed, cut short (the text of the failure, not of the question).
 	Status     string `gorm:"type:varchar(10);not null;index" json:"status"`

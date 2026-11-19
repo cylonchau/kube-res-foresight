@@ -85,10 +85,12 @@ func TestAQuestionIsQueuedAtOnceAndAnsweredInTheBackgroundWithItsProgress(t *tes
 	assert.Equal(t, "list_modules", result["tools"].([]any)[0].(map[string]any)["name"])
 
 	events := decodeDataList(t, a.as(t, 1, http.MethodGet, "/assistant/async/"+idText(id)+"/events?after=0", nil).Body.Bytes())
-	require.Len(t, events, 1)
-	assert.Equal(t, "tool", events[0].(map[string]any)["type"])
-	assert.Equal(t, "list_modules", events[0].(map[string]any)["data"].(map[string]any)["name"])
-	none := decodeDataList(t, a.as(t, 1, http.MethodGet, "/assistant/async/"+idText(id)+"/events?after=1", nil).Body.Bytes())
+	require.Len(t, events, 2, "a step is announced when it starts and reported when it ends")
+	assert.Equal(t, "tool_start", events[0].(map[string]any)["type"])
+	assert.Equal(t, "tool", events[1].(map[string]any)["type"])
+	assert.Equal(t, "list_modules", events[1].(map[string]any)["data"].(map[string]any)["name"])
+	assert.Contains(t, events[1].(map[string]any)["data"].(map[string]any)["result"], "shop", "the step carries a preview of what it read")
+	none := decodeDataList(t, a.as(t, 1, http.MethodGet, "/assistant/async/"+idText(id)+"/events?after=2", nil).Body.Bytes())
 	assert.Empty(t, none, "a page that reads on gets only what is new")
 
 	// the answer was kept in the conversation, as for a question asked at once, and audited with the permissions of the one who asked

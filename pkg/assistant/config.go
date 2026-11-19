@@ -23,6 +23,7 @@ import (
 // limits, advanced settings) is a connection, kept in the menu AI configuration > LLM management and not in the system parameters.
 const (
 	KeyEnabled = "assistant.enabled"
+	// KeyRedactNames turns on the replacement of the names of the modules, namespaces and workloads by aliases in what is sent to the language model (redact.go).
 	// KeyPrefix is the prefix of the parameters of the assistant; the ones other than the switch were connection settings that moved to the
 	// connections (see the upgrade).
 	KeyPrefix = "assistant."
@@ -51,7 +52,9 @@ const (
 // DefaultConfigs are the parameters the platform starts with: the switch.
 func DefaultConfigs() []model.SysConfig {
 	return []model.SysConfig{{ConfigKey: KeyEnabled, ConfigValue: "false", ConfigName: "AI Assistant Enabled",
-		Remark: "Switches the AI assistant (the chat window at the top right of the header) on or off for everyone. The language models it uses are set in the menu AI configuration > LLM management."}}
+		Remark: "Switches the AI assistant (the chat window at the top right of the header) on or off for everyone. The language models it uses are set in the menu AI configuration > LLM management."},
+		{ConfigKey: KeyRedactNames, ConfigValue: "false", ConfigName: "AI Assistant Redact Names",
+			Remark: "When true, the names of the modules, namespaces and workloads are replaced by aliases (module-1, namespace-2, workload-3) in everything the AI assistant sends to the language model, and put back in the answer the user reads. Credentials are never sent. Off by default: the names go to the model so it can say which module it means. A name shorter than three characters is not replaced."}}
 }
 
 // Header is one custom header of the requests to a language model.
