@@ -37,6 +37,8 @@ type AsyncTask struct {
 	Payload string `gorm:"type:text" json:"-"`
 	Result  string `gorm:"type:text" json:"-"`
 	Error   string `gorm:"type:varchar(500)" json:"error"`
+	// Partial is the text of the answer written so far, while the task runs (the page shows it as it grows); empty once the task ends.
+	Partial string `gorm:"type:text" json:"-"`
 
 	// JobID is the job of the task center that runs it now.
 	JobID           int64 `gorm:"not null;default:0" json:"-"`

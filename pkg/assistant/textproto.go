@@ -147,6 +147,10 @@ func results(names []string, contents []string) string {
 // answerText answers a question through a service that cannot call tools: the platform reads first by its rules (so a model that never writes a
 // plan still gets the data), then the model may ask for more with JSON plans, which are checked before they run.
 func (s *Service) answerText(ctx context.Context, conn Connection, llm LLM, history []Turn, lang string, pc *PageContext, tools []tool, byName map[string]tool) (*Reply, error) {
+	// a reply that starts like JSON is a plan, not an answer: the page is not shown it
+	if fn := textStreamOf(ctx); fn != nil {
+		ctx = WithTextStream(ctx, planFilter(fn))
+	}
 	reply := &Reply{Tools: []ToolTrace{}, Attachments: []Attachment{}}
 	system := stableSystemPrompt(lang) + "\n" + textProtocolRules() + "\n\nTools you may ask for:\n" + catalog(tools)
 	if _, ok := ownerOf(ctx); ok && s.Tasks != nil {
@@ -163,7 +167,7 @@ func (s *Service) answerText(ctx context.Context, conn Connection, llm LLM, hist
 		if final {
 			messages = append(messages, Message{Role: "user", Content: "Answer now in plain words with the data you already have. Say what you could not find out. Do not write JSON."})
 		}
-		done, err := llm.Complete(ctx, messages, nil, conn.MaxTokens)
+		done, err := completeOn(ctx, llm, messages, nil, conn.MaxTokens)
 		if err != nil {
 			return nil, err
 		}

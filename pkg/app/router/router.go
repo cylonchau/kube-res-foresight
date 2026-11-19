@@ -235,6 +235,7 @@ func RegisteredRouter(e *gin.Engine) {
 	v1Group.POST("/assistant/async/:id/cancel", assistantHandler.CancelAsync)
 	v1Group.POST("/assistant/async/:id/retry", assistantHandler.RetryAsync)
 	v1Group.GET("/assistant/audit", assistantHandler.ListAudits)
+	v1Group.GET("/assistant/audit/:id", assistantHandler.GetAudit)
 	v1Group.GET("/assistant/conversations", assistantHandler.ListConversations)
 	v1Group.POST("/assistant/conversations", assistantHandler.CreateConversation)
 	v1Group.POST("/assistant/conversations/batch-delete", assistantHandler.BatchDeleteConversations)

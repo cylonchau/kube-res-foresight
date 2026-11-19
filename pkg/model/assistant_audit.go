@@ -13,10 +13,10 @@ const (
 	AIAuditTask  = "task"
 )
 
-// AssistantAudit is the record of one question put to a language model: who asked, from where, which model answered in which mode, which tools
-// the assistant read and which it refused, how long it took and what it cost in tokens. It holds no text of the question or the answer and no
-// tool result: an administrator reads these records to see how the assistant is used, never what a user said to it. The hourly clean-up deletes
-// the records older than the system parameter assistant.audit_retention_days.
+// AssistantAudit is the record of one question put to a language model: who asked, from where, which model answered in which mode, the question
+// and the answer, the steps (the tools it read, with what they returned, cut short) and the ones it refused, how long it took and what it cost in
+// tokens. An administrator who holds the menu AI audit reads the conversation here (the question is kept as the user typed it, the answer as the
+// user read it). The hourly clean-up deletes the records older than the system parameter assistant.audit_retention_days.
 type AssistantAudit struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
 	CreatedAt time.Time `gorm:"index" json:"created_at"`
@@ -43,6 +43,11 @@ type AssistantAudit struct {
 	LLMCalls         int `gorm:"not null;default:0" json:"llm_calls"`
 	PromptTokens     int `gorm:"not null;default:0" json:"prompt_tokens"`
 	CompletionTokens int `gorm:"not null;default:0" json:"completion_tokens"`
+
+	// Question and Answer are what the user asked and what they were answered (cut at MaxAuditText); Steps is the JSON of the steps with what each returned.
+	Question string `gorm:"type:text" json:"-"`
+	Answer   string `gorm:"type:text" json:"-"`
+	Steps    string `gorm:"type:text" json:"-"`
 
 	// Tools is the JSON of the tools that were read ([{name, ok}]); Refused the names the model asked for that the user may not use.
 	Tools   string `gorm:"type:text" json:"-"`

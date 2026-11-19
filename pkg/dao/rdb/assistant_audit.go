@@ -23,7 +23,7 @@ func (dao *AssistantAuditDAO) Create(ctx context.Context, a *model.AssistantAudi
 
 // AuditFilter narrows the list of records.
 type AuditFilter struct {
-	// Keyword matches the user name and the model.
+	// Keyword matches the user name, the model and the question.
 	Keyword string
 	Status  string
 	Source  string
@@ -38,7 +38,7 @@ func (dao *AssistantAuditDAO) List(ctx context.Context, f AuditFilter, page, pag
 	q := dao.db.WithContext(ctx).Model(&model.AssistantAudit{})
 	if kw := strings.TrimSpace(f.Keyword); kw != "" {
 		like := "%" + kw + "%"
-		q = q.Where("user_name LIKE ? OR model LIKE ?", like, like)
+		q = q.Where("user_name LIKE ? OR model LIKE ? OR question LIKE ?", like, like, like)
 	}
 	if f.Status != "" {
 		q = q.Where("status = ?", f.Status)
@@ -68,6 +68,15 @@ func (dao *AssistantAuditDAO) List(ctx context.Context, f AuditFilter, page, pag
 	var list []*model.AssistantAudit
 	err := q.Order("id DESC").Offset((page - 1) * pageSize).Limit(pageSize).Find(&list).Error
 	return list, total, err
+}
+
+// Get returns one record, with its question, answer and steps.
+func (dao *AssistantAuditDAO) Get(ctx context.Context, id uint) (*model.AssistantAudit, error) {
+	var a model.AssistantAudit
+	if err := dao.db.WithContext(ctx).First(&a, id).Error; err != nil {
+		return nil, err
+	}
+	return &a, nil
 }
 
 // PruneBefore deletes at most limit records older than cutoff and returns how many went.

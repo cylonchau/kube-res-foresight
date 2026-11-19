@@ -38,6 +38,8 @@ type Reporter interface {
 	Progress(percent int, stage string)
 	// Event adds a step the owner can read on, numbered in order.
 	Event(kind string, data any)
+	// Partial keeps the text of the answer written so far, for the owner who is watching.
+	Partial(text string)
 }
 
 // Handler does the work of one kind of task. It returns the result (kept as JSON for the owner) or an error. It must stop when ctx ends: the
@@ -162,6 +164,10 @@ func (p reporter) Progress(percent int, stage string) {
 		percent = 99 // 100 is the state succeeded
 	}
 	_ = p.tasks.Progress(context.WithoutCancel(p.ctx), p.id, percent, stage)
+}
+
+func (p reporter) Partial(text string) {
+	_ = p.tasks.SetPartial(context.WithoutCancel(p.ctx), p.id, text)
 }
 
 func (p reporter) Event(kind string, data any) {

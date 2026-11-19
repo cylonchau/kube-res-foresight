@@ -43,11 +43,11 @@ func TestPlatformCleanupPreservesGenericTasksAndAuthorization(t *testing.T) {
 	require.Equal(t, "DIRECTORY", dir.Type)
 	require.NoError(t, db.Where("code = ?", "ai-config_llm").First(&llm).Error)
 	require.Equal(t, dir.ID, llm.ParentID)
-	require.Contains(t, llm.BeApis, "POST /api/v1/assistant/connections*", "LLM management configures the language models")
+	require.Contains(t, llm.BeApis, "POST /api/v1/assistant/connections/*", "LLM management configures the language models")
 	require.NotContains(t, llm.BeApis, "assistant/chat", "asking is a permission of its own")
 	require.NoError(t, db.Where("code = ?", "ai-config_skill").First(&skill).Error)
 	require.Equal(t, dir.ID, skill.ParentID)
-	require.Contains(t, skill.BeApis, "PUT /api/v1/assistant/skills*")
+	require.Contains(t, skill.BeApis, "PUT /api/v1/assistant/skills/*")
 	var aiTask model.Permission
 	require.NoError(t, db.Where("code = ?", "ai-config_task").First(&aiTask).Error)
 	require.Equal(t, dir.ID, aiTask.ParentID)
@@ -56,9 +56,9 @@ func TestPlatformCleanupPreservesGenericTasksAndAuthorization(t *testing.T) {
 	require.Equal(t, dir.ID, aiChat.ParentID)
 	require.Equal(t, "view.ai-config_chat", aiChat.FeComponent)
 	require.Contains(t, aiChat.BeApis, "POST /api/v1/assistant/chat")
-	require.Contains(t, aiChat.BeApis, "GET /api/v1/assistant/conversations*")
-	require.Contains(t, aiTask.BeApis, "POST /api/v1/assistant/tasks*")
-	require.Contains(t, aiTask.BeApis, "DELETE /api/v1/assistant/tasks*")
+	require.Contains(t, aiChat.BeApis, "GET /api/v1/assistant/conversations/*")
+	require.Contains(t, aiTask.BeApis, "POST /api/v1/assistant/tasks/*")
+	require.Contains(t, aiTask.BeApis, "DELETE /api/v1/assistant/tasks/*")
 	require.NotContains(t, aiTask.BeApis, "assistant/chat")
 	var oldMenu int64
 	require.NoError(t, db.Model(&model.Permission{}).Where("code = ?", "assistant").Count(&oldMenu).Error)
@@ -69,8 +69,8 @@ func TestPlatformCleanupPreservesGenericTasksAndAuthorization(t *testing.T) {
 	require.Contains(t, ask.BeApis, "POST /api/v1/assistant/chat")
 	require.Contains(t, ask.BeApis, "POST /api/v1/assistant/skill")
 	require.Contains(t, ask.BeApis, "GET /api/v1/assistant/export")
-	require.Contains(t, ask.BeApis, "POST /api/v1/assistant/conversations*", "the chat button also lets a user keep and read their own conversations")
-	require.Contains(t, ask.BeApis, "DELETE /api/v1/assistant/conversations*")
+	require.Contains(t, ask.BeApis, "POST /api/v1/assistant/conversations/*", "the chat button also lets a user keep and read their own conversations")
+	require.Contains(t, ask.BeApis, "DELETE /api/v1/assistant/conversations/*")
 	for _, root := range roots {
 		require.True(t, model.IsPlatformRoute(root.Code))
 	}

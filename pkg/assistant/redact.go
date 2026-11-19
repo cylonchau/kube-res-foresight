@@ -111,7 +111,8 @@ type redactingLLM struct {
 	r     *Redactor
 }
 
-func (l redactingLLM) Complete(ctx context.Context, messages []Message, tools []ToolSpec, maxTokens int) (*Completion, error) {
+// hide is the messages as the model is given them.
+func (l redactingLLM) hide(messages []Message) []Message {
 	hidden := make([]Message, len(messages))
 	for i, m := range messages {
 		m.Content = l.r.Hide(m.Content)
@@ -125,10 +126,11 @@ func (l redactingLLM) Complete(ctx context.Context, messages []Message, tools []
 		}
 		hidden[i] = m
 	}
-	done, err := l.inner.Complete(ctx, hidden, tools, maxTokens)
-	if err != nil || done == nil {
-		return done, err
-	}
+	return hidden
+}
+
+// show is an answer of the model as the user is given it.
+func (l redactingLLM) show(done *Completion) *Completion {
 	out := *done
 	out.Content = l.r.Show(done.Content)
 	if len(done.ToolCalls) > 0 {
@@ -138,5 +140,13 @@ func (l redactingLLM) Complete(ctx context.Context, messages []Message, tools []
 			out.ToolCalls[i] = c
 		}
 	}
-	return &out, nil
+	return &out
+}
+
+func (l redactingLLM) Complete(ctx context.Context, messages []Message, tools []ToolSpec, maxTokens int) (*Completion, error) {
+	done, err := l.inner.Complete(ctx, l.hide(messages), tools, maxTokens)
+	if err != nil || done == nil {
+		return done, err
+	}
+	return l.show(done), nil
 }

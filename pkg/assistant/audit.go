@@ -11,9 +11,8 @@ import (
 	"github.com/cylonchau/kube-res-foresight/pkg/timing"
 )
 
-// Every question put to a language model leaves an audit record: who asked, from where, which model answered in which mode, which tools were
-// read and which were refused, how long it took and the tokens it used. The record holds no text of the question, of the answer or of a tool
-// result, so an administrator who reads the audit sees how the assistant is used and never what a user said. A question that was never asked
+// Every question put to a language model leaves an audit record: who asked, from where, which model answered in which mode, the question and the
+// answer, the steps with what each tool returned (cut short), which tools were refused, how long it took and the tokens it used. A question that was never asked
 // (the assistant is off, the request is not valid, the service is busy) is not recorded: nothing was sent anywhere.
 
 type sourceKey struct{}
@@ -84,7 +83,7 @@ func notRecorded(err error) bool {
 }
 
 // audit writes the record of a question. A failure to write is logged by the caller's logger-free path: the answer is not held back for it.
-func (s *Service) audit(ctx context.Context, conn Connection, page *PageContext, conversation uint, started time.Time, t *trail, reply *Reply, askErr error) {
+func (s *Service) audit(ctx context.Context, conn Connection, page *PageContext, conversation uint, started time.Time, question string, t *trail, reply *Reply, askErr error) {
 	if s.Audits == nil {
 		return
 	}
@@ -96,6 +95,7 @@ func (s *Service) audit(ctx context.Context, conn Connection, page *PageContext,
 	if page != nil {
 		rec.Page = page.Page
 	}
+	rec.Question = clipRunes(question, MaxAuditText)
 	if askErr != nil {
 		rec.Status, rec.Error = "failed", clip(askErr.Error(), 480)
 	}
@@ -115,6 +115,12 @@ func (s *Service) audit(ctx context.Context, conn Connection, page *PageContext,
 			tools = append(tools, used{Name: tr.Name, OK: tr.OK})
 		}
 	}
+	if reply != nil {
+		rec.Answer = clipRunes(reply.Content, MaxAuditText)
+		if b, err := json.Marshal(reply.Tools); err == nil {
+			rec.Steps = string(b)
+		}
+	}
 	if b, err := json.Marshal(tools); err == nil {
 		rec.Tools = string(b)
 	}
@@ -122,6 +128,17 @@ func (s *Service) audit(ctx context.Context, conn Connection, page *PageContext,
 		rec.Refused = string(b)
 	}
 	_ = s.Audits.Create(ctx, rec)
+}
+
+// MaxAuditText is how much of a question or an answer an audit record keeps.
+const MaxAuditText = 8000
+
+func clipRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n]) + "…"
 }
 
 // PruneAudits deletes the audit records older than the retention parameter, in batches, and returns how many went.

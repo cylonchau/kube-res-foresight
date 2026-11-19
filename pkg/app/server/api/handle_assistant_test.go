@@ -124,6 +124,7 @@ func newAssistantRig(t *testing.T, ready bool) *assistantRig {
 	rig.r.POST("/assistant/async/:id/cancel", h.CancelAsync)
 	rig.r.POST("/assistant/async/:id/retry", h.RetryAsync)
 	rig.r.GET("/assistant/audit", h.ListAudits)
+	rig.r.GET("/assistant/audit/:id", h.GetAudit)
 	rig.r.GET("/assistant/conversations", h.ListConversations)
 	rig.r.POST("/assistant/conversations", h.CreateConversation)
 	rig.r.POST("/assistant/conversations/batch-delete", h.BatchDeleteConversations)

@@ -152,17 +152,17 @@ func seedPlatformPermissions() error {
 		{permission: model.Permission{Name: "Dashboard", Code: "dashboard", Type: "MENU", FeRoute: "/dashboard", FeComponent: "view.dashboard", Icon: "carbon:home", Sort: 2, Visible: true, Status: true, BeApis: `["GET /api/v1/dashboard"]`}},
 		{permission: model.Permission{Name: "AI Configuration", Code: "ai-config", Type: "DIRECTORY", FeRoute: "/ai-config", FeComponent: "layout.base", Icon: "carbon:bot", Sort: 56, Visible: true, Status: true}},
 		{permission: model.Permission{Name: "AI Chat", Code: "ai-config_chat", Type: "MENU", FeRoute: "/ai-config/chat", FeComponent: "view.ai-config_chat", Icon: "carbon:chat", Sort: 0, Visible: true, Status: true,
-			BeApis: `["GET /api/v1/assistant/status","POST /api/v1/assistant/chat","POST /api/v1/assistant/skill","GET /api/v1/assistant/export","POST /api/v1/assistant/chat/async","GET /api/v1/assistant/async*","POST /api/v1/assistant/async*","GET /api/v1/assistant/conversations*","POST /api/v1/assistant/conversations*","PUT /api/v1/assistant/conversations*","DELETE /api/v1/assistant/conversations*"]`}, parentCode: "ai-config"},
+			BeApis: `["GET /api/v1/assistant/status","POST /api/v1/assistant/chat","POST /api/v1/assistant/skill","GET /api/v1/assistant/export","POST /api/v1/assistant/chat/async","GET /api/v1/assistant/async","GET /api/v1/assistant/async/*","POST /api/v1/assistant/async","POST /api/v1/assistant/async/*","GET /api/v1/assistant/conversations","GET /api/v1/assistant/conversations/*","POST /api/v1/assistant/conversations","POST /api/v1/assistant/conversations/*","PUT /api/v1/assistant/conversations","PUT /api/v1/assistant/conversations/*","DELETE /api/v1/assistant/conversations","DELETE /api/v1/assistant/conversations/*"]`}, parentCode: "ai-config"},
 		{permission: model.Permission{Name: "AI Audit", Code: "ai-config_audit", Type: "MENU", FeRoute: "/ai-config/audit", FeComponent: "view.ai-config_audit", Icon: "carbon:report", Sort: 4, Visible: true, Status: true,
-			BeApis: `["GET /api/v1/assistant/audit*"]`}, parentCode: "ai-config"},
+			BeApis: `["GET /api/v1/assistant/audit","GET /api/v1/assistant/audit/*"]`}, parentCode: "ai-config"},
 		{permission: model.Permission{Name: "LLM Management", Code: "ai-config_llm", Type: "MENU", FeRoute: "/ai-config/llm", FeComponent: "view.ai-config_llm", Icon: "carbon:machine-learning-model", Sort: 1, Visible: true, Status: true,
-			BeApis: `["GET /api/v1/assistant/connections*","POST /api/v1/assistant/connections*","PUT /api/v1/assistant/connections*","DELETE /api/v1/assistant/connections*"]`}, parentCode: "ai-config"},
+			BeApis: `["GET /api/v1/assistant/connections","GET /api/v1/assistant/connections/*","POST /api/v1/assistant/connections","POST /api/v1/assistant/connections/*","PUT /api/v1/assistant/connections","PUT /api/v1/assistant/connections/*","DELETE /api/v1/assistant/connections","DELETE /api/v1/assistant/connections/*"]`}, parentCode: "ai-config"},
 		{permission: model.Permission{Name: "AI Scheduled Tasks", Code: "ai-config_task", Type: "MENU", FeRoute: "/ai-config/task", FeComponent: "view.ai-config_task", Icon: "carbon:calendar", Sort: 3, Visible: true, Status: true,
-			BeApis: `["GET /api/v1/assistant/tasks*","POST /api/v1/assistant/tasks*","PUT /api/v1/assistant/tasks*","DELETE /api/v1/assistant/tasks*"]`}, parentCode: "ai-config"},
+			BeApis: `["GET /api/v1/assistant/tasks","GET /api/v1/assistant/tasks/*","POST /api/v1/assistant/tasks","POST /api/v1/assistant/tasks/*","PUT /api/v1/assistant/tasks","PUT /api/v1/assistant/tasks/*","DELETE /api/v1/assistant/tasks","DELETE /api/v1/assistant/tasks/*"]`}, parentCode: "ai-config"},
 		{permission: model.Permission{Name: "Skill Management", Code: "ai-config_skill", Type: "MENU", FeRoute: "/ai-config/skill", FeComponent: "view.ai-config_skill", Icon: "carbon:flow", Sort: 2, Visible: true, Status: true,
-			BeApis: `["GET /api/v1/assistant/skills*","POST /api/v1/assistant/skills*","PUT /api/v1/assistant/skills*","DELETE /api/v1/assistant/skills*","GET /api/v1/assistant/connection-options"]`}, parentCode: "ai-config"},
+			BeApis: `["GET /api/v1/assistant/skills","GET /api/v1/assistant/skills/*","POST /api/v1/assistant/skills","POST /api/v1/assistant/skills/*","PUT /api/v1/assistant/skills","PUT /api/v1/assistant/skills/*","DELETE /api/v1/assistant/skills","DELETE /api/v1/assistant/skills/*","GET /api/v1/assistant/connection-options"]`}, parentCode: "ai-config"},
 		{permission: model.Permission{Name: "AI Assistant Chat", Code: "assistant:chat", Type: "BUTTON", Status: true,
-			BeApis: `["GET /api/v1/assistant/status","POST /api/v1/assistant/chat","POST /api/v1/assistant/skill","GET /api/v1/assistant/export","POST /api/v1/assistant/chat/async","GET /api/v1/assistant/async*","POST /api/v1/assistant/async*","GET /api/v1/assistant/conversations*","POST /api/v1/assistant/conversations*","PUT /api/v1/assistant/conversations*","DELETE /api/v1/assistant/conversations*"]`}},
+			BeApis: `["GET /api/v1/assistant/status","POST /api/v1/assistant/chat","POST /api/v1/assistant/skill","GET /api/v1/assistant/export","POST /api/v1/assistant/chat/async","GET /api/v1/assistant/async","GET /api/v1/assistant/async/*","POST /api/v1/assistant/async","POST /api/v1/assistant/async/*","GET /api/v1/assistant/conversations","GET /api/v1/assistant/conversations/*","POST /api/v1/assistant/conversations","POST /api/v1/assistant/conversations/*","PUT /api/v1/assistant/conversations","PUT /api/v1/assistant/conversations/*","DELETE /api/v1/assistant/conversations","DELETE /api/v1/assistant/conversations/*"]`}},
 		{permission: model.Permission{Name: "Authorization", Code: "authorization", Type: "DIRECTORY", FeRoute: "/authorization", FeComponent: "layout.base", Icon: "carbon:user-role", Sort: 60, Visible: true, Status: true}},
 		{permission: model.Permission{Name: "Users", Code: "authorization_user", Type: "MENU", FeRoute: "/authorization/user", FeComponent: "view.authorization_user", Icon: "carbon:user", Sort: 1, Visible: true, Status: true}, parentCode: "authorization"},
 		{permission: model.Permission{Name: "Roles", Code: "authorization_role", Type: "MENU", FeRoute: "/authorization/role", FeComponent: "view.authorization_role", Icon: "carbon:group", Sort: 2, Visible: true, Status: true}, parentCode: "authorization"},
@@ -238,6 +238,9 @@ func seedPlatformPermissions() error {
 		ids[current.Code] = current.ID
 	}
 
+	if err := applyMenuAPIs(model.DB); err != nil {
+		return err
+	}
 	var role model.Role
 	if err := model.DB.Where("code = ?", "ADMIN").FirstOrCreate(&role, model.Role{Name: "Administrator", Code: "ADMIN", Status: true}).Error; err != nil {
 		return err
@@ -246,7 +249,10 @@ func seedPlatformPermissions() error {
 	if err := model.DB.Find(&permissions).Error; err != nil {
 		return err
 	}
-	return model.DB.Model(&role).Association("Permissions").Replace(permissions)
+	if err := model.DB.Model(&role).Association("Permissions").Replace(permissions); err != nil {
+		return err
+	}
+	return seedBusinessRole(model.DB)
 }
 func seedDefaultUsers() error {
 	if model.DB == nil {

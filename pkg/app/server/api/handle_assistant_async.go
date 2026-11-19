@@ -25,13 +25,15 @@ import (
 
 // AssistantAsyncDTO is a task as the page reads it.
 type AssistantAsyncDTO struct {
-	ID         uint            `json:"id"`
-	Kind       string          `json:"kind"`
-	Title      string          `json:"title"`
-	Status     string          `json:"status"`
-	Progress   int             `json:"progress"`
-	Stage      string          `json:"stage"`
-	Error      string          `json:"error"`
+	ID       uint   `json:"id"`
+	Kind     string `json:"kind"`
+	Title    string `json:"title"`
+	Status   string `json:"status"`
+	Progress int    `json:"progress"`
+	Stage    string `json:"stage"`
+	Error    string `json:"error"`
+	// Partial is the answer written so far, while the task runs.
+	Partial    string          `json:"partial,omitempty"`
 	Attempts   int             `json:"attempts"`
 	CreatedAt  time.Time       `json:"created_at"`
 	StartedAt  *time.Time      `json:"started_at"`
@@ -42,6 +44,9 @@ type AssistantAsyncDTO struct {
 func asyncDTO(t *model.AsyncTask) AssistantAsyncDTO {
 	out := AssistantAsyncDTO{ID: t.ID, Kind: t.Kind, Title: t.Title, Status: t.Status, Progress: t.Progress, Stage: t.Stage, Error: t.Error, Attempts: t.Attempts,
 		CreatedAt: t.CreatedAt, StartedAt: t.StartedAt, FinishedAt: t.FinishedAt}
+	if t.Status == model.AsyncRunning {
+		out.Partial = t.Partial
+	}
 	if t.Status == model.AsyncSucceeded && json.Valid([]byte(t.Result)) {
 		out.Result = json.RawMessage(t.Result)
 	}

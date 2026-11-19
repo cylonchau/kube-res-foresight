@@ -175,7 +175,7 @@ func (s *Service) answerRouter(ctx context.Context, conn Connection, llm LLM, hi
 	}
 	parts = append(parts, "Question: "+question)
 	messages = append(append(messages, out...), Message{Role: "user", Content: strings.Join(parts, "\n\n")})
-	done, err := llm.Complete(ctx, messages, nil, conn.MaxTokens)
+	done, err := completeOn(ctx, llm, messages, nil, conn.MaxTokens)
 	if err != nil {
 		return nil, err
 	}

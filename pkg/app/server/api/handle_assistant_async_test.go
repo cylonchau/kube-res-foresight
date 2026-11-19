@@ -307,3 +307,53 @@ func TestAStepThatCannotBeRunInTheBackgroundIsRefusedBeforeItIsQueued(t *testing
 	rec := a.asRoles(t, 1, "", http.MethodPost, "/modules/"+module+"/steps/backtest", map[string]any{"metric": "cpu", "cutoffs": 3})
 	assert.Equal(t, http.StatusOK, rec.Code, "a backtest with its metric is queued")
 }
+
+// writing is a language model that writes its answer in pieces and waits, after the first, until the test has looked at the task.
+type writing struct {
+	started atomic.Bool
+	release chan struct{}
+}
+
+func (w *writing) Complete(context.Context, []assistant.Message, []assistant.ToolSpec, int) (*assistant.Completion, error) {
+	return &assistant.Completion{Content: "Hello world."}, nil
+}
+
+func (w *writing) Stream(_ context.Context, _ []assistant.Message, _ []assistant.ToolSpec, _ int, onText func(string)) (*assistant.Completion, error) {
+	onText("Hello wor")
+	w.started.Store(true)
+	<-w.release
+	onText("Hello world.")
+	return &assistant.Completion{Content: "Hello world."}, nil
+}
+
+func TestTheAnswerOfABackgroundQuestionCanBeReadWhileItIsBeingWritten(t *testing.T) {
+	a := newAssistantRig(t, true)
+	w := &writing{release: make(chan struct{})}
+	a.svc.NewLLM = func(assistant.Connection) assistant.LLM { return w }
+	a.setMode(t, "native")
+	id := decodeData(t, a.submit(t, 1, "", "say hello", 0).Body.Bytes())["id"]
+
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		a.runJobs(t)
+	}()
+	require.Eventually(t, w.started.Load, 5*time.Second, 10*time.Millisecond)
+	var partial any
+	require.Eventually(t, func() bool {
+		partial = a.task(t, 1, id)["partial"]
+		return partial == "Hello wor"
+	}, 5*time.Second, 20*time.Millisecond, "the text written so far is in the task, for the page to show")
+	assert.Equal(t, "running", a.task(t, 1, id)["status"])
+
+	close(w.release)
+	select {
+	case <-finished:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the task did not finish")
+	}
+	done := a.task(t, 1, id)
+	assert.Equal(t, "succeeded", done["status"])
+	assert.Equal(t, "Hello world.", done["result"].(map[string]any)["content"])
+	assert.Nil(t, done["partial"], "once it is done the answer is the result, not the partial text")
+}

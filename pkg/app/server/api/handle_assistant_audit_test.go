@@ -2,8 +2,8 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
+	"strconv"
 	"testing"
 	"time"
 
@@ -27,7 +27,7 @@ func withTokens(text string, prompt, reply int) step {
 	}
 }
 
-func TestAQuestionLeavesARecordOfWhoAskedWhatWasReadAndWhatItCostButNotWhatWasSaid(t *testing.T) {
+func TestAQuestionLeavesARecordOfWhoAskedWhatWasReadWhatItCostAndWhatWasSaid(t *testing.T) {
 	a := newAssistantRig(t, true)
 	id := startConversation(t, a, 1)
 	secret := "my private question about shop"
@@ -52,13 +52,28 @@ func TestAQuestionLeavesARecordOfWhoAskedWhatWasReadAndWhatItCostButNotWhatWasSa
 	assert.Equal(t, 30, r.CompletionTokens)
 	assert.JSONEq(t, `[{"name":"list_modules","ok":true}]`, r.Tools)
 
-	// nothing that was said is in the record, in any column
-	blob, err := json.Marshal(r)
-	require.NoError(t, err)
-	all := string(blob) + r.Tools + r.Refused
-	assert.NotContains(t, all, secret)
-	assert.NotContains(t, all, "private answer")
-	assert.NotContains(t, all, rigKey)
+	// the conversation is in the record: the question, the answer and the steps with what each tool returned
+	assert.Equal(t, secret, r.Question)
+	assert.Equal(t, "the private answer", r.Answer)
+	assert.Contains(t, r.Steps, "list_modules")
+	assert.Contains(t, r.Steps, "shop", "the step keeps a preview of what the tool returned")
+	assert.NotContains(t, r.Question+r.Answer+r.Steps+r.Tools+r.Refused, rigKey, "a credential is in no tool result, so in no record")
+
+	// the list shows the start of the question; one record opened shows all of it
+	list := decodeData(t, a.as(t, 1, http.MethodGet, "/assistant/audit", nil).Body.Bytes())["list"].([]any)
+	assert.Equal(t, secret, list[0].(map[string]any)["question_preview"])
+	assert.NotContains(t, list[0], "answer", "the list carries no answer")
+	one := decodeData(t, a.as(t, 1, http.MethodGet, "/assistant/audit/"+strconv.Itoa(int(r.ID)), nil).Body.Bytes())
+	assert.Equal(t, secret, one["question"])
+	assert.Equal(t, "the private answer", one["answer"])
+	steps := one["steps"].([]any)
+	require.Len(t, steps, 1)
+	assert.Contains(t, steps[0].(map[string]any)["result"], "shop")
+	assert.Equal(t, http.StatusNotFound, a.as(t, 1, http.MethodGet, "/assistant/audit/99999", nil).Code)
+
+	// a search finds the question
+	found := decodeData(t, a.as(t, 1, http.MethodGet, "/assistant/audit?keyword=private+question", nil).Body.Bytes())
+	assert.EqualValues(t, 1, found["total"])
 }
 
 func TestAToolTheUserMayNotUseIsRefusedAndTheRefusalIsRecorded(t *testing.T) {
@@ -119,7 +134,7 @@ func TestACommandIsRecordedAsASkillInItsConversation(t *testing.T) {
 	assert.Equal(t, id, rows[0].ConversationID)
 }
 
-func TestTheAuditListFiltersAndNeverCarriesWhatWasSaid(t *testing.T) {
+func TestTheAuditListFilters(t *testing.T) {
 	a := newAssistantRig(t, true)
 	now := time.Now().UTC()
 	require.NoError(t, model.DB.Create(&[]model.AssistantAudit{
@@ -142,9 +157,6 @@ func TestTheAuditListFiltersAndNeverCarriesWhatWasSaid(t *testing.T) {
 	newest := get("")["list"].([]any)[0].(map[string]any)
 	assert.Equal(t, "task", newest["source"], "newest first")
 	assert.Equal(t, http.StatusBadRequest, a.as(t, 1, http.MethodGet, "/assistant/audit?status=maybe", nil).Code)
-	for _, forbidden := range []string{"content", "question", "answer", "prompt\":", "result"} {
-		assert.NotContains(t, a.as(t, 1, http.MethodGet, "/assistant/audit", nil).Body.String(), forbidden, "the audit has no field for what was said")
-	}
 }
 
 func TestAuditRecordsOlderThanTheRetentionAreDeletedAndTheDefaultIsFifteenDays(t *testing.T) {

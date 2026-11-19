@@ -318,7 +318,7 @@ func (s *Service) answer(ctx context.Context, conn Connection, history []Turn, l
 		// the record is written even when the request was cancelled (the question was asked), and never holds the answer back for long
 		actx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
-		s.audit(actx, conn, page, conversationOf(ctx), started, t, reply, err)
+		s.audit(actx, conn, page, conversationOf(ctx), started, history[len(history)-1].Content, t, reply, err)
 	}
 	return reply, err
 }
@@ -394,7 +394,7 @@ func (s *Service) converse(ctx context.Context, conn Connection, history []Turn,
 			offered = nil
 			messages = append(messages, Message{Role: "user", Content: "Answer now with the data you already have. Say what you could not find out."})
 		}
-		done, err := llm.Complete(ctx, messages, offered, conn.MaxTokens)
+		done, err := completeOn(ctx, llm, messages, offered, conn.MaxTokens)
 		if err != nil {
 			return nil, err
 		}

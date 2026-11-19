@@ -109,8 +109,8 @@ func toParams(messages []Message) []openai.ChatCompletionMessageParamUnion {
 	return out
 }
 
-// Complete implements LLM.
-func (o *openAI) Complete(ctx context.Context, messages []Message, tools []ToolSpec, maxTokens int) (*Completion, error) {
+// params is the request of one answer.
+func (o *openAI) params(messages []Message, tools []ToolSpec, maxTokens int) openai.ChatCompletionNewParams {
 	params := openai.ChatCompletionNewParams{Model: o.model, Messages: toParams(messages)}
 	if maxTokens > 0 {
 		params.MaxCompletionTokens = openai.Int(int64(maxTokens))
@@ -122,7 +122,12 @@ func (o *openAI) Complete(ctx context.Context, messages []Message, tools []ToolS
 		params.Tools = append(params.Tools, openai.ChatCompletionFunctionTool(shared.FunctionDefinitionParam{
 			Name: t.Name, Description: openai.String(t.Description), Parameters: shared.FunctionParameters(t.Parameters)}))
 	}
-	res, err := o.client.Chat.Completions.New(ctx, params)
+	return params
+}
+
+// Complete implements LLM.
+func (o *openAI) Complete(ctx context.Context, messages []Message, tools []ToolSpec, maxTokens int) (*Completion, error) {
+	res, err := o.client.Chat.Completions.New(ctx, o.params(messages, tools, maxTokens))
 	if err != nil {
 		return nil, friendly(err)
 	}

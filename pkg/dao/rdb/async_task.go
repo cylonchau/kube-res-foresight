@@ -77,10 +77,15 @@ func (dao *AsyncTaskDAO) Progress(ctx context.Context, id uint, percent int, sta
 		UpdateColumns(map[string]any{"progress": percent, "stage": stage}).Error
 }
 
+// SetPartial keeps the text of the answer written so far, for the page that reads the running task.
+func (dao *AsyncTaskDAO) SetPartial(ctx context.Context, id uint, text string) error {
+	return dao.db.WithContext(ctx).Model(&model.AsyncTask{}).Where("id = ? AND status = ?", id, model.AsyncRunning).UpdateColumn("partial", text).Error
+}
+
 // Finish ends a task in a final state with its result or error.
 func (dao *AsyncTaskDAO) Finish(ctx context.Context, id uint, status, result, errText string, at time.Time) error {
 	return dao.db.WithContext(ctx).Model(&model.AsyncTask{}).Where("id = ?", id).
-		UpdateColumns(map[string]any{"status": status, "result": result, "error": errText, "finished_at": at, "progress": gorm.Expr("CASE WHEN ? = 'succeeded' THEN 100 ELSE progress END", status)}).Error
+		UpdateColumns(map[string]any{"partial": "", "status": status, "result": result, "error": errText, "finished_at": at, "progress": gorm.Expr("CASE WHEN ? = 'succeeded' THEN 100 ELSE progress END", status)}).Error
 }
 
 // RequestCancel asks a task of the owner to stop: a queued one is cancelled at once, a running one is told (its worker looks). It returns the

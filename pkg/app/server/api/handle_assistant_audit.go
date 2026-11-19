@@ -3,9 +3,11 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/cylonchau/kube-res-foresight/pkg/app/query"
+	"github.com/cylonchau/kube-res-foresight/pkg/assistant"
 	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
 	"github.com/cylonchau/kube-res-foresight/pkg/model"
 	"github.com/gin-gonic/gin"
@@ -17,8 +19,8 @@ type AssistantAuditToolDTO struct {
 	OK   bool   `json:"ok"`
 }
 
-// AssistantAuditDTO is an audit record of a question to the assistant as the page lists it. It has no text of the question, the answer or a
-// tool result: the platform keeps none in the audit.
+// AssistantAuditDTO is an audit record of a question to the assistant as the page lists it: the start of the question for the list, and the whole
+// conversation (question, answer, steps) when one record is opened.
 type AssistantAuditDTO struct {
 	ID               uint                    `json:"id"`
 	CreatedAt        time.Time               `json:"created_at"`
@@ -39,6 +41,12 @@ type AssistantAuditDTO struct {
 	CompletionTokens int                     `json:"completion_tokens"`
 	Tools            []AssistantAuditToolDTO `json:"tools"`
 	Refused          []string                `json:"refused"`
+	// QuestionPreview is the start of the question, for the list.
+	QuestionPreview string `json:"question_preview"`
+	// Question, Answer and Steps are the conversation of the record: only in the answer of one record.
+	Question string                `json:"question,omitempty"`
+	Answer   string                `json:"answer,omitempty"`
+	Steps    []assistant.ToolTrace `json:"steps,omitempty"`
 }
 
 func auditDTO(a *model.AssistantAudit) AssistantAuditDTO {
@@ -51,11 +59,12 @@ func auditDTO(a *model.AssistantAudit) AssistantAuditDTO {
 	if a.Refused != "" {
 		_ = json.Unmarshal([]byte(a.Refused), &out.Refused)
 	}
+	out.QuestionPreview = previewOf(a.Question, 120)
 	return out
 }
 
 // ListAudits serves GET /assistant/audit?keyword=&status=&source=&refused=&from=&to=&page=&page_size=: the audit records of the assistant, newest
-// first. It is for the administrators who hold the menu AI audit; it carries who asked and what the assistant did, never what was said.
+// first. It is for the administrators who hold the menu AI audit; it carries who asked, what the assistant did and, when one record is opened, the question and the answer.
 func (r *AssistantRouter) ListAudits(c *gin.Context) {
 	if r.Service.Audits == nil {
 		query.InternalError(c, errors.New("the audit is not set up"))
@@ -78,4 +87,40 @@ func (r *AssistantRouter) ListAudits(c *gin.Context) {
 		out = append(out, auditDTO(row))
 	}
 	query.SuccessResponse(c, nil, gin.H{"list": out, "total": total, "page": page, "pageSize": size})
+}
+
+// previewOf is the start of a text on one line.
+func previewOf(text string, n int) string {
+	line := strings.Join(strings.Fields(text), " ")
+	if r := []rune(line); len(r) > n {
+		return string(r[:n]) + "…"
+	}
+	return line
+}
+
+// GetAudit serves GET /assistant/audit/:id: one record with the whole conversation (the question, the answer and the steps with what each tool
+// returned, cut short).
+// @Summary One audit record of the assistant, with its conversation
+// @Tags Assistant
+// @Router /api/v1/assistant/audit/{id} [get]
+func (r *AssistantRouter) GetAudit(c *gin.Context) {
+	if r.Service.Audits == nil {
+		query.InternalError(c, errors.New("the audit is not set up"))
+		return
+	}
+	id, ok := parseUintParam(c, "id")
+	if !ok {
+		return
+	}
+	row, err := r.Service.Audits.Get(c.Request.Context(), id)
+	if err != nil {
+		query.HandleDBError(c, err)
+		return
+	}
+	out := auditDTO(row)
+	out.Question, out.Answer = row.Question, row.Answer
+	if row.Steps != "" {
+		_ = json.Unmarshal([]byte(row.Steps), &out.Steps)
+	}
+	query.SuccessResponse(c, nil, out)
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"time"
 
 	"github.com/cylonchau/kube-res-foresight/pkg/assistant"
 	"github.com/cylonchau/kube-res-foresight/pkg/job/tasks/asyncrun"
@@ -36,6 +37,8 @@ func ChatHandler(service *assistant.Service) asyncrun.Handler {
 		ctx = assistant.WithOwner(ctx, assistant.Owner{ID: in.OwnerID, Name: in.OwnerName})
 		ctx = assistant.WithPrincipal(ctx, in.Principal)
 		ctx = assistant.WithProgress(ctx, func(kind string, data any) { rep.Event(kind, data) })
+		// the answer is shown as it is written: the text so far, kept for the page at most four times a second
+		ctx = assistant.WithTextStream(ctx, assistant.Throttled(rep.Partial, 250*time.Millisecond))
 		rep.Progress(5, "asking")
 		if in.ConversationID != 0 {
 			return service.ChatConversation(ctx, in.ConversationID, in.Messages[len(in.Messages)-1].Content, in.Lang, in.Page)
