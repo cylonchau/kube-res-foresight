@@ -19,7 +19,7 @@ const (
 // history of the window is what makes a forecast reproducible: the same implementation version, parameters and window
 // give the same values (the model version in the record is the hash of exactly these).
 type TrainingRun struct {
-	ID        uint      `gorm:"primaryKey" json:"id" column_setting:"true"`
+	ID        uint      `gorm:"primaryKey;index:idx_training_time,priority:2" json:"id" column_setting:"true"`
 	CreatedAt time.Time `gorm:"index" json:"created_at" column_setting:"true"`
 
 	ModuleID    uint   `gorm:"not null;index:idx_training_lookup,priority:1" json:"module_id" column_setting:"true"`
@@ -51,7 +51,7 @@ type TrainingRun struct {
 	Covariates string `gorm:"type:varchar(255)" json:"covariates" column_setting:"false"`
 	Dropped    string `gorm:"type:text" json:"dropped_covariates" column_setting:"false"`
 
-	PredictionTime time.Time `gorm:"not null" json:"prediction_time" column_setting:"true"`
+	PredictionTime time.Time `gorm:"not null;index:idx_training_time,priority:1" json:"prediction_time" column_setting:"true"`
 }
 
 func (TrainingRun) TableName() string { return "forecast_training_run" }

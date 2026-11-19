@@ -46,3 +46,23 @@ func Under(gateway, configured time.Duration) time.Duration {
 var PruneBudget = Param{Key: "forecast.prune_budget_seconds", Default: 120, Min: 10, Max: 3600,
 	Name:   "Forecast Clean-up Time Per Run (seconds)",
 	Remark: "The hourly clean-up deletes the forecasts older than their retention a batch of ten thousand rows at a time, for at most this long; what is left is deleted by the next run. One delete of millions of rows is a long transaction that slows the pages while it runs. Raise it when the forecast table is far behind its retention, lower it when the database is busy (10-3600)."}
+
+// ListQuery is the longest a read request (a list, a report, a chart) may work before the platform stops it and says so. It also stops the
+// statements the request sent to the database: a request that the gateway has cut would otherwise leave its query running, and a few of those
+// hold every connection of the pool, so the pages that were fast fail as well. It is kept under the gateway timeout.
+var ListQuery = Param{Key: "http.list_query_seconds", Default: 30, Min: 3, Max: 600,
+	Name:   "Read Request Time Limit (seconds)",
+	Remark: "The longest a read request (a list, a report, a chart) may take. When it runs out the platform stops it, cancels its database statements and answers 504 with the reason, before the gateway cuts the connection. The pages that read the most (forecast results, recommendations and execution) are the ones to look at when this is reached: narrow the time range or add a filter, or raise it while http.gateway_timeout_seconds allows (3-600)."}
+
+// ListSearchDays is how far back a text search in a list reads when the request names no time range. A search for a word in the reason or the
+// name of the rows of a table that grows (the scaling records, the admission records) cannot use an index: it reads every row it looks at. The
+// time range is what an index can cut, so a search with no range reads the last days only, and the list says so.
+var ListSearchDays = Param{Key: "http.list_search_days", Default: 7, Min: 1, Max: 365,
+	Name:   "Text Search Window (days)",
+	Remark: "A text search in the scaling records, the admission records and the degradation records, with no time range given, reads this many days back (the text cannot use an index, the time can). The list says so; give a time range to read further back (1-365)."}
+
+// SummaryWindowHours is how far back the counts of a summary page read when the request names no time range. A count of every record of a
+// table that grows, grouped, reads all of it; the last day is what the page is looked at for.
+var SummaryWindowHours = Param{Key: "http.summary_window_hours", Default: 24, Min: 1, Max: 720,
+	Name:   "Summary Window (hours)",
+	Remark: "The counts of a summary page (the algorithm run status, for example) read this many hours back when the request gives no time range: the totals of a table that grows are the slowest read of a page. The page says so; give a time range to read further back (1-720)."}

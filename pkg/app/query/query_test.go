@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func TestDecodeErrVariants(t *testing.T) {
@@ -81,4 +82,18 @@ func TestABadRequestThatIsATimeoutIsAnsweredAsOne(t *testing.T) {
 	c.Request = httptest.NewRequest(http.MethodGet, "/x", nil)
 	BadRequest(c, errors.New("from must be before to"))
 	assert.Equal(t, http.StatusBadRequest, w.Code, "any other bad request stays one")
+}
+
+func TestAnErrorOfARequestWhoseDeadlinePassedIsATimeoutWhateverTheDriverSays(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+	c.Request = httptest.NewRequest("GET", "/x", nil).WithContext(ctx)
+	// pq reports a cancelled statement as its own error, not as the error of the context
+	InternalError(c, errors.New("pq: canceling statement due to user request"))
+	if w.Code != http.StatusGatewayTimeout || w.Header().Get(TimeoutSourceHeader) != "platform" {
+		t.Fatalf("want a 504 from the platform, got %d %q", w.Code, w.Header().Get(TimeoutSourceHeader))
+	}
 }

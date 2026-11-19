@@ -32,14 +32,16 @@ func (r *ForecastRouter) ListTrainings(c *gin.Context) {
 // TrainingSummary serves the counts behind the training records page: how many runs succeeded, were skipped or failed,
 // per algorithm, and the most common reasons a run did not produce a forecast.
 func (r *ForecastRouter) TrainingSummary(c *gin.Context) {
+	from, hours := summaryWindow(c.Request.Context(), r.Config, timeQuery(c, "from"))
 	summary, err := r.Predictions.SummarizeTrainings(c.Request.Context(), rdb.TrainingFilter{
 		ModuleID: uintQuery(c, "module_id"), Metric: c.Query("metric"), AlgorithmID: c.Query("algorithm_id"), Status: c.Query("status"),
-		From: timeQuery(c, "from"), To: timeQuery(c, "to"),
+		From: from, To: timeQuery(c, "to"),
 	})
 	if err != nil {
 		query.InternalError(c, err)
 		return
 	}
+	summary.WindowHours = hours
 	query.SuccessResponse(c, nil, summary)
 }
 

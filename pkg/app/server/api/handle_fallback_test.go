@@ -101,11 +101,11 @@ func TestFallbackRecordsCarryReasonsAndRecoveryTime(t *testing.T) {
 	assert.Equal(t, "oom_floor", last["reasons"].(map[string]any)["memory_floor"])
 	assert.Contains(t, last["notes"].(map[string]any)["memory_floor"], "OOM kill")
 
-	rec = performJSON(t, r, http.MethodGet, "/fallbacks?reason=insufficient_history", "", nil)
+	rec = performJSON(t, r, http.MethodGet, "/fallbacks?reason=insufficient_history&from=2020-01-01T00:00:00Z", "", nil)
 	assert.EqualValues(t, 1, decodeData(t, rec.Body.Bytes())["total"])
-	rec = performJSON(t, r, http.MethodGet, "/fallbacks?reason=recovering", "", nil)
+	rec = performJSON(t, r, http.MethodGet, "/fallbacks?reason=recovering&from=2020-01-01T00:00:00Z", "", nil)
 	assert.EqualValues(t, 0, decodeData(t, rec.Body.Bytes())["total"], "an episode is listed under the reason it started with: v3 only continues the one of v2")
-	rec = performJSON(t, r, http.MethodGet, "/fallbacks?reason=oom_floor", "", nil)
+	rec = performJSON(t, r, http.MethodGet, "/fallbacks?reason=oom_floor&from=2020-01-01T00:00:00Z", "", nil)
 	assert.EqualValues(t, 1, decodeData(t, rec.Body.Bytes())["total"])
 	assert.Equal(t, http.StatusBadRequest, performJSON(t, r, http.MethodGet, "/fallbacks?reason=%25", "", nil).Code)
 }
@@ -130,7 +130,7 @@ func TestExecutionSearch(t *testing.T) {
 	assert.Equal(t, 2, total("/scaling-decisions"))
 	assert.Equal(t, 1, total("/scaling-decisions?result=skipped"))
 	assert.Equal(t, 1, total("/scaling-decisions?action=scale_up"))
-	assert.Equal(t, 1, total("/scaling-decisions?keyword=cooldown"))
+	assert.Equal(t, 1, total("/scaling-decisions?keyword=cooldown&from=2020-01-01T00:00:00Z"))
 	assert.Equal(t, 1, total("/scaling-decisions?from=2026-10-01T00:30:00Z"))
 }
 
@@ -228,9 +228,9 @@ func TestDegradationAndRollbackAreDifferentRecords(t *testing.T) {
 	}
 	assert.Equal(t, "no_data", kinds["d"], "the forecast degradation")
 	assert.Equal(t, "decision_unavailable", kinds["e"], "the operator without a decision")
-	n, _ = get("/fallbacks?reason=decision_unavailable")
+	n, _ = get("/fallbacks?reason=decision_unavailable&from=2020-01-01T00:00:00Z")
 	assert.Equal(t, 1, n)
-	n, _ = get("/fallbacks?reason=no_data")
+	n, _ = get("/fallbacks?reason=no_data&from=2020-01-01T00:00:00Z")
 	assert.Equal(t, 1, n, "a forecast reason does not list operator reports")
 	_ = list
 

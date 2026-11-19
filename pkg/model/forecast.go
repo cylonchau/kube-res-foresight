@@ -600,10 +600,10 @@ func (BacktestRun) TableName() string { return "backtest_run" }
 // Recommendation is an immutable, versioned snapshot of what a module should run with. The decision is stored
 // with the inputs it was made from, so it can be replayed and explained.
 type Recommendation struct {
-	ID        uint      `gorm:"primaryKey" json:"id" column_setting:"true"`
+	ID        uint      `gorm:"primaryKey;index:idx_recommendation_module_id,priority:2;index:idx_recommendation_degraded_id,priority:2;index:idx_recommendation_oom_id,priority:2" json:"id" column_setting:"true"`
 	CreatedAt time.Time `gorm:"index" json:"created_at" column_setting:"true"`
 
-	ModuleID   uint      `gorm:"not null;uniqueIndex:idx_recommendation_version,priority:1" json:"module_id" column_setting:"true"`
+	ModuleID   uint      `gorm:"not null;uniqueIndex:idx_recommendation_version,priority:1;index:idx_recommendation_module_id,priority:1" json:"module_id" column_setting:"true"`
 	Version    int       `gorm:"not null;uniqueIndex:idx_recommendation_version,priority:2" json:"version" column_setting:"true"`
 	Mode       string    `gorm:"type:varchar(16);not null" json:"mode" column_setting:"true"`
 	ValidUntil time.Time `gorm:"index" json:"valid_until" column_setting:"true"`
@@ -631,9 +631,9 @@ type Recommendation struct {
 	// Degraded is true when at least one field came from the fallback chain (module fallback or the original value)
 	// because the forecast could not be used; DegradeReasons is a JSON object of field -> reason code. OOMFloor is
 	// true when the OOM protection raised the memory value.
-	Degraded       bool   `gorm:"not null;default:false;index" json:"degraded" column_setting:"true"`
+	Degraded       bool   `gorm:"not null;default:false;index;index:idx_recommendation_degraded_id,priority:1" json:"degraded" column_setting:"true"`
 	DegradeReasons string `gorm:"type:text" json:"degrade_reasons" column_setting:"false"`
-	OOMFloor       bool   `gorm:"not null;default:false" json:"oom_floor" column_setting:"true"`
+	OOMFloor       bool   `gorm:"not null;default:false;index:idx_recommendation_oom_id,priority:1" json:"oom_floor" column_setting:"true"`
 	// ResourceVersion is the version of the Pod resource spec (CPU and memory) the snapshot carries: it changes only when the
 	// spec does, so every snapshot between two changes has the same one. ResourceChangedAt is when it last changed; ResourceHeld
 	// is true when this snapshot kept the spec in force although the forecast computed another value.
@@ -657,14 +657,14 @@ func init() { RegisterModel(&PredictionEvaluation{}) }
 // PredictionEvaluation scores one finished prediction run against the actuals that arrived afterwards. The
 // prediction rows are never touched: the evaluation is a separate, append-only fact.
 type PredictionEvaluation struct {
-	ID        uint      `gorm:"primaryKey" json:"id" column_setting:"true"`
+	ID        uint      `gorm:"primaryKey;index:idx_prediction_eval_time,priority:2" json:"id" column_setting:"true"`
 	CreatedAt time.Time `gorm:"index" json:"created_at" column_setting:"true"`
 
-	ModuleID         uint      `gorm:"not null;uniqueIndex:idx_prediction_eval,priority:1;index:idx_prediction_eval_lookup,priority:1" json:"module_id" column_setting:"true"`
+	ModuleID         uint      `gorm:"not null;uniqueIndex:idx_prediction_eval,priority:1;index:idx_prediction_eval_lookup,priority:1;index:idx_prediction_eval_module_time,priority:1" json:"module_id" column_setting:"true"`
 	Metric           string    `gorm:"type:varchar(20);not null;uniqueIndex:idx_prediction_eval,priority:2;index:idx_prediction_eval_lookup,priority:2" json:"metric" column_setting:"true"`
 	AlgorithmID      string    `gorm:"type:varchar(40);not null;uniqueIndex:idx_prediction_eval,priority:3;index:idx_prediction_eval_lookup,priority:3" json:"algorithm_id" column_setting:"true"`
 	ModelVersion     string    `gorm:"type:varchar(64);not null;uniqueIndex:idx_prediction_eval,priority:4" json:"model_version" column_setting:"false"`
-	PredictionTime   time.Time `gorm:"not null;uniqueIndex:idx_prediction_eval,priority:5;index:idx_prediction_eval_lookup,priority:4" json:"prediction_time" column_setting:"true"`
+	PredictionTime   time.Time `gorm:"not null;uniqueIndex:idx_prediction_eval,priority:5;index:idx_prediction_eval_lookup,priority:4;index:idx_prediction_eval_time,priority:1;index:idx_prediction_eval_module_time,priority:2" json:"prediction_time" column_setting:"true"`
 	QuantilePermille int       `gorm:"not null;default:500" json:"quantile_permille" column_setting:"false"`
 	Points           int       `gorm:"not null" json:"points" column_setting:"true"`    // forecast steps that had an actual
 	Expected         int       `gorm:"not null" json:"expected" column_setting:"false"` // forecast steps in the run
@@ -692,10 +692,10 @@ const (
 // ScalingExecutions are the operator's reports: what it read, decided and did for a workload. They are the
 // audit trail that lets a decision be traced to the replicas that actually ran.
 type ScalingExecution struct {
-	ID        uint      `gorm:"primaryKey" json:"id" column_setting:"true"`
+	ID        uint      `gorm:"primaryKey;index:idx_scaling_execution_module_order,priority:2;index:idx_scaling_execution_result_id,priority:2" json:"id" column_setting:"true"`
 	CreatedAt time.Time `gorm:"index" json:"created_at" column_setting:"true"`
 
-	ModuleID        uint   `gorm:"not null;index" json:"module_id" column_setting:"true"`
+	ModuleID        uint   `gorm:"not null;index;index:idx_scaling_execution_module_order,priority:1" json:"module_id" column_setting:"true"`
 	Namespace       string `gorm:"type:varchar(253);not null" json:"namespace" column_setting:"true"`
 	Scaler          string `gorm:"type:varchar(253);not null" json:"scaler" column_setting:"true"`
 	TargetKind      string `gorm:"type:varchar(32);not null" json:"target_kind" column_setting:"true"`
@@ -704,7 +704,7 @@ type ScalingExecution struct {
 	Ready           int    `gorm:"not null" json:"ready" column_setting:"true"`
 	Desired         int    `gorm:"not null" json:"desired" column_setting:"true"`
 	Action          string `gorm:"type:varchar(16);not null" json:"action" column_setting:"true"`
-	Result          string `gorm:"type:varchar(16);not null;index" json:"result" column_setting:"true"`
+	Result          string `gorm:"type:varchar(16);not null;index;index:idx_scaling_execution_result_id,priority:1" json:"result" column_setting:"true"`
 	Reason          string `gorm:"type:varchar(512)" json:"reason" column_setting:"true"`
 	DecisionVersion int64  `gorm:"not null;default:0" json:"decision_version" column_setting:"false"`
 	// RecordID is the id the operator gave the action when it took it, unique across the platform: a report that is sent again (the

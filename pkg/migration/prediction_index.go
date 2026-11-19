@@ -62,3 +62,52 @@ func predictionIndexState(db *gorm.DB) (valid, exists bool, err error) {
 	}
 	return rows[0], true, nil
 }
+
+// listIndex is an index the lists of the pages need on a table that grows without end: the composite of a filter column and the id (the order
+// the lists are in), so a list that filters and shows the newest first reads the rows it shows and not the rows it skips. The names are the
+// ones of the model tags, so the schema migration finds them and creates nothing.
+type listIndex struct{ name, table, columns string }
+
+var listIndexes = []listIndex{
+	{"idx_recommendation_module_id", "recommendation", "module_id, id"},
+	{"idx_recommendation_degraded_id", "recommendation", "degraded, id"},
+	{"idx_recommendation_oom_id", "recommendation", "oom_floor, id"},
+	{"idx_scaling_execution_module_order", "scaling_execution", "module_id, id"},
+	{"idx_scaling_execution_result_id", "scaling_execution", "result, id"},
+	{"idx_prediction_eval_time", "prediction_evaluation", "prediction_time, id"},
+	{"idx_prediction_eval_module_time", "prediction_evaluation", "module_id, prediction_time"},
+	{"idx_training_time", "forecast_training_run", "prediction_time, id"},
+	{"idx_admission_module_id", "admission_decision", "module_id, id"},
+}
+
+// ensureListIndexes builds the list indexes before the schema migration, on PostgreSQL only and without blocking the writes (see
+// ensurePredictionTargetIndex for why). A table that does not exist yet is skipped: the migration creates it with its indexes. An index that an
+// interrupted build left invalid is dropped and built again. On the other databases the migration creates them from the model.
+func ensureListIndexes(db *gorm.DB) error {
+	if db == nil || db.Dialector == nil || db.Dialector.Name() != "postgres" {
+		return nil
+	}
+	for _, ix := range listIndexes {
+		if !db.Migrator().HasTable(ix.table) {
+			continue
+		}
+		var states []bool
+		if err := db.Raw(`SELECT i.indisvalid FROM pg_class c JOIN pg_index i ON i.indexrelid = c.oid WHERE c.relname = ?`, ix.name).Scan(&states).Error; err != nil {
+			return fmt.Errorf("read the state of index %s: %w", ix.name, err)
+		}
+		if len(states) > 0 && states[0] {
+			continue
+		}
+		if len(states) > 0 {
+			fmt.Printf("upgrade: %s was left invalid by an interrupted build; dropping it to build it again\n", ix.name)
+			if err := db.Exec("DROP INDEX CONCURRENTLY IF EXISTS " + ix.name).Error; err != nil {
+				return fmt.Errorf("drop the invalid index %s: %w", ix.name, err)
+			}
+		}
+		fmt.Printf("upgrade: building index %s on %s without blocking writes\n", ix.name, ix.table)
+		if err := db.Exec("CREATE INDEX CONCURRENTLY IF NOT EXISTS " + ix.name + " ON " + ix.table + " (" + ix.columns + ")").Error; err != nil {
+			return fmt.Errorf("build index %s: %w", ix.name, err)
+		}
+	}
+	return nil
+}

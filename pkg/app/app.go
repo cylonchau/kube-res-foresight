@@ -33,7 +33,7 @@ func NewHTTPServer(ctx context.Context) error {
 	// Initialize Gin
 	gin.SetMode(gin.ReleaseMode)
 	engine := gin.New()
-	engine.Use(gin.Logger(), gin.Recovery(), middleware.CORS(cfg.Server.CORSAllowedOrigins), middleware.SlowRequests(slowRequestLimit()))
+	engine.Use(gin.Logger(), gin.Recovery(), middleware.CORS(cfg.Server.CORSAllowedOrigins), middleware.SlowRequests(slowRequestLimit()), middleware.ReadDeadline(readBudget()), middleware.PageDepth(20000))
 
 	// Custom 404/Static Handler
 	engine.NoRoute(func(c *gin.Context) {
@@ -135,5 +135,26 @@ func slowRequestLimit() func() time.Duration {
 			return fallback
 		}
 		return time.Duration(timing.HTTPSlowRequest.Parse(raw)) * time.Second
+	}
+}
+
+// readBudget is the time a read request may take: the system parameter, kept under the gateway timeout (also a system parameter), both read on
+// every request. Before the database is open it is the default.
+func readBudget() func() time.Duration {
+	var once sync.Once
+	var dao *rdb.SysConfigDAO
+	value := func(p timing.Param) time.Duration {
+		if model.DB == nil {
+			return time.Duration(p.Default) * time.Second
+		}
+		once.Do(func() { dao = rdb.NewSysConfigDAO(model.DB) })
+		raw, err := dao.GetValueOrDefault(context.Background(), p.Key, "")
+		if err != nil {
+			return time.Duration(p.Default) * time.Second
+		}
+		return time.Duration(p.Parse(raw)) * time.Second
+	}
+	return func() time.Duration {
+		return timing.Under(value(timing.HTTPGatewayTimeout), value(timing.ListQuery))
 	}
 }

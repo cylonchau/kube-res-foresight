@@ -123,6 +123,7 @@ func (r *ForecastRouter) ListFallbacks(c *gin.Context) {
 	}
 	ctx := c.Request.Context()
 	since, until := timeQuery(c, "from"), timeQuery(c, "to")
+	since, windowDays := searchWindow(ctx, r.Config, reason != "", since)
 
 	var cands []fallbackCandidate
 	if (kind == "" || kind == FallbackDegrade) && reason != reasonDecisionUnavailable {
@@ -192,7 +193,7 @@ func (r *ForecastRouter) ListFallbacks(c *gin.Context) {
 		}
 		out = append(out, rec)
 	}
-	query.SuccessResponse(c, nil, gin.H{"list": out, "total": total, "page": page, "pageSize": size})
+	query.SuccessResponse(c, nil, gin.H{"list": out, "total": total, "page": page, "pageSize": size, "search_window_days": windowDays})
 }
 
 // degradeRecord builds the record of the degradation episode that starts at a snapshot.

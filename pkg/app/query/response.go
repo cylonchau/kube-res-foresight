@@ -53,7 +53,8 @@ func InternalError(ctx *gin.Context, err error) {
 		ctx.AbortWithStatus(StatusClientClosedRequest)
 		return
 	}
-	if errors.Is(err, context.DeadlineExceeded) {
+	// a driver that reports a cancelled statement in its own words (not as the error of the context) is still a request that ran out of its time
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Request.Context().Err(), context.DeadlineExceeded) {
 		TimedOut(ctx, err)
 		return
 	}

@@ -50,7 +50,7 @@ func (f TrainingFilter) filtered(q *gorm.DB) *gorm.DB {
 func (dao *PredictionDAO) ListTrainings(ctx context.Context, f TrainingFilter, page, pageSize int) ([]*model.TrainingRun, int64, error) {
 	q := f.filtered(dao.db.WithContext(ctx).Model(&model.TrainingRun{}))
 	var total int64
-	if err := q.Count(&total).Error; err != nil {
+	if err := countBounded(q, &total); err != nil {
 		return nil, 0, err
 	}
 	page, pageSize = normalizePage(page, pageSize)
@@ -101,6 +101,8 @@ type TrainingReasonCount struct {
 
 // TrainingSummary answers what the records are for: did the algorithms run, and when they did not, why.
 type TrainingSummary struct {
+	// WindowHours is how far back the counts read when the request gave no start (0 when it did): the platform chose it, and the page says so.
+	WindowHours   int                      `json:"window_hours"`
 	Total         int64                    `json:"total"`
 	OK            int64                    `json:"ok"`
 	Skipped       int64                    `json:"skipped"`

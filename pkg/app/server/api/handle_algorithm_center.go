@@ -426,10 +426,12 @@ func (r *AlgorithmCenterRouter) ListAdmissions(c *gin.Context) {
 	page, size := pageParams(c)
 	f := rdb.AdmissionFilter{ModuleID: uintQuery(c, "module_id"), Applied: boolQuery(c, "applied"), Keyword: c.Query("keyword"), Origin: c.Query("origin"),
 		Since: timeQuery(c, "from"), Until: timeQuery(c, "to"), Sort: c.Query("sort_by"), Dir: c.Query("sort_order")}
+	var days int
+	f.Since, days = searchWindow(c.Request.Context(), r.Service.Config, f.Keyword != "", f.Since)
 	list, total, err := r.Predictions.SearchAdmissions(c.Request.Context(), f, page, size)
 	if err != nil {
 		query.InternalError(c, err)
 		return
 	}
-	query.SuccessResponse(c, nil, gin.H{"list": list, "total": total, "page": page, "pageSize": size})
+	query.SuccessResponse(c, nil, gin.H{"list": list, "total": total, "page": page, "pageSize": size, "search_window_days": days})
 }

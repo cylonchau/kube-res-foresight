@@ -50,6 +50,10 @@ func prepareForecastSchema(db *gorm.DB) error {
 	if err := ensurePredictionTargetIndex(db); err != nil {
 		return err
 	}
+	// so are the indexes of the lists of the results and the recommendations and execution pages
+	if err := ensureListIndexes(db); err != nil {
+		return err
+	}
 	// an earlier run that stopped half way left the moved-aside table with the indexes of the old one
 	if m.HasTable(legacySourceTable) {
 		for _, index := range []string{"idx_metric_source_key", "idx_metric_source_name"} {

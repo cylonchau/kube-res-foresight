@@ -35,7 +35,7 @@ var (
 	ErrDatabase      = &Errno{Code: 20002, Message: "Database error"}
 	ErrAlreadyExists = &Errno{Code: 10004, Message: "Resource already exists"}
 	// ErrTimeLimit is the answer when a request ran out of its time limit; the parameters that set the limits are named so it can be changed.
-	ErrTimeLimit = &Errno{Code: 10005, Message: "The operation did not finish within its time limit and was stopped. It is bounded by its own system parameter (for example forecast.pipeline_timeout_seconds or forecast.preview_budget_seconds) and by http.gateway_timeout_seconds, the time the gateway in front of the platform waits. Narrow the request (a shorter time range, fewer modules) or try again"}
+	ErrTimeLimit = &Errno{Code: 10005, Message: "The operation did not finish within its time limit and was stopped. It is bounded by its own system parameter (for example http.list_query_seconds, forecast.pipeline_timeout_seconds or forecast.preview_budget_seconds) and by http.gateway_timeout_seconds, the time the gateway in front of the platform waits. Narrow the request (a shorter time range, fewer modules) or try again"}
 
 	// Resource errors
 	ErrRecordNotFound = &Errno{Code: 40005, Message: "Record not found"}

@@ -358,12 +358,15 @@ func (r *RuntimeRouter) Report(c *gin.Context) {
 // ListExecutions serves GET /scaling-decisions.
 func (r *RuntimeRouter) ListExecutions(c *gin.Context) {
 	page, size := pageParams(c)
-	list, total, err := r.Predictions.SearchExecutions(c.Request.Context(), executionFilter(c), page, size)
+	f := executionFilter(c)
+	var days int
+	f.Since, days = searchWindow(c.Request.Context(), r.Config, f.Keyword != "", f.Since)
+	list, total, err := r.Predictions.SearchExecutions(c.Request.Context(), f, page, size)
 	if err != nil {
 		query.InternalError(c, err)
 		return
 	}
-	query.SuccessResponse(c, nil, gin.H{"list": list, "total": total, "total_capped": total >= rdb.MaxCountedRows, "page": page, "pageSize": size})
+	query.SuccessResponse(c, nil, gin.H{"list": list, "total": total, "total_capped": total >= rdb.MaxCountedRows, "page": page, "pageSize": size, "search_window_days": days})
 }
 
 // ListScaleOutcomes serves GET /scale-outcomes: the scale-ups the platform decided ahead of the load, with whether each was in time.

@@ -271,10 +271,10 @@ func (AlgorithmScore) TableName() string { return "algorithm_score" }
 
 // AdmissionDecision is the answer given to one admission request.
 type AdmissionDecision struct {
-	ID        uint      `gorm:"primaryKey" json:"id" column_setting:"true"`
+	ID        uint      `gorm:"primaryKey;index:idx_admission_module_id,priority:2" json:"id" column_setting:"true"`
 	CreatedAt time.Time `gorm:"index" json:"created_at" column_setting:"true"`
 
-	ModuleID  uint   `gorm:"not null;index" json:"module_id" column_setting:"true"`
+	ModuleID  uint   `gorm:"not null;index;index:idx_admission_module_id,priority:1" json:"module_id" column_setting:"true"`
 	Namespace string `gorm:"type:varchar(253)" json:"namespace" column_setting:"true"`
 	Workload  string `gorm:"type:varchar(253)" json:"workload" column_setting:"true"`
 	Container string `gorm:"type:varchar(253)" json:"container" column_setting:"true"`
