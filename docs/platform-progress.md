@@ -954,3 +954,10 @@ all ten management pages and the shared product title. Screenshots were inspecte
 - **没验证**：**真实集群**（operator 只用假客户端测过，RBAC 够不够没验证）；PostgreSQL、MySQL；**真实 Grafana（看板只校验了 JSON 结构，没导入过）**；真实 Prometheus（默认查询的指标名是可编辑参数的默认值，你的不同就改 `query.*`）；多副本 operator 的选主；大集群的量（上限 5000 节点、2000 工作负载、每个 500 个 Pod）。可重启的 init 容器（sidecar）在“Pod 的有效请求”里没有按特殊规则处理。
 - **注意**：已经存在的 BIZ 角色不会被迁移加上新菜单（管理员改过的权限不收回也不补），要在授权管理里手动给；系统参数有 10 秒的读取缓存；部署后要跑 `--migration`（新表、新系统参数、新定时任务），operator 要更新 RBAC（nodes、pods、daemonsets 只读）并重新部署。
 - **提交**：根仓库 a19839e（后端、operator、部署、看板），`web` 仓库 da68365（页面）；文档与技能另一个提交；**没有推送**。
+
+2026-11-20 续：资源大盘优化（15 条，用户给的“资源大盘优化需求”）
+- **做了什么**：时间选择框代替七个窗口按钮；命名空间和实例两个独立下拉；PromQL 统一成 Prometheus 风格的列表并标来源；504 改成限时内给部分答案；单 Pod 图加高并把数字移出绘图区；OOM 卡片放到模块页和总览最前面；历史结果并入同一张图（CPU、内存左右两个面板）；新增全副本合计图；集群与节点的指标改成“指标模板”里的普通模板（16 个预设），读不到时说原因和去哪设置；AI 分析改成右下角悬浮按钮和可收起的窗口；筛选栏同高同向并在窄屏换行。每一条对应的文件见 `.agents/skills/requirements/references/overprovision-p10.md` 的“资源大盘优化”一节。
+- **我的理解（请纠正）**：需求是语音转写。第 3 条“查询 Circle、From Microsoft Circle”理解为 Cluster 的查询和“From Prometheus Cluster”的来源标注；“OM”理解为 OOM；第 10 条“数据源指标”理解为菜单里的“指标模板”页。
+- **验证**：`go test -p 1 ./pkg/...`、`go vet`、`gofmt` 通过；前端 `vue-tsc`、oxlint、oxfmt、51 个单元测试；真浏览器（临时库、假 Prometheus、假语言模型）走了筛选、窗口、OOM 卡片、合并图、集群卡片两种来源、504 场景（JVM 查询 15 秒、读限时 3 秒：2.3 秒给出部分答案）、AI 悬浮窗全流程、窄屏、指标模板页。
+- **没验证**：真实 Prometheus、真实网关、PostgreSQL、MySQL；没有副本数来源的模块没有全副本图。
+- **注意**：本次没有新表和新种子，不需要重新迁移；集群大盘要先在“指标模板”页给集群数据源建 `cluster.*`、`node.*` 预设（也可以不建，用默认查询或系统参数里改过的查询）；`/overprovision/cluster` 和 `/inventory/nodes/usage` 在读不到时回 200 加 `reason`，不再回 4xx 或 502（调用方要看 `reason`）。
