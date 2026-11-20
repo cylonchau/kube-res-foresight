@@ -1,6 +1,6 @@
 # P10 资源超配分析与可观测大盘（2026-11-19 规划）
 
-状态：**A6（成本从产品面移出）已完成；A2（超配分析引擎）、A3（资源大盘，除集群与节点部分）已做（2026-11-19，见末尾“A2、A3 实际做了什么”）；A1 只做了 A2 需要的一小部分，A4、A5 未开始；本文其余是计划，不是实现。** 用户已答复三项：E2（operator 只读：节点；Pod 只统计已配置的模块）、E3（工作负载只统计已配置的模块，不自动发现全部）、E10（成本代码从产品面拿掉，代码保留）；其余 E 项还没答复。来源：用户给出的“资源超配分析与可观测性系统升级”需求和一组参考大盘截图（KubeCostOptimizer）。截图里的金额、成本列不在本阶段范围（见 [成本模块需求表](cost-module-requirements.md)）。动手前先读本文的“待你确认”表，没确认的项不进开发；页面规则见用户记忆：不用页签（含分段切换）、不拆成多页、字段带“?”说明。
+状态：**A1（数据采集与持久化）、A2（超配分析引擎）、A3（资源大盘）、A4（Grafana 看板与深链）、A6（成本从产品面移出）已做（A2、A3 的第一部分 2026-11-19，A1、A3、A4 的其余 2026-11-20，见末尾“A1、A3、A4 实际做了什么”）；A5 并入 P11 的 C6；本文其余是计划，不是实现。** 用户已答复三项：E2（operator 只读：节点；Pod 只统计已配置的模块）、E3（工作负载只统计已配置的模块，不自动发现全部）、E10（成本代码从产品面拿掉，代码保留）；其余 E 项还没答复。来源：用户给出的“资源超配分析与可观测性系统升级”需求和一组参考大盘截图（KubeCostOptimizer）。截图里的金额、成本列不在本阶段范围（见 [成本模块需求表](cost-module-requirements.md)）。动手前先读本文的“待你确认”表，没确认的项不进开发；页面规则见用户记忆：不用页签（含分段切换）、不拆成多页、字段带“?”说明。
 
 ## 阶段目标与边界
 
@@ -160,10 +160,10 @@
 | 包 | 状态 | 证据 |
 |---|---|---|
 | A0 设计收敛 | E2、E3、E10 已答复；E1、E4～E9 还没答复：**A2、A3 先按我的建议值做了（E4 默认值全部做成系统参数、E7 放在“预测结果”下的“资源大盘”、E6 分析结果保留 90 天），你一答复不同就改** | |
-| A1 数据采集与持久化 | **只做了 A2 需要的一部分**：用的是平台已经存着的样本（模块的 CPU、内存、限流、OOM、JVM 来源）和模块上记录的 Pod 请求；**没做**：operator 只读上报节点与工作负载配置、集群与节点表、配置变化历史、`cluster_node_snapshot` 等表（见“A2、A3 实际做了什么”） | |
+| A1 数据采集与持久化 | **已做**（2026-11-20，只用假客户端、合成数据验证，没在真集群上跑）：operator 只读上报节点、模块的工作负载、Pod、容器、HPA/KEDA；平台表、保留期、JVM 的 committed/非堆/GC 指标种类（见“A1、A3、A4 实际做了什么”） | `pkg/inventory`、`pkg/inventorysvc`、`pkg/operator/controller/inventory.go`、`pkg/dao/rdb/inventory.go`、`pkg/model/inventory.go` |
 | A2 超配分析引擎 | **已做**（2026-11-19，只用合成数据验证；公式和默认值没有真实数据验证） | `pkg/overprovision`（纯函数）、`pkg/forecastsvc/overprovision.go`、表 `overprovision_analysis`、系统参数 12 个、定时任务 `forecast.overprovision`（每 6 小时） |
-| A3 系统内大盘与详情 | **已做一部分**（2026-11-19，在真浏览器里看过）：“预测结果 > 资源大盘”页面、汇总卡、可回收资源排行图、筛选、工作负载表、详情窗口；**没做**集群与节点相关的卡片和“在 Grafana 打开”（A1、A4） | `web/src/views/forecast-results/overprovision`、`components/business/overprovision-{chart,detail-modal}.vue` |
-| A4 Grafana Dashboard 与深链 | 未开始 | |
+| A3 系统内大盘与详情 | **已做**（在真浏览器里看过，临时库、假 Prometheus）：汇总卡、排行图、模块页，加上集群卡片、节点表、Ready 节点趋势、HPA 与副本趋势、配置变更历史、“在 Grafana 打开”、BIZ 账号走查（2026-11-20） | `web/src/views/forecast-results/overprovision`、`components/business/overprovision-module-panel.vue`、`inventory-{cluster,workload}-panel.vue` |
+| A4 Grafana Dashboard 与深链 | **已做**（2026-11-20）：看板由 `pkg/grafana` 用与页面同一套查询生成，JSON 在 `deploy/grafana` 和 Helm；**没在真实 Grafana 里加载过** | `pkg/grafana`、`deploy/grafana/kube-res-foresight-resources.json`、`pkg/app/server/api/handle_grafana.go` |
 | A5 LLM 周期建议 | 未开始；**并入 P11 的 C6**（见 ai-and-performance-p11.md） | |
 | A6 移出成本 | **已完成**（2026-11-19） | 见下面“A6 实际做了什么” |
 | 独立成本需求表 | 已出（[cost-module-requirements.md](cost-module-requirements.md)） | |
@@ -215,15 +215,52 @@
 - Go：`pkg/overprovision` 单测（分位数、两个公式代入数、取整、各分级边界、限流、OOM、数据不足、可信度降级、靠近上限、总和口径、移动平均、重采样、窗口）；`pkg/forecastsvc` 集成测试（用成本测试里的合成数据：过配的 Pod 判超配、大盘合计、立即分析与历史、详情的图与自定义范围不入库、限流／OOM／JVM、基准窗口随参数）；接口测试；迁移与 BIZ 角色测试。
 - 前端：`vue-tsc`、oxlint、eslint、30 个单元测试；**在真浏览器里**（Chrome，临时库里 5 个合成模块：超配、欠配加限流、OOM 加 JVM、合理、数据不足）打开页面、点“立即分析”、看汇总卡与排行图与表、打开详情窗口并滚动；这一轮发现并修了：国际化文字里的 `@` 会被当成链接语法，整个详情窗口什么都不显示；图的移动平均标签被抽稀改成了 `MA5@35m`（现在先按窗口步长算再抽稀）；图上的请求线和建议线画不出来（图表钩子没有注册标线组件）。
 
-### 没做，也没验证
-- **A1 的其余部分**：operator 只读上报节点和工作负载、集群与节点表、配置变化历史；所以大盘没有集群、节点的卡片，也看不到“请求变了”的历史。
-- **A4**：Grafana 看板与“在 Grafana 打开”的深链。
+### 没做，也没验证（2026-11-19 当时；A1、A3、A4 的其余已在 2026-11-20 做完，见下一节）
 - **公式和阈值没有经过真实数据验证**，E4～E9 没有答复；不同工作负载的合适余量差别可能很大。
 - 限流占比依赖 `k8s_cpu_throttle` 来源，它的单位按“每秒被限流的秒数”理解；来源没配时限流保护不起作用（页面上看不出来，只是没有限流这一项）。
 - 没在 PostgreSQL、MySQL 上跑；大盘读最新结果用 `MAX(id) … GROUP BY` 的子查询，数据量大时没量过。
 - 立即分析对所有模块是同步的，模块很多时会被预算截断（已分析的留着，其余等定时任务）。
-- 没用 `BIZ` 账号在浏览器里走过这个页面（接口权限由测试核对）。
+- 没用 `BIZ` 账号在浏览器里走过这个页面（接口权限由测试核对）；**2026-11-20 已走过**。
 
 ## 资源大盘改版（2026-11-19）
 
 用户给了“资源大盘与模块分析页面优化需求”（紧凑小卡片、四项配置、动态指标、窗口修复、选模块后只看该模块、P90/P95/P99、历史分析、一键 AI 分析）和一张 Grafana 参考图。做了什么、没做什么见 [platform-progress.md](../../../../docs/platform-progress.md) 末尾同日条目；要点：模块页只显示该模块；其他指标只显示配置了的（Container、JVM、限流、OOM）；P90 已加；上限无指标时用模块的上限系数并标明来源；集群向模块数据源（Prometheus）现查（未对真实实例试过）；一键 AI 分析走助手的后台任务；**分位数向模块数据源（Prometheus）现查（quantile_over_time），判定仍用平台存下的样本；见 platform-progress 同日“数据来源是 Prometheus”条目**。参考图里的节点明细表、HPA 扩容趋势、Ready 节点趋势没有做（要 A1 的节点数据或另外写 PromQL）。
+
+## A1、A3、A4 实际做了什么（2026-11-20）
+
+用户要求“A1 A3 A4 完成下，不要部分完成”。E1、E4～E9 仍没答复，按下面的默认值做，**全部是系统参数或编辑得到的查询，随时可改**。
+
+### A1：数据采集与持久化
+| 项 | 做了什么 |
+|---|---|
+| operator 只读上报 | `InventoryReader` 用 `mgr.GetAPIReader()`（不建缓存、不监听全集群）读：Node；模块的 Deployment、StatefulSet、DaemonSet；按选择器取这些工作负载的 Pod；HPA 与 KEDA ScaledObject（KEDA 没装时跳过）；每个容器的 Requests、Limits（节点上的模块 Pod 请求用 Pod 的有效值：容器之和，每种资源再与最大的 init 容器取较大者；**没有**处理“可重启的 init 容器（sidecar）”的特殊规则，用到时请核对）。只 get 和 list，**不写任何东西**；Pod 与工作负载只取平台告诉它的模块（`GET /operator/inventory-targets`，所有启用的模块，不管模式）。RBAC：nodes（集群级只读）、pods 只读、daemonsets 只读；Pod 的读取在 Kubernetes 里只能限到命名空间，所以权限比实际读取的多，过滤靠代码 |
+| 上报节奏 | `--inventory-interval`（默认 5 分钟，0 关闭）读一次；配置指纹（只含配置：副本、容器请求与上限、HPA 范围、节点的 Ready 与容量……，不含 HPA 当前值、Pod 重启）变了就报，没变也至少每小时报一次；只有 leader 报；平台读不到目标时用上次知道的目标继续读 |
+| 不丢、不重 | 沿用发件箱：记录有唯一 `record_id`，先落盘（假脱机文件）再发，至多留 48 份，平台按 `record_id` 幂等（重发返回 `duplicate:true`）；发不出去的下次补报；平台永久拒收（400、404、409、413、422）的丢弃，其他错误（凭据、网关、断网）留着等下次 |
+| operator 到不了数据库 | `pkg/inventory` 是纯类型与函数，`isolation_test.go` 的白名单加了它；operator 只经平台 API |
+| 平台的表 | `inventory_report`（收到的报告，幂等键）、`cluster_node_snapshot`（每次报告每个节点一行）、`workload_config`（模块的当前配置，一模块一行）、`workload_config_change`（配置变化历史，第一次读到也记一条）、`workload_snapshot`（每次报告一行：期望、就绪、HPA 当前与上下界、重启数，画趋势用）；三库兼容的 GORM 模型 |
+| 迟到的报告 | 比库里更新的配置不会被旧报告覆盖；先到后到都进快照与历史；早于保留期的报告拒收（400） |
+| 缺失与出错 | 工作负载在集群里找不到：`missing`；读取失败：`error`（页面写原因）；上次报告超过 2 小时：`stale` |
+| 保留 | 系统参数 `inventory.snapshot_retention_days`（默认 30）、`inventory.change_retention_days`（默认 180）；定时任务 `inventory.prune`（`@every 24h`，迁移种子，管理员可改） |
+| 集群名称 | 系统参数 `cluster.name`（默认 `default`） |
+| 节点的实际使用、集群合计 | **向 Prometheus 数据源现查**，不存库。查询是系统参数 `query.<名字>`（`pkg/resourcequery` 是唯一来源：页面和 Grafana 用同一份），默认名只是可编辑查询的默认值，**你的指标名不同就改这些参数**；按节点的查询必须返回带 `node` 标签的序列；数据源取 `cluster.datasource_id`（0 = 第一个可用的） |
+| JVM | 新增指标种类 `jvm_heap_committed`、`jvm_nonheap_committed`、`jvm_nonheap_max`、`jvm_gc_count`（原有 `jvm_heap_used`、`jvm_heap_max`、`jvm_nonheap_used`、`jvm_gc_pause`），四个预设、目录、示例数据都加了。分析里 committed **不当作容器的内存使用量**；提示 `committed_is_not_use`、`heap_near_committed`、`gc_missing`（GC 没测到时仍用已用、已申请、上限分析） |
+
+### A3：页面
+同一页（“预测结果 > 资源大盘”，不用页签）：
+- **总览**：最上面是可折叠的“集群与节点”（默认展开）：集群名、就绪节点（x / y）、不可调度、可分配 CPU 与内存、模块的 Pod 数与请求 CPU 与内存（占可分配的比例）、云厂商、可用区、实例类型；**Ready 节点趋势**（每次报告一个点）；**节点表**（状态、压力、实例类型、可用区、可分配、模块 Pod 与请求、正在用的 CPU 与内存及占比——后两列向 Prometheus 现查，查不到的写原因，不弹窗；每行“Grafana”链接）。其下是原有的汇总卡、排行图、模块列表；整页在一个滚动区里。
+- **模块页**：在原有内容下增加“工作负载（operator 上报）”：副本（就绪/期望、可用、已更新）、HPA 或 KEDA（名称、范围、当前→期望）、Pod 数、重启数；每个容器的 CPU/内存 Requests 与 Limits；**副本与 HPA 趋势**（期望、就绪、HPA 当前，上下界虚线）；Pod 列表（节点、阶段、重启、启动时间、每个 Pod 的 Grafana 链接）；**配置变更历史**（时间、摘要、可展开每一项 `路径: 旧 → 新`）；operator 没上报时写明怎么办；`missing`、`stale`、`error` 各有提示。再下面是可折叠的“集群与节点”（点开才加载）。
+- **“在 Grafana 打开”**：工具栏（集群或所选模块）、集群、节点、工作负载、Pod、容器，URL 带 `var-cluster`、`var-namespace`、`var-workload`、`var-pod`、`var-node`、`var-container` 和 `from`/`to`（页面的窗口：`7d` → `now-7d`，自定义范围 → 毫秒时间戳）。**没配 Grafana 地址时一个链接都不画。**
+- **Grafana 打开本页**：看板里的链接 `/forecast-results/overprovision?namespace=…&workload=…&source=grafana`；页面认 `namespace`、`workload`、`module`、`window`，Grafana 的“全部”（`.*`）和多选（`a|b`）不指向一个对象，**忽略**。
+- **接口**：`GET /inventory/nodes`、`/inventory/nodes/trend?hours=`、`/inventory/nodes/usage`（502 = 数据源读不到，页面在原处写原因）、`/inventory/workloads`、`/modules/:id/inventory?hours=`、`/grafana/settings`、`/grafana/dashboard`（下载看板 JSON）；operator 用 `GET /operator/inventory-targets`、`POST /operator/inventory`（权限 `forecast:operator:use`）。BIZ 角色：资源大盘菜单带上前七个读接口，**不带 operator 接口和系统参数的写**；已经存在的 BIZ 角色不会被迁移改（管理员改过的权限不收回、也不补），要在“授权管理”里给它加上这个菜单。
+
+### A4：Grafana 看板
+- `deploy/grafana/kube-res-foresight-resources.json`（uid `kube-res-foresight-resources`，schemaVersion 39），同一份在 `deploy/helm/kube-res-foresight/files/resources-dashboard.json`（Chart 的 ConfigMap 多一个键，用同一个标签让 sidecar 载入）。**由代码生成**：改查询或面板后运行 `go run ./pkg/grafana/gen`，`go test ./pkg/grafana` 保证两份文件与生成器输出一致。
+- 行：Cluster、Nodes、Workload、Pods、Containers、JVM；变量：数据源、cluster（自定义，默认值是 `cluster.name`）、namespace、workload、pod、node、container（“全部”= `.*`，和页面填的一样）。面板的查询就是 `resourcequery` 的那一套（测试保证每个查询都出现在看板里），`GET /grafana/dashboard` 按**当前系统参数里改过的查询**生成，所以改了查询再下载就是你的版本。
+- 系统参数：`grafana.base_url`、`grafana.dashboard_uid`（默认 `kube-res-foresight-resources`）、`platform.public_url`（看板里“在平台打开”的链接，空则不画）。**这些参数有 10 秒的读取缓存**，改了之后最多等 10 秒页面才变。
+- 步骤与限制见 `deploy/grafana/README.md`。
+
+### 验证
+- Go：`go test -p 1 ./pkg/...`、`go vet`、`gofmt` 通过。新增的测试：`pkg/inventory`（校验、指纹、差异、云厂商）、`pkg/inventorysvc`（幂等、迟到、首次历史、保留）、operator 的读取与上报（假客户端：Deployment、StatefulSet、DaemonSet、HPA、KEDA、Pod 的有效资源、发件箱补报、断开时用已知目标）、`pkg/resourcequery`、集群与节点的 Prometheus 查询（假服务）、JVM 新种类、接口（报告 200/重复/400/413、读取、502）、Grafana 设置与下载、看板结构（格子不重叠、变量、每个查询在面板里、与发布文件一致）、迁移与 BIZ 的允许与禁止清单。
+- 前端：`vue-tsc`、oxlint、locales 测试、47 个单元测试（含链接构造与路由参数）。
+- **真浏览器**（Chrome，临时库、假 Prometheus、静态服务加代理；用 API 发了 4 份合成报告）：总览（集群卡片、趋势、节点表含实时用量、Grafana 链接；没配地址时没有链接）、模块页（容器、HPA 趋势、Pod、变更历史展开）、从 `?namespace=prod&workload=shop-api&window=7d&source=grafana` 进入自动选中模块、`.*` 与 `a|b` 被忽略、BIZ 账号（新建的 BIZ 角色）能看到页面、读接口 200、operator 接口与系统参数写 403。这一轮发现并修了：节点行的字段是 `node` 不是 `name`（表里名字和实时用量一栏是空的）、总览被集群卡片挤得列表看不见（整页改成一个滚动区）。
+- **没验证**：真实集群（operator 只用 controller-runtime 的假客户端测过，没有真的列过 Node/Pod，没验证 RBAC 够不够）；PostgreSQL、MySQL；**真实 Grafana（看板 JSON 只校验了结构，没有导入过，不能保证你的版本里能用）**；真实 Prometheus（默认查询里的指标名是通用默认值，你的不同就改 `query.*`）；多副本 operator 的选主；大集群（上限：5000 个节点、2000 个工作负载、每个工作负载 500 个 Pod、64 个容器，超出的报告被平台拒收）。部署后要跑 `--migration`。

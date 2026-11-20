@@ -50,3 +50,46 @@ exist rendered with data. Panels that stay empty in a healthy system, because th
 (they run rarely), fallbacks of recommendations, operator conflicts, the report outbox and its drops, the decision source and the cache age
 (the operator image in the cluster did not export the last two). The alert rules were checked with `promtool`. Not checked: a real,
 loaded cluster over days, so the thresholds of the alerts and the colours of the ranking bars are starting points.
+
+# Resource dashboard (`kube-res-foresight-resources.json`)
+
+A second dashboard (uid `kube-res-foresight-resources`) for the resource dashboard page of the platform: the cluster, the nodes, a workload, its Pods and
+containers, and the JVM. It asks Prometheus the **same queries as the pages** (they are the system parameters `query.*`; the defaults are in
+`pkg/resourcequery`), so the two never show different numbers. It is also in the chart (`deploy/helm/kube-res-foresight/files/resources-dashboard.json`,
+the second key of the same ConfigMap).
+
+The file is **generated**: after changing a query or a panel run `go run ./pkg/grafana/gen`; `go test ./pkg/grafana` fails when a shipped file is not what the generator
+writes. `GET /api/v1/grafana/dashboard` builds it from the queries as they are set now in the system parameters, so a dashboard you download after
+editing a query has your query.
+
+## Load it and link it
+
+1. Import the file (Dashboards > New > Import) or let the chart's sidecar label load it, and pick the Prometheus data source.
+2. In the platform's system parameters set `grafana.base_url` (for example `https://grafana.example.com`), `grafana.dashboard_uid` (the default is the uid above) and, for the
+   links back, `platform.public_url`. A parameter is read with a 10 second cache. The pages show **no** "open in Grafana" link until `grafana.base_url` is set.
+3. `cluster.name` is the default of the *cluster* variable and the `var-cluster` of every link.
+
+## Variables
+
+| Variable | Meaning |
+|---|---|
+| `datasource` | the Prometheus data source |
+| `cluster` | the cluster name (custom variable, default `cluster.name`) |
+| `namespace`, `workload`, `pod`, `node`, `container` | "All" is the regular expression `.*`, which is what the platform fills a variable with too |
+
+## Rows
+
+Cluster (nodes, ready, allocatable, requested, used), Nodes (per node: ready, used, allocatable, requested), Workload (requests, limits and used; replicas), Pods, Containers,
+JVM (heap and non-heap used, committed and maximum; GC count and pause).
+
+## Links in both directions
+
+* Platform to Grafana: `/d/<uid>?orgId=1&var-cluster=…&var-namespace=…&var-workload=…&var-pod=…&var-node=…&var-container=…&from=…&to=…`; the window of the page is the time range.
+* Grafana to the platform (only when `platform.public_url` is set): the dashboard link and the workload panels open `/forecast-results/overprovision?namespace=…&workload=…&source=grafana`.
+  The page takes a namespace and a workload that name exactly one thing; "All" (`.*`) and several chosen values are ignored.
+
+## What was checked, and what was not
+
+The JSON is checked by tests (structure, panels inside the 24 columns and not overlapping, every variable a query uses is defined, every shared query is on a panel, the
+shipped files equal the generator). The pages and the links were looked at in a real browser against a fake Prometheus. **It has not been loaded into a real Grafana**: the version
+of your Grafana may differ from schemaVersion 39, and the default metric names in the queries are defaults of editable parameters, not a promise that your Prometheus has them.
