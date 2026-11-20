@@ -53,6 +53,11 @@ spec:
             - --platform-ca-file=/etc/kube-res-foresight/platform-ca/{{ .Values.platform.caSecret.key }}
             {{- end }}
             - --report-spool-file=/var/spool/kube-res-foresight-operator/reports.jsonl
+            {{- if .Values.inventory.enabled }}
+            - --inventory-interval={{ .Values.inventory.interval }}
+            {{- else }}
+            - --inventory-interval=0
+            {{- end }}
             {{- range .Values.operator.extraArgs }}
             - {{ . | quote }}
             {{- end }}

@@ -5,8 +5,18 @@ metadata:
   name: kube-res-foresight-operator
 rules:
 - apiGroups:
+  - ""
+  resources:
+  - nodes
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - apps
   resources:
+  - daemonsets
   - deployments
   - statefulsets
   verbs:

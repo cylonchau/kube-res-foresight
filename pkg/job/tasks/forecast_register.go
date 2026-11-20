@@ -3,6 +3,7 @@ package tasks
 import (
 	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
 	"github.com/cylonchau/kube-res-foresight/pkg/forecastsvc"
+	"github.com/cylonchau/kube-res-foresight/pkg/inventorysvc"
 	"github.com/cylonchau/kube-res-foresight/pkg/job"
 	"github.com/cylonchau/kube-res-foresight/pkg/job/tasks/forecasttask"
 	"github.com/cylonchau/kube-res-foresight/pkg/job/tasks/ldaptask"
@@ -21,6 +22,7 @@ func registerForecast() {
 	job.Register(&forecasttask.Score{Modules: modules, Service: service})
 	job.Register(&forecasttask.Evaluate{Modules: modules, Service: service})
 	job.Register(&forecasttask.Overprovision{Service: service})
+	job.Register(&forecasttask.InventoryPrune{Service: &inventorysvc.Service{DAO: rdb.NewInventoryDAO(model.DB), Modules: modules, Config: rdb.NewSysConfigDAO(model.DB)}})
 }
 
 // registerLDAP registers the directory sync job.

@@ -15,6 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/cylonchau/kube-res-foresight/pkg/inventory"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -34,6 +35,10 @@ import (
 // hundred modules.
 const DefaultOutboxMax = 10000
 
+// MaxInventoryReports is how many reports of the inventory (the nodes and the workloads of the modules, which are big) the outbox holds: the oldest are dropped
+// first, and what the operator did (the reports of scaling actions) is never dropped to make room for them.
+const MaxInventoryReports = 48
+
 // DefaultOutboxFlushInterval is how often the queue is tried while the platform is away.
 const DefaultOutboxFlushInterval = 15 * time.Second
 
@@ -42,6 +47,8 @@ const DefaultOutboxFlushInterval = 15 * time.Second
 type Outbox struct {
 	// Sink delivers one report; an error that is not a permanent refusal leaves the report queued.
 	Sink Reporter
+	// InventorySink delivers one report of the inventory the same way; without it the inventory is not reported.
+	InventorySink InventoryReporterSink
 	// Max bounds the queue; 0 takes DefaultOutboxMax.
 	Max int
 	// File is the spool file; empty keeps the queue in memory only.
@@ -64,9 +71,24 @@ type Outbox struct {
 	queue   []queued
 }
 
+// InventoryReporterSink delivers one report of the inventory.
+type InventoryReporterSink interface {
+	ReportInventory(ctx context.Context, s inventory.Snapshot) error
+}
+
 type queued struct {
 	Module string `json:"module"`
 	Report Report `json:"report"`
+	// Inventory is set for a report of the inventory, which has no module and no scaling record.
+	Inventory *inventory.Snapshot `json:"inventory,omitempty"`
+}
+
+// id is the record id of the queued report, whatever it is.
+func (q queued) id() string {
+	if q.Inventory != nil {
+		return q.Inventory.RecordID
+	}
+	return q.Report.RecordID
 }
 
 func (o *Outbox) init() {
@@ -124,7 +146,7 @@ func (o *Outbox) Load() error {
 	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
 	for sc.Scan() {
 		var q queued
-		if err := json.Unmarshal(sc.Bytes(), &q); err != nil || q.Report.RecordID == "" {
+		if err := json.Unmarshal(sc.Bytes(), &q); err != nil || q.id() == "" {
 			continue // a torn last line from a crash: the rest is still good
 		}
 		loaded = append(loaded, q)
@@ -206,6 +228,60 @@ func (o *Outbox) Report(ctx context.Context, s *Scaler, r Report) error {
 	return nil
 }
 
+// ReportInventory queues a report of the inventory and wakes the sender. It does not wait for the platform. The queue keeps at most MaxInventoryReports of
+// them: when there are more the oldest are dropped, counted and logged.
+func (o *Outbox) ReportInventory(ctx context.Context, s inventory.Snapshot) error {
+	o.init()
+	if s.ObservedAt.IsZero() {
+		s.ObservedAt = o.now()
+	}
+	if s.RecordID == "" {
+		s.RecordID = fmt.Sprintf("inv-%s-%d", o.instance, o.seq.Add(1))
+	}
+	if s.Operator == "" {
+		s.Operator = o.Operator
+	}
+	o.mu.Lock()
+	o.queue = append(o.queue, queued{Inventory: &s})
+	dropped := 0
+	for {
+		n, oldest := 0, -1
+		for i, q := range o.queue {
+			if q.Inventory != nil {
+				n++
+				if oldest < 0 {
+					oldest = i
+				}
+			}
+		}
+		if n <= MaxInventoryReports {
+			break
+		}
+		o.queue = append(o.queue[:oldest:oldest], o.queue[oldest+1:]...)
+		dropped++
+	}
+	if over := len(o.queue) - o.max(); over > 0 {
+		o.queue = append([]queued(nil), o.queue[over:]...)
+		dropped += over
+	}
+	if dropped > 0 {
+		o.Metrics.recordOutboxDrop("overflow", dropped)
+		logf.FromContext(ctx).WithName("outbox").Info("the report queue is full: the oldest reports were dropped", "dropped", dropped)
+	}
+	err := o.persist()
+	n := len(o.queue)
+	o.mu.Unlock()
+	o.Metrics.recordOutbox(n)
+	select {
+	case o.kick <- struct{}{}:
+	default:
+	}
+	if err != nil {
+		logf.FromContext(ctx).WithName("outbox").Info("could not write the report spool", "error", err.Error())
+	}
+	return nil
+}
+
 // permanent says the platform refused the report for good: sending it again cannot succeed. A credential or a gateway problem is not
 // permanent, it is the very outage the outbox is for.
 func permanent(err error) bool {
@@ -235,17 +311,26 @@ func (o *Outbox) Flush(ctx context.Context) {
 		head := o.queue[0]
 		o.mu.Unlock()
 
-		err := o.Sink.Report(ctx, &Scaler{Module: head.Module}, head.Report)
+		var err error
+		if head.Inventory != nil {
+			if o.InventorySink == nil {
+				err = &statusError{Code: http.StatusNotFound} // nothing to deliver it with: dropped as refused
+			} else {
+				err = o.InventorySink.ReportInventory(ctx, *head.Inventory)
+			}
+		} else {
+			err = o.Sink.Report(ctx, &Scaler{Module: head.Module}, head.Report)
+		}
 		switch {
 		case err == nil:
 		case permanent(err):
-			log.Info("the platform refused a report for good: dropped", "record", head.Report.RecordID, "module", head.Module, "error", err.Error())
+			log.Info("the platform refused a report for good: dropped", "record", head.id(), "module", head.Module, "error", err.Error())
 			o.Metrics.recordOutboxDrop("rejected", 1)
 		default:
 			return // the platform cannot be reached: the queue stays as it is
 		}
 		o.mu.Lock()
-		if len(o.queue) > 0 && o.queue[0].Report.RecordID == head.Report.RecordID {
+		if len(o.queue) > 0 && o.queue[0].id() == head.id() {
 			o.queue = o.queue[1:]
 		}
 		if perr := o.persist(); perr != nil {

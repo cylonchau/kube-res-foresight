@@ -42,6 +42,14 @@ serviceAccount:
   name: ""
   annotations: {}
 
+# The inventory (read-only): the operator reads the nodes, and the workloads of the platform modules with their Pods and the requests and limits of their
+# containers, and reports them to the platform for its resource pages. It needs read access to nodes and pods (see the ClusterRole). Turn it off to give
+# the operator no read access beyond what scaling needs.
+inventory:
+  enabled: true
+  # how often the cluster is read; a report is made when something that is configuration changed, and at least once an hour
+  interval: 5m
+
 rbac:
   # Create the ClusterRole and its binding. Turn it off only when you bind a role of your own.
   create: true

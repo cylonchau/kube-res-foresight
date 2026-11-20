@@ -122,16 +122,3 @@ func TestACustomRangeIsAskedAtItsEndAndRefusedBackToFront(t *testing.T) {
 	_, err = f.svc.PrometheusStats(context.Background(), f.module.ID, 17, time.Time{}, time.Time{})
 	assert.ErrorIs(t, err, ErrOverprovisionWindow)
 }
-
-func TestTheClusterFiguresAreQueriesOfPrometheusAndAreListed(t *testing.T) {
-	f := opFixture(t)
-	got, err := f.svc.ClusterCapacityOf(context.Background(), f.module.ID, 0)
-	require.NoError(t, err)
-	names := map[string]string{}
-	for _, q := range got.Queries {
-		names[q.Name] = q.Query
-	}
-	assert.Contains(t, names, "allocatable")
-	assert.Contains(t, names["used_cpu"], "container_cpu_usage_seconds_total")
-	assert.Contains(t, names["used_memory"], "container_memory_working_set_bytes")
-}

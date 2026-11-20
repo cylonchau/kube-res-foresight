@@ -60,13 +60,18 @@ var MetricKinds = map[string]string{
 	"jvm_heap_used":    "bytes",
 	"jvm_heap_max":     "bytes",
 	"jvm_nonheap_used": "bytes",
-	"jvm_gc_pause":     "seconds",
-	"jvm_threads":      "count",
-	"k8s_cpu_requests": "cores",
-	"k8s_cpu_limits":   "cores",
-	"k8s_mem_requests": "bytes",
-	"k8s_mem_limits":   "bytes",
-	"k8s_cpu_throttle": "seconds",
+	// committed is what the JVM has asked the system for, not what it uses; the maximum of the non-heap is often not set
+	"jvm_heap_committed":    "bytes",
+	"jvm_nonheap_committed": "bytes",
+	"jvm_nonheap_max":       "bytes",
+	"jvm_gc_count":          "count",
+	"jvm_gc_pause":          "seconds",
+	"jvm_threads":           "count",
+	"k8s_cpu_requests":      "cores",
+	"k8s_cpu_limits":        "cores",
+	"k8s_mem_requests":      "bytes",
+	"k8s_mem_limits":        "bytes",
+	"k8s_cpu_throttle":      "seconds",
 
 	// Utilisation, GPU and network detail. A ratio is 0-1 (1 = fully used); PromQL that returns a percentage is scaled
 	// by the source (scale 0.01).
@@ -80,7 +85,7 @@ var MetricKinds = map[string]string{
 
 // AuxiliaryMetrics are the collected metrics that are never forecast themselves, in a stable order.
 var AuxiliaryMetrics = []string{
-	"replicas", "oom", "oom_working_set", "latency", "jvm_heap_used", "jvm_heap_max", "jvm_nonheap_used", "jvm_gc_pause",
+	"replicas", "oom", "oom_working_set", "latency", "jvm_heap_used", "jvm_heap_max", "jvm_nonheap_used", "jvm_heap_committed", "jvm_nonheap_committed", "jvm_nonheap_max", "jvm_gc_count", "jvm_gc_pause",
 	"jvm_threads", "gpu_memory", "network_rx", "network_tx", CustomMetric, "k8s_cpu_requests", "k8s_cpu_limits", "k8s_mem_requests", "k8s_mem_limits", "k8s_cpu_throttle",
 	"cpu_util", "memory_util", "gpu_util", "gpu_memory_total", "network_conn", "network_error",
 }
@@ -102,7 +107,7 @@ func KindCategory(kind string) string {
 	switch kind {
 	case "cpu", "cpu_util", "k8s_cpu_requests", "k8s_cpu_limits", "k8s_cpu_throttle":
 		return CategoryCPU
-	case "memory", "memory_util", "oom_working_set", "jvm_heap_used", "jvm_heap_max", "jvm_nonheap_used", "k8s_mem_requests", "k8s_mem_limits":
+	case "memory", "memory_util", "oom_working_set", "jvm_heap_used", "jvm_heap_max", "jvm_heap_committed", "jvm_nonheap_used", "jvm_nonheap_committed", "jvm_nonheap_max", "k8s_mem_requests", "k8s_mem_limits":
 		return CategoryMemory
 	case "gpu", "gpu_util", "gpu_memory", "gpu_memory_total":
 		return CategoryGPU

@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cylonchau/kube-res-foresight/pkg/cost"
 	"github.com/cylonchau/kube-res-foresight/pkg/model"
 	"github.com/cylonchau/kube-res-foresight/pkg/overprovision"
 	"github.com/cylonchau/kube-res-foresight/pkg/timing"
@@ -205,11 +204,18 @@ type JVMInfo struct {
 	Expected bool `json:"expected"`
 	Present  bool `json:"present"`
 	// HeapUsed, HeapMax and NonHeapUsed are the quantiles over the window (bytes, per Pod); nil when the module has no such metric.
-	HeapUsed      *overprovision.Usage `json:"heap_used,omitempty"`
-	HeapMax       *overprovision.Usage `json:"heap_max,omitempty"`
-	NonHeapUsed   *overprovision.Usage `json:"nonheap_used,omitempty"`
-	WorkingSetP99 float64              `json:"working_set_p99"`
-	Hints         []string             `json:"hints"`
+	HeapUsed    *overprovision.Usage `json:"heap_used,omitempty"`
+	HeapMax     *overprovision.Usage `json:"heap_max,omitempty"`
+	NonHeapUsed *overprovision.Usage `json:"nonheap_used,omitempty"`
+	// The committed figures are what the JVM asked the system for, not what it uses: they are shown next to the used and maximum, and are never taken for the
+	// memory of the container. GCCount and GCPause are the collections and the time in them over each interval, when the module has the metric.
+	HeapCommitted    *overprovision.Usage `json:"heap_committed,omitempty"`
+	NonHeapCommitted *overprovision.Usage `json:"nonheap_committed,omitempty"`
+	NonHeapMax       *overprovision.Usage `json:"nonheap_max,omitempty"`
+	GCCount          *overprovision.Usage `json:"gc_count,omitempty"`
+	GCPause          *overprovision.Usage `json:"gc_pause,omitempty"`
+	WorkingSetP99    float64              `json:"working_set_p99"`
+	Hints            []string             `json:"hints"`
 }
 
 // ResourceChart is the series of a chart: the use of the Pod in the window with its moving averages, and the request. The arrays are aligned.
@@ -538,6 +544,8 @@ func (l *opLoader) jvm(from, to int64, wr *WindowOverprovision) *JVMInfo {
 		return &u
 	}
 	info.HeapUsed, info.HeapMax, info.NonHeapUsed = usage("jvm_heap_used"), usage("jvm_heap_max"), usage("jvm_nonheap_used")
+	info.HeapCommitted, info.NonHeapCommitted, info.NonHeapMax = usage("jvm_heap_committed"), usage("jvm_nonheap_committed"), usage("jvm_nonheap_max")
+	info.GCCount, info.GCPause = usage("jvm_gc_count"), usage("jvm_gc_pause")
 	info.Present = info.HeapUsed != nil
 	if wr.Memory != nil {
 		info.WorkingSetP99 = wr.Memory.Usage.P99
@@ -548,6 +556,16 @@ func (l *opLoader) jvm(from, to int64, wr *WindowOverprovision) *JVMInfo {
 	}
 	if info.HeapUsed != nil && info.HeapMax != nil && info.HeapMax.Max > 0 && info.HeapUsed.P99 >= 0.9*info.HeapMax.Max {
 		info.Hints = append(info.Hints, "heap_near_max")
+	}
+	if info.HeapCommitted != nil {
+		// said whenever it is shown: the committed heap is a request to the system, not a measure of use
+		info.Hints = append(info.Hints, "committed_is_not_use")
+		if info.HeapUsed != nil && info.HeapCommitted.P99 > 0 && info.HeapUsed.P99 >= 0.9*info.HeapCommitted.P99 {
+			info.Hints = append(info.Hints, "heap_near_committed")
+		}
+	}
+	if info.Present && info.GCCount == nil && info.GCPause == nil {
+		info.Hints = append(info.Hints, "gc_missing") // the analysis goes on with used, committed and maximum
 	}
 	if !info.Present {
 		info.Hints = append(info.Hints, "jvm_missing")
@@ -805,86 +823,4 @@ func (l *opLoader) metrics(from, to int64) []MetricStat {
 		out = append(out, ms)
 	}
 	return out
-}
-
-// ClusterCapacity is what the cluster of a module's data source has to give, has given out and uses right now: the nodes, what they can allocate, what the
-// Running Pods request and what the containers use. Every figure is the answer of the Prometheus data source of the module to the queries listed in
-// Queries (the series names are the usual ones of the node, the Pod and the container metrics, and are shown so that they can be checked in Grafana),
-// asked now; none of it is stored, and a figure Prometheus has no series for is left out with a note.
-type ClusterCapacity struct {
-	Datasource CostSource `json:"datasource"`
-	At         time.Time  `json:"at"`
-	Nodes      int        `json:"nodes"`
-	Pods       int        `json:"pods"`
-	// AllocatableCPU is in cores, AllocatableMemory in bytes; RequestedCPU and RequestedMemory are the sums of the requests of the Running Pods.
-	AllocatableCPU    float64 `json:"allocatable_cpu"`
-	AllocatableMemory float64 `json:"allocatable_memory"`
-	RequestedCPU      float64 `json:"requested_cpu"`
-	RequestedMemory   float64 `json:"requested_memory"`
-	// UsedCPU is in cores and UsedMemory in bytes: what all the containers use now; 0 with a note when Prometheus has no such series.
-	UsedCPU    float64 `json:"used_cpu"`
-	UsedMemory float64 `json:"used_memory"`
-	// Queries are the PromQL that was sent, by what it asks for.
-	Queries []ClusterQuery `json:"queries"`
-	Notes   []string       `json:"notes"`
-}
-
-// ClusterQuery is a query sent for the capacity of the cluster.
-type ClusterQuery struct {
-	Name  string `json:"name"`
-	Query string `json:"query"`
-}
-
-// The queries for what the containers of the cluster use (cAdvisor, as the Prometheus of the data source holds it).
-const (
-	ClusterUsedCPUQuery    = `sum(rate(container_cpu_usage_seconds_total{container!="",container!="POD"}[5m]))`
-	ClusterUsedMemoryQuery = `sum(container_memory_working_set_bytes{container!="",container!="POD"})`
-)
-
-// ClusterCapacityOf asks the Prometheus data source of a module (its first source's mapping) about its cluster; datasourceID overrides it when it is not 0.
-func (s *Service) ClusterCapacityOf(ctx context.Context, moduleID, datasourceID uint) (*ClusterCapacity, error) {
-	if datasourceID == 0 {
-		sources, err := s.Modules.Sources(ctx, moduleID)
-		if err != nil {
-			return nil, err
-		}
-		for _, src := range sources {
-			if src.Enabled && src.MappingID != 0 {
-				if mp, err := s.Mappings.GetByID(ctx, src.MappingID); err == nil && mp.DatasourceID != 0 {
-					datasourceID = mp.DatasourceID
-					break
-				}
-			}
-		}
-	}
-	if datasourceID == 0 {
-		return nil, ErrCostNoDatasource
-	}
-	ds, snap, err := s.readCluster(ctx, datasourceID, costParams{})
-	if err != nil {
-		return nil, err
-	}
-	out := &ClusterCapacity{Datasource: CostSource{ID: ds.ID, Name: ds.Name}, At: snap.At, Nodes: len(snap.Nodes), Pods: len(snap.Pods), Notes: append([]string{}, snap.Notes...),
-		Queries: []ClusterQuery{{"allocatable", cost.QueryAllocatable}, {"requests", cost.QueryRequests}, {"pods", cost.QueryPods}, {"used_cpu", ClusterUsedCPUQuery}, {"used_memory", ClusterUsedMemoryQuery}}}
-	if q, err := s.vectorQuerierOf(ctx, ds); err == nil {
-		if v, err := scalarOf(ctx, q, ClusterUsedCPUQuery, snap.At); err == nil {
-			out.UsedCPU = v
-		} else {
-			out.Notes = append(out.Notes, "used CPU: "+err.Error())
-		}
-		if v, err := scalarOf(ctx, q, ClusterUsedMemoryQuery, snap.At); err == nil {
-			out.UsedMemory = v
-		} else {
-			out.Notes = append(out.Notes, "used memory: "+err.Error())
-		}
-	}
-	for _, n := range snap.Nodes {
-		out.AllocatableCPU += float64(n.CPUMilli) / 1000
-		out.AllocatableMemory += float64(n.MemoryBytes)
-	}
-	for _, p := range snap.Pods {
-		out.RequestedCPU += float64(p.CPUMilli) / 1000
-		out.RequestedMemory += float64(p.MemoryBytes)
-	}
-	return out, nil
 }

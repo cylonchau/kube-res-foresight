@@ -12,6 +12,7 @@ import (
 
 	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
 	"github.com/cylonchau/kube-res-foresight/pkg/forecastsvc"
+	"github.com/cylonchau/kube-res-foresight/pkg/inventorysvc"
 	"github.com/cylonchau/kube-res-foresight/pkg/logger"
 	"github.com/cylonchau/kube-res-foresight/pkg/model"
 )
@@ -153,6 +154,24 @@ func (t *Overprovision) Execute(ctx context.Context, _ *model.Job) error {
 	done, err := t.Service.RunOverprovision(ctx, 0)
 	if done > 0 {
 		logger.Info("over-provisioning analysis", logger.Int("modules", done))
+	}
+	return err
+}
+
+// InventoryPruneJobType deletes the snapshots of the cluster and the history of the configuration of the workloads that are past their retention (P10 A1).
+const InventoryPruneJobType = "inventory.prune"
+
+// InventoryPrune is that clean-up job.
+type InventoryPrune struct {
+	Service *inventorysvc.Service
+}
+
+func (t *InventoryPrune) Type() string { return InventoryPruneJobType }
+
+func (t *InventoryPrune) Execute(ctx context.Context, _ *model.Job) error {
+	pruned, err := t.Service.Prune(ctx)
+	if pruned.Nodes+pruned.Snapshots+pruned.Changes+pruned.Reports > 0 {
+		logger.Info("cluster inventory pruned", logger.Int64("nodes", pruned.Nodes), logger.Int64("snapshots", pruned.Snapshots), logger.Int64("changes", pruned.Changes))
 	}
 	return err
 }

@@ -68,6 +68,9 @@ spec:
             # What the operator did while the platform could not be reached is kept here and reported when it can (oldest first, each
             # action once): the file is in an emptyDir, so it survives a restart of the container.
             - --report-spool-file=/var/spool/kube-res-foresight-operator/reports.jsonl
+            # The inventory, read-only: the nodes, and the workloads of the modules with their Pods and the requests and limits of their containers, for the
+            # resource pages of the platform. 0 turns it off (and the read access to nodes and pods in rbac/role.yaml is then not needed).
+            - --inventory-interval=5m
           ports:
             - name: metrics
               containerPort: 8080

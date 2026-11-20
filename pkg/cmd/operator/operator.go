@@ -55,6 +55,9 @@ type Options struct {
 	// ReportSpoolFile is where the reports of scaling actions that the platform has not yet acknowledged are kept, so they survive a
 	// restart of the operator during an outage of the platform; empty keeps them in memory only.
 	ReportSpoolFile string
+	// InventoryInterval is how often the nodes and the workloads of the modules are read (read-only) and reported to the platform when something that is
+	// configuration changed, or once an hour; 0 turns the inventory off.
+	InventoryInterval time.Duration
 }
 
 // NewScheme returns a scheme with the built-in kinds.
@@ -91,6 +94,7 @@ func NewCommand() *cobra.Command {
 	f.DurationVar(&opts.ConfigCacheTTL, "module-cache-ttl", controller.DefaultConfigTTL, "Starting value (the platform's setting operator.module_cache_ttl_seconds takes over once it answers). How long the platform's last list of modules (bounds, pace, fallback) is used when the platform cannot be reached. Longer than the decision cache, so the safe degradation after the decision has expired can use the module's own bounds and fallback. Past it nothing is evaluated and the replicas stay.")
 	f.IntVar(&opts.RecoverSuccesses, "decision-recover-answers", controller.DefaultRecoverSuccesses, "Starting value (the platform's setting operator.recover_answers takes over once it answers). How many answers in a row a platform that is back after an outage must give before the workload may be scaled down again (scaling up follows at once).")
 	f.StringVar(&opts.ReportSpoolFile, "report-spool-file", "", "File that keeps the reports of scaling actions the platform has not acknowledged yet (put it in a volume that outlives the container, an emptyDir for instance). They are sent again, oldest first, when the platform answers; without a file they are kept in memory only.")
+	f.DurationVar(&opts.InventoryInterval, "inventory-interval", controller.DefaultInventoryInterval, "How often the nodes, and the workloads of the platform modules with their Pods and the requests and limits of their containers, are read (read-only) for the resource pages of the platform. A report is made when something that is configuration changed, and at least once an hour. Needs read access to nodes and pods. 0 turns it off.")
 	return cmd
 }
 
@@ -164,7 +168,7 @@ func Run(ctx context.Context, opts *Options) error {
 	cachePolicy := settings.CachePolicy()
 	cachedPlatform := &controller.CachingDecider{Inner: platform, Policy: cachePolicy, Source: settings.CachePolicy, Metrics: opMetrics}
 	// what the operator does is reported through an outbox: a report the platform cannot take now is kept and sent when it can
-	outbox := &controller.Outbox{Sink: platform, File: opts.ReportSpoolFile, Metrics: opMetrics}
+	outbox := &controller.Outbox{Sink: platform, InventorySink: platform, File: opts.ReportSpoolFile, Metrics: opMetrics}
 	if err := outbox.Load(); err != nil {
 		return err
 	}
@@ -183,6 +187,13 @@ func Run(ctx context.Context, opts *Options) error {
 	if err := mgr.Add(&controller.ModuleSync{Applier: applier, Platform: platform, Interval: opts.PlatformInterval, Settings: settings, Namespace: opts.Namespace,
 		Cache: controller.ModuleCache{Policy: cachePolicy, Source: settings.CachePolicy}}); err != nil {
 		return fmt.Errorf("register the platform module sync: %w", err)
+	}
+	if opts.InventoryInterval > 0 {
+		// read through the API reader, not the cache: no informer over every Pod of the cluster for a read every few minutes
+		runner := &controller.InventoryRunner{Reader: &controller.InventoryReader{Reader: mgr.GetAPIReader()}, Targets: platform, Queue: outbox, Interval: opts.InventoryInterval}
+		if err := mgr.Add(runner); err != nil {
+			return fmt.Errorf("register the inventory reader: %w", err)
+		}
 	}
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		return err

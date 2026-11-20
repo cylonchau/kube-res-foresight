@@ -5,6 +5,7 @@ import (
 	"github.com/cylonchau/kube-res-foresight/pkg/assistant"
 	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
 	"github.com/cylonchau/kube-res-foresight/pkg/forecastsvc"
+	"github.com/cylonchau/kube-res-foresight/pkg/inventorysvc"
 	"github.com/cylonchau/kube-res-foresight/pkg/job/tasks/aitask"
 	"github.com/cylonchau/kube-res-foresight/pkg/job/tasks/asyncrun"
 	"github.com/cylonchau/kube-res-foresight/pkg/ldapauth"
@@ -225,6 +226,17 @@ func RegisteredRouter(e *gin.Engine) {
 	v1Group.GET("/operator/modules", runtimeHandler.OperatorModules)
 	v1Group.GET("/operator/settings", runtimeHandler.OperatorSettings)
 	v1Group.GET("/dashboard", forecastHandler.Dashboard)
+	inventoryHandler := &v1.InventoryRouter{Service: &inventorysvc.Service{DAO: rdb.NewInventoryDAO(model.DB), Modules: rdb.NewModuleDAO(model.DB), Config: rdb.NewSysConfigDAO(model.DB)}, Forecast: forecastService}
+	v1Group.GET("/operator/inventory-targets", inventoryHandler.Targets)
+	v1Group.POST("/operator/inventory", inventoryHandler.Ingest)
+	v1Group.GET("/inventory/nodes", inventoryHandler.Nodes)
+	v1Group.GET("/inventory/nodes/trend", inventoryHandler.NodeTrend)
+	v1Group.GET("/inventory/nodes/usage", inventoryHandler.NodeUsage)
+	v1Group.GET("/inventory/workloads", inventoryHandler.Workloads)
+	v1Group.GET("/modules/:id/inventory", inventoryHandler.ModuleInventory)
+	grafanaHandler := &v1.GrafanaRouter{Inventory: inventoryHandler.Service, Forecast: forecastService}
+	v1Group.GET("/grafana/settings", grafanaHandler.Settings)
+	v1Group.GET("/grafana/dashboard", grafanaHandler.Dashboard)
 	diagnosticsHandler := &v1.DiagnosticsRouter{Diagnostics: rdb.NewDiagnosticsDAO(model.DB), Config: rdb.NewSysConfigDAO(model.DB)}
 	v1Group.GET("/diagnostics/database", diagnosticsHandler.Database)
 	v1Group.GET("/diagnostics/requests", diagnosticsHandler.Requests)

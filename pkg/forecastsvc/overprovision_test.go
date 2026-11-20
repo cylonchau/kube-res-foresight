@@ -302,14 +302,74 @@ func TestTheLimitComesFromTheModuleRatioWhenNoMetricSaysIt(t *testing.T) {
 	assert.Empty(t, d.Windows[0].CPU.LimitFrom)
 }
 
-func TestTheClusterCapacityIsReadFromTheDataSourceOfTheModule(t *testing.T) {
+// The committed heap, the maximum of the non-heap and the GC are shown next to the used heap and the working set; committed is said not to be use, and a
+// JVM without the GC metrics is still analysed.
+func TestTheJVMShowsCommittedAndTheGCBesideUsedAndMaxAndNeverTakesCommittedForUse(t *testing.T) {
 	f := opFixture(t)
-	got, err := f.svc.ClusterCapacityOf(context.Background(), f.module.ID, 0)
+	kinds := []string{"jvm_heap_used", "jvm_heap_max", "jvm_heap_committed", "jvm_nonheap_used", "jvm_nonheap_committed", "jvm_nonheap_max", "jvm_gc_count", "jvm_gc_pause"}
+	for _, kind := range kinds {
+		f.addAux(t, kind)
+	}
+	gib := float64(costGiB)
+	f.values(map[string]func(ts time.Time) float64{
+		"memory":                func(ts time.Time) float64 { return daily(4*gib, 1*gib, ts) },
+		"cpu":                   func(ts time.Time) float64 { return daily(2, 0.8, ts) },
+		"jvm_heap_used":         func(time.Time) float64 { return 2 * gib },
+		"jvm_heap_max":          func(time.Time) float64 { return 8 * gib },
+		"jvm_heap_committed":    func(time.Time) float64 { return 2.1 * gib },
+		"jvm_nonheap_used":      func(time.Time) float64 { return 0.25 * gib },
+		"jvm_nonheap_committed": func(time.Time) float64 { return 0.3 * gib },
+		"jvm_nonheap_max":       func(time.Time) float64 { return 0.5 * gib },
+		"jvm_gc_count":          func(time.Time) float64 { return 12 },
+		"jvm_gc_pause":          func(time.Time) float64 { return 0.4 },
+	})
+	ctx := context.Background()
+	_, err := f.collect(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, 2, got.Nodes)
-	assert.InDelta(t, 16.0, got.AllocatableCPU, 1e-9)
-	assert.InDelta(t, 64*float64(costGiB), got.AllocatableMemory, 1)
-	assert.NotEmpty(t, got.Datasource.Name)
-	_, err = f.svc.ClusterCapacityOf(context.Background(), 9999, 0)
-	assert.Error(t, err)
+	d, err := f.svc.OverprovisionDetail(ctx, f.module.ID, 24*60, time.Time{}, time.Time{})
+	require.NoError(t, err)
+	require.NotNil(t, d.JVM)
+	j := d.JVM
+	for name, u := range map[string]interface{}{"heap committed": j.HeapCommitted, "non-heap committed": j.NonHeapCommitted, "non-heap max": j.NonHeapMax, "gc count": j.GCCount, "gc pause": j.GCPause} {
+		assert.NotNil(t, u, name)
+	}
+	assert.Greater(t, j.HeapCommitted.P99, j.HeapUsed.P99, "the committed heap is shown as it is: above the used one")
+	assert.Contains(t, j.Hints, "committed_is_not_use")
+	assert.Contains(t, j.Hints, "heap_near_committed", "2 of 2.1 GiB used is 95% of what was committed")
+	assert.NotContains(t, j.Hints, "gc_missing")
+	// the container memory is the working set, whatever the JVM says
+	mem := d.Windows[0].Memory
+	require.NotNil(t, mem)
+	assert.InDelta(t, mem.Usage.P99, j.WorkingSetP99, 1e-6)
+	groups := map[string]string{}
+	for _, m := range d.Metrics {
+		groups[m.Kind] = m.Group
+	}
+	for _, kind := range kinds {
+		assert.Equal(t, "jvm", groups[kind], kind)
+	}
+}
+
+func TestAJVMWithoutTheGCMetricsIsStillAnalysedAndSaysTheGCIsMissing(t *testing.T) {
+	f := opFixture(t)
+	for _, kind := range []string{"jvm_heap_used", "jvm_heap_max"} {
+		f.addAux(t, kind)
+	}
+	f.values(map[string]func(ts time.Time) float64{
+		"memory":        func(ts time.Time) float64 { return daily(4*float64(costGiB), 1*float64(costGiB), ts) },
+		"cpu":           func(ts time.Time) float64 { return daily(2, 0.8, ts) },
+		"jvm_heap_used": func(time.Time) float64 { return 2 * float64(costGiB) },
+		"jvm_heap_max":  func(time.Time) float64 { return 8 * float64(costGiB) },
+	})
+	ctx := context.Background()
+	_, err := f.collect(ctx)
+	require.NoError(t, err)
+	d, err := f.svc.OverprovisionDetail(ctx, f.module.ID, 24*60, time.Time{}, time.Time{})
+	require.NoError(t, err)
+	require.NotNil(t, d.JVM)
+	assert.True(t, d.JVM.Present)
+	assert.Contains(t, d.JVM.Hints, "gc_missing")
+	assert.NotContains(t, d.JVM.Hints, "committed_is_not_use", "nothing committed is shown")
+	assert.Nil(t, d.JVM.HeapCommitted)
+	assert.NotNil(t, d.Windows[0].Memory, "the analysis goes on")
 }

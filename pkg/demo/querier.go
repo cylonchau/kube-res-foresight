@@ -43,6 +43,10 @@ const (
 	SignalJVMHeapUsed   Signal = "jvm_heap_used"
 	SignalJVMHeapMax    Signal = "jvm_heap_max"
 	SignalJVMNonHeap    Signal = "jvm_nonheap_used"
+	SignalJVMHeapCommit Signal = "jvm_heap_committed"
+	SignalJVMNonHeapCom Signal = "jvm_nonheap_committed"
+	SignalJVMNonHeapMax Signal = "jvm_nonheap_max"
+	SignalJVMGCCount    Signal = "jvm_gc_count"
 	SignalJVMGCPause    Signal = "jvm_gc_pause"
 	SignalJVMThreads    Signal = "jvm_threads"
 	SignalK8sCPUReq     Signal = "k8s_cpu_requests"
@@ -68,6 +72,10 @@ var signals = []struct {
 	{`jvm_memory_used_bytes{area="heap"`, SignalJVMHeapUsed},
 	{`jvm_memory_max_bytes{area="heap"`, SignalJVMHeapMax},
 	{`jvm_memory_used_bytes{area="nonheap"`, SignalJVMNonHeap},
+	{`jvm_memory_committed_bytes{area="heap"`, SignalJVMHeapCommit},
+	{`jvm_memory_committed_bytes{area="nonheap"`, SignalJVMNonHeapCom},
+	{`jvm_memory_max_bytes{area="nonheap"`, SignalJVMNonHeapMax},
+	{"jvm_gc_pause_seconds_count", SignalJVMGCCount},
 	{"jvm_gc_pause_seconds_sum", SignalJVMGCPause},
 	{"jvm_threads_live_threads", SignalJVMThreads},
 	{`kube_pod_container_resource_requests{resource="cpu"`, SignalK8sCPUReq},
@@ -197,6 +205,14 @@ func Value(signal Signal, ts time.Time, seed uint32) float64 {
 		return heapMax * pressure
 	case SignalJVMNonHeap:
 		return 256.0 * (1 << 20) * pods
+	case SignalJVMHeapCommit:
+		return heapMax * math.Min(1, pressure+0.1) // the JVM has asked the system for a little more than it uses
+	case SignalJVMNonHeapCom:
+		return 300.0 * (1 << 20) * pods
+	case SignalJVMNonHeapMax:
+		return 512.0 * (1 << 20) * pods
+	case SignalJVMGCCount:
+		return 1 + 20*pressure*pressure
 	case SignalJVMGCPause:
 		return 0.02 + 0.1*pressure*pressure
 	case SignalJVMThreads:
