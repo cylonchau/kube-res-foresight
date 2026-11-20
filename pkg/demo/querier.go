@@ -59,6 +59,9 @@ const (
 	SignalGPUMemory Signal = "gpu_memory"
 	SignalNetRx     Signal = "network_rx"
 	SignalNetTx     Signal = "network_tx"
+
+	// SignalCluster stands for the figures of the cluster and its nodes (nodes, Ready, Pods, allocatable): a steady number.
+	SignalCluster Signal = "cluster"
 )
 
 // signals maps the series a preset reads to the quantity it stands for. Order matters only for readability:
@@ -91,6 +94,10 @@ var signals = []struct {
 	{"istio_request_duration_milliseconds_bucket", SignalLatency},
 	{"nginx_ingress_controller_requests", SignalRPS},
 	{"istio_requests_total", SignalRPS},
+	{"kube_node_status_allocatable", SignalCluster},
+	{"kube_node_status_condition", SignalCluster},
+	{"kube_node_info", SignalCluster},
+	{"kube_pod_status_phase", SignalCluster},
 	{"container_cpu_usage_seconds_total", SignalCPU},
 	{"container_memory_working_set_bytes", SignalMemory},
 	{"kube_deployment_status_replicas_available", SignalReplicas},
@@ -235,6 +242,8 @@ func Value(signal Signal, ts time.Time, seed uint32) float64 {
 		return rps * 12 * 1024
 	case SignalNetTx:
 		return rps * 48 * 1024
+	case SignalCluster:
+		return 12
 	}
 	return 0
 }

@@ -119,7 +119,7 @@ func (r *ForecastRouter) OverprovisionCluster(c *gin.Context) {
 	query.SuccessResponse(c, nil, out)
 }
 
-// ModulePrometheusStats serves GET /modules/:id/overprovision/prometheus?window=&from=&to=: the P50, P90, P95, P99 and the maximum of the CPU, the memory and every
+// ModulePrometheusStats serves GET /modules/:id/overprovision/prometheus?window=&from=&to=&scope=: scope=core is the CPU and the memory, scope=more the other metrics, none all of them. the P50, P90, P95, P99 and the maximum of the CPU, the memory and every
 // other metric of the module, as the Prometheus data source computes them now (quantile_over_time over a subquery of the PromQL of the metric mapping), with
 // the PromQL that was sent. Nothing is stored.
 // @Summary The quantiles of a module, from Prometheus
@@ -141,7 +141,7 @@ func (r *ForecastRouter) ModulePrometheusStats(c *gin.Context) {
 	if t := timeQuery(c, "to"); t != nil {
 		to = *t
 	}
-	out, kept, err := r.Service.PrometheusStatsCached(c.Request.Context(), id, minutes, from, to)
+	out, kept, err := r.Service.PrometheusStatsScopedCached(c.Request.Context(), id, minutes, from, to, c.Query("scope"))
 	if err != nil {
 		r.writeError(c, err)
 		return

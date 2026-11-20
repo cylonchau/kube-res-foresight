@@ -165,10 +165,20 @@ func (s *Service) PreviewKept(ctx context.Context, moduleID uint, hours int, ch 
 // PrometheusStatsCached is PrometheusStats with its answer kept for a few minutes: the quantiles are asked of Prometheus, whose data changes all the time, so the
 // answer is not tied to a version of the data but to the time, and the page says how old it is.
 func (s *Service) PrometheusStatsCached(ctx context.Context, moduleID uint, windowMinutes int, from, to time.Time) (*PromStats, resultcache.Result, error) {
+	return s.PrometheusStatsScopedCached(ctx, moduleID, windowMinutes, from, to, PromScopeAll)
+}
+
+// PrometheusStatsScopedCached is PrometheusStatsCached for the metrics of a scope. An answer that is partial (the time limit stopped some metrics) is given
+// and not kept: the next ask works on the metrics that were not reached, instead of serving the gap for five minutes.
+func (s *Service) PrometheusStatsScopedCached(ctx context.Context, moduleID uint, windowMinutes int, from, to time.Time, scope string) (*PromStats, resultcache.Result, error) {
 	ttl := min(s.cacheTTL(ctx), statsBucket)
-	key := fmt.Sprintf("promstats|%d|%d|%d|%d", moduleID, windowMinutes, from.Unix()/60, to.Unix()/60)
+	key := fmt.Sprintf("promstats|%d|%d|%d|%d|%s", moduleID, windowMinutes, from.Unix()/60, to.Unix()/60, scope)
 	version := fmt.Sprintf("b%d", s.now().Unix()/int64(statsBucket/time.Second))
-	return resultcache.Do(ctx, s.cache(), key, version, ttl, func(ctx context.Context) (*PromStats, error) {
-		return s.PrometheusStats(ctx, moduleID, windowMinutes, from, to)
+	out, kept, err := resultcache.Do(ctx, s.cache(), key, version, ttl, func(ctx context.Context) (*PromStats, error) {
+		return s.PrometheusStatsScoped(ctx, moduleID, windowMinutes, from, to, scope)
 	})
+	if err == nil && out != nil && out.Partial {
+		s.cache().Forget(key)
+	}
+	return out, kept, err
 }

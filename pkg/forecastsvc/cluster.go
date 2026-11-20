@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,10 +16,24 @@ import (
 	"gorm.io/gorm"
 )
 
-// The cluster and the nodes, as the Prometheus data source of the modules sees them now (P10 A3). Every figure is the answer of the data source to a query of the
-// set the pages and the Grafana dashboard share (package resourcequery, the parameters query.*): the queries are shown with the figures, so they can be
-// checked in Grafana, and a system whose metrics have other names writes its own in the parameter. None of it is stored; what is stored is what the operator
-// reported (package inventorysvc).
+// The cluster and the nodes, as the Prometheus data source of the modules sees them now. Every figure is the answer of the data source to a query, and the
+// query comes from, in this order: the metric mapping of the data source for that figure (the page "metric templates", kinds cluster_* and node_*), else
+// the system parameter query.<name> when it was edited, else the default of the set the pages and the Grafana dashboard share (package resourcequery). The
+// queries are shown with the figures, with where each came from, so they can be checked in Grafana, and a system whose metrics have other names writes its
+// own once, in the mapping. None of it is stored; what is stored is what the operator reported (package inventorysvc).
+
+// Where a query of the cluster set comes from.
+const (
+	QueryFromMapping   = "mapping"
+	QueryFromParameter = "parameter"
+	QueryFromDefault   = "default"
+)
+
+// The reasons the cluster could not be read at all (a figure that fails is told with the figure instead).
+const (
+	ClusterNoDatasource = "no_datasource"
+	ClusterUnreachable  = "unreachable"
+)
 
 // ClusterCapacity is what the cluster has to give, has given out and uses right now. A figure the data source has no series for is left out with a note.
 type ClusterCapacity struct {
@@ -35,15 +50,32 @@ type ClusterCapacity struct {
 	// UsedCPU is in cores and UsedMemory in bytes: what all the containers use now; 0 with a note when the data source has no such series.
 	UsedCPU    float64 `json:"used_cpu"`
 	UsedMemory float64 `json:"used_memory"`
-	// Queries are the PromQL that was sent, by what it asks for.
+	// Queries are the PromQL that was sent, by what it asks for, with the value each answered and where its text came from.
 	Queries []ClusterQuery `json:"queries"`
 	Notes   []string       `json:"notes"`
+	// Configured is true when at least one figure has a metric mapping of the data source.
+	Configured bool `json:"configured"`
+	// Missing are the metric kinds with no mapping in the data source: the figures that use the parameter or the default instead.
+	Missing []string `json:"missing"`
+	// Reason is set (and the figures are empty) when the cluster could not be read at all: no data source (ClusterNoDatasource) or one that cannot be
+	// asked (ClusterUnreachable); Message says what to do.
+	Reason  string `json:"reason,omitempty"`
+	Message string `json:"message,omitempty"`
 }
 
 // ClusterQuery is a query sent for the cluster.
 type ClusterQuery struct {
 	Name  string `json:"name"`
+	Title string `json:"title"`
+	Kind  string `json:"kind"`
 	Query string `json:"query"`
+	// Source is QueryFromMapping, QueryFromParameter or QueryFromDefault; Mapping is the name of the metric mapping when it is the first.
+	Source    string `json:"source"`
+	Mapping   string `json:"mapping,omitempty"`
+	MappingID uint   `json:"mapping_id,omitempty"`
+	// Value is the answer of a figure of the cluster; the figures of the nodes have one for each node, see NodeUsage.
+	Value *float64 `json:"value,omitempty"`
+	Error string   `json:"error,omitempty"`
 }
 
 // Queries is the set of PromQL in force: the default of each, replaced by the parameter query.<name> when the parameter has a text.
@@ -54,11 +86,76 @@ func (s *Service) Queries(ctx context.Context) resourcequery.Set {
 	return resourcequery.Load(ctx, s.Config)
 }
 
-// ClusterDatasourceID is the data source the cluster and node figures are asked of: the system parameter cluster.datasource_id, else the data source of the
-// metric mapping of the first enabled module that has a metric source (preferring the module asked for).
+// queryOrigin is where the text of one query comes from.
+type queryOrigin struct {
+	source    string
+	mapping   string
+	mappingID uint
+}
+
+// rangeText is what {{range}} of a mapping is filled with when the platform asks for a figure of the cluster (an instant query).
+const rangeText = "5m"
+
+// QueriesFor is the set with the queries of the figures of the cluster and of the nodes taken from the metric mappings of the data source (the data source of
+// the cluster when datasourceID is 0): what the pages ask and what the Grafana dashboard is generated from. With no data source or no mapping it is the set of
+// the parameters. The second result says where each query came from, the third which metric kinds have no mapping.
+func (s *Service) QueriesFor(ctx context.Context, datasourceID uint) (resourcequery.Set, map[string]queryOrigin, []string) {
+	set := s.Queries(ctx)
+	origin := map[string]queryOrigin{}
+	defaults := resourcequery.Defaults()
+	for name, text := range set {
+		if text == defaults[name] {
+			origin[name] = queryOrigin{source: QueryFromDefault}
+		} else {
+			origin[name] = queryOrigin{source: QueryFromParameter}
+		}
+	}
+	missing := []string{}
+	byKind := map[string]*model.MetricMapping{}
+	if s.Mappings != nil {
+		if datasourceID == 0 {
+			datasourceID, _ = s.ClusterDatasourceID(ctx, 0)
+		}
+		if datasourceID != 0 {
+			if list, err := s.Mappings.Scoped(ctx, datasourceID); err == nil {
+				for _, m := range list {
+					byKind[m.Metric] = m // the newest of a kind wins
+				}
+			}
+		}
+	}
+	for _, name := range resourcequery.MappedNames() {
+		kind := resourcequery.MappingKind[name]
+		m := byKind[kind]
+		if m == nil {
+			missing = append(missing, kind)
+			continue
+		}
+		set[name] = strings.TrimSpace(strings.ReplaceAll(m.Query, "{{range}}", rangeText))
+		origin[name] = queryOrigin{source: QueryFromMapping, mapping: m.Name, mappingID: m.ID}
+	}
+	return set, origin, missing
+}
+
+// ClusterDatasourceID is the data source the cluster and node figures are asked of: the system parameter cluster.datasource_id, else the data source that
+// has the most metric mappings of the cluster and the nodes, else the data source of the metric mapping of the first enabled module that has a metric
+// source (preferring the module asked for).
 func (s *Service) ClusterDatasourceID(ctx context.Context, moduleID uint) (uint, error) {
 	if id := uint(s.Count(ctx, timing.ClusterDatasource)); id != 0 {
 		return id, nil
+	}
+	if s.Mappings != nil {
+		if list, err := s.Mappings.Scoped(ctx, 0); err == nil && len(list) > 0 {
+			counts := map[uint]int{}
+			best := list[0].DatasourceID
+			for _, m := range list {
+				counts[m.DatasourceID]++
+				if counts[m.DatasourceID] > counts[best] {
+					best = m.DatasourceID
+				}
+			}
+			return best, nil
+		}
 	}
 	ids := []uint{}
 	if moduleID != 0 {
@@ -100,32 +197,45 @@ func (s *Service) clusterQuerier(ctx context.Context, datasourceID uint) (*model
 	return ds, nil
 }
 
+// The messages of a cluster that cannot be read; the page shows them with the way to set it up.
+const (
+	msgNoDatasource = "No data source is chosen for the cluster. Create the cluster and node metrics in \"Metric Templates\" (the cluster.* and node.* presets) on a data source, or set the system parameter cluster.datasource_id."
+)
+
 // ClusterCapacityOf asks the Prometheus data source about the cluster: the data source of the module when module_id is given and datasourceID is 0 (else the
-// one the parameter or the first module names).
+// one the parameter or the first module names). A cluster that cannot be read at all is an answer with a reason, not an error: the page tells what to set up.
 func (s *Service) ClusterCapacityOf(ctx context.Context, moduleID, datasourceID uint) (*ClusterCapacity, error) {
 	if moduleID != 0 {
 		if _, err := s.Modules.Get(ctx, moduleID); err != nil {
 			return nil, err
 		}
 	}
+	out := &ClusterCapacity{At: s.now(), Notes: []string{}, Queries: []ClusterQuery{}, Missing: []string{}}
 	if datasourceID == 0 {
 		id, err := s.ClusterDatasourceID(ctx, moduleID)
 		if err != nil {
+			if errors.Is(err, ErrCostNoDatasource) {
+				out.Reason, out.Message = ClusterNoDatasource, msgNoDatasource
+				return out, nil
+			}
 			return nil, err
 		}
 		datasourceID = id
 	}
 	ds, err := s.clusterQuerier(ctx, datasourceID)
 	if err != nil {
-		return nil, err
+		out.Reason, out.Message = ClusterUnreachable, err.Error()
+		return out, nil
 	}
+	out.Datasource = CostSource{ID: ds.ID, Name: ds.Name}
 	q, err := s.vectorQuerierOf(ctx, ds)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrCostCluster, err)
+		out.Reason, out.Message = ClusterUnreachable, fmt.Sprintf("the data source %s cannot be asked: %v", ds.Name, err)
+		return out, nil
 	}
-	set := s.Queries(ctx)
-	at := s.now()
-	out := &ClusterCapacity{Datasource: CostSource{ID: ds.ID, Name: ds.Name}, At: at, Notes: []string{}, Queries: []ClusterQuery{}}
+	set, origin, missing := s.QueriesFor(ctx, ds.ID)
+	out.Missing = missing
+	at := out.At
 	var nodes, ready, pods float64
 	// the figures are independent: they are asked together, and the gate of the data source keeps their number in bounds
 	var wg sync.WaitGroup
@@ -138,12 +248,15 @@ func (s *Service) ClusterCapacityOf(ctx context.Context, moduleID, datasourceID 
 			got, err := scalarOf(ctx, q, text, at)
 			mu.Lock()
 			defer mu.Unlock()
-			out.Queries = append(out.Queries, ClusterQuery{Name: name, Query: text})
+			cq := clusterQueryOf(name, text, origin[name])
 			if err != nil {
+				cq.Error = err.Error()
 				out.Notes = append(out.Notes, name+": "+err.Error())
-				return
+			} else {
+				*into = got
+				cq.Value = &got
 			}
-			*into = got
+			out.Queries = append(out.Queries, cq)
 		}()
 	}
 	run("cluster_nodes", &nodes)
@@ -159,7 +272,23 @@ func (s *Service) ClusterCapacityOf(ctx context.Context, moduleID, datasourceID 
 	out.Nodes, out.NodesReady, out.Pods = int(math.Round(nodes)), int(math.Round(ready)), int(math.Round(pods))
 	sort.Slice(out.Queries, func(i, j int) bool { return queryOrder(out.Queries[i].Name) < queryOrder(out.Queries[j].Name) })
 	sort.Strings(out.Notes)
+	for _, cq := range out.Queries {
+		if cq.Source == QueryFromMapping {
+			out.Configured = true
+		}
+	}
 	return out, nil
+}
+
+func clusterQueryOf(name, text string, from queryOrigin) ClusterQuery {
+	cq := ClusterQuery{Name: name, Query: text, Kind: resourcequery.MappingKind[name], Source: from.source, Mapping: from.mapping, MappingID: from.mappingID}
+	if q, ok := resourcequery.Find(name); ok {
+		cq.Title = q.Title
+	}
+	if cq.Source == "" {
+		cq.Source = QueryFromDefault
+	}
+	return cq
 }
 
 func queryOrder(name string) int {
@@ -179,6 +308,9 @@ type NodeUsage struct {
 	Nodes   map[string]NodeFigures `json:"nodes"`
 	Queries []ClusterQuery         `json:"queries"`
 	Notes   []string               `json:"notes"`
+	// Reason and Message: see ClusterCapacity.
+	Reason  string `json:"reason,omitempty"`
+	Message string `json:"message,omitempty"`
 }
 
 // NodeFigures are the figures of one node: CPU in cores and memory in bytes.
@@ -194,24 +326,31 @@ type NodeFigures struct {
 
 // NodeUsageOf asks the data source for the figures of every node: each query gives a series for each node, with the label node.
 func (s *Service) NodeUsageOf(ctx context.Context, datasourceID uint) (*NodeUsage, error) {
+	out := &NodeUsage{At: s.now(), Nodes: map[string]NodeFigures{}, Queries: []ClusterQuery{}, Notes: []string{}}
 	if datasourceID == 0 {
 		id, err := s.ClusterDatasourceID(ctx, 0)
 		if err != nil {
+			if errors.Is(err, ErrCostNoDatasource) {
+				out.Reason, out.Message = ClusterNoDatasource, msgNoDatasource
+				return out, nil
+			}
 			return nil, err
 		}
 		datasourceID = id
 	}
 	ds, err := s.clusterQuerier(ctx, datasourceID)
 	if err != nil {
-		return nil, err
+		out.Reason, out.Message = ClusterUnreachable, err.Error()
+		return out, nil
 	}
+	out.Datasource = CostSource{ID: ds.ID, Name: ds.Name}
 	q, err := s.vectorQuerierOf(ctx, ds)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrCostCluster, err)
+		out.Reason, out.Message = ClusterUnreachable, fmt.Sprintf("the data source %s cannot be asked: %v", ds.Name, err)
+		return out, nil
 	}
-	set := s.Queries(ctx)
-	at := s.now()
-	out := &NodeUsage{Datasource: CostSource{ID: ds.ID, Name: ds.Name}, At: at, Nodes: map[string]NodeFigures{}, Queries: []ClusterQuery{}, Notes: []string{}}
+	set, origin, _ := s.QueriesFor(ctx, ds.ID)
+	at := out.At
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	type spec struct {
@@ -235,19 +374,23 @@ func (s *Service) NodeUsageOf(ctx context.Context, datasourceID uint) (*NodeUsag
 			samples, err := q.QueryVector(ctx, text, at)
 			mu.Lock()
 			defer mu.Unlock()
-			out.Queries = append(out.Queries, ClusterQuery{Name: sp.name, Query: text})
+			cq := clusterQueryOf(sp.name, text, origin[sp.name])
+			defer func() { out.Queries = append(out.Queries, cq) }()
 			if err != nil {
+				cq.Error = err.Error()
 				out.Notes = append(out.Notes, sp.name+": "+err.Error())
 				return
 			}
 			if len(samples) == 0 {
-				out.Notes = append(out.Notes, sp.name+": the data source has no series for it")
+				cq.Error = "the data source has no series for it"
+				out.Notes = append(out.Notes, sp.name+": "+cq.Error)
 				return
 			}
 			for _, sm := range samples {
 				node := sm.Labels["node"]
 				if node == "" {
-					out.Notes = append(out.Notes, sp.name+": a series has no node label: the query has to give one series for each node, with the label node")
+					cq.Error = "a series has no node label: the query has to give one series for each node, with the label node"
+					out.Notes = append(out.Notes, sp.name+": "+cq.Error)
 					return
 				}
 				if math.IsNaN(sm.Value) || math.IsInf(sm.Value, 0) {

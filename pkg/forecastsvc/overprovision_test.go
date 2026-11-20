@@ -116,6 +116,11 @@ func TestTheDetailHasTheChartTheMovingAveragesAndTheHistory(t *testing.T) {
 	assert.Equal(t, 300, c.StepSecs, "a window of a day is read every 5 minutes")
 	assert.Equal(t, []string{"MA5@5m", "MA15@5m", "MA25@5m"}, c.Labels)
 	assert.InDelta(t, 4.0, c.Request, 1e-9)
+	// the use of all the replicas together is drawn next to the use of one Pod
+	require.NotEmpty(t, c.Total, "the module has a sum over the Pods")
+	assert.Len(t, c.TotalTS, len(c.Total))
+	assert.Equal(t, d.Replicas, c.Replicas)
+	assert.Greater(t, c.Total[0], c.Value[0], "the sum of the replicas is more than one of them")
 	assert.Nil(t, d.JVM, "the module has no JVM metric")
 	assert.NotEmpty(t, d.History)
 	assert.Equal(t, 0.9, d.Params.PeakNearLimit)

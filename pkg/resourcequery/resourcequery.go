@@ -204,3 +204,26 @@ func legendNote(q Query) string {
 	}
 	return "It must give one series for each " + strings.Trim(strings.SplitN(q.Legend, "{{", 2)[1], "}}") + ", with that label."
 }
+
+// MappingKind says which queries are the figures of a metric mapping (the metric templates of the kinds cluster_* and node_*): the query of the set by
+// the kind of the mapping that replaces it. Every other query of the set is not asked of the data source by the platform and stays a parameter.
+var MappingKind = map[string]string{
+	"cluster_nodes": "cluster_nodes", "cluster_nodes_ready": "cluster_nodes_ready", "cluster_pods": "cluster_pods",
+	"cluster_allocatable_cpu": "cluster_cpu_allocatable", "cluster_allocatable_memory": "cluster_memory_allocatable",
+	"cluster_requests_cpu": "cluster_cpu_requests", "cluster_requests_memory": "cluster_memory_requests",
+	"cluster_used_cpu": "cluster_cpu_used", "cluster_used_memory": "cluster_memory_used",
+	"node_cpu_usage": "node_cpu_used", "node_memory_usage": "node_memory_used", "node_cpu_allocatable": "node_cpu_allocatable",
+	"node_memory_allocatable": "node_memory_allocatable", "node_cpu_requests": "node_cpu_requests", "node_memory_requests": "node_memory_requests",
+	"node_ready": "node_ready",
+}
+
+// MappedNames lists the queries that a metric mapping can replace, in the order of the set.
+func MappedNames() []string {
+	out := make([]string, 0, len(MappingKind))
+	for _, q := range Queries {
+		if _, ok := MappingKind[q.Name]; ok {
+			out = append(out, q.Name)
+		}
+	}
+	return out
+}

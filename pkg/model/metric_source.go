@@ -164,6 +164,9 @@ func (s *MetricSource) Validate() error {
 	if !known {
 		return fmt.Errorf("unsupported metric kind %q", s.Kind)
 	}
+	if IsScopedKind(s.Kind) {
+		return fmt.Errorf("%q is a figure of the cluster or of a node, not of a module: it is set up in the metric mappings and read by the resource dashboard", s.Kind)
+	}
 	if s.MappingID == 0 {
 		return fmt.Errorf("a metric mapping is required")
 	}

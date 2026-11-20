@@ -197,7 +197,8 @@ func TestThePagesReadTheNodesTheTrendTheWorkloadsAndTheWorkloadOfAModule(t *test
 
 func TestTheLiveFiguresOfTheNodesSayWhenThereIsNoDataSourceToAskInsteadOfFailingThePage(t *testing.T) {
 	rig := newInventoryRig(t)
-	w, _ := rig.call(t, http.MethodGet, "/inventory/nodes/usage", nil)
-	assert.Equal(t, http.StatusBadGateway, w.Code, "no data source: the page shows the reason where the figures would be")
-	assert.Contains(t, w.Body.String(), "data source")
+	w, body := rig.call(t, http.MethodGet, "/inventory/nodes/usage", nil)
+	assert.Equal(t, http.StatusOK, w.Code, "no data source: an answer with the reason, so the page shows it where the figures would be")
+	assert.Equal(t, "no_datasource", body["reason"])
+	assert.Contains(t, body["message"], "Metric Templates")
 }

@@ -231,6 +231,12 @@ type ResourceChart struct {
 	Labels  []string  `json:"ma_labels"`
 	Request float64   `json:"request"`
 	Suggest float64   `json:"suggested"`
+	// TotalTS and Total are the use of all the replicas together (the sum over the Pods) over the window, in the step of the chart; empty when the module's
+	// metric has no sum over the Pods. Replicas is the number of replicas the module has now, which the request and the suggestion of one Pod are
+	// multiplied by to be drawn against the total.
+	TotalTS  []int64   `json:"total_ts"`
+	Total    []float64 `json:"total"`
+	Replicas int       `json:"replicas"`
 }
 
 // ModuleOverprovision is the analysis of one module over the windows asked for.
@@ -462,7 +468,9 @@ func (s *Service) OverprovisionDetail(ctx context.Context, moduleID uint, window
 		if use == nil {
 			continue
 		}
-		mo.Charts = append(mo.Charts, opChart(c.kind, sliceFrom(use.pod, fromTS, toTS), use.step, windowMinutes, c.res))
+		chart := opChart(c.kind, sliceFrom(use.pod, fromTS, toTS), use.step, windowMinutes, c.res)
+		opTotal(chart, sliceFrom(use.total, fromTS, toTS), use.step, windowMinutes, replicas)
+		mo.Charts = append(mo.Charts, chart)
 	}
 	mo.JVM = l.jvm(fromTS, toTS, wr)
 	mo.Metrics = l.metrics(fromTS, toTS)
@@ -507,6 +515,23 @@ func opChart(kind string, pts []overprovision.Point, stored, windowMinutes int, 
 	}
 	c.Value, c.MA5, c.MA15, c.MA25 = thinned[0], thinned[1], thinned[2], thinned[3]
 	return c
+}
+
+// opTotal adds the use of all the replicas together to the chart, thinned the same way as the series of one Pod.
+func opTotal(c *ResourceChart, pts []overprovision.Point, stored, windowMinutes, replicas int) {
+	c.TotalTS, c.Total, c.Replicas = []int64{}, []float64{}, replicas
+	if len(pts) == 0 {
+		return
+	}
+	rs := overprovision.Resample(pts, overprovision.MAStepFor(windowMinutes, stored))
+	stride := (len(rs) + opMaxPoints - 1) / opMaxPoints
+	if stride < 1 {
+		stride = 1
+	}
+	for i := 0; i < len(rs); i += stride {
+		c.TotalTS = append(c.TotalTS, rs[i].TS)
+		c.Total = append(c.Total, round6(rs[i].V))
+	}
 }
 
 func pointValues(p []overprovision.Point) []float64 {

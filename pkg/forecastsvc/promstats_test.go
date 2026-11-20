@@ -10,6 +10,7 @@ import (
 	"github.com/cylonchau/kube-res-foresight/pkg/cost"
 	"github.com/cylonchau/kube-res-foresight/pkg/model"
 	"github.com/cylonchau/kube-res-foresight/pkg/promclient"
+	"github.com/cylonchau/kube-res-foresight/pkg/timing"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -121,4 +122,92 @@ func TestACustomRangeIsAskedAtItsEndAndRefusedBackToFront(t *testing.T) {
 	assert.ErrorIs(t, err, ErrOverprovisionWindow)
 	_, err = f.svc.PrometheusStats(context.Background(), f.module.ID, 17, time.Time{}, time.Time{})
 	assert.ErrorIs(t, err, ErrOverprovisionWindow)
+}
+
+// slowFake answers the metrics whose query contains fast at once and makes the others wait for the context to end, as a Prometheus that is slow on a long window.
+type slowFake struct {
+	promFake
+	fast string
+}
+
+func (p *slowFake) QueryVector(ctx context.Context, query string, at time.Time) ([]promclient.VectorSample, error) {
+	if !strings.Contains(query, p.fast) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	return p.promFake.QueryVector(ctx, query, at)
+}
+
+func TestTheCoreScopeAsksOnlyTheCPUAndTheMemoryAndTheMoreScopeTheRest(t *testing.T) {
+	f := opFixture(t)
+	fake := &promFake{}
+	f.svc.NewCostQuerier = func(*model.Datasource) (cost.Querier, error) { return fake, nil }
+	ctx := context.Background()
+	all, err := f.svc.PrometheusStatsScoped(ctx, f.module.ID, 24*60, time.Time{}, time.Time{}, PromScopeAll)
+	require.NoError(t, err)
+	core, err := f.svc.PrometheusStatsScoped(ctx, f.module.ID, 24*60, time.Time{}, time.Time{}, PromScopeCore)
+	require.NoError(t, err)
+	more, err := f.svc.PrometheusStatsScoped(ctx, f.module.ID, 24*60, time.Time{}, time.Time{}, PromScopeMore)
+	require.NoError(t, err)
+	kinds := func(p *PromStats) []string {
+		out := []string{}
+		for _, m := range p.Metrics {
+			out = append(out, m.Kind)
+		}
+		return out
+	}
+	assert.Len(t, all.Metrics, len(core.Metrics)+len(more.Metrics), "the two scopes are the whole")
+	for _, k := range kinds(core) {
+		assert.Contains(t, []string{"cpu", "memory"}, k)
+	}
+	for _, k := range kinds(more) {
+		assert.NotContains(t, []string{"cpu", "memory"}, k)
+	}
+	assert.False(t, all.Partial)
+}
+
+func TestWhenTheTimeLimitIsOverTheMetricsThatCameAreGivenAndTheOthersAreToldNotReached(t *testing.T) {
+	f := opFixture(t)
+	fake := &slowFake{fast: "cpu"}
+	f.svc.NewCostQuerier = func(*model.Datasource) (cost.Querier, error) { return fake, nil }
+	// the gate of the data source is wide: the slow metrics do not hold the places the quick one needs
+	require.NoError(t, f.db.AutoMigrate(&model.SysConfig{}))
+	require.NoError(t, f.db.Create(&model.SysConfig{ConfigKey: timing.PrometheusTotalConcurrency.Key, ConfigValue: "64", ConfigName: "x"}).Error)
+	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	got, err := f.svc.PrometheusStats(ctx, f.module.ID, 24*60, time.Time{}, time.Time{})
+	require.NoError(t, err, "the time limit is an answer with what came, not an error (a 504)")
+	assert.Less(t, time.Since(started), 1500*time.Millisecond, "the answer is made before the limit of the request, not at it")
+	assert.True(t, got.Partial)
+	assert.Positive(t, got.Skipped)
+	var cpuDone, skipped int
+	for _, m := range got.Metrics {
+		if m.Kind == "cpu" && m.Total != nil {
+			cpuDone++
+		}
+		if m.Skipped {
+			skipped++
+			assert.Contains(t, m.Error, "time limit")
+			assert.Nil(t, m.Total)
+		}
+	}
+	assert.Equal(t, 1, cpuDone, "the metric that answered is complete")
+	assert.Equal(t, got.Skipped, skipped)
+}
+
+func TestAPartialAnswerIsNotKeptSoTheNextAskWorksOnWhatWasNotReached(t *testing.T) {
+	f := opFixture(t)
+	fake := &slowFake{fast: "cpu"}
+	f.svc.NewCostQuerier = func(*model.Datasource) (cost.Querier, error) { return fake, nil }
+	ctx, cancel := context.WithTimeout(context.Background(), 1200*time.Millisecond)
+	first, _, err := f.svc.PrometheusStatsCached(ctx, f.module.ID, 24*60, time.Time{}, time.Time{})
+	cancel()
+	require.NoError(t, err)
+	require.True(t, first.Partial)
+	fake.fast = "" // the data source is quick now: every query contains the empty text
+	second, kept, err := f.svc.PrometheusStatsCached(context.Background(), f.module.ID, 24*60, time.Time{}, time.Time{})
+	require.NoError(t, err)
+	assert.False(t, second.Partial, "asked again, it is complete")
+	assert.NotEqual(t, "hit", string(kept.Source), "the partial answer was not served from the cache")
 }

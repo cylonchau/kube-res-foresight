@@ -145,8 +145,24 @@ func TestTheClusterDataSourceIsTheParameterWhenItIsSetAndTheOneOfAModuleWhenItIs
 	set, err := f.svc.ClusterDatasourceID(ctx, 0)
 	require.NoError(t, err)
 	assert.EqualValues(t, 4242, set)
-	_, err = f.svc.ClusterCapacityOf(ctx, 0, 0)
-	assert.ErrorContains(t, err, "4242", "a data source that does not exist is said so")
+	got, err := f.svc.ClusterCapacityOf(ctx, 0, 0)
+	require.NoError(t, err, "a cluster that cannot be read is an answer with a reason, not an error")
+	assert.Equal(t, ClusterUnreachable, got.Reason)
+	assert.Contains(t, got.Message, "4242", "a data source that does not exist is said so")
+}
+
+func TestWithNoDataSourceTheClusterAnswersWithTheReasonAndWhatToSetUp(t *testing.T) {
+	f, _ := clusterFixture(t)
+	require.NoError(t, f.db.Model(&model.ForecastModule{}).Where("1 = 1").Update("enabled", false).Error)
+	got, err := f.svc.ClusterCapacityOf(context.Background(), 0, 0)
+	require.NoError(t, err)
+	assert.Equal(t, ClusterNoDatasource, got.Reason)
+	assert.Contains(t, got.Message, "Metric Templates")
+	assert.Empty(t, got.Queries)
+	assert.NotNil(t, got.Notes)
+	nodes, err := f.svc.NodeUsageOf(context.Background(), 0)
+	require.NoError(t, err)
+	assert.Equal(t, ClusterNoDatasource, nodes.Reason)
 }
 
 func TestTheNodesAreEachGivenTheirFiguresFromTheSeriesWithTheirName(t *testing.T) {
@@ -180,4 +196,78 @@ func TestANodeQueryThatGivesNoNodeLabelOrNoSeriesIsToldInsteadOfGuessed(t *testi
 	assert.Contains(t, got.Notes[1], "node_memory_usage: the data source has no series for it")
 	assert.Nil(t, got.Nodes["n1"].CPUUsed)
 	assert.NotNil(t, got.Nodes["n1"].MemoryRequested, "the other figures are there")
+}
+
+// scopedMapping makes the mapping of a cluster or node figure on the data source of the fixture.
+func scopedMapping(t *testing.T, f *fixture, name, kind, level, query string) *model.MetricMapping {
+	t.Helper()
+	m := &model.MetricMapping{DatasourceID: f.cpuMap.DatasourceID, Name: name, Metric: kind, Level: level, Query: query, StepSeconds: 60, Enabled: true}
+	require.NoError(t, model.ValidateMetricMapping(m))
+	require.NoError(t, f.svc.Mappings.Create(context.Background(), m))
+	return m
+}
+
+func TestAMetricMappingOfTheDataSourceIsTheQueryOfTheFigureAndBeatsTheParameter(t *testing.T) {
+	f, fake := clusterFixture(t)
+	fromMapping := `sum(my_cluster_cpu_used{window="{{range}}"})`
+	fromParameter := `sum(param_cpu_used)`
+	fake.byQuery[`sum(my_cluster_cpu_used{window="5m"})`] = []promclient.VectorSample{{Value: 7.5}}
+	fake.byQuery[fromParameter] = []promclient.VectorSample{{Value: 1}}
+	require.NoError(t, f.db.Create(&model.SysConfig{ConfigKey: resourcequery.Key("cluster_used_cpu"), ConfigValue: fromParameter, ConfigName: "x"}).Error)
+	mp := scopedMapping(t, f, "cluster cpu used", "cluster_cpu_used", "cluster", fromMapping)
+
+	got, err := f.svc.ClusterCapacityOf(context.Background(), f.module.ID, 0)
+	require.NoError(t, err)
+	assert.InDelta(t, 7.5, got.UsedCPU, 1e-9, "the figure is the answer to the query of the mapping, {{range}} filled")
+	assert.True(t, got.Configured)
+	for _, q := range got.Queries {
+		switch q.Name {
+		case "cluster_used_cpu":
+			assert.Equal(t, QueryFromMapping, q.Source)
+			assert.Equal(t, "cluster cpu used", q.Mapping)
+			assert.Equal(t, mp.ID, q.MappingID)
+			require.NotNil(t, q.Value)
+			assert.InDelta(t, 7.5, *q.Value, 1e-9)
+		case "cluster_used_memory":
+			assert.Equal(t, QueryFromDefault, q.Source, "a figure with no mapping and no edit is the default")
+		}
+	}
+	assert.NotContains(t, fake.asked, fromParameter, "the parameter is not asked when a mapping has the figure")
+	assert.NotContains(t, got.Missing, "cluster_cpu_used")
+	assert.Contains(t, got.Missing, "cluster_memory_used", "what has no mapping is listed, so the page can say what to create")
+	assert.Len(t, got.Missing, 15, "the 9 of the cluster and the 7 of the nodes, less the one that has a mapping")
+}
+
+func TestTheNodeFiguresAreReadFromTheNodeMappingsToo(t *testing.T) {
+	f, fake := clusterFixture(t)
+	mine := `sum by (node) (my_node_cpu)`
+	fake.byQuery[mine] = []promclient.VectorSample{{Labels: map[string]string{"node": "n1"}, Value: 4.5}}
+	scopedMapping(t, f, "node cpu", "node_cpu_used", "node", mine)
+	got, err := f.svc.NodeUsageOf(context.Background(), 0)
+	require.NoError(t, err)
+	require.NotNil(t, got.Nodes["n1"].CPUUsed)
+	assert.InDelta(t, 4.5, *got.Nodes["n1"].CPUUsed, 1e-9)
+	for _, q := range got.Queries {
+		if q.Name == "node_cpu_usage" {
+			assert.Equal(t, QueryFromMapping, q.Source)
+		}
+	}
+}
+
+func TestTheDataSourceWithTheClusterMappingsIsTheClusterDataSource(t *testing.T) {
+	f, _ := clusterFixture(t)
+	ctx := context.Background()
+	scopedMapping(t, f, "nodes", "cluster_nodes", "cluster", `count(my_nodes)`)
+	id, err := f.svc.ClusterDatasourceID(ctx, 0)
+	require.NoError(t, err)
+	assert.Equal(t, f.cpuMap.DatasourceID, id)
+}
+
+func TestAClusterFigureCannotBeAModuleSourceAndTheLevelsAreKept(t *testing.T) {
+	src := &model.MetricSource{Name: "n", Kind: "cluster_nodes", MappingID: 1, Resource: "signal"}
+	assert.ErrorContains(t, src.Validate(), "not of a module")
+	wrongLevel := &model.MetricMapping{DatasourceID: 1, Name: "x", Metric: "cluster_nodes", Level: "workload", Query: `count(x{namespace="{{namespace}}",pod=~"{{workload}}"})`, Enabled: true}
+	assert.ErrorContains(t, model.ValidateMetricMapping(wrongLevel), `level must be "cluster"`)
+	notNode := &model.MetricMapping{DatasourceID: 1, Name: "x", Metric: "cpu", Level: "node", Query: `sum(x)`, Enabled: true}
+	assert.ErrorContains(t, model.ValidateMetricMapping(notNode), "node level is for the metrics of the nodes")
 }

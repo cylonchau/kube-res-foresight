@@ -2,6 +2,7 @@ package rdb
 
 import (
 	"context"
+	"sort"
 
 	"github.com/cylonchau/kube-res-foresight/pkg/apis"
 	"github.com/cylonchau/kube-res-foresight/pkg/model"
@@ -150,4 +151,26 @@ func (dao *MetricMappingDAO) Delete(ctx context.Context, ids []uint) error {
 		return nil
 	}
 	return dao.db.WithContext(ctx).Where("id IN ?", ids).Delete(&model.MetricMapping{}).Error
+}
+
+// ScopedKinds is the list of the metric kinds of the cluster and the nodes.
+func scopedKindList() []string {
+	out := make([]string, 0, len(model.ScopedKinds))
+	for kind := range model.ScopedKinds {
+		out = append(out, kind)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// Scoped returns the enabled mappings of the figures of the cluster and of the nodes of a data source (all the data sources when datasourceID is 0), the newest
+// of a kind last, so that the caller that keeps the last of a kind keeps the newest.
+func (dao *MetricMappingDAO) Scoped(ctx context.Context, datasourceID uint) ([]*model.MetricMapping, error) {
+	q := dao.db.WithContext(ctx).Where("enabled = ? AND metric IN ?", true, scopedKindList())
+	if datasourceID != 0 {
+		q = q.Where("datasource_id = ?", datasourceID)
+	}
+	var list []*model.MetricMapping
+	err := q.Order("id ASC").Find(&list).Error
+	return list, err
 }

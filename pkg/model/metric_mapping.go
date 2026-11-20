@@ -81,6 +81,42 @@ var MetricKinds = map[string]string{
 	"gpu_memory_total": "bytes",
 	"network_conn":     "count",
 	"network_error":    "ratio",
+
+	// The cluster and its nodes (the resource dashboard): not a metric of a module, so no module takes them as a source (see ScopedKinds). Each is
+	// the PromQL of one figure the dashboard shows; a node kind answers one series for each node, with the label node.
+	"cluster_nodes":              "count",
+	"cluster_nodes_ready":        "count",
+	"cluster_pods":               "count",
+	"cluster_cpu_allocatable":    "cores",
+	"cluster_memory_allocatable": "bytes",
+	"cluster_cpu_requests":       "cores",
+	"cluster_memory_requests":    "bytes",
+	"cluster_cpu_used":           "cores",
+	"cluster_memory_used":        "bytes",
+	"node_cpu_used":              "cores",
+	"node_memory_used":           "bytes",
+	"node_cpu_allocatable":       "cores",
+	"node_memory_allocatable":    "bytes",
+	"node_cpu_requests":          "cores",
+	"node_memory_requests":       "bytes",
+	"node_ready":                 "count",
+}
+
+// ScopedKinds are the metric kinds of the cluster and of the nodes, with the level a mapping of each has to be at. They are set up in the metric
+// mappings of a data source like the others, and the resource dashboard asks the data source for them; a module cannot take one as a source.
+var ScopedKinds = map[string]string{
+	"cluster_nodes": "cluster", "cluster_nodes_ready": "cluster", "cluster_pods": "cluster",
+	"cluster_cpu_allocatable": "cluster", "cluster_memory_allocatable": "cluster",
+	"cluster_cpu_requests": "cluster", "cluster_memory_requests": "cluster",
+	"cluster_cpu_used": "cluster", "cluster_memory_used": "cluster",
+	"node_cpu_used": "node", "node_memory_used": "node", "node_cpu_allocatable": "node", "node_memory_allocatable": "node",
+	"node_cpu_requests": "node", "node_memory_requests": "node", "node_ready": "node",
+}
+
+// IsScopedKind reports whether the kind describes the cluster or its nodes (and so is no source of a module).
+func IsScopedKind(kind string) bool {
+	_, ok := ScopedKinds[kind]
+	return ok
 }
 
 // AuxiliaryMetrics are the collected metrics that are never forecast themselves, in a stable order.
@@ -131,6 +167,7 @@ func IsAuxiliaryMetric(metric string) bool {
 // RPS is often only available per Service, so the level is recorded, never inferred.
 var MetricLevels = map[string][]string{
 	"cluster":   {},
+	"node":      {},
 	"namespace": {"namespace"},
 	"workload":  {"namespace", "workload"},
 	"service":   {"namespace", "service"},
@@ -191,6 +228,12 @@ func ValidateMetricMapping(m *MetricMapping) error {
 	required, ok := MetricLevels[m.Level]
 	if !ok {
 		return fmt.Errorf("unsupported level %q", m.Level)
+	}
+	if level, scoped := ScopedKinds[m.Metric]; scoped && m.Level != level {
+		return fmt.Errorf("metric %q is a figure of the %s: its level must be %q", m.Metric, level, level)
+	}
+	if m.Level == "node" && !IsScopedKind(m.Metric) {
+		return fmt.Errorf("the node level is for the metrics of the nodes (node_cpu_used and the like), not %q", m.Metric)
 	}
 	if m.Query == "" {
 		return fmt.Errorf("query is required")

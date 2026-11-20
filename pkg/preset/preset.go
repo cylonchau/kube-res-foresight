@@ -386,11 +386,11 @@ func init() {
 }
 
 // All returns the presets ordered by id.
-func All() []Preset { return append([]Preset(nil), presets...) }
+func All() []Preset { return append(append([]Preset(nil), presets...), scopedPresets...) }
 
 // Get returns the preset with the id.
 func Get(id string) (Preset, error) {
-	for _, p := range presets {
+	for _, p := range All() {
 		if p.ID == id {
 			return p, nil
 		}
