@@ -982,3 +982,10 @@ all ten management pages and the shared product title. Screenshots were inspecte
 - **验证**：Go 测试、`go vet`、`gofmt`；前端 `vue-tsc`、oxlint、oxfmt、单元测试；真浏览器（临时库、假 Prometheus）走了列表（31 个模块 3 页）、详情的推荐表（有／没有 Requests 指标）、模块表单的大盘指标栏并保存。
 - **没验证**：真实 Prometheus、真实网关、PostgreSQL、MySQL；AI 窗口没重新点过。读不到数据的真实原因（指标名、标签）在用户的环境里，这里只修了代码里查得到的三处。
 - **注意**：`metric_source` 多两列（`purpose` 默认 both、`per` 默认空），`--migration` 会加；在模块表单里保存时，旧的 Requests／Limits 来源会变成“仅大盘”，从此不再进历史采集（内存 Limits 默认两边都用，OOM 防护读它的历史）。
+
+2026-11-23 续：资源大盘问题修复与调整（监控展示指标与算法计算指标、按模板动态读取、推荐表取整）
+- **做了什么**：看用户真实环境的截图找到原因——Requests／Limits 模板的指标种类选成了 CPU／内存，成了第二、第三个同种类来源，大盘每种只读第一条，所以读不到；现在来源分“监控展示指标”（Requests／Limits，没有权重和算法开关，进大盘、历史、图表，不进算法）和“算法计算指标”（有权重和启用开关，算法只读它们），展示指标可以用任何同单位的 CPU／内存模板；大盘读模块的每一个来源，查询区动态列出；当前值与推荐值表简化、取整、说明“推荐值”（Requests 是预留、Limits 是上限）、没有推荐时只剩当前值和总和；AI 的推荐值由平台算好逐字写进提示词并核对；分析按钮统一样式；P90／P95／P99 三色。细节见 `overprovision-p10.md` 的“资源大盘问题修复与调整（2026-11-23 第四次……）”。
+- **我的理解（请纠正）**：“推荐值”＝建议写进 Pod 的 Requests／Limits（Requests 即 Reserved 预留）；“取整”＝整数 mCPU／核、整数 MiB／GiB，推荐向上取整；展示指标仍会被采集进历史（历史数据展示要求），所以不是“不进历史”。
+- **验证**：Go 测试、`go vet`、`gofmt`；前端 `vue-tsc`、oxlint、oxfmt、单元测试；真浏览器（临时库、假 Prometheus、假语言模型，按用户的做法造了模块）。
+- **没验证**：真实 Prometheus；用户 Limits 模板里 Grafana 的 `$cluster`、`$namespace` 要自己改掉；PostgreSQL、MySQL；历史数据页没在浏览器里点。
+- **注意**：`purpose` 的值改成 `display`／`algorithm`，旧值 `dashboard`／`both`／`history` 仍读得懂（读作 display／algorithm），不用迁移；用户已有的四个 Requests／Limits 来源要在模块表单里手动删掉（算法计算指标里会标黄）再在监控展示指标里绑定，不会自动搬；展示指标不再算权重，也不进预测。

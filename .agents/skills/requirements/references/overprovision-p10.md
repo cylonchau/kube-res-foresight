@@ -391,3 +391,50 @@
 - 前端：`vue-tsc`、oxlint、oxfmt、单元测试（提示词的新列）。
 - 真浏览器（临时库、假 Prometheus）：31 个模块分 3 页、行高都一样、上一页下一页和页码、禁用的模块在列表里；详情的当前与推荐表（有 Requests 的 shop-api 和没有的 gateway）；模块表单的大盘指标栏，改“单 Pod”和“仅大盘”并保存，库里和接口里都对，列表上 CPU Requests 不再除以副本数。
 - **没验证**：真实 Prometheus（PromQL 要自己写对）、真实网关、PostgreSQL、MySQL；AI 窗口没重新点过（只改了提示词，单元测试覆盖）；多集群。
+
+## 资源大盘问题修复与调整（2026-11-23 第四次，监控展示指标与算法计算指标、按模板动态读取、推荐表取整）
+
+**这一节取代上一节里 `purpose` 的三个值（dashboard／history／both）和“Requests／Limits 不进历史采集”的做法**：用户这次明确要的是展示指标（Requests、Limits）也在历史数据和图表里，只是不进算法。
+
+用户这次给了真实环境的截图（数据源 demo-prometheus，模块 demo-shop-web），从截图里看到的原因：
+- 用户建的“demo-cpu-requests / demo-cpu-limits / demo-memory-requests / demo-memory-limits”四个指标模板，指标种类选的是 **CPU / 内存**，不是 `k8s_*`；绑到模块上就成了同一种类（cpu、memory）的第二、第三个来源。大盘每种类只读第一条（`FirstOfKind`），所以查询区永远是原来的四条，Requests／Limits 读不到，使用率和可用量跟着为空。
+- 这些来源还带着权重 1 混进了 CPU／内存的算法指标里。
+- Limits 模板的 PromQL 是从 Grafana 贴来的：`cluster="$cluster"`、`namespace="$namespace"` 没有被替换，又同时有 `namespace="{{namespace}}"`，Prometheus 里什么也匹配不到。**这条需要用户自己改查询**（删掉 `$cluster`、`$namespace` 的匹配，用 `{{namespace}}`、`{{workload}}`）；平台现在在“没有数据”的错误里点出残留的 Grafana 变量。
+
+### 监控展示指标与算法计算指标（`MetricSource.Purpose`：`display` / `algorithm`）
+| 配置项 | 监控展示指标（display） | 算法计算指标（algorithm） |
+|---|---|---|
+| 资源大盘展示 | 支持 | 支持 |
+| 历史数据展示、图表 | 支持（采集进历史） | 支持 |
+| 指标查询与映射 | 需要 | 需要 |
+| 算法权重 | 没有 | 有 |
+| 算法启用／关闭 | 没有 | 有 |
+| 参与预测计算 | 否 | 是 |
+- `AlgorithmRun.ActiveSources()` 默认只给算法来源；大盘、历史采集（`Collect`）、OOM／JVM／Requests／Limits 这类周边指标的读取（`boundSet.sourcesOfKind`）用 `AllSources`，所以展示指标进历史、不进任何算法（`forecastOfResource`、算法的数据集、推荐说明 `sourceDetails` 都不含它）。
+- Requests 与 Limits 四种（`DisplayKinds`）新建时默认 `display`；旧版本的值 `dashboard` 读作 `display`，`both`／`history`／空读作 `algorithm`（`NormalPurpose`）。
+- 展示指标可以用**任何单位对的 CPU／内存模板**（`AcceptsMapping`：CPU 类 cores、内存类 bytes，不管模板建的时候选的种类），所以用户已有的四个模板不用重建。
+- 模块表单：「算法计算指标」（有权重、启用开关，只给算法）和「监控展示指标（Requests / Limits）」（固定四行：CPU Requests／CPU Limits／Memory Requests／Memory Limits，各选模板和“查询结果为”单 Pod／全副本总和，没有权重、没有启用开关，不绑定就不显示）分开。算法计算指标里如果有模板名带 request／limit 且种类是 CPU／内存的行，会标黄提示“应放到监控展示指标里”，要用户手动删掉（不自动搬）。
+
+### 大盘按模板动态读取
+- `readLive` 读模块**每一个**启用的来源（不是每种一条）：查询区列出所有来源，写明指标模板名、种类、是否仅展示、单 Pod／全副本总和；同种类的第二条以后进“其他指标”卡片，带 P90／P95／P99。图和表用的“主”来源仍是每种的第一条。
+- 一个查询没有数据而又带 `$变量` 时，错误里写明 Grafana 变量（`grafanaHint`）。
+
+### 当前值与推荐值表
+- 列：资源项（Requests（预留）、Limits（上限））、当前值（单 Pod）、当前值（全副本总和）、推荐值（单 Pod）、推荐值（全副本总和）；一个推荐值都没有（数据不足）时只剩前三列。
+- “推荐值”的含义写在表头提示里：建议写进 Pod 的配置，不是已生效的；Requests 是调度预留（Reserved）的量，Limits 是上限。
+- 取整（`utils/amount.ts`）：不到 1 核按整数 mCPU，1 核以上整数核；不到 1 GiB 按整数 MiB，1 GiB 以上整数 GiB。当前值四舍五入，推荐值向上取整（不会低于使用量要的），推荐的全副本总和 = 取整后的单 Pod 值 × 副本数。
+- Requests 没查到时：使用率和可用量显示“-”（原来误判“请求低于使用量”）。
+
+### AI 的推荐值
+- 原来让模型自己换算，容易算错。现在推荐值由平台算好并取整，写进提示词的“平台推荐值”一节（每行：当前单 Pod／总和、推荐单 Pod／总和），要求表里**逐字使用**；表有六列（资源项、当前值两列、推荐值两列、依据）。
+- 答案出来后 `missingRecommendations` 核对每一行的推荐数值是否原样出现，不一致时窗口顶上提示并让用户重新分析（和“缺四行对比表”的提示分开）。
+
+### 其他
+- 分析按钮用统一的实心主按钮（`type: primary`，和其他列表的编辑按钮一致）。
+- P90／P95／P99 三条线各用一个颜色（紫、青、棕），不与使用、请求、建议、上限的颜色重复。
+
+### 验证与没验证
+- Go：`go test -p 1 ./pkg/...`、`go vet`、`gofmt`；新增：用途与读取范围、展示指标能用同单位的任意模板、模板绑定的 Requests 能读出、同种类的两个 CPU 来源都被查询并列出、展示指标进历史采集但不进算法、Grafana 变量提示、没有 Requests 也给推荐 Requests／Limits。
+- 前端：`vue-tsc`、oxlint、oxfmt、单元测试（取整、AI 推荐值与核对）。
+- 真浏览器（临时库、假 Prometheus、假语言模型，库里按用户的做法造了一个模块：四个 Requests／Limits 模板绑成 CPU／内存来源）：改前表里当前值“-”、推荐值有；模块表单里四行被标黄、删掉后在监控展示指标里绑定、保存；之后当前值出来（单 Pod 和总和），查询区列出七条（含四条“仅展示”），AI 答案的数值与平台不符时出提示。
+- **没验证**：真实 Prometheus（用户 Limits 模板里的 `$cluster` 要自己改）、真实网关、PostgreSQL、MySQL；历史数据页在浏览器里没点过（展示指标会被采集进去，只有后端测试）；AI 答案和平台数值一致时的“无提示”路径只有单元测试。
