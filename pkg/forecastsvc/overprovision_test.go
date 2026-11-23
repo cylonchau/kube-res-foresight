@@ -702,3 +702,71 @@ func TestAQueryOfManySeriesAndAMisnamedTemplateAreExplained(t *testing.T) {
 	assert.Contains(t, nameMismatchNote("demo-cpu-requests", `sum(kube_pod_container_resource_limits)`), "resource_limits")
 	assert.Equal(t, "", nameMismatchNote("demo-cpu-limits", `sum(kube_pod_container_resource_limits)`))
 }
+
+// The Requests of 12 Pods are summed to 48 cores while 11 of them are ready: one Pod is 4 cores, not 4.36, and the 6 GiB of the memory are not 6.55.
+func TestThePodsOfASumOfRequestsAreTheOnesThatGiveAFigureASpecCanSay(t *testing.T) {
+	assert.InDelta(t, 12.0, podsOfTotal(48, 11, "cores"), 1e-9, "48 cores over 11 is 4.36, over 12 is 4")
+	assert.InDelta(t, 12.0, podsOfTotal(72*float64(costGiB), 11, "bytes"), 1e-9, "72 GiB over 12 is 6 GiB")
+	assert.InDelta(t, 11.0, podsOfTotal(44, 11, "cores"), 1e-9, "the ready replicas themselves when they give a figure")
+	assert.InDelta(t, 11.0, podsOfTotal(48.7, 11, "cores"), 1e-9, "no count near gives one: the ready replicas")
+	assert.InDelta(t, 1.0, podsOfTotal(3, 0, "cores"), 1e-9)
+	assert.True(t, specLike(0.25, "cores"))
+	assert.True(t, specLike(1.5, "cores"))
+	assert.False(t, specLike(4.3636, "cores"))
+	assert.True(t, specLike(6*float64(costGiB), "bytes"))
+	assert.True(t, specLike(512*float64(1<<20), "bytes"))
+	assert.False(t, specLike(6.5454*float64(costGiB), "bytes"))
+}
+
+// The recommendation has a period of its own: the window of the page changes the usage figures and the charts, not the verdict.
+func TestTheRecommendationDoesNotFollowTheWindowOfThePage(t *testing.T) {
+	f := opFixture(t)
+	f.withRequests(t, 1.5)
+	ctx := context.Background()
+	short, err := f.svc.OverprovisionDetail(ctx, f.module.ID, 60, time.Time{}, time.Time{})
+	require.NoError(t, err)
+	long, err := f.svc.OverprovisionDetail(ctx, f.module.ID, 24*60, time.Time{}, time.Time{})
+	require.NoError(t, err)
+	require.NotNil(t, short.Recommend)
+	require.NotNil(t, long.Recommend)
+	assert.Equal(t, 60, short.Windows[0].WindowMinutes)
+	assert.Equal(t, 24*60, long.Windows[0].WindowMinutes)
+	for _, d := range []*DetailOverprovision{short, long} {
+		assert.Equal(t, 7*24*60, d.Recommend.WindowMinutes, "the period of the recommendation is the system parameter")
+		assert.Equal(t, "7d", d.Recommend.Label)
+		require.NotNil(t, d.Recommend.CPU)
+	}
+	assert.Equal(t, long.Recommend.CPU.Status, short.Recommend.CPU.Status)
+	assert.InDelta(t, long.Recommend.CPU.Suggested, short.Recommend.CPU.Suggested, 1e-9)
+	assert.NotZero(t, short.Recommend.CPU.Needed)
+	// the line of the recommended Requests in the chart is the recommendation's
+	assert.InDelta(t, long.Recommend.CPU.Suggested, long.Charts[0].Suggest, 1e-9)
+}
+
+// The totals of the Requests and the Limits are what Prometheus summed, and the figure of one Pod is that sum over the Pods it was made of: 12 Pods of 4 cores are 48 cores
+// and 4 cores, whatever number of them is ready.
+func TestTheRequestsOfTwelvePodsWithElevenReadyAreStillFourCoresAPod(t *testing.T) {
+	f := opFixture(t)
+	f.withRequests(t, 1.5)
+	inner := f.querier.value
+	f.querier.value = func(query string, ts time.Time) float64 {
+		switch {
+		case strings.Contains(query, "k8s_cpu_requests_series{"):
+			return 48
+		case strings.Contains(query, "k8s_cpu_limits_series{"):
+			return 96
+		case strings.Contains(query, "kube_deployment"):
+			return 11
+		}
+		return inner(query, ts)
+	}
+	d, err := f.svc.OverprovisionDetail(context.Background(), f.module.ID, 24*60, time.Time{}, time.Time{})
+	require.NoError(t, err)
+	assert.Equal(t, 11, d.Replicas)
+	cpu := d.Windows[0].CPU
+	require.NotNil(t, cpu)
+	assert.InDelta(t, 4.0, cpu.Request, 1e-9, "48 cores of 12 Pods, not 48 over 11 ready")
+	assert.InDelta(t, 8.0, cpu.Limit, 1e-9)
+	assert.InDelta(t, 48.0, cpu.RequestTotal, 1e-9)
+	assert.InDelta(t, 96.0, cpu.LimitTotal, 1e-9)
+}

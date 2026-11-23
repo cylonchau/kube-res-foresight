@@ -7,6 +7,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cylonchau/kube-res-foresight/pkg/model"
@@ -32,9 +33,12 @@ const (
 // OverprovisionParams reads the numbers of the analysis from the system parameters.
 func (s *Service) OverprovisionParams(ctx context.Context) overprovision.Params {
 	pc := func(p timing.Param) float64 { return float64(s.targetPercent(ctx, p)) / 100 }
+	band := func(target, low, high timing.Param) overprovision.Band {
+		return overprovision.Band{Target: pc(target), Low: pc(low), High: pc(high)}
+	}
 	p := overprovision.Params{
-		CPUMargin: pc(timing.OPCPUMargin), MemoryMargin: pc(timing.OPMemoryMargin), MemoryPeakFactor: pc(timing.OPMemoryPeak), OOMUplift: pc(timing.OPOOMUplift),
-		ThrottleLimit: pc(timing.OPThrottle), Severe: pc(timing.OPGradeSevere), Moderate: pc(timing.OPGradeModerate), Mild: pc(timing.OPGradeMild),
+		P90: band(timing.OPP90Target, timing.OPP90Low, timing.OPP90High), P95: band(timing.OPP95Target, timing.OPP95Low, timing.OPP95High), P99: band(timing.OPP99Target, timing.OPP99Low, timing.OPP99High),
+		LimitHeadroom: pc(timing.OPLimitHeadroom), OOMUplift: pc(timing.OPOOMUplift), ThrottleLimit: pc(timing.OPThrottle), Severe: pc(timing.OPGradeSevere), Moderate: pc(timing.OPGradeModerate),
 		CoverageHigh: pc(timing.OPCoverageHigh), CoverageMid: pc(timing.OPCoverageMid), PeakNearLimit: 0.9,
 	}
 	p.BaselineMinutes = s.OverprovisionBaseline(ctx)
@@ -42,8 +46,11 @@ func (s *Service) OverprovisionParams(ctx context.Context) overprovision.Params 
 	if p.Moderate > p.Severe {
 		p.Moderate = p.Severe
 	}
-	if p.Mild > p.Moderate {
-		p.Mild = p.Moderate
+	// a band whose range is upside down would call everything under- and over-provisioned: the low is brought down to the high
+	for _, b := range []*overprovision.Band{&p.P90, &p.P95, &p.P99} {
+		if b.Low > b.High {
+			b.Low = b.High
+		}
 	}
 	if p.CoverageMid > p.CoverageHigh {
 		p.CoverageMid = p.CoverageHigh
@@ -64,6 +71,13 @@ func (s *Service) OverprovisionBaseline(ctx context.Context) int {
 		}
 	}
 	return best
+}
+
+// recommendKinds are the kinds the verdict and the recommendation are made of: the use of the CPU and of the memory, the replicas they are divided by, the Requests and the
+// Limits, the throttling and the OOM kills, and the heap of the JVM (its presence is a condition of the confidence).
+var recommendKinds = map[string]bool{
+	"cpu": true, "memory": true, "replicas": true, "k8s_cpu_requests": true, "k8s_cpu_limits": true, "k8s_mem_requests": true, "k8s_mem_limits": true,
+	"k8s_cpu_throttle": true, "oom": true, "oom_working_set": true, "jvm_heap_used": true,
 }
 
 // opSeries is what was read of one metric of a module over the span that is analysed: per Pod and, where it can be made, over all the Pods.
@@ -96,6 +110,8 @@ type opLoader struct {
 	byKey map[string]*opSeries
 	// live is set when the loader reads Prometheus (see oplive.go) and not the samples the platform stored.
 	live *liveRead
+	// only, when set, limits a live reading to the kinds in it (the reading of the recommendation period needs only what the verdict is made of).
+	only map[string]bool
 }
 
 func (s *Service) newOPLoader(ctx context.Context, m *model.ForecastModule, from, to time.Time) *opLoader {
@@ -178,6 +194,53 @@ func (l *opLoader) build(raw []overprovision.Point, level string, step int) *opS
 		}
 	}
 	return out
+}
+
+// buildConfig makes the series of a Requests or a Limits source whose query answers all the replicas together. The figure of one Pod is the total divided by the
+// number of Pods it was summed over, and that number is not always the ready replicas: a Pod that is Pending or still starting is in the sum (a Pod that has
+// been scheduled has its Requests) and not among the ready ones, so 48 cores of Requests of 12 Pods of 4 cores would be 4.36 over 11 ready replicas. The Requests
+// and Limits of a Pod are figures somebody wrote in a spec (4 cores, 6 GiB), so of the counts near the ready replicas the first that gives such a figure is taken.
+func (l *opLoader) buildConfig(raw []overprovision.Point, step int, unit string) *opSeries {
+	out := &opSeries{step: step, raw: raw}
+	for _, p := range raw {
+		out.total = append(out.total, p)
+		if rep, known := l.repAt(p.TS); known {
+			out.pod = append(out.pod, overprovision.Point{TS: p.TS, V: p.V / podsOfTotal(p.V, rep, unit)})
+		}
+	}
+	return out
+}
+
+// podsOfTotal is how many Pods a sum of the Requests or the Limits was made over, taken near the ready replicas: the ready replicas themselves when that gives a figure a
+// spec could say, else one or two more, one fewer, three more; when none does, the ready replicas.
+func podsOfTotal(total, ready float64, unit string) float64 {
+	base := math.Max(math.Round(ready), 1)
+	for _, d := range []float64{0, 1, 2, -1, 3} {
+		if n := base + d; n >= 1 && specLike(total/n, unit) {
+			return n
+		}
+	}
+	return base
+}
+
+// specLike says whether a figure is one a Pod spec could say: CPU in whole 10 mCPU below a core and in 50 mCPU from it, memory in 16 MiB below a GiB and in 64 MiB from it.
+func specLike(v float64, unit string) bool {
+	if !(v > 0) {
+		return false
+	}
+	near := func(x, step float64) bool { return math.Abs(x-math.Round(x/step)*step) < 0.5 }
+	if strings.EqualFold(unit, "bytes") {
+		mib := v / (1 << 20)
+		if mib >= 1024 {
+			return near(mib, 64)
+		}
+		return near(mib, 16)
+	}
+	milli := v * 1000
+	if milli >= 1000 {
+		return near(milli, 50)
+	}
+	return near(milli, 10)
 }
 
 func lastValue(points []overprovision.Point) float64 {
@@ -265,6 +328,9 @@ type ModuleOverprovision struct {
 	Windows []*WindowOverprovision `json:"windows"`
 	JVM     *JVMInfo               `json:"jvm,omitempty"`
 	Charts  []*ResourceChart       `json:"charts,omitempty"`
+	// Recommend is the analysis over the recommendation period (a system parameter), which does not follow the window of the page: the verdict, the figures of what the
+	// Requests and the Limits could be and by how much they are more or less than the use needs are this one's. The usage figures, the charts and the metrics are of the window.
+	Recommend *WindowOverprovision `json:"recommend,omitempty"`
 	// Metrics are the other metrics the module has set up (container, JVM, throttling, OOM ...), over the window.
 	Metrics []MetricStat `json:"metrics"`
 	// Datasource, Queries, Partial and Skipped are set when the figures were read from Prometheus (the dashboard): the data source, the query of each metric with
@@ -325,11 +391,13 @@ func (l *opLoader) analyzeWindow(label string, minutes int, p overprovision.Para
 		if !(in.Request > 0) {
 			if rs := l.get(requestKind); rs != nil {
 				in.Request = lastValue(sliceFrom(rs.pod, from, to))
+				in.RequestTotal = lastValue(sliceFrom(rs.total, from, to))
 			}
 		}
 		if ls := l.get(limitKind); ls != nil {
 			if v := lastValue(sliceFrom(ls.pod, from, to)); v > 0 {
 				in.Limit, in.LimitFrom = v, "metric"
+				in.LimitTotal = lastValue(sliceFrom(ls.total, from, to))
 			}
 		}
 		if in.Limit <= 0 && limitRatio >= 1 && in.Request > 0 {
@@ -477,17 +545,38 @@ func (s *Service) OverprovisionDetail(ctx context.Context, moduleID uint, window
 	}
 	p := s.OverprovisionParams(ctx)
 	l := s.newLiveLoader(ctx, m, to.Add(-time.Duration(windowMinutes)*time.Minute), to)
+	// the recommendation has a period of its own: when it is longer than the window of the page it is read apart (the window would be read in a coarser step to
+	// reach it), and when it is not the window's own series is cut to it
+	recMinutes := s.OverprovisionBaseline(ctx)
+	recLoader := l
+	var wg sync.WaitGroup
+	if recMinutes > windowMinutes {
+		recLoader = s.newLiveLoader(ctx, m, to.Add(-time.Duration(recMinutes)*time.Minute), to)
+		recLoader.only = recommendKinds
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			recLoader.readLive()
+		}()
+	}
 	l.readLive()
+	wg.Wait()
 	replicas := l.liveReplicas()
 	mo := s.moduleHeader(m, replicas, to)
 	wr := l.analyzeWindow(label, windowMinutes, p, replicas)
 	mo.Windows = []*WindowOverprovision{wr}
+	recLabel := fmt.Sprintf("%dm", recMinutes)
+	if w, ok := overprovision.WindowByMinutes(recMinutes); ok {
+		recLabel = w.Label
+	}
+	mo.Recommend = recLoader.analyzeWindow(recLabel, recMinutes, p, replicas)
 
 	fromTS, toTS := to.Add(-time.Duration(windowMinutes)*time.Minute).Unix(), to.Unix()
 	for _, c := range []struct {
 		kind string
 		res  *overprovision.Result
-	}{{"cpu", wr.CPU}, {"memory", wr.Memory}} {
+		rec  *overprovision.Result
+	}{{"cpu", wr.CPU, mo.Recommend.CPU}, {"memory", wr.Memory, mo.Recommend.Memory}} {
 		if c.res == nil {
 			continue
 		}
@@ -496,6 +585,10 @@ func (s *Service) OverprovisionDetail(ctx context.Context, moduleID uint, window
 			continue
 		}
 		chart := opChart(c.kind, sliceFrom(use.pod, fromTS, toTS), use.step, windowMinutes, c.res)
+		if c.rec != nil {
+			// the line of the recommended Requests is the one of the recommendation period, not of the window
+			chart.Suggest = c.rec.Suggested
+		}
 		opTotal(chart, sliceFrom(use.total, fromTS, toTS), use.step, windowMinutes, replicas)
 		mo.Charts = append(mo.Charts, chart)
 	}
@@ -543,6 +636,21 @@ func opTotal(c *ResourceChart, pts []overprovision.Point, stored, windowMinutes,
 		c.TotalTS = append(c.TotalTS, rs[i].TS)
 		c.Total = append(c.Total, round6(rs[i].V))
 	}
+}
+
+// opThin resamples a series to the step of the window and thins it to at most opMaxPoints, as the series of the charts are.
+func opThin(pts []overprovision.Point, stored, windowMinutes int) ([]int64, []float64) {
+	rs := overprovision.Resample(pts, overprovision.MAStepFor(windowMinutes, stored))
+	stride := (len(rs) + opMaxPoints - 1) / opMaxPoints
+	if stride < 1 {
+		stride = 1
+	}
+	ts, values := []int64{}, []float64{}
+	for i := 0; i < len(rs); i += stride {
+		ts = append(ts, rs[i].TS)
+		values = append(values, round6(rs[i].V))
+	}
+	return ts, values
 }
 
 func pointValues(p []overprovision.Point) []float64 {
@@ -814,6 +922,9 @@ type MetricStat struct {
 	Max    float64 `json:"max"`
 	// Display is true for a metric that is only shown, with no weight and no part in the algorithms.
 	Display bool `json:"display"`
+	// TS and Value are the series of the metric over the window (of one Pod where the metric is of Pods), thinned to what a chart draws.
+	TS    []int64   `json:"ts,omitempty"`
+	Value []float64 `json:"value,omitempty"`
 }
 
 // seriesOf is the series of one source: of its own for a live reading, the series of its kind for stored samples.
@@ -864,6 +975,7 @@ func (l *opLoader) metrics(from, to int64) []MetricStat {
 			u := overprovision.UsageOf(pts)
 			ms.Points, ms.P50, ms.P90, ms.P95, ms.P99, ms.Max = u.Points, u.P50, u.P90, u.P95, u.P99, u.Max
 			ms.Latest = lastValue(pts)
+			ms.TS, ms.Value = opThin(pts, s.step, int((to-from)/60))
 		}
 		out = append(out, ms)
 	}

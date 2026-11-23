@@ -248,6 +248,7 @@ func RegisteredRouter(e *gin.Engine) {
 		Async: &asyncrun.Queue{Tasks: rdb.NewAsyncTaskDAO(model.DB), Jobs: rdb.NewJobDAO(model.DB)}}
 	// the assistant reads its settings through the DAO the settings page writes with: a change is seen at once, not after the cache of another DAO expires
 	v1Group.GET("/assistant/status", assistantHandler.Status)
+	v1Group.POST("/assistant/mail-me", assistantHandler.MailToMe)
 	v1Group.POST("/assistant/chat", assistantHandler.Chat)
 	v1Group.POST("/assistant/skill", assistantHandler.RunSkill)
 	v1Group.POST("/assistant/chat/async", assistantHandler.ChatAsync)

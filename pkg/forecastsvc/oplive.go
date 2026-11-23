@@ -66,6 +66,9 @@ func (l *opLoader) liveSources() []*model.MetricSource {
 	var out []*model.MetricSource
 	seen := map[string]bool{}
 	add := func(src *model.MetricSource) {
+		if src != nil && l.only != nil && !l.only[src.Kind] {
+			return
+		}
 		if src != nil && !seen[src.Key] {
 			seen[src.Key] = true
 			out = append(out, src)
@@ -233,6 +236,10 @@ func (l *opLoader) readLive() {
 			level = "workload"
 		}
 		series := l.build(points, level, int(step/time.Second))
+		if (src.IsDisplay() || model.IsDisplayKind(src.Kind)) && l.live.queries[i].Per == model.PerTotal {
+			// the Requests and the Limits of a Pod are the same on every Pod of the workload: the total is divided by the Pods it was summed over
+			series = l.buildConfig(points, int(step/time.Second), l.live.queries[i].Unit)
+		}
 		l.byKey[src.Key] = series
 		// the figures of a kind are the first source of that kind (the lowest priority number); the others are shown beside it
 		if l.run.FirstOfKind(src.Kind) == src {

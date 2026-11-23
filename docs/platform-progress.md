@@ -989,3 +989,10 @@ all ten management pages and the shared product title. Screenshots were inspecte
 - **验证**：Go 测试、`go vet`、`gofmt`；前端 `vue-tsc`、oxlint、oxfmt、单元测试；真浏览器（临时库、假 Prometheus、假语言模型，按用户的做法造了模块）。
 - **没验证**：真实 Prometheus；用户 Limits 模板里 Grafana 的 `$cluster`、`$namespace` 要自己改掉；PostgreSQL、MySQL；历史数据页没在浏览器里点。
 - **注意**：`purpose` 的值改成 `display`／`algorithm`，旧值 `dashboard`／`both`／`history` 仍读得懂（读作 display／algorithm），不用迁移；用户已有的四个 Requests／Limits 来源要在模块表单里手动删掉（算法计算指标里会标黄）再在监控展示指标里绑定，不会自动搬；展示指标不再算权重，也不进预测。
+
+2026-11-24：资源大盘与模块管理优化（推荐规则第二版、独立分析周期、动态图表、AI 发邮件、当前值不取整）
+- **做了什么**：①当前值和用户配置不一致（4、9 核、7、17 GiB 对 4、8 核、6、16 GiB）：查出是总和除以就绪副本数（11）而不是汇总的 Pod 数（12），又被上一版取整放大；现在当前值不取整，单 Pod 用 `podsOfTotal` 取规格能写的 Pod 数，全副本总和用 Prometheus 汇总的值。②推荐规则第二版：P90／P95／P99 各有目标比例和合理区间（系统参数，“资源分析与推荐”分类里改），推荐 Requests＝各分位数使用量÷目标比例的最大者，最大值不参与；状态看分位数落在区间的位置，偶发高峰不判超配；表里写超配／欠配的数量和比例，合理的也写可优化的量。③推荐用独立的分析周期（`analysis.baseline_window_days`，默认 7 天），不随图表窗口变；详情多一个 `recommend`。④图表按模块绑的指标动态生成，一行两张、落单的占满整行；图和表统一写 Requests／Limits。⑤AI：点按钮直接放大并分析，提示词带调整量，加“发送到邮箱”（`POST /assistant/mail-me`，只发给当前用户）。⑥模块管理去掉“服务”，运行模式／启用／状态标签统一。细节见 `overprovision-p10.md` 的“资源大盘与模块管理优化（2026-11-24 第五次……）”。
+- **我的理解（请纠正）**：“推荐值不受图表窗口影响”＝单独的分析周期（默认 7 天）；“P95 不到 80% 判超配、80%–90% 合理”＝各分位数的合理区间默认值；“偶发高峰”＝平时低而 P99 超出区间，不判超配；图表“一行一张占满、两张均分”＝两列网格、落单的跨整行。
+- **验证**：`go test -p 1 ./pkg/...`、`go vet`、`gofmt`；前端 `vue-tsc`、单元测试；真浏览器（临时库、假 Prometheus 12 个 Pod 就绪 11 个、假语言模型）。
+- **没验证**：真实 Prometheus 和 Pod 数的取法是按“规格能写的数”猜的（Requests／Limits 的查询最好选“单 Pod”）；真实 SMTP 发信；默认带没有真实数据验证；PostgreSQL、MySQL。
+- **注意**：迁移会删掉 `analysis.cpu_margin_percent`、`memory_margin_percent`、`memory_peak_percent`、`grade_mild_percent` 四个系统参数，新增 10 个 `analysis.rec_*`；`analysis.baseline_window_days` 的含义变成“推荐分析周期”。

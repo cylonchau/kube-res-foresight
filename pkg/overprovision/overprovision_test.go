@@ -45,39 +45,47 @@ func input(resource string, request float64, points []Point) Input {
 	return Input{Resource: resource, Request: request, Points: points, StepSeconds: 300, WindowMinutes: len(points) * 5, Throttle: -1}
 }
 
-func TestCPUSuggestionIsTheLargerOfP95WithMarginAndP99(t *testing.T) {
-	p := DefaultParams()
-	p.BaselineMinutes = 0
-	// 1..100 cores of use: P95 = 95 x 1.2 = 114, P99 = 99, so the suggestion is 114 and the request of 200 is 43% above it
-	r := Analyze(input(CPU, 200, ramp(100, 1)), p)
-	assert.InDelta(t, 114, r.Suggested, 1e-9)
-	assert.InDelta(t, 86, r.Numerator, 1e-9)
-	assert.Equal(t, 200.0, r.Denominator)
-	assert.InDelta(t, 0.43, r.Ratio, 1e-9)
-	assert.Equal(t, StatusOver, r.Status)
-	assert.Equal(t, GradeModerate, r.Grade)
-	assert.InDelta(t, 86, r.Reclaimable, 1e-9)
-	assert.Equal(t, High, r.Confidence)
-	assert.Contains(t, r.Formula, "P95")
-	assert.Equal(t, FormulaVersion, r.FormulaVersion)
-
-	// a flat use: P95 = P99 = 10, with the margin 12 is above 10
-	r = Analyze(input(CPU, 100, flat(100, 10)), p)
-	assert.InDelta(t, 12, r.Suggested, 1e-9)
-	assert.Equal(t, GradeSevere, r.Grade) // (100-12)/100 = 88%
+// use makes a series whose P90, P95 and P99 are the three figures (and the highest is the last): 100 points, so the nearest ranks are the 90th, 95th and 99th.
+func use(p90, p95, p99, max float64) []Point {
+	out := make([]Point, 100)
+	for i := range out {
+		v := p90
+		switch {
+		case i >= 99:
+			v = max
+		case i >= 95:
+			v = p99
+		case i >= 90:
+			v = p95
+		}
+		out[i] = Point{TS: int64(i) * 300, V: v}
+	}
+	// the 90th value has to be the P90 itself: the first 90 are below or at it
+	for i := 0; i < 90; i++ {
+		out[i].V = p90 * 0.9
+	}
+	out[89].V = p90
+	return out
 }
 
-func TestMemorySuggestionIsTheLargerOfP99WithMarginAndTheHighestWithAFactor(t *testing.T) {
+func TestTheRecommendedRequestPutsEveryPercentileUnderItsTarget(t *testing.T) {
 	p := DefaultParams()
 	p.BaselineMinutes = 0
-	// P99 = 99 x 1.15 = 113.85, max = 100 x 1.05 = 105: the larger is the first
-	r := Analyze(input(Memory, 300, ramp(100, 1)), p)
-	assert.InDelta(t, 113.85, r.Suggested, 1e-9)
-	// a spike that is one point in 200 is not in the P99 but is in the highest
+	// P90 80, P95 85, P99 110 of the request are the targets: a flat use of 10 asks for 12.5 (10 / 0.8)
+	r := Analyze(input(CPU, 100, flat(100, 10)), p)
+	assert.InDelta(t, 12.5, r.Needed, 1e-9)
+	assert.InDelta(t, 12.5, r.Suggested, 1e-9)
+	assert.Contains(t, r.Formula, "P90")
+	assert.Contains(t, r.Formula, "P95")
+	assert.Contains(t, r.Formula, "P99")
+	assert.Equal(t, FormulaVersion, r.FormulaVersion)
+	// the P95 asks for the most here: 95 / 0.85 = 111.8 against the P90 90 / 0.8 = 112.5 and the P99 99 / 1.1 = 90
+	r = Analyze(input(CPU, 200, ramp(100, 1)), p)
+	assert.InDelta(t, 112.5, r.Needed, 1e-9)
+	// the highest use takes no part: a spike of one point in 200 changes nothing
 	pts := flat(200, 10)
-	pts[100].V = 100
-	r = Analyze(input(Memory, 300, pts), p)
-	assert.InDelta(t, 105, r.Suggested, 1e-9)
+	pts[100].V = 1000
+	assert.InDelta(t, 12.5, Analyze(input(Memory, 300, pts), p).Needed, 1e-9)
 }
 
 func TestTheSuggestionIsRoundedToASpec(t *testing.T) {
@@ -86,30 +94,84 @@ func TestTheSuggestionIsRoundedToASpec(t *testing.T) {
 	in := input(CPU, 2, flat(100, 0.41))
 	in.Round = func(v float64) float64 { return math.Ceil(v*100) / 100 }
 	r := Analyze(in, p)
-	assert.InDelta(t, 0.50, r.Suggested, 1e-9) // 0.41 x 1.2 = 0.492, up to the next hundredth
+	assert.InDelta(t, 0.52, r.Suggested, 1e-9) // 0.41 / 0.8 = 0.5125, up to the next hundredth
 }
 
-func TestTheGradesFollowTheShareThatIsMore(t *testing.T) {
+// The verdict is where the percentiles stand against the request: P95 under 80% of it is over-provisioned, 80% to 90% is reasonable, over 90% is under-provisioned.
+func TestTheVerdictIsWhereTheP95StandsAgainstTheRequest(t *testing.T) {
 	p := DefaultParams()
 	p.BaselineMinutes = 0
-	// a flat use of 10 asks for 12
+	// a flat use of 10: all three percentiles are 10
 	for _, c := range []struct {
 		request float64
 		status  string
 		grade   string
 	}{
-		{100, StatusOver, GradeSevere},    // 88%
-		{24, StatusOver, GradeSevere},     // 50% exactly
-		{20, StatusOver, GradeModerate},   // 40%
-		{16, StatusOver, GradeMild},       // 25%
-		{14.5, StatusOver, GradeMild},     // 17%
-		{13, StatusOK, GradeReasonable},   // 7.7%
-		{9, StatusUnder, GradeReasonable}, // below the P95 use of 10
+		{100, StatusOver, GradeSevere},       // 10% of the request; the recommendation is 12.5: 87.5% to give back
+		{25, StatusOver, GradeSevere},        // 40%; 12.5 of 25 is 50%
+		{20, StatusOver, GradeModerate},      // 50%; 7.5 of 20 is 37.5%
+		{14, StatusOver, GradeMild},          // 71.4% (under the 80%); 1.5 of 14 is 10.7%
+		{12.5, StatusOK, GradeReasonable},    // 80% exactly: in the range, and the recommendation is the request
+		{11.8, StatusOK, GradeReasonable},    // 84.7%: under the 85% of the P90
+		{10.5, StatusUnder, GradeReasonable}, // 95%: above 90%
+		{9, StatusUnder, GradeReasonable},    // the use is above the request
 	} {
 		r := Analyze(input(CPU, c.request, flat(100, 10)), p)
 		assert.Equal(t, c.status, r.Status, "request %v", c.request)
 		assert.Equal(t, c.grade, r.Grade, "request %v", c.request)
 	}
+}
+
+// What is to be given back, and how much of the request it is, is said for a request that is reasonable too: not just "reasonable".
+func TestAReasonableRequestSaysHowMuchItCouldStillGiveBack(t *testing.T) {
+	p := DefaultParams()
+	p.BaselineMinutes = 0
+	// P90 2.92, P95 3.22, P99 4.02 against a request of 4: 73%, 80.5% and 100.5%, all in their ranges
+	r := Analyze(input(CPU, 4, use(2.92, 3.22, 4.02, 4.64)), p)
+	assert.Equal(t, StatusOK, r.Status)
+	assert.Equal(t, GradeReasonable, r.Grade)
+	// the P95 asks for 3.22 / 0.85 = 3.79, the P90 for 2.92 / 0.8 = 3.65 and the P99 for 4.02 / 1.1 = 3.65
+	assert.InDelta(t, 3.788, r.Suggested, 1e-3)
+	assert.InDelta(t, 0.212, r.Reclaimable, 1e-3)
+	assert.InDelta(t, 0.053, r.Ratio, 1e-3)
+	require.NotNil(t, r.Shares)
+	assert.InDelta(t, 0.805, r.Shares.P95, 1e-9)
+	// the limit is the P99 with the headroom, never below the recommended request: 4.02 x 1.2
+	assert.InDelta(t, 4.824, r.SuggestedLimit, 1e-9)
+	// no request is lowered below what the use asks for, and a request above the range is raised (a request of 6 GiB against a P95 of 8.18 GiB)
+	m := Analyze(input(Memory, 6, use(7.95, 8.18, 8.69, 9.78)), p)
+	assert.Equal(t, StatusUnder, m.Status)
+	assert.InDelta(t, 9.9375, m.Suggested, 1e-3)
+	assert.Less(t, m.Ratio, 0.0, "a shortage is a negative ratio")
+	assert.Equal(t, 0.0, m.Reclaimable)
+}
+
+// A steady use that is low with a tail above its range is a burst: the request is sized for the tail and is not called over-provisioned.
+func TestABurstOnALowSteadyUseIsNotCalledOverProvisioned(t *testing.T) {
+	p := DefaultParams()
+	p.BaselineMinutes = 0
+	// P90 and P95 at 30% and 40% of 10, the P99 at 150%
+	r := Analyze(input(CPU, 10, use(3, 4, 15, 16)), p)
+	assert.Equal(t, StatusOK, r.Status)
+	assert.Contains(t, r.Reasons, ReasonBurst)
+	assert.Equal(t, 10.0, r.Suggested, "kept as it is")
+	assert.Equal(t, 0.0, r.Reclaimable)
+	// the same steady use with the tail inside its range is over-provisioned
+	r = Analyze(input(CPU, 10, use(3, 4, 8, 9)), p)
+	assert.Equal(t, StatusOver, r.Status)
+	assert.Less(t, r.Suggested, 10.0)
+}
+
+// The coefficients are the system parameters: a different band gives a different verdict.
+func TestTheBandsAreTheParametersOfTheVerdict(t *testing.T) {
+	p := DefaultParams()
+	p.BaselineMinutes = 0
+	in := input(CPU, 14, flat(100, 10)) // 71.4% of the request
+	assert.Equal(t, StatusOver, Analyze(in, p).Status)
+	p.P95.Low, p.P90.Low, p.P99.Low = 0.60, 0.60, 0.60
+	assert.Equal(t, StatusOK, Analyze(in, p).Status)
+	p.P95.High = 0.70 // now 71.4% is above the range of the P95
+	assert.Equal(t, StatusUnder, Analyze(in, p).Status)
 }
 
 func TestThrottledCPUIsNeverCalledOverProvisioned(t *testing.T) {
@@ -262,17 +324,17 @@ func TestTheSuggestionDoesNotNeedARequestAndComesWithALimit(t *testing.T) {
 	cpu := Analyze(input(CPU, 0, ramp(100, 1)), p)
 	assert.Contains(t, cpu.Reasons, ReasonNoRequest)
 	assert.Equal(t, StatusUnknown, cpu.Status)
-	// max(P95 95 x 1.2, P99 99) = 114; the limit is max(114, Max 100) x 1.2
-	assert.InDelta(t, 114.0, cpu.Suggested, 1e-9)
-	assert.InDelta(t, 136.8, cpu.SuggestedLimit, 1e-9)
+	// the P90 asks for 90 / 0.8 = 112.5, the most; the limit is the P99 99 x 1.2
+	assert.InDelta(t, 112.5, cpu.Suggested, 1e-9)
+	assert.InDelta(t, 118.8, cpu.SuggestedLimit, 1e-9)
 	assert.Equal(t, 0.0, cpu.Ratio)
 	assert.Equal(t, "", cpu.Grade)
 
 	mem := Analyze(input(Memory, 0, ramp(100, 1)), p)
-	assert.GreaterOrEqual(t, mem.SuggestedLimit, mem.Suggested, "a memory limit is never below the suggested request")
+	assert.GreaterOrEqual(t, mem.SuggestedLimit, mem.Suggested, "a limit is never below the recommended request")
 	assert.GreaterOrEqual(t, mem.SuggestedLimit, mem.Usage.P99, "a limit is never below the P99")
 
-	// with a request the limit is the same, and the status is judged
+	// with a request the limit is the one the recommended request gives, and the status is judged
 	with := Analyze(input(CPU, 200, ramp(100, 1)), p)
 	assert.InDelta(t, cpu.SuggestedLimit, with.SuggestedLimit, 1e-9)
 	assert.NotEqual(t, StatusUnknown, with.Status)

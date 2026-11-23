@@ -61,7 +61,7 @@ func TestTheBusinessRoleHasThePagesOfTheForecastsAndTheChatAndNothingOfTheSystem
 		{"POST", "/api/v1/assistant/chat/async"}, {"GET", "/api/v1/assistant/async/3"}, {"GET", "/api/v1/assistant/async/3/events"}, {"POST", "/api/v1/assistant/async/3/cancel"},
 		{"GET", "/api/v1/assistant/conversations"}, {"POST", "/api/v1/assistant/conversations"}, {"GET", "/api/v1/assistant/conversations/4"},
 		{"PUT", "/api/v1/assistant/conversations/4"}, {"DELETE", "/api/v1/assistant/conversations/4"}, {"POST", "/api/v1/assistant/conversations/batch-delete"},
-		{"GET", "/api/v1/assistant/status"}, {"POST", "/api/v1/assistant/skill"},
+		{"GET", "/api/v1/assistant/status"}, {"POST", "/api/v1/assistant/skill"}, {"POST", "/api/v1/assistant/mail-me"},
 	}
 	for _, c := range yes {
 		assert.True(t, allowed(t, db, BusinessRoleCode, c[0], c[1]), "%s %s is a page or the chat of the role", c[0], c[1])

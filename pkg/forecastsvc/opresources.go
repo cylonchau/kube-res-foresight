@@ -117,7 +117,12 @@ func (s *Service) moduleResources(ctx context.Context, m *model.ForecastModule, 
 				row.Errors[f.field] = "the metric is of the whole workload: the module needs a replicas metric to give one Pod's figure"
 				continue
 			}
-			value /= replicas
+			// the Pods the sum was made over are not always the ready replicas (see podsOfTotal)
+			unit := "cores"
+			if f.field == "memory_request" || f.field == "memory_limit" {
+				unit = "bytes"
+			}
+			value /= podsOfTotal(value, replicas, unit)
 		}
 		v := value
 		switch f.field {

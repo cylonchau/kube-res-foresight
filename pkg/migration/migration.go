@@ -154,7 +154,7 @@ func seedPlatformPermissions() error {
 		{permission: model.Permission{Name: "Dashboard", Code: "dashboard", Type: "MENU", FeRoute: "/dashboard", FeComponent: "view.dashboard", Icon: "carbon:home", Sort: 2, Visible: true, Status: true, BeApis: `["GET /api/v1/dashboard"]`}},
 		{permission: model.Permission{Name: "AI Configuration", Code: "ai-config", Type: "DIRECTORY", FeRoute: "/ai-config", FeComponent: "layout.base", Icon: "carbon:bot", Sort: 56, Visible: true, Status: true}},
 		{permission: model.Permission{Name: "AI Chat", Code: "ai-config_chat", Type: "MENU", FeRoute: "/ai-config/chat", FeComponent: "view.ai-config_chat", Icon: "carbon:chat", Sort: 0, Visible: true, Status: true,
-			BeApis: `["GET /api/v1/assistant/status","POST /api/v1/assistant/chat","POST /api/v1/assistant/skill","GET /api/v1/assistant/export","POST /api/v1/assistant/chat/async","GET /api/v1/assistant/async","GET /api/v1/assistant/async/*","POST /api/v1/assistant/async","POST /api/v1/assistant/async/*","GET /api/v1/assistant/conversations","GET /api/v1/assistant/conversations/*","POST /api/v1/assistant/conversations","POST /api/v1/assistant/conversations/*","PUT /api/v1/assistant/conversations","PUT /api/v1/assistant/conversations/*","DELETE /api/v1/assistant/conversations","DELETE /api/v1/assistant/conversations/*"]`}, parentCode: "ai-config"},
+			BeApis: `["GET /api/v1/assistant/status","POST /api/v1/assistant/chat","POST /api/v1/assistant/skill","GET /api/v1/assistant/export","POST /api/v1/assistant/chat/async","POST /api/v1/assistant/mail-me","GET /api/v1/assistant/async","GET /api/v1/assistant/async/*","POST /api/v1/assistant/async","POST /api/v1/assistant/async/*","GET /api/v1/assistant/conversations","GET /api/v1/assistant/conversations/*","POST /api/v1/assistant/conversations","POST /api/v1/assistant/conversations/*","PUT /api/v1/assistant/conversations","PUT /api/v1/assistant/conversations/*","DELETE /api/v1/assistant/conversations","DELETE /api/v1/assistant/conversations/*"]`}, parentCode: "ai-config"},
 		{permission: model.Permission{Name: "AI Audit", Code: "ai-config_audit", Type: "MENU", FeRoute: "/ai-config/audit", FeComponent: "view.ai-config_audit", Icon: "carbon:report", Sort: 4, Visible: true, Status: true,
 			BeApis: `["GET /api/v1/assistant/audit","GET /api/v1/assistant/audit/*"]`}, parentCode: "ai-config"},
 		{permission: model.Permission{Name: "LLM Management", Code: "ai-config_llm", Type: "MENU", FeRoute: "/ai-config/llm", FeComponent: "view.ai-config_llm", Icon: "carbon:machine-learning-model", Sort: 1, Visible: true, Status: true,
@@ -164,7 +164,7 @@ func seedPlatformPermissions() error {
 		{permission: model.Permission{Name: "Skill Management", Code: "ai-config_skill", Type: "MENU", FeRoute: "/ai-config/skill", FeComponent: "view.ai-config_skill", Icon: "carbon:flow", Sort: 2, Visible: true, Status: true,
 			BeApis: `["GET /api/v1/assistant/skills","GET /api/v1/assistant/skills/*","POST /api/v1/assistant/skills","POST /api/v1/assistant/skills/*","PUT /api/v1/assistant/skills","PUT /api/v1/assistant/skills/*","DELETE /api/v1/assistant/skills","DELETE /api/v1/assistant/skills/*","GET /api/v1/assistant/connection-options"]`}, parentCode: "ai-config"},
 		{permission: model.Permission{Name: "AI Assistant Chat", Code: "assistant:chat", Type: "BUTTON", Status: true,
-			BeApis: `["GET /api/v1/assistant/status","POST /api/v1/assistant/chat","POST /api/v1/assistant/skill","GET /api/v1/assistant/export","POST /api/v1/assistant/chat/async","GET /api/v1/assistant/async","GET /api/v1/assistant/async/*","POST /api/v1/assistant/async","POST /api/v1/assistant/async/*","GET /api/v1/assistant/conversations","GET /api/v1/assistant/conversations/*","POST /api/v1/assistant/conversations","POST /api/v1/assistant/conversations/*","PUT /api/v1/assistant/conversations","PUT /api/v1/assistant/conversations/*","DELETE /api/v1/assistant/conversations","DELETE /api/v1/assistant/conversations/*"]`}},
+			BeApis: `["GET /api/v1/assistant/status","POST /api/v1/assistant/chat","POST /api/v1/assistant/skill","GET /api/v1/assistant/export","POST /api/v1/assistant/chat/async","POST /api/v1/assistant/mail-me","GET /api/v1/assistant/async","GET /api/v1/assistant/async/*","POST /api/v1/assistant/async","POST /api/v1/assistant/async/*","GET /api/v1/assistant/conversations","GET /api/v1/assistant/conversations/*","POST /api/v1/assistant/conversations","POST /api/v1/assistant/conversations/*","PUT /api/v1/assistant/conversations","PUT /api/v1/assistant/conversations/*","DELETE /api/v1/assistant/conversations","DELETE /api/v1/assistant/conversations/*"]`}},
 		{permission: model.Permission{Name: "Authorization", Code: "authorization", Type: "DIRECTORY", FeRoute: "/authorization", FeComponent: "layout.base", Icon: "carbon:user-role", Sort: 60, Visible: true, Status: true}},
 		{permission: model.Permission{Name: "Users", Code: "authorization_user", Type: "MENU", FeRoute: "/authorization/user", FeComponent: "view.authorization_user", Icon: "carbon:user", Sort: 1, Visible: true, Status: true}, parentCode: "authorization"},
 		{permission: model.Permission{Name: "Roles", Code: "authorization_role", Type: "MENU", FeRoute: "/authorization/role", FeComponent: "view.authorization_role", Icon: "carbon:group", Sort: 2, Visible: true, Status: true}, parentCode: "authorization"},
@@ -329,8 +329,18 @@ func EnsureDefaultConfigs() error {
 			return err
 		}
 	}
-	return nil
+	// the margins and the mildest grade of the first rules of the recommendation are replaced by the bands of the second (one rule, one place to set it)
+	if err := model.DB.Unscoped().Where("config_key IN ?", retiredAnalysisKeys).Delete(&model.SysConfig{}).Error; err != nil {
+		return err
+	}
+	// the period of the analysis changed its meaning: it is what the recommendation is worked out over, so a row of an older version says so too
+	return model.DB.Model(&model.SysConfig{}).Where("config_key = ?", timing.OPBaselineDays.Key).
+		Updates(map[string]any{"config_name": timing.OPBaselineDays.Name, "remark": timing.OPBaselineDays.Remark}).Error
 }
+
+// retiredAnalysisKeys are the system parameters of the first rules of the recommendation (a margin over P95, a margin over P99 and a factor over the highest use,
+// and the share of the mildest grade): the bands of the second rules (analysis.rec_*) take their place.
+var retiredAnalysisKeys = []string{"analysis.cpu_margin_percent", "analysis.memory_margin_percent", "analysis.memory_peak_percent", "analysis.grade_mild_percent"}
 
 // retiredWorkflowTables are the tables of the removed workflow engine and Telegram integration. Tables whose
 // name starts with "telegram" are retired as well, which also covers the GORM default names of the binding tables.

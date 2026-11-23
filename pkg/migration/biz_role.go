@@ -51,7 +51,7 @@ var (
 func chatAPIs() []string {
 	return apiList2(
 		get("/api/v1/assistant/status", "/api/v1/assistant/export"),
-		[]string{"POST /api/v1/assistant/chat", "POST /api/v1/assistant/skill", "POST /api/v1/assistant/chat/async"},
+		[]string{"POST /api/v1/assistant/chat", "POST /api/v1/assistant/skill", "POST /api/v1/assistant/chat/async", "POST /api/v1/assistant/mail-me"},
 		both("/api/v1/assistant/conversations", writeMethods...),
 		both("/api/v1/assistant/async", readMethods...),
 		both("/api/v1/assistant/async", "POST"),

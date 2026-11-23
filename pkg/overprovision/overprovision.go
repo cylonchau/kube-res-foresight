@@ -15,7 +15,7 @@ import (
 )
 
 // FormulaVersion changes whenever a formula or a rule below changes, so a stored result says which one it was made with.
-const FormulaVersion = "op-1"
+const FormulaVersion = "op-2"
 
 // The resources of the analysis.
 const (
@@ -25,11 +25,11 @@ const (
 
 // Statuses of a result.
 const (
-	// StatusOver: the request is more than the suggestion by at least the mildest grade.
+	// StatusOver: the steady use (P90, P95) is below the reasonable share of the request and the tail (P99) does not make up for it.
 	StatusOver = "over"
-	// StatusOK: the request is near what the use asks for.
+	// StatusOK: the use of the request is in its reasonable range (the suggestion may still be a little lower: the result says by how much).
 	StatusOK = "ok"
-	// StatusUnder: the request is below the P95 use (a request to raise, not to lower).
+	// StatusUnder: the use of the request is above its reasonable range (a request to raise, not to lower).
 	StatusUnder = "under"
 	// StatusLimited: the use understates the need (the CPU was throttled, or the memory was OOM-killed), so no lowering is suggested.
 	StatusLimited = "limited"
@@ -42,7 +42,7 @@ const (
 	GradeSevere   = "severe"
 	GradeModerate = "moderate"
 	GradeMild     = "mild"
-	// GradeReasonable is a request within the mildest share of the suggestion.
+	// GradeReasonable is the grade of a request that is not over-provisioned.
 	GradeReasonable = "reasonable"
 )
 
@@ -65,7 +65,8 @@ const (
 	ReasonOOM           = "oom"             // the memory was OOM-killed in the window
 	ReasonPeakNearLimit = "peak_near_limit" // the peak came near the limit
 	ReasonBelowP95      = "request_below_p95"
-	ReasonNoLimit       = "no_limit" // the limit is not known: the distance to it is not judged
+	ReasonBurst         = "burst_tail" // the steady use is low but the P99 is above its range: a request sized for the tail, not lowered
+	ReasonNoLimit       = "no_limit"   // the limit is not known: the distance to it is not judged
 )
 
 // Window is one of the windows of the analysis.
@@ -89,23 +90,34 @@ func WindowByMinutes(minutes int) (Window, bool) {
 	return Window{}, false
 }
 
+// Band is what is asked of one percentile of the use against the request: Target is the share of the request the percentile takes once the request is the
+// recommended one, and a use between Low and High (shares of the request) is a reasonable one. Below Low the request is more than the use needs, above High it is
+// less.
+type Band struct {
+	Target float64 `json:"target"`
+	Low    float64 `json:"low"`
+	High   float64 `json:"high"`
+}
+
 // Params are the numbers of the formulas and the limits of the verdict.
 type Params struct {
-	// CPUMargin is added to the P95 CPU use (0.2 = 20%); MemoryMargin to the P99 working set; MemoryPeakFactor multiplies the highest working set.
-	CPUMargin        float64 `json:"cpu_margin"`
-	MemoryMargin     float64 `json:"memory_margin"`
-	MemoryPeakFactor float64 `json:"memory_peak_factor"`
+	// P90, P95 and P99 are the bands of the three percentiles (see Band). The recommended request is the least one that puts each percentile at or under its
+	// Target; the verdict is where each percentile stands against its Low and High.
+	P90 Band `json:"p90"`
+	P95 Band `json:"p95"`
+	P99 Band `json:"p99"`
+	// LimitHeadroom is the share the recommended limit is above the P99 use (it is never below the recommended request).
+	LimitHeadroom float64 `json:"limit_headroom"`
 	// OOMUplift multiplies the working set an OOM kill was seen at: the suggestion is never below it.
 	OOMUplift float64 `json:"oom_uplift"`
 	// ThrottleLimit is the share of time the CPU was throttled above which the use is said to understate the need.
 	ThrottleLimit float64 `json:"throttle_limit"`
-	// BaselineMinutes is the window a result is a baseline for: a shorter window lowers the confidence by one level.
+	// BaselineMinutes is the period a result is meant for: a shorter period lowers the confidence by one level.
 	BaselineMinutes int `json:"baseline_minutes"`
-	// Severe, Moderate and Mild are the shares of the request that are more than the suggestion for each grade.
+	// Severe and Moderate are the shares of the request that are more than the suggestion for each grade of an over-provisioned request; under Moderate it is mild.
 	Severe   float64 `json:"severe"`
 	Moderate float64 `json:"moderate"`
-	Mild     float64 `json:"mild"`
-	// CoverageHigh and CoverageMid are the shares of the window that must have data for a high and a medium confidence; under CoverageMid no
+	// CoverageHigh and CoverageMid are the shares of the period that must have data for a high and a medium confidence; under CoverageMid no
 	// suggestion is made.
 	CoverageHigh float64 `json:"coverage_high"`
 	CoverageMid  float64 `json:"coverage_mid"`
@@ -113,10 +125,13 @@ type Params struct {
 	PeakNearLimit float64 `json:"peak_near_limit"`
 }
 
-// DefaultParams are the proposals of P10 A2.
+// DefaultParams are the proposals of P10 A2, as the second version of the rules sets them: the use of the request that is wanted is P90 80%, P95 85% and
+// P99 110% (the CPU may burst over its request, to its limit), and a request is reasonable while P95 takes 80% to 90% of it.
 func DefaultParams() Params {
-	return Params{CPUMargin: 0.20, MemoryMargin: 0.15, MemoryPeakFactor: 1.05, OOMUplift: 1.2, ThrottleLimit: 0.05, BaselineMinutes: 7 * 24 * 60,
-		Severe: 0.50, Moderate: 0.30, Mild: 0.15, CoverageHigh: 0.80, CoverageMid: 0.50, PeakNearLimit: 0.90}
+	return Params{
+		P90: Band{Target: 0.80, Low: 0.70, High: 0.85}, P95: Band{Target: 0.85, Low: 0.80, High: 0.90}, P99: Band{Target: 1.10, Low: 0.80, High: 1.20},
+		LimitHeadroom: 0.20, OOMUplift: 1.2, ThrottleLimit: 0.05, BaselineMinutes: 7 * 24 * 60,
+		Severe: 0.50, Moderate: 0.30, CoverageHigh: 0.80, CoverageMid: 0.50, PeakNearLimit: 0.90}
 }
 
 // Point is one measured value of a Pod at a moment (unix seconds).
@@ -164,9 +179,12 @@ func rank(sorted []float64, p float64) float64 {
 // Input is what one resource of one workload is analysed from. Points are the values of one Pod (the average Pod of the workload when the stored
 // series is a workload total divided by its replicas); Total, when there is one, is the sum over all the Pods at each moment.
 type Input struct {
-	Resource      string
-	Request       float64
-	Limit         float64 // 0 = not known
+	Resource string
+	Request  float64
+	Limit    float64 // 0 = not known
+	// RequestTotal and LimitTotal are the Requests and the Limits of all the Pods together as Prometheus has them (0 = not known): the Pods in the sum are not always the ready replicas.
+	RequestTotal  float64
+	LimitTotal    float64
 	LimitFrom     string
 	Points        []Point
 	Total         []Point
@@ -190,6 +208,9 @@ type Result struct {
 	WindowMinutes int     `json:"window_minutes"`
 	Request       float64 `json:"request"`
 	Limit         float64 `json:"limit"`
+	// RequestTotal and LimitTotal are the figures of all the Pods together as Prometheus has them; 0 when not known.
+	RequestTotal float64 `json:"request_total"`
+	LimitTotal   float64 `json:"limit_total"`
 	// LimitFrom says where the limit comes from: metric (a limits source of the module), module (the request times the limit ratio the module sets for admission) or empty (not known).
 	LimitFrom string `json:"limit_from"`
 	Usage     Usage  `json:"usage"`
@@ -200,8 +221,11 @@ type Result struct {
 	ExpectedPoints int     `json:"expected_points"`
 	// Suggested is the request the use supports; 0 when no suggestion is made (see Reasons). It is made with or without a request to compare with.
 	Suggested float64 `json:"suggested"`
-	// SuggestedLimit is the limit that goes with it: the higher of the suggested request and the highest use, with LimitHeadroom above (so it is never below the P99, and a
-	// memory limit is never below the suggested request); 0 when no suggestion is made.
+	// Needed is what the use asks of the request by the bands, whatever the verdict (the rounded figure before it is kept as it is, lowered or raised); 0 when no suggestion is made.
+	Needed float64 `json:"needed"`
+	// Shares is the use of each percentile as a share of the request (nil when there is no request): where the verdict looks.
+	Shares *Usage `json:"shares,omitempty"`
+	// SuggestedLimit is the limit that goes with it: the P99 use with the limit headroom above it, and never below the suggested request; 0 when no suggestion is made.
 	SuggestedLimit float64 `json:"suggested_limit"`
 	// Ratio is (Request - Suggested) / Request, with Numerator and Denominator as put into it; it is negative when the suggestion is above the request.
 	Ratio       float64 `json:"ratio"`
@@ -223,9 +247,6 @@ type Result struct {
 	Formula        string `json:"formula"`
 	FormulaVersion string `json:"formula_version"`
 }
-
-// LimitHeadroom is the share the suggested limit is above the higher of the suggested request and the highest use.
-const LimitHeadroom = 0.20
 
 func down(level string) string {
 	switch level {
@@ -256,7 +277,7 @@ func num(resource string, v float64) string {
 
 // Analyze analyses one resource. It never panics on missing data: it says unknown, with the reason.
 func Analyze(in Input, p Params) Result {
-	r := Result{Resource: in.Resource, WindowMinutes: in.WindowMinutes, Request: in.Request, Limit: in.Limit, LimitFrom: in.LimitFrom, Usage: UsageOf(in.Points), Reasons: []string{},
+	r := Result{Resource: in.Resource, WindowMinutes: in.WindowMinutes, Request: in.Request, Limit: in.Limit, RequestTotal: in.RequestTotal, LimitTotal: in.LimitTotal, LimitFrom: in.LimitFrom, Usage: UsageOf(in.Points), Reasons: []string{},
 		Confidence: Low, Risk: Low, Status: StatusUnknown, Grade: "", Throttle: in.Throttle, OOMKills: in.OOMKills, OOMWorkingSet: in.OOMWorkingSet,
 		FormulaVersion: FormulaVersion}
 	if r.Throttle < 0 {
@@ -303,20 +324,24 @@ func Analyze(in Input, p Params) Result {
 		return r
 	}
 
-	// The suggestion.
+	// The recommended request: the least that puts each percentile of the use at or under the share of it that the band asks for. The highest use (Max) takes no
+	// part: a peak that came once is not what a request is sized for.
 	u := r.Usage
 	var suggested float64
-	switch in.Resource {
-	case Memory:
-		a, b := u.P99*(1+p.MemoryMargin), u.Max*p.MemoryPeakFactor
-		suggested = math.Max(a, b)
-		r.Formula = fmt.Sprintf("max(P99 %s x (1+%.0f%%) = %s, Max %s x %.2f = %s)", num(Memory, u.P99), p.MemoryMargin*100, num(Memory, a),
-			num(Memory, u.Max), p.MemoryPeakFactor, num(Memory, b))
-	default:
-		a := u.P95 * (1 + p.CPUMargin)
-		suggested = math.Max(a, u.P99)
-		r.Formula = fmt.Sprintf("max(P95 %s x (1+%.0f%%) = %s, P99 %s)", num(CPU, u.P95), p.CPUMargin*100, num(CPU, a), num(CPU, u.P99))
+	var parts []string
+	for _, c := range []struct {
+		name  string
+		use   float64
+		share float64
+	}{{"P90", u.P90, p.P90.Target}, {"P95", u.P95, p.P95.Target}, {"P99", u.P99, p.P99.Target}} {
+		if !(c.share > 0) {
+			continue
+		}
+		need := c.use / c.share
+		suggested = math.Max(suggested, need)
+		parts = append(parts, fmt.Sprintf("%s %s / %.0f%% = %s", c.name, num(in.Resource, c.use), c.share*100, num(in.Resource, need)))
 	}
+	r.Formula = "max(" + strings.Join(parts, ", ") + ")"
 	limited := false
 	if in.Resource == Memory && in.OOMKills > 0 {
 		// an OOM kill: the memory was too little, so it is never advised lower than what it was killed at, and never lower than it is now
@@ -335,48 +360,85 @@ func Analyze(in Input, p Params) Result {
 		limited = true
 		r.Formula += fmt.Sprintf("; throttled %.1f%% of the time (limit %.0f%%): not below the request", in.Throttle*100, p.ThrottleLimit*100)
 	}
-	if in.Round != nil {
-		suggested = in.Round(suggested)
+	round := func(v float64) float64 {
+		if in.Round != nil {
+			return in.Round(v)
+		}
+		return v
 	}
-	r.Suggested = suggested
-	r.SuggestedLimit = math.Max(suggested, u.Max) * (1 + LimitHeadroom)
-	if in.Round != nil {
-		r.SuggestedLimit = in.Round(r.SuggestedLimit)
-	}
-	r.Formula += fmt.Sprintf("; limit = max(suggested, Max %s) x (1+%.0f%%) = %s", num(in.Resource, u.Max), LimitHeadroom*100, num(in.Resource, r.SuggestedLimit))
+	suggested = round(suggested)
+	r.Needed = suggested
 	if noRequest {
-		// nothing to compare with: no ratio, no grade, no status
+		// nothing to compare with: the recommendation is what the use needs, with no ratio, no grade and no status
+		r.Suggested = suggested
+		r.SuggestedLimit = round(math.Max(suggested, u.P99*(1+p.LimitHeadroom)))
+		r.Formula += fmt.Sprintf("; limit = max(recommended, P99 %s x (1+%.0f%%)) = %s", num(in.Resource, u.P99), p.LimitHeadroom*100, num(in.Resource, r.SuggestedLimit))
 		return r
 	}
-	r.Numerator, r.Denominator = in.Request-suggested, in.Request
-	r.Ratio = r.Numerator / r.Denominator
-	r.Reclaimable = math.Max(0, r.Numerator)
 
+	// Where each percentile stands against the request: below its reasonable range (-1), in it (0) or above it (1).
+	r.Shares = &Usage{P50: u.P50 / in.Request, P90: u.P90 / in.Request, P95: u.P95 / in.Request, P99: u.P99 / in.Request, Max: u.Max / in.Request}
+	stand := func(share float64, b Band) int {
+		switch {
+		case share < b.Low:
+			return -1
+		case share > b.High:
+			return 1
+		}
+		return 0
+	}
+	s90, s95, s99 := stand(r.Shares.P90, p.P90), stand(r.Shares.P95, p.P95), stand(r.Shares.P99, p.P99)
 	switch {
 	case limited:
 		r.Status = StatusLimited
-	case in.Request < u.P95:
+	case s95 == 1 || s90 == 1 || (s99 == 1 && s95 >= 0):
+		// the steady use is above its range, or the tail is above its range while the steady use is a real one
 		r.Status = StatusUnder
 		r.Reasons = append(r.Reasons, ReasonBelowP95)
 		r.Risk = up(r.Risk)
-	case r.Ratio >= p.Mild:
-		r.Status = StatusOver
+	case s90 == -1 || s95 == -1 || s99 == -1:
+		if s99 == 1 {
+			// the steady use is low but the P99 is above its range: the request is sized for a tail that comes now and then, and is not lowered for it
+			r.Status = StatusOK
+			r.Reasons = append(r.Reasons, ReasonBurst)
+		} else {
+			r.Status = StatusOver
+		}
 	default:
 		r.Status = StatusOK
 	}
+	switch r.Status {
+	case StatusOver:
+		// never above what it is now: the request is to be lowered
+		suggested = math.Min(suggested, in.Request)
+	case StatusUnder:
+		suggested = math.Max(suggested, in.Request)
+	case StatusOK:
+		// in its range: kept as it is, unless the use supports a lower one (the result says by how much, and the status stays reasonable)
+		if suggested > in.Request || containsReason(r.Reasons, ReasonBurst) {
+			suggested = in.Request
+		}
+	}
+	r.Suggested = suggested
+	r.SuggestedLimit = round(math.Max(suggested, u.P99*(1+p.LimitHeadroom)))
+	r.Formula += fmt.Sprintf("; limit = max(recommended, P99 %s x (1+%.0f%%)) = %s", num(in.Resource, u.P99), p.LimitHeadroom*100, num(in.Resource, r.SuggestedLimit))
+	r.Numerator, r.Denominator = in.Request-suggested, in.Request
+	r.Ratio = r.Numerator / r.Denominator
+	r.Reclaimable = math.Max(0, r.Numerator)
+	if r.Status == StatusOver && r.Reclaimable <= 0 {
+		// the rounding took the recommendation up to what it is now: nothing to give back
+		r.Status = StatusOK
+	}
 	switch {
+	case r.Status != StatusOver:
+		// the grade is of an over-provisioned request; one that is not is reasonable, and says so
+		r.Grade = GradeReasonable
 	case r.Ratio >= p.Severe:
 		r.Grade = GradeSevere
 	case r.Ratio >= p.Moderate:
 		r.Grade = GradeModerate
-	case r.Ratio >= p.Mild:
-		r.Grade = GradeMild
 	default:
-		r.Grade = GradeReasonable
-	}
-	if r.Status != StatusOver {
-		// the grade is of an over-provisioned request; a request that is not one is reasonable, and says so
-		r.Grade = GradeReasonable
+		r.Grade = GradeMild
 	}
 	if in.Limit > 0 {
 		if u.Max >= p.PeakNearLimit*in.Limit {
@@ -387,6 +449,15 @@ func Analyze(in Input, p Params) Result {
 		r.Reasons = append(r.Reasons, ReasonNoLimit)
 	}
 	return r
+}
+
+func containsReason(reasons []string, code string) bool {
+	for _, r := range reasons {
+		if r == code {
+			return true
+		}
+	}
+	return false
 }
 
 // MovingAverage is the mean of the last n points at each point (fewer at the start). It is written MA<n>@<step>: n points of the step of the series.
