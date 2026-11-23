@@ -693,3 +693,12 @@ func TestAGrafanaVariableInAQueryIsNamedWhenNothingIsFound(t *testing.T) {
 	assert.Contains(t, grafanaHint(`up{cluster="$cluster", namespace="${namespace}"}`), "$cluster")
 	assert.Equal(t, "", grafanaHint(`up{namespace="prod"} and foo$`))
 }
+
+// A query that answers a series for each Pod says how to join them, and a template whose name and query disagree is pointed out.
+func TestAQueryOfManySeriesAndAMisnamedTemplateAreExplained(t *testing.T) {
+	assert.Contains(t, seriesHint("permanent query error: query returned more than one series; aggregate it to a single series (95 series)"), "sum(...)")
+	assert.Equal(t, "", seriesHint("no data"))
+	assert.Contains(t, nameMismatchNote("demo-cpu-limits", `kube_pod_container_resource_requests{resource="cpu"}`), "resource_requests")
+	assert.Contains(t, nameMismatchNote("demo-cpu-requests", `sum(kube_pod_container_resource_limits)`), "resource_limits")
+	assert.Equal(t, "", nameMismatchNote("demo-cpu-limits", `sum(kube_pod_container_resource_limits)`))
+}

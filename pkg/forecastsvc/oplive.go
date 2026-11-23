@@ -31,7 +31,9 @@ type LiveQuery struct {
 	Query string `json:"query"`
 	// Template is the metric template the source takes its query from; Display is true for a metric that is only shown (it has no weight and no algorithm).
 	Template string `json:"template"`
-	Display  bool   `json:"display"`
+	// Note is a warning about the query that ran all the same (it looks like the wrong one).
+	Note    string `json:"note,omitempty"`
+	Display bool   `json:"display"`
 	// Per says what the query answers: one Pod ("pod") or all the replicas together ("total"), as the module's source says or as the level of the template does.
 	Per    string `json:"per"`
 	Step   string `json:"step"`
@@ -116,6 +118,7 @@ func (l *opLoader) readLive() {
 			continue
 		}
 		q.Template, q.Display = setup.mapping.Name, src.IsDisplay()
+		q.Note = nameMismatchNote(setup.mapping.Name, setup.mapping.Query)
 		q.Level, q.Unit, q.Group = setup.mapping.Level, setup.mapping.Unit, metricGroup(kind, setup.mapping.Level)
 		q.Per = src.PerOf(setup.mapping.Level)
 		for _, name := range model.TemplateVariables(setup.mapping.Query) {
@@ -169,7 +172,7 @@ func (l *opLoader) readLive() {
 			// the first point is one step after the start: a window of a day at 5 minutes is 288 points, not 289
 			points, err := collector.Fetch(askCtx, querier, j.expr, l.from.Add(j.step), l.to, j.step, collector.Options{Attempts: 1, Concurrency: 1})
 			if err != nil {
-				q.Error = err.Error()
+				q.Error = err.Error() + seriesHint(err.Error())
 				return
 			}
 			scale := j.src.Scale
@@ -236,6 +239,27 @@ func (l *opLoader) readLive() {
 			l.cache[src.Kind] = series
 		}
 	}
+}
+
+// seriesHint is what is added to a query that answers a series for each Pod or container (95 of them): the platform needs one series, and which way to join
+// them depends on what the query is for.
+func seriesHint(msg string) string {
+	if strings.Contains(msg, "more than one series") || strings.Contains(msg, "series: the mapping has to sum") {
+		return " (the query answers a series for each Pod or container: wrap it in sum(...) for all the replicas together, or in avg(...) / max(...) for one Pod, and say in the module which of the two the query returns)"
+	}
+	return ""
+}
+
+// nameMismatchNote says when a template named for the Limits asks for the requests, or the other way round: a figure that is not the one its name says.
+func nameMismatchNote(name, query string) string {
+	n, q := strings.ToLower(name), strings.ToLower(query)
+	switch {
+	case strings.Contains(n, "limit") && strings.Contains(q, "resource_requests") && !strings.Contains(q, "resource_limits"):
+		return "the template is named for the limits but its query reads resource_requests"
+	case strings.Contains(n, "request") && strings.Contains(q, "resource_limits") && !strings.Contains(q, "resource_requests"):
+		return "the template is named for the requests but its query reads resource_limits"
+	}
+	return ""
 }
 
 // grafanaVariable is a variable of a Grafana dashboard ($cluster, ${namespace}) that was pasted into a query: Prometheus does not know it, so what it is matched

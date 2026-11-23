@@ -144,7 +144,7 @@ func scalarOf(ctx context.Context, q cost.Querier, query string, at time.Time) (
 	case 1:
 		return vals[0], nil
 	}
-	return 0, fmt.Errorf("the query answers %d series: the mapping has to sum them to one (sum(...))", len(vals))
+	return 0, fmt.Errorf("the query answers %d series: the mapping has to sum them to one (sum(...))%s", len(vals), seriesHint("series: the mapping has to sum"))
 }
 
 // quantilesOf asks for the five figures of one expression over the window, the five queries at once.
