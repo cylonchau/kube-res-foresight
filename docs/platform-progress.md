@@ -961,3 +961,10 @@ all ten management pages and the shared product title. Screenshots were inspecte
 - **验证**：`go test -p 1 ./pkg/...`、`go vet`、`gofmt` 通过；前端 `vue-tsc`、oxlint、oxfmt、51 个单元测试；真浏览器（临时库、假 Prometheus、假语言模型）走了筛选、窗口、OOM 卡片、合并图、集群卡片两种来源、504 场景（JVM 查询 15 秒、读限时 3 秒：2.3 秒给出部分答案）、AI 悬浮窗全流程、窄屏、指标模板页。
 - **没验证**：真实 Prometheus、真实网关、PostgreSQL、MySQL；没有副本数来源的模块没有全副本图。
 - **注意**：本次没有新表和新种子，不需要重新迁移；集群大盘要先在“指标模板”页给集群数据源建 `cluster.*`、`node.*` 预设（也可以不建，用默认查询或系统参数里改过的查询）；`/overprovision/cluster` 和 `/inventory/nodes/usage` 在读不到时回 200 加 `reason`，不再回 4xx 或 502（调用方要看 `reason`）。
+
+2026-11-23：资源大盘需求调整与优化（12 条，只读 Prometheus）
+- **做了什么**：删可回收排行、回收资源、集群与节点、工作负载面板和模块详情里的集群卡片；总览只留模块列表和集群大盘；模块大盘上面一行“OOM 数量：N”；图里去掉 MA5／15／25；分位数表的点数写成“样本数 / 应有样本数”并加问号；AI 悬浮按钮只在模块大盘出现、只在用户点击后发问，提示词改成只输出 HTML 表格；卡片墙一个尺寸一个间距、没有空位、颜色按等级；模块大盘所有数字都向 Prometheus 现查（`pkg/forecastsvc/oplive.go`），不再读存下的样本和分析结果。每一条对应的文件见 `.agents/skills/requirements/references/overprovision-p10.md` 的“资源大盘调整”一节。
+- **我的理解（请纠正）**：“OM”是 OOM；“评估是否需要保留独立模块列表”评估为保留（它是选实例的入口，只留标识列）；“集群大盘保留现状”指总览页的集群卡片，“集群与节点”指 operator 上报的面板。
+- **验证**：Go 测试、`go vet`、`gofmt`；前端 `vue-tsc`、oxlint、oxfmt、单元测试；真浏览器（临时库、假 Prometheus 含 query_range、假语言模型）走了总览、模块大盘、卡片墙每一行是否满、AI 按钮先不发问点了才发、答案里的脚本和图片被清掉、窄屏、中英文、慢 Prometheus 时的部分答案。
+- **没验证**：真实 Prometheus（映射里的 PromQL 对着真实指标名）、真实网关、PostgreSQL、MySQL。
+- **注意**：详情接口不再有 `history`，`ma5`／`ma15`／`ma25`／`ma_labels` 没有了；`GET /overprovision` 等大盘接口还在，只是页面不用；定时任务仍在存分析结果（AI 助手的 `analyze_resources` 工具读它）。没有新表，不需要重新迁移。

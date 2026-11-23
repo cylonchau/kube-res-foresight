@@ -294,3 +294,32 @@
 - 前端：`vue-tsc`、oxlint、oxfmt、51 个单元测试（新增窗口换算 4 个）。
 - **真浏览器**（Chrome，临时库、假 Prometheus 其中 JVM 的查询故意 15 秒、假语言模型）：筛选栏（同高、窄屏换行）、命名空间到实例、时间选择框改成 3 小时后的请求（`from`/`to`）、OOM 卡片、合并后的 CPU／内存图与全副本图、集群卡片（没有指标模板时是默认查询，用预设建了 9 个以后来源标签变成“指标模板”，没答的数显示“-”）、读限时 3 秒时 2.3 秒内给出部分答案（原来会挂到网关）、AI 悬浮按钮的整个流程、指标模板页列出新种类。
 - **没验证**：真实 Prometheus（默认查询里的指标名是编辑得到的默认，不同就改指标模板）、真实网关、PostgreSQL、MySQL；全副本图在没有“副本数”来源的模块上没有数据（图里写没有数据）；暗色主题只看了配色没逐页看。
+
+## 资源大盘调整（2026-11-23，12 条，只读 Prometheus）
+
+用户给了“资源大盘需求调整与优化”。需求文字是语音转写：“OM”理解为 OOM；第 2 条“评估是否需要保留独立模块列表”我的评估是**保留**——它正好是“进入大盘先看模块列表并选实例”的入口，所以保留，只留标识列。**请纠正。**第 3 条“集群大盘保留现状”与第 4 条“删除集群与节点、模块详情移除集群大盘”：我理解为总览页的“集群大盘”卡片（向 Prometheus 查的那张）不动，operator 上报的“集群与节点”面板删除，模块详情里的集群卡片删除。
+
+| 条 | 做了什么 | 在哪里 |
+|---|---|---|
+| 1 可回收资源排行 | 删除（总览的排行图、可回收卡片、预留合计、待优化／欠配／隐患计数都删了） | `views/forecast-results/overprovision/index.vue` |
+| 2 模块列表 | 保留为总览的默认内容：模块、命名空间、工作负载三列加“分析”按钮，选命名空间和实例后进入模块大盘；列表来自模块接口，不含任何存下的分析结果 | 同上 |
+| 3 集群大盘 | 不动：总览页下方仍是 `overprovision-cluster-card.vue` | 同上 |
+| 4 功能移除 | 删除 `inventory-cluster-panel.vue`（集群与节点）、`inventory-workload-panel.vue`（工作负载）、模块详情里的集群卡片、“立即分析”按钮和回收资源卡片；operator 上报与 `/inventory` 接口原样保留（operator 和 Grafana 还要用） | web components |
+| 5 OOM 数量 | 模块大盘最上面一行“OOM 数量：N”（有 OOM 红色、0 绿色）；没配 OOM 指标写“模块没有配置 OOM 指标”；OOM 指标不再出现在指标卡片里 | `overprovision-module-panel.vue` |
+| 6 移动平均 | MA5／MA15／MA25 从图和接口（`ma5`、`ma15`、`ma25`、`ma_labels`）都删了 | `overprovision-usage-chart.vue`、`ResourceChart` |
+| 7 点数 | 分位数表的“点数”列写成“样本数 / 窗口应有样本数”，表头加问号说明（步长、缺数据的含义）；P50、P90、P95、P99、Max 的表头也各加问号 | module-panel、locales |
+| 8 AI 触发 | 右下角悬浮按钮只在选了模块时出现；总览不出现；打开页面、选模块、切窗口都不会发问，只有点悬浮按钮（或窗口里的“分析”）才发；按钮点开且没有答案时就是这次点击发问 | `overprovision-ai-assistant.vue`、页面 `v-if="sel.moduleId"` |
+| 9 AI 提示词 | `utils/overprovision-ai.ts` 重写：只输出 HTML、用表格（配置与使用、判定与优化、限流／OOM／JVM）、状态单元格用 lv-bad／lv-warn／lv-ok／lv-info 类、直接写当前情况和优化后的数值、不写引导语、含糊词和额外推荐；答案经 `utils/safe-html.ts` 清洗（只留表格、列表、强调和这四个等级类，没有脚本、样式、链接、图片和事件） | 同左 |
+| 10、11 卡片墙 | 新组件 `overprovision-card-wall.vue`：一个尺寸、一个间距；列数按宽度和卡片数算（`utils/card-wall.ts`，有测试），一列就一行一张，两列就一行两张，最后一行不满时用更宽的卡片补满，没有空位；等级用鲜明的颜色：红（危险）、橙（超配或需关注）、绿（正常）、蓝（信息）、灰（中性），由判定状态、使用率、可用量决定 | 同左 |
+| 12 只读 Prometheus | 模块大盘的所有数字（请求、上限、副本、P50 到 Max、图、OOM、JVM、限流、各指标）都由 `GET /modules/:id/overprovision` 向模块指标映射的数据源现查（每个指标一个 query_range，`{{range}}` 取查询步长），不再读存下的样本，也不读存下的分析结果（历史图、历史请求、最近 OOM 时间都删了）；每个指标发的 PromQL、步长、点数随答案返回，页面的“查询”折叠里列出 | `pkg/forecastsvc/oplive.go`、`overprovision.go`（`OverprovisionDetail`）、`cached.go` |
+
+### 读法与限时
+- 步长：映射的步长，窗口长了放大到不超过约 1500 个点；第一个点在窗口起点后一个步长，所以一天是 288 个点（5 分钟步长），不是 289。
+- 副本数：模块的“副本数”指标最后一个值；工作负载级的指标除以同一时刻的副本数得到单 Pod，Pod 级的指标乘以它得到总和。
+- 限时：最多 8 个指标一起问，到读请求时限（`http.list_query_seconds`，没有就用网关时间）减 2 秒就停；答完的照常给，没答完的标 `skipped` 写原因，整份标 `partial`，页面提示“N 个指标限时内没答完”并给重试；部分答案不进缓存，答案缓存 5 分钟（以模块修改时间为版本）。
+- 没有的：详情接口里不再有 `history`；`GET /overprovision`（大盘）、`POST /overprovision/run`、`/modules/:id/overprovision/prometheus` 仍在后端，页面不再用；定时任务 `forecast.overprovision` 照常存分析结果，现在只有 AI 助手的 `analyze_resources` 工具读它。
+
+### 验证
+- Go：`go test -p 1 ./pkg/...`、`go vet`、`gofmt`。新增或改的测试：详情向 Prometheus 现查（删光存下的样本也一样、不写样本）、慢 Prometheus 时给出答完的指标并说明没答完的、图没有移动平均、长窗口放大步长。
+- 前端：`vue-tsc`、oxlint、oxfmt、单元测试（新增卡片列数与跨度、答案清洗、提示词）。
+- 真浏览器：见 `docs/platform-progress.md` 末尾；**没验证**：真实 Prometheus（映射里的 PromQL 要对着真实指标名）、真实网关、PostgreSQL、MySQL。
