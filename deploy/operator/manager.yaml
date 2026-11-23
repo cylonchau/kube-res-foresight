@@ -53,7 +53,9 @@ spec:
       containers:
         - name: manager
           image: IMAGE
-          # the image is the "operator" target of deploy/docker/Dockerfile: its entrypoint is kube-res-foresight-operator
+          # the image is the "operator" target of deploy/docker/Dockerfile: its entrypoint is kube-res-foresight-operator. With the platform image
+          # (target kube-res-foresight, the default last stage) the flags below reach the platform command and fail with "unknown flag: --leader-elect":
+          # add  command: ["kube-res-foresight", "operator"]  here, or build the operator image.
           args:
             - --leader-elect=true
             - --metrics-bind-address=:8080

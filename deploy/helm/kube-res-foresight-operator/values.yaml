@@ -20,6 +20,9 @@ operator:
   watchNamespace: ""
   # Extra arguments of the operator command.
   extraArgs: []
+  # Empty runs the entrypoint of the operator image (target "operator"). If the image is the platform image (it has no operator entrypoint, so
+  # "unknown flag: --leader-elect" and the usage of kube-res-foresight is all it prints), set it to ["kube-res-foresight", "operator"].
+  command: []
 
 # The platform (required). The operator reads its auto modules (namespace, workload, bounds, fallback, pace) and scales their workloads
 # through the scale subresource: the module is the only configuration, and the operator creates nothing else in the cluster.
