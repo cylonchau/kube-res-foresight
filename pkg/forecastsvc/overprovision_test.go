@@ -599,3 +599,97 @@ func TestTheManagedClustersAreTheDataSourcesWithClusterMetricTemplates(t *testin
 	assert.True(t, got.Clusters[0].Primary, "the primary cluster is first")
 	assert.Equal(t, 0, got.Clusters[0].Declared)
 }
+
+// The Requests of a module are the query of the template the module bound to them, whichever kind the template was filed under; every metric the module has is
+// asked and listed (two CPU templates are two queries), and what is only shown is collected for the history but never read by an algorithm.
+func TestTheRequestsAreReadFromTheTemplateTheModuleBoundAndEveryMetricIsListed(t *testing.T) {
+	f := opFixture(t)
+	f.withReplicas()
+	ctx := context.Background()
+	mk := func(name, metric, series string) uint {
+		mp := &model.MetricMapping{DatasourceID: f.cpuMap.DatasourceID, Name: name, Metric: metric, Level: "workload", Unit: model.MetricKinds[metric], StepSeconds: 60, Enabled: true,
+			Query: `sum(` + series + `{namespace="{{namespace}}",pod=~"{{workload}}-.*"})`}
+		require.NoError(t, f.db.Create(mp).Error)
+		return mp.ID
+	}
+	// the template of cores that a user files under CPU, written for the Requests
+	f.maps["k8s_cpu_requests"] = mk("dc-cpu-requests", "cpu", "k8s_cpu_requests_series")
+	f.addSourceTo(t, nil, "k8s_cpu_requests")
+	// a second CPU metric: nothing for the algorithms to confuse with the first
+	alt := &model.MetricSource{ModuleID: f.module.ID, Name: "cpu-alt", Kind: "cpu", MappingID: mk("cpu-alt", "cpu", "cpu_alt_series"), Weight: 1, Stat: "p95", Enabled: true, Priority: 90}
+	require.NoError(t, alt.Validate())
+	require.NoError(t, f.svc.Modules.SaveSource(ctx, alt))
+	inner := f.querier.value
+	f.querier.value = func(query string, ts time.Time) float64 {
+		if strings.Contains(query, "k8s_cpu_requests_series{") {
+			return 16
+		}
+		if strings.Contains(query, "cpu_alt_series{") {
+			return 8
+		}
+		return inner(query, ts)
+	}
+	f.svc.NewCostQuerier = func(*model.Datasource) (cost.Querier, error) {
+		return vectorFn(func(q string) []promclient.VectorSample {
+			switch {
+			case strings.Contains(q, "kube_deployment"):
+				return []promclient.VectorSample{{Value: 4}}
+			case strings.Contains(q, "k8s_cpu_requests_series{"):
+				return []promclient.VectorSample{{Value: 16}}
+			}
+			return nil
+		}), nil
+	}
+
+	got, err := f.svc.OverprovisionResources(ctx)
+	require.NoError(t, err)
+	row := got.Rows[0]
+	require.NotNil(t, row.CPURequest, "%v", row.Errors)
+	assert.InDelta(t, 4.0, *row.CPURequest, 1e-9, "16 cores over 4 replicas")
+
+	d, err := f.svc.OverprovisionDetail(ctx, f.module.ID, 24*60, time.Time{}, time.Time{})
+	require.NoError(t, err)
+	cpuQueries, shown := 0, 0
+	for _, q := range d.Queries {
+		if q.Kind == "cpu" {
+			cpuQueries++
+		}
+		if q.Kind == "k8s_cpu_requests" {
+			assert.True(t, q.Display, "the Requests are a display metric")
+			assert.Equal(t, "dc-cpu-requests", q.Template)
+			shown++
+		}
+	}
+	assert.Equal(t, 2, cpuQueries, "both CPU templates are asked")
+	assert.Equal(t, 1, shown)
+	assert.InDelta(t, 4.0, d.Windows[0].CPU.Request, 1e-9)
+	names := []string{}
+	for _, m := range d.Metrics {
+		names = append(names, m.Name)
+	}
+	assert.Contains(t, names, "cpu-alt", "the other CPU metric is listed with its quantiles")
+
+	// the algorithms do not read the display metric; the history collects it
+	mod, err := f.svc.Modules.Get(ctx, f.module.ID)
+	require.NoError(t, err)
+	for _, src := range (&model.AlgorithmRun{Sources: mod.Sources}).ActiveSources() {
+		assert.NotEqual(t, "k8s_cpu_requests", src.Kind)
+	}
+	collected, err := f.collect(ctx)
+	require.NoError(t, err)
+	keys := []string{}
+	for _, c := range collected {
+		keys = append(keys, c.Metric)
+	}
+	found := false
+	for _, k := range keys {
+		found = found || strings.HasPrefix(k, "k8s_cpu_reques")
+	}
+	assert.True(t, found, "the history collects the display metric: %v", keys)
+}
+
+// A query pasted from Grafana still has its variables: when it finds nothing the answer says so.
+func TestAGrafanaVariableInAQueryIsNamedWhenNothingIsFound(t *testing.T) {
+	assert.Contains(t, grafanaHint(`up{cluster="$cluster", namespace="${namespace}"}`), "$cluster")
+	assert.Equal(t, "", grafanaHint(`up{namespace="prod"} and foo$`))
+}

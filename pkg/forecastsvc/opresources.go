@@ -95,7 +95,7 @@ func (s *Service) OverprovisionResources(ctx context.Context) (*ResourceList, er
 // moduleResources fills the four figures of a module. A metric of the workload level is the sum over the Pods and is divided by the replicas (the module's
 // replicas metric, asked the same way), one of the container level is already of one Pod.
 func (s *Service) moduleResources(ctx context.Context, m *model.ForecastModule, at time.Time, row *ModuleResources) {
-	run := &model.AlgorithmRun{ID: m.ID, Dashboard: true, Sources: m.Sources, Namespace: m.Namespace, Workload: m.Workload, Service: m.Service, Container: m.Container}
+	run := &model.AlgorithmRun{ID: m.ID, AllSources: true, Sources: m.Sources, Namespace: m.Namespace, Workload: m.Workload, Service: m.Service, Container: m.Container}
 	replicas := math.NaN()
 	for _, f := range resourceKinds {
 		value, level, err := s.instantOfKind(ctx, run, f.kind, at)

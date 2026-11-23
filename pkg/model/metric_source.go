@@ -74,24 +74,36 @@ type MetricSource struct {
 	Aggregation string  `gorm:"type:varchar(8);not null;default:'avg'" json:"aggregation" column_setting:"false"`
 	Missing     string  `gorm:"type:varchar(16);not null;default:'interpolate'" json:"missing" column_setting:"false"`
 
-	// Purpose says which of the two readings of a module the source is for: the resource dashboard reads Prometheus as it is now (PurposeDashboard), the history
-	// the platform collects for the forecast, the score and the protection reads the sources that are for history (PurposeHistory); PurposeBoth is a source of
-	// both, so a metric both need (the CPU and the memory in use) is written once. The Requests and Limits are for the dashboard alone.
-	Purpose string `gorm:"type:varchar(10);not null;default:'both'" json:"purpose" column_setting:"false"`
+	// Purpose says what the source is for. A display source (PurposeDisplay) is a metric that is only shown: the resource dashboard, the history data and the charts
+	// read it, and it has no weight and no algorithm switch; no algorithm reads it. An algorithm source (PurposeAlgorithm) is a metric of the calculation: it has a weight and
+	// is switched on or off for the algorithms, and the dashboard and the history show it as well. The Requests and Limits are display sources.
+	Purpose string `gorm:"type:varchar(10);not null;default:'algorithm'" json:"purpose" column_setting:"false"`
 	// Per says what the query answers: one Pod (PerPod) or all the replicas together (PerTotal). It is empty for what the level of the metric template says
 	// (a query of the workload is the sum over its Pods). The dashboard divides a total by the replicas to get one Pod and multiplies one Pod to get the total.
 	Per string `gorm:"type:varchar(8);not null;default:''" json:"per" column_setting:"false"`
 }
 
-// What a source is for.
+// What a source is for. The values "dashboard" (display), "both" and "history" (algorithm) of an earlier release are still understood.
 const (
-	PurposeDashboard = "dashboard"
-	PurposeHistory   = "history"
-	PurposeBoth      = "both"
+	PurposeDisplay   = "display"
+	PurposeAlgorithm = "algorithm"
 )
 
 // SourcePurposes lists the purposes.
-var SourcePurposes = []string{PurposeBoth, PurposeDashboard, PurposeHistory}
+var SourcePurposes = []string{PurposeAlgorithm, PurposeDisplay}
+
+// NormalPurpose is the purpose a stored or given value means; "" is the default of the kind.
+func NormalPurpose(purpose, kind string) (string, bool) {
+	switch purpose {
+	case "":
+		return DefaultPurpose(kind), true
+	case PurposeDisplay, "dashboard":
+		return PurposeDisplay, true
+	case PurposeAlgorithm, "both", "history":
+		return PurposeAlgorithm, true
+	}
+	return "", false
+}
 
 // What the query of a source answers.
 const (
@@ -99,25 +111,38 @@ const (
 	PerTotal = "total"
 )
 
-// DashboardKinds are the kinds of what a Pod asks for and may use: the dashboard reads them from Prometheus and the history has no use for the first three, so
-// they are set up in the module apart from the metrics the history is made of and written once, for the dashboard. The memory limit is also what the OOM
-// protection reads from the history, so it stays a source of both unless the module says otherwise.
-var DashboardKinds = []string{"k8s_cpu_requests", "k8s_cpu_limits", "k8s_mem_requests", "k8s_mem_limits"}
+// DisplayKinds are the kinds of what a Pod asks for and may use: the Requests and the Limits. They are display metrics: shown as they are in Prometheus, never part of a forecast.
+var DisplayKinds = []string{"k8s_cpu_requests", "k8s_cpu_limits", "k8s_mem_requests", "k8s_mem_limits"}
 
-// IsDashboardKind reports whether the kind is one of the requests and limits.
-func IsDashboardKind(kind string) bool { return oneOf(kind, DashboardKinds) }
+// IsDisplayKind reports whether the kind is one of the requests and limits.
+func IsDisplayKind(kind string) bool { return oneOf(kind, DisplayKinds) }
 
-// DefaultPurpose is the purpose of a new source of the kind: the requests and the CPU limit are for the dashboard, the other kinds for both.
+// DefaultPurpose is the purpose of a new source of the kind: the Requests and the Limits are display sources, the other kinds are algorithm sources.
 func DefaultPurpose(kind string) string {
-	if IsDashboardKind(kind) && kind != "k8s_mem_limits" {
-		return PurposeDashboard
+	if IsDisplayKind(kind) {
+		return PurposeDisplay
 	}
-	return PurposeBoth
+	return PurposeAlgorithm
 }
 
-// ForDashboard reports whether the dashboard reads the source; ForHistory whether the history does.
-func (s *MetricSource) ForDashboard() bool { return s.Purpose != PurposeHistory }
-func (s *MetricSource) ForHistory() bool   { return s.Purpose != PurposeDashboard }
+// IsDisplay reports whether the source is only shown (see Purpose); a source stored by an earlier release without a purpose is an algorithm source.
+func (s *MetricSource) IsDisplay() bool {
+	return s.Purpose == PurposeDisplay || s.Purpose == "dashboard"
+}
+
+// AcceptsMapping reports whether a metric template of the kind mapKind can be the query of a source of the kind. A source takes the templates of its own kind; a
+// Requests or Limits source also takes a template of the same unit among the CPU and the memory ones (the CPU template "dc-cpu-requests" is a template of cores
+// whatever it was filed under), so the figure does not depend on which kind the template was created with.
+func AcceptsMapping(kind, mapKind string) bool {
+	if kind == mapKind {
+		return true
+	}
+	if !IsDisplayKind(kind) || IsScopedKind(mapKind) {
+		return false
+	}
+	unit, ok := MetricKinds[mapKind]
+	return ok && unit == MetricKinds[kind] && KindCategory(mapKind) == KindCategory(kind)
+}
 
 // PerOf is what the query of the source answers, given the level of its metric template: the sum over the Pods of a workload is all the replicas together.
 func (s *MetricSource) PerOf(level string) string {
@@ -249,15 +274,11 @@ func (s *MetricSource) Validate() error {
 	if !multimetric.ValidStat(s.Stat) {
 		return fmt.Errorf("stat must be avg, max, sum, last or p<number> for a percentile (p40, p95, p99.9: a number above 0 and below 100)")
 	}
-	if s.Purpose == "" {
-		s.Purpose = DefaultPurpose(s.Kind)
-	}
-	if !oneOf(s.Purpose, SourcePurposes) {
+	purpose, ok := NormalPurpose(s.Purpose, s.Kind)
+	if !ok {
 		return fmt.Errorf("purpose must be one of %v", SourcePurposes)
 	}
-	if IsDashboardKind(s.Kind) && s.Kind != "k8s_mem_limits" && s.Purpose == PurposeHistory {
-		return fmt.Errorf("%q is read by the resource dashboard from Prometheus: its purpose is dashboard (or both), not history alone", s.Kind)
-	}
+	s.Purpose = purpose
 	if s.Per != "" && s.Per != PerPod && s.Per != PerTotal {
 		return fmt.Errorf("per must be pod or total")
 	}

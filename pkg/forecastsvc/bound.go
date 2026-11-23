@@ -29,7 +29,11 @@ func (bs boundSet) sourcesOfKind(kind string) []sourceRef {
 	if len(bs) == 0 {
 		return out
 	}
-	for _, src := range bs[0].ActiveSources() {
+	// the metrics around the forecast (OOM, JVM, Requests, Limits) are read from every source of the module, the display ones too; only the forecast of a resource
+	// (forecastOfResource) is limited to the algorithm sources
+	all := *bs[0]
+	all.AllSources = true
+	for _, src := range all.ActiveSources() {
 		if src.Kind == kind {
 			out = append(out, sourceRef{bs[0], src})
 		}

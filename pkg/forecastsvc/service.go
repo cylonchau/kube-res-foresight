@@ -209,7 +209,7 @@ func (s *Service) setup(ctx context.Context, a *model.AlgorithmRun, metric strin
 	if !mapping.Enabled {
 		return nil, fmt.Errorf("%w: %s mapping %q is disabled", ErrNotConfigured, metric, mapping.Name)
 	}
-	if kind := a.KindOf(metric); mapping.Metric != kind {
+	if kind := a.KindOf(metric); !model.AcceptsMapping(kind, mapping.Metric) {
 		return nil, fmt.Errorf("%w: mapping %q is a %s mapping, source %s is %s", ErrNotConfigured, mapping.Name, mapping.Metric, metric, kind)
 	}
 	ds, err := s.Datasources.GetByID(ctx, mapping.DatasourceID)

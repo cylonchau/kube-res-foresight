@@ -1006,6 +1006,9 @@ func (s *Service) sourceDetails(ctx context.Context, m *model.ForecastModule) []
 	out := make([]SourceDetail, 0, len(sources))
 	names := map[uint]string{}
 	for _, src := range sources {
+		if src.IsDisplay() {
+			continue // what is only shown is no part of the recommendation
+		}
 		d := SourceDetail{Key: src.Key, Name: src.Name, Kind: src.Kind, Resource: src.Resource, Enabled: src.Enabled, Stat: src.Stat, Basis: src.Basis, Scale: src.Scale}
 		if mapping, err := s.Mappings.GetByID(ctx, src.MappingID); err == nil && mapping != nil {
 			d.Query, d.Level, d.Unit, d.Step = mapping.Query, mapping.Level, mapping.Unit, mapping.StepSeconds

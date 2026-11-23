@@ -34,6 +34,7 @@ func (s *Service) Collect(ctx context.Context, moduleID uint) ([]CollectResult, 
 		return nil, err
 	}
 	m := dataOf(mod)
+	m.AllSources = true // the history keeps the display metrics too: the history data and the charts show them
 	metrics := configuredMetrics(m)
 	if len(metrics) == 0 {
 		return nil, fmt.Errorf("%w: the module has no metric source", ErrNotConfigured)

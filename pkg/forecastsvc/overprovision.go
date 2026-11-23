@@ -92,12 +92,14 @@ type opLoader struct {
 	from, to time.Time
 	reps     []model.MetricSample
 	cache    map[string]*opSeries
+	// byKey is the series of each source of a live reading, the first of a kind and the others alike.
+	byKey map[string]*opSeries
 	// live is set when the loader reads Prometheus (see oplive.go) and not the samples the platform stored.
 	live *liveRead
 }
 
 func (s *Service) newOPLoader(ctx context.Context, m *model.ForecastModule, from, to time.Time) *opLoader {
-	l := &opLoader{s: s, ctx: ctx, m: m, run: &model.AlgorithmRun{ID: m.ID, Sources: m.Sources}, from: from, to: to, cache: map[string]*opSeries{}}
+	l := &opLoader{s: s, ctx: ctx, m: m, run: &model.AlgorithmRun{ID: m.ID, AllSources: true, Sources: m.Sources}, from: from, to: to, cache: map[string]*opSeries{}}
 	if src := l.run.FirstOfKind("replicas"); src != nil {
 		if series, err := s.Samples.Series(ctx, m.ID, src.Key); err == nil {
 			l.reps, _ = s.Samples.Range(ctx, series.ID, from.Add(-costReplicaMaxAge), to)
@@ -810,6 +812,16 @@ type MetricStat struct {
 	P95    float64 `json:"p95"`
 	P99    float64 `json:"p99"`
 	Max    float64 `json:"max"`
+	// Display is true for a metric that is only shown, with no weight and no part in the algorithms.
+	Display bool `json:"display"`
+}
+
+// seriesOf is the series of one source: of its own for a live reading, the series of its kind for stored samples.
+func (l *opLoader) seriesOf(src *model.MetricSource) *opSeries {
+	if l.live != nil {
+		return l.byKey[src.Key]
+	}
+	return l.get(src.Kind)
 }
 
 // configKinds are the kinds the page shows as configuration or as the main figures, not as tiles of their own.
@@ -829,23 +841,22 @@ func metricGroup(kind, level string) string {
 	return "other"
 }
 
-// metrics reads the other enabled sources of the module over the window. A source with nothing stored in it is still listed (with no points), so the
-// page can say it is configured and empty.
+// metrics reads the other enabled sources of the module over the window: every source the module has, but the main one of the figures of the page (the CPU, the
+// memory, the replicas, the Requests and the Limits, which the tables and the cards show). A source with nothing in it is still listed (with no points), so the page
+// can say it is configured and empty.
 func (l *opLoader) metrics(from, to int64) []MetricStat {
 	out := []MetricStat{}
-	seen := map[string]bool{}
 	for _, src := range l.run.ActiveSources() {
-		if configKinds[src.Kind] || seen[src.Kind] {
+		if configKinds[src.Kind] && l.run.FirstOfKind(src.Kind) == src {
 			continue
 		}
-		seen[src.Kind] = true
-		ms := MetricStat{Key: src.Key, Name: src.Name, Kind: src.Kind, Unit: model.MetricKinds[src.Kind]}
+		ms := MetricStat{Key: src.Key, Name: src.Name, Kind: src.Kind, Unit: model.MetricKinds[src.Kind], Display: src.IsDisplay()}
 		level := ""
 		if mp, err := l.s.Mappings.GetByID(l.ctx, src.MappingID); err == nil {
 			level, ms.Unit = mp.Level, mp.Unit
 		}
 		ms.Level, ms.Group = level, metricGroup(src.Kind, level)
-		if s := l.get(src.Kind); s != nil {
+		if s := l.seriesOf(src); s != nil {
 			pts := sliceFrom(s.pod, from, to)
 			if len(pts) == 0 {
 				pts = sliceFrom(s.raw, from, to)

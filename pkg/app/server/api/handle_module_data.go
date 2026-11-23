@@ -28,7 +28,7 @@ func (r *ForecastRouter) checkSource(ctx context.Context, s *model.MetricSource)
 		}
 		return err
 	}
-	if mapping.Metric != s.Kind {
+	if !model.AcceptsMapping(s.Kind, mapping.Metric) {
 		return fmt.Errorf("mapping %q measures %s and cannot be used for a %s source", mapping.Name, mapping.Metric, s.Kind)
 	}
 	return nil

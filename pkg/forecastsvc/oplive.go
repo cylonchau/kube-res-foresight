@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -28,6 +29,9 @@ type LiveQuery struct {
 	// Query is the PromQL as it was sent (the mapping rendered for the module), Step the step of the range query, Points how many points it answered: the
 	// figures of the metric are made of that many samples.
 	Query string `json:"query"`
+	// Template is the metric template the source takes its query from; Display is true for a metric that is only shown (it has no weight and no algorithm).
+	Template string `json:"template"`
+	Display  bool   `json:"display"`
 	// Per says what the query answers: one Pod ("pod") or all the replicas together ("total"), as the module's source says or as the level of the template does.
 	Per    string `json:"per"`
 	Step   string `json:"step"`
@@ -49,34 +53,36 @@ var livePriority = []string{"cpu", "memory", "replicas", "k8s_cpu_requests", "k8
 
 // newLiveLoader is a loader that reads Prometheus, for the window [from, to].
 func (s *Service) newLiveLoader(ctx context.Context, m *model.ForecastModule, from, to time.Time) *opLoader {
-	run := &model.AlgorithmRun{ID: m.ID, Dashboard: true, Sources: m.Sources, Namespace: m.Namespace, Workload: m.Workload, Service: m.Service, Container: m.Container}
-	return &opLoader{s: s, ctx: ctx, m: m, run: run, from: from, to: to, cache: map[string]*opSeries{}, live: &liveRead{repMaxAge: costReplicaMaxAge}}
+	run := &model.AlgorithmRun{ID: m.ID, AllSources: true, Sources: m.Sources, Namespace: m.Namespace, Workload: m.Workload, Service: m.Service, Container: m.Container}
+	return &opLoader{s: s, ctx: ctx, m: m, run: run, from: from, to: to, cache: map[string]*opSeries{}, byKey: map[string]*opSeries{}, live: &liveRead{repMaxAge: costReplicaMaxAge}}
 }
 
-// liveKinds are the kinds of the module's active sources, the ones the page needs first.
-func (l *opLoader) liveKinds() []string {
-	var kinds []string
+// liveSources are the enabled sources of the module, every one of them (the display ones, the Requests and the Limits, too): the page is made of what the
+// module's metric templates are, not of a fixed set. The ones the page needs at once come first, so that when the time limit of the request stops the reading
+// it is the least needed that are left out.
+func (l *opLoader) liveSources() []*model.MetricSource {
+	var out []*model.MetricSource
 	seen := map[string]bool{}
-	add := func(kind string) {
-		if !seen[kind] && l.run.FirstOfKind(kind) != nil {
-			seen[kind] = true
-			kinds = append(kinds, kind)
+	add := func(src *model.MetricSource) {
+		if src != nil && !seen[src.Key] {
+			seen[src.Key] = true
+			out = append(out, src)
 		}
 	}
 	for _, kind := range livePriority {
-		add(kind)
+		add(l.run.FirstOfKind(kind))
 	}
 	for _, src := range l.run.ActiveSources() {
-		add(src.Kind)
+		add(src)
 	}
-	return kinds
+	return out
 }
 
 // readLive asks Prometheus for every kind of the module, a few at a time and only as long as the time limit of the request allows. A kind that did not answer is
 // listed with the reason (or as skipped) and the others are used: the answer is partial, never a 504.
 func (l *opLoader) readLive() {
-	kinds := l.liveKinds()
-	l.live.queries = make([]LiveQuery, len(kinds))
+	sources := l.liveSources()
+	l.live.queries = make([]LiveQuery, len(sources))
 	window := l.to.Sub(l.from)
 	budget := l.s.readBudget(l.ctx)
 	askCtx, cancel := l.ctx, context.CancelFunc(func() {})
@@ -97,11 +103,11 @@ func (l *opLoader) readLive() {
 		ds    *model.Datasource
 		level string
 	}
-	raw := make([][]collector.Point, len(kinds))
+	raw := make([][]collector.Point, len(sources))
 	var jobs []job
 	var mu sync.Mutex
-	for i, kind := range kinds {
-		src := l.run.FirstOfKind(kind)
+	for i, src := range sources {
+		kind := src.Kind
 		q := &l.live.queries[i]
 		*q = LiveQuery{Key: src.Key, Name: src.Name, Kind: kind, Unit: model.MetricKinds[kind]}
 		setup, err := l.s.setup(l.ctx, l.run, src.Key)
@@ -109,6 +115,7 @@ func (l *opLoader) readLive() {
 			q.Error = err.Error()
 			continue
 		}
+		q.Template, q.Display = setup.mapping.Name, src.IsDisplay()
 		q.Level, q.Unit, q.Group = setup.mapping.Level, setup.mapping.Unit, metricGroup(kind, setup.mapping.Level)
 		q.Per = src.PerOf(setup.mapping.Level)
 		for _, name := range model.TemplateVariables(setup.mapping.Query) {
@@ -178,7 +185,7 @@ func (l *opLoader) readLive() {
 			}
 			q.Points = len(kept)
 			if len(kept) == 0 {
-				q.Error = "Prometheus has no data for it in the window"
+				q.Error = "Prometheus has no data for it in the window" + grafanaHint(j.expr)
 				return
 			}
 			raw[j.index] = kept
@@ -196,12 +203,11 @@ func (l *opLoader) readLive() {
 		}
 	}
 
-	// the replicas first: the series of the other kinds are divided or multiplied by them
-	byKind := map[string]int{}
-	for i, kind := range kinds {
-		byKind[kind] = i
-	}
-	if i, ok := byKind["replicas"]; ok && len(raw[i]) > 0 {
+	// the replicas first: the series of the other metrics are divided or multiplied by them
+	for i, src := range sources {
+		if src.Kind != "replicas" || len(raw[i]) == 0 || l.run.FirstOfKind("replicas") != src {
+			continue
+		}
 		for _, p := range raw[i] {
 			l.reps = append(l.reps, model.MetricSample{TS: p.Time.Unix(), Value: p.Value})
 		}
@@ -209,7 +215,7 @@ func (l *opLoader) readLive() {
 			l.live.repMaxAge = age
 		}
 	}
-	for i, kind := range kinds {
+	for i, src := range sources {
 		if len(raw[i]) == 0 {
 			continue
 		}
@@ -223,8 +229,25 @@ func (l *opLoader) readLive() {
 		if l.live.queries[i].Per == model.PerTotal {
 			level = "workload"
 		}
-		l.cache[kind] = l.build(points, level, int(step/time.Second))
+		series := l.build(points, level, int(step/time.Second))
+		l.byKey[src.Key] = series
+		// the figures of a kind are the first source of that kind (the lowest priority number); the others are shown beside it
+		if l.run.FirstOfKind(src.Kind) == src {
+			l.cache[src.Kind] = series
+		}
 	}
+}
+
+// grafanaVariable is a variable of a Grafana dashboard ($cluster, ${namespace}) that was pasted into a query: Prometheus does not know it, so what it is matched
+// against is the text "$cluster" and nothing is found.
+var grafanaVariable = regexp.MustCompile(`\$\{?[A-Za-z_][A-Za-z0-9_]*`)
+
+// grafanaHint is what is added to "no data" when the query still has a Grafana variable.
+func grafanaHint(expr string) string {
+	if v := grafanaVariable.FindString(expr); v != "" {
+		return fmt.Sprintf(" (the query still has the Grafana variable %s: Prometheus does not know it, so nothing matches; write the value or remove the matcher, and use {{namespace}} and {{workload}} for the module)", v)
+	}
+	return ""
 }
 
 func (l *opLoader) stepOf(index int) time.Duration {

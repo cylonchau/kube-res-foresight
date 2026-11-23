@@ -96,8 +96,9 @@ type AlgorithmRun struct {
 	Params      string
 	Weight      float64
 
-	// Dashboard makes the run one of the resource dashboard: its sources are the ones that are for the dashboard, not the ones of the history.
-	Dashboard bool
+	// AllSources makes ActiveSources give every enabled source, the display ones too. A run of an algorithm has only the algorithm sources; the dashboard, the collection of
+	// the history and the readers of the metrics around the forecast (OOM, JVM, Requests, Limits) see all of them.
+	AllSources bool
 
 	// What the PromQL templates of the sources are rendered with.
 	Namespace string
@@ -214,12 +215,12 @@ func (a *AlgorithmRun) Source(key string) *MetricSource {
 	return nil
 }
 
-// ActiveSources are the enabled sources, in a stable order: resource order, then priority, then id. A run for the history has the sources that are for
-// history; a run of the resource dashboard (Dashboard) has the sources that are for the dashboard.
+// ActiveSources are the enabled sources, in a stable order: resource order, then priority, then id. A run of an algorithm has the algorithm sources; a run that
+// reads everything (AllSources) has the display sources as well.
 func (a *AlgorithmRun) ActiveSources() []*MetricSource {
 	out := make([]*MetricSource, 0, len(a.Sources))
 	for _, s := range a.Sources {
-		if s.Enabled && (a.Dashboard && s.ForDashboard() || !a.Dashboard && s.ForHistory()) {
+		if s.Enabled && (a.AllSources || !s.IsDisplay()) {
 			out = append(out, s)
 		}
 	}
