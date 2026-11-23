@@ -968,3 +968,10 @@ all ten management pages and the shared product title. Screenshots were inspecte
 - **验证**：Go 测试、`go vet`、`gofmt`；前端 `vue-tsc`、oxlint、oxfmt、单元测试；真浏览器（临时库、假 Prometheus 含 query_range、假语言模型）走了总览、模块大盘、卡片墙每一行是否满、AI 按钮先不发问点了才发、答案里的脚本和图片被清掉、窄屏、中英文、慢 Prometheus 时的部分答案。
 - **没验证**：真实 Prometheus（映射里的 PromQL 对着真实指标名）、真实网关、PostgreSQL、MySQL。
 - **注意**：详情接口不再有 `history`，`ma5`／`ma15`／`ma25`／`ma_labels` 没有了；`GET /overprovision` 等大盘接口还在，只是页面不用；定时任务仍在存分析结果（AI 助手的 `analyze_resources` 工具读它）。没有新表，不需要重新迁移。
+
+2026-11-23 续：资源大盘需求修正（两级页面、集群大盘独立、指标类型、Requests／Limits 只读 Prometheus）
+- **做了什么**：资源大盘首页是模块列表（含 CPU／内存的 Requests／Limits），选模块进独立的二级页“模块资源分析”，可返回且保留列表的筛选；集群大盘从资源大盘里移出，成为独立菜单页（管理的集群数、集群列表、所选集群的指标）；指标模板新增“指标类型”（模块指标／集群指标），集群大盘只读已声明的集群指标；Requests／Limits 只取 Prometheus 的 k8s_*_requests／limits 指标，不再用模块自己的设置补；AI 悬浮按钮只在二级页，点按钮不发问、点窗口里的“分析”才发，答案必须有当前配置与推荐配置的四行对比表。细节、页面边界和返回规则见 `.agents/skills/requirements/references/overprovision-p10.md` 的“资源大盘需求修正（2026-11-23 第二次……）”。
+- **我的理解（请纠正）**：“资源表格”＝模块列表和详情里的分位数表；“集群数量”＝有集群指标模板的 Prometheus 数据源的个数（加系统参数指的那个）。
+- **验证**：Go 测试、`go vet`、`gofmt`；前端 `vue-tsc`、oxlint、oxfmt、单元测试；真浏览器（临时库、假 Prometheus、假语言模型）走了列表、筛选、进二级页、返回、AI 点按钮不发问／点分析才发、集群大盘、指标模板的类型。
+- **没验证**：真实 Prometheus、真实网关、PostgreSQL、MySQL；只试过一个集群；固定窗口范围不写进地址。
+- **注意**：新增两个菜单权限（二级页隐藏、集群大盘可见），旧库要跑一次 `--migration`；BIZ 角色不再有 `/overprovision`（旧大盘）和 `POST /overprovision/run`，有 `/overprovision/resources`、`/overprovision/clusters`；集群大盘只读已声明的集群指标模板：没声明的不会再用默认查询顶替，先在“指标模板”里用预设建好；模块没配 k8s_*_requests／limits 指标时那一格是“-”。
