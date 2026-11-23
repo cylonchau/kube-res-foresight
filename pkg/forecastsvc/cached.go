@@ -201,3 +201,27 @@ func (s *Service) OverprovisionDetailCached(ctx context.Context, moduleID uint, 
 	}
 	return out, kept, err
 }
+
+// OverprovisionResourcesCached is OverprovisionResources with its answer kept for a few minutes (it is read from Prometheus and changes with the cluster). An
+// answer the time limit cut short is given and not kept.
+func (s *Service) OverprovisionResourcesCached(ctx context.Context) (*ResourceList, resultcache.Result, error) {
+	ttl := min(s.cacheTTL(ctx), statsBucket)
+	key := "opresources"
+	modules, err := s.Modules.ListEnabled(ctx)
+	if err != nil {
+		return nil, resultcache.Result{Source: resultcache.Bypassed}, err
+	}
+	// the modules and their settings are in the version: a module that was added or changed is asked again at once
+	var stamp int64
+	for _, m := range modules {
+		stamp ^= int64(m.ID)*7919 ^ m.UpdatedAt.UnixNano()
+	}
+	version := fmt.Sprintf("b%d|m%d", s.now().Unix()/int64(statsBucket/time.Second), stamp)
+	out, kept, err := resultcache.Do(ctx, s.cache(), key, version, ttl, func(ctx context.Context) (*ResourceList, error) {
+		return s.OverprovisionResources(ctx)
+	})
+	if err == nil && out != nil && out.Partial {
+		s.cache().Forget(key)
+	}
+	return out, kept, err
+}

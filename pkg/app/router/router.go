@@ -210,6 +210,8 @@ func RegisteredRouter(e *gin.Engine) {
 	v1Group.GET("/resource-analysis", forecastHandler.ResourceAnalysis)
 	v1Group.GET("/overprovision", forecastHandler.OverprovisionBoard)
 	v1Group.GET("/overprovision/cluster", forecastHandler.OverprovisionCluster)
+	v1Group.GET("/overprovision/clusters", forecastHandler.OverprovisionClusters)
+	v1Group.GET("/overprovision/resources", forecastHandler.OverprovisionResources)
 	v1Group.POST("/overprovision/run", forecastHandler.OverprovisionRun)
 	v1Group.GET("/snapshots", forecastHandler.ListSnapshots)
 	v1Group.GET("/snapshots/:id", forecastHandler.GetSnapshot)

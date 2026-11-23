@@ -253,3 +253,55 @@ func TestMetricCatalogAndOptions(t *testing.T) {
 	require.Len(t, envelope.Data, 1)
 	assert.Equal(t, "on", envelope.Data[0]["name"])
 }
+
+// A metric template has a type: a module metric (for the dashboard of a module) or a cluster metric (for the cluster dashboard). The metric decides it, the list
+// can be kept to one type, and a form that chooses a type the metric is not of is refused.
+func TestAMetricTemplateHasATypeAndTheTwoAreNeverMixed(t *testing.T) {
+	router := datasourceTestRouter(t)
+	rec := performJSON(t, router, http.MethodPost, "/datasources", "", map[string]any{"name": "prod", "base_url": "http://prom:9090"})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	dsID := int(decodeData(t, rec.Body.Bytes())["id"].(float64))
+
+	module := map[string]any{"datasource_id": dsID, "name": "cpu", "metric": "cpu", "scope": "module", "level": "workload", "query": `sum(rate(c{namespace="{{namespace}}",pod=~"{{workload}}-.*"}[{{range}}]))`}
+	rec = performJSON(t, router, http.MethodPost, "/metric-mappings", "", module)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Equal(t, "module", decodeData(t, rec.Body.Bytes())["scope"])
+	cluster := map[string]any{"datasource_id": dsID, "name": "nodes", "metric": "cluster_nodes", "scope": "cluster", "level": "cluster", "query": `count(kube_node_info)`}
+	rec = performJSON(t, router, http.MethodPost, "/metric-mappings", "", cluster)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	clusterID := int(decodeData(t, rec.Body.Bytes())["id"].(float64))
+	assert.Equal(t, "cluster", decodeData(t, rec.Body.Bytes())["scope"])
+
+	// the type chosen has to be the type of the metric
+	wrong := map[string]any{"datasource_id": dsID, "name": "wrong", "metric": "cluster_pods", "scope": "module", "level": "cluster", "query": `count(x)`}
+	rec = performJSON(t, router, http.MethodPost, "/metric-mappings", "", wrong)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "cluster metric")
+	wrong2 := map[string]any{"datasource_id": dsID, "name": "wrong2", "metric": "memory", "scope": "cluster", "level": "workload", "query": `sum(x{namespace="{{namespace}}",pod=~"{{workload}}-.*"})`}
+	assert.Equal(t, http.StatusBadRequest, performJSON(t, router, http.MethodPost, "/metric-mappings", "", wrong2).Code)
+	assert.Equal(t, http.StatusBadRequest, performJSON(t, router, http.MethodPost, "/metric-mappings", "", map[string]any{"datasource_id": dsID, "name": "z", "metric": "cpu", "scope": "pod", "level": "workload", "query": "sum(x)"}).Code)
+	assert.Equal(t, http.StatusBadRequest, performJSON(t, router, http.MethodPut, fmt.Sprintf("/metric-mappings/%d", clusterID), "", map[string]any{"scope": "module"}).Code)
+
+	// the list keeps to one type
+	list := func(scope string) []any {
+		rec := performJSON(t, router, http.MethodGet, "/metric-mappings?scope="+scope, "", nil)
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		return decodeData(t, rec.Body.Bytes())["list"].([]any)
+	}
+	require.Len(t, list("cluster"), 1)
+	assert.Equal(t, "nodes", list("cluster")[0].(map[string]any)["name"])
+	require.Len(t, list("module"), 1)
+	assert.Equal(t, "cpu", list("module")[0].(map[string]any)["name"])
+	assert.Len(t, list(""), 2)
+
+	// the catalog says the type of each metric
+	rec = performJSON(t, router, http.MethodGet, "/metrics/catalog", "", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	scopes := map[string]string{}
+	for _, m := range decodeData(t, rec.Body.Bytes())["metrics"].([]any) {
+		entry := m.(map[string]any)
+		scopes[entry["metric"].(string)] = entry["scope"].(string)
+	}
+	assert.Equal(t, "cluster", scopes["node_ready"])
+	assert.Equal(t, "module", scopes["k8s_cpu_requests"])
+}

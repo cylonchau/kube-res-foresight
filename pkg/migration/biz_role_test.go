@@ -56,7 +56,7 @@ func TestTheBusinessRoleHasThePagesOfTheForecastsAndTheChatAndNothingOfTheSystem
 		{"GET", "/api/v1/evaluations"}, {"GET", "/api/v1/training-runs/summary"}, {"GET", "/api/v1/training-runs/7"}, {"GET", "/api/v1/algorithm-scores/latest"},
 		{"GET", "/api/v1/recommendations"}, {"GET", "/api/v1/scaling-decisions"}, {"GET", "/api/v1/fallbacks"}, {"GET", "/api/v1/admissions"},
 		{"GET", "/api/v1/resource-analysis"}, {"GET", "/api/v1/snapshots/9"},
-		{"GET", "/api/v1/overprovision"}, {"GET", "/api/v1/overprovision/cluster"}, {"GET", "/api/v1/modules/5/overprovision/prometheus"}, {"POST", "/api/v1/overprovision/run"}, {"GET", "/api/v1/modules/5/overprovision"},
+		{"GET", "/api/v1/overprovision/resources"}, {"GET", "/api/v1/overprovision/cluster"}, {"GET", "/api/v1/overprovision/clusters"}, {"GET", "/api/v1/modules/5/overprovision/prometheus"}, {"GET", "/api/v1/modules/5/overprovision"},
 		{"GET", "/api/v1/inventory/nodes"}, {"GET", "/api/v1/inventory/nodes/trend"}, {"GET", "/api/v1/inventory/nodes/usage"}, {"GET", "/api/v1/inventory/workloads"}, {"GET", "/api/v1/modules/5/inventory"}, {"GET", "/api/v1/grafana/settings"}, {"GET", "/api/v1/grafana/dashboard"},
 		{"POST", "/api/v1/assistant/chat/async"}, {"GET", "/api/v1/assistant/async/3"}, {"GET", "/api/v1/assistant/async/3/events"}, {"POST", "/api/v1/assistant/async/3/cancel"},
 		{"GET", "/api/v1/assistant/conversations"}, {"POST", "/api/v1/assistant/conversations"}, {"GET", "/api/v1/assistant/conversations/4"},
@@ -71,7 +71,7 @@ func TestTheBusinessRoleHasThePagesOfTheForecastsAndTheChatAndNothingOfTheSystem
 		{"GET", "/api/v1/datasources"}, {"POST", "/api/v1/datasources"}, {"POST", "/api/v1/algorithms"}, {"PUT", "/api/v1/algorithms/3"},
 		{"GET", "/api/v1/assistant/connections"}, {"POST", "/api/v1/assistant/connections"}, {"GET", "/api/v1/assistant/audit"}, {"GET", "/api/v1/assistant/audit/5"},
 		{"GET", "/api/v1/assistant/tasks"}, {"GET", "/api/v1/assistant/skills"}, {"GET", "/api/v1/diagnostics/database"}, {"GET", "/api/v1/operation-logs"},
-		{"DELETE", "/api/v1/operation-logs"}, {"GET", "/api/v1/jobs"}, {"POST", "/api/v1/records/batch-delete"}, {"GET", "/api/v1/dashboard"}, {"POST", "/api/v1/operator/inventory"}, {"GET", "/api/v1/operator/inventory-targets"}, {"POST", "/api/v1/inventory/nodes"},
+		{"DELETE", "/api/v1/operation-logs"}, {"GET", "/api/v1/jobs"}, {"POST", "/api/v1/records/batch-delete"}, {"GET", "/api/v1/dashboard"}, {"POST", "/api/v1/overprovision/run"}, {"POST", "/api/v1/operator/inventory"}, {"GET", "/api/v1/operator/inventory-targets"}, {"POST", "/api/v1/inventory/nodes"},
 	}
 	for _, c := range no {
 		assert.False(t, allowed(t, db, BusinessRoleCode, c[0], c[1]), "%s %s is not for the business role", c[0], c[1])

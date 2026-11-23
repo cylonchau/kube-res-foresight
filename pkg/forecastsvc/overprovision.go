@@ -346,9 +346,16 @@ func (l *opLoader) analyzeWindow(label string, minutes int, p overprovision.Para
 		r := overprovision.Analyze(in, p)
 		return &r
 	}
+	// the requests and limits of the dashboard come from Prometheus (the metrics k8s_*_requests and k8s_*_limits) and from nothing the platform holds: the
+	// settings of the module and its limit ratio stand in for neither when the module has no such metric
+	cpuRequest, memRequest := float64(l.m.PodCPURequestMilli)/1000, float64(l.m.PodMemoryRequestBytes)
+	cpuRatio, memRatio := l.m.LimitCPURatio, l.m.LimitMemoryRatio
+	if l.live != nil {
+		cpuRequest, memRequest, cpuRatio, memRatio = 0, 0, 0, 0
+	}
 	return &WindowOverprovision{Label: label, WindowMinutes: minutes,
-		CPU:    one(overprovision.CPU, "cpu", "k8s_cpu_requests", "k8s_cpu_limits", float64(l.m.PodCPURequestMilli)/1000, l.m.LimitCPURatio, cpuRound),
-		Memory: one(overprovision.Memory, "memory", "k8s_mem_requests", "k8s_mem_limits", float64(l.m.PodMemoryRequestBytes), l.m.LimitMemoryRatio, memRound)}
+		CPU:    one(overprovision.CPU, "cpu", "k8s_cpu_requests", "k8s_cpu_limits", cpuRequest, cpuRatio, cpuRound),
+		Memory: one(overprovision.Memory, "memory", "k8s_mem_requests", "k8s_mem_limits", memRequest, memRatio, memRound)}
 }
 
 func (s *Service) moduleHeader(m *model.ForecastModule, replicas int, at time.Time) *ModuleOverprovision {

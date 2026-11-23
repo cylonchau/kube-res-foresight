@@ -93,18 +93,20 @@ type MetricMappingDTO struct {
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 
-	DatasourceID   uint     `json:"datasource_id"`
-	DatasourceName string   `json:"datasource_name"`
-	Name           string   `json:"name"`
-	Metric         string   `json:"metric"`
-	Level          string   `json:"level"`
-	Query          string   `json:"query"`
-	Variables      []string `json:"variables"`
-	Unit           string   `json:"unit"`
-	StepSeconds    int      `json:"step_seconds"`
-	Enabled        bool     `json:"enabled"`
-	Remark         string   `json:"remark"`
-	PresetID       string   `json:"preset_id"`
+	DatasourceID   uint   `json:"datasource_id"`
+	DatasourceName string `json:"datasource_name"`
+	Name           string `json:"name"`
+	Metric         string `json:"metric"`
+	// Scope is the type of the template: module (for the dashboard of a module) or cluster (for the cluster dashboard), decided by the metric.
+	Scope       string   `json:"scope"`
+	Level       string   `json:"level"`
+	Query       string   `json:"query"`
+	Variables   []string `json:"variables"`
+	Unit        string   `json:"unit"`
+	StepSeconds int      `json:"step_seconds"`
+	Enabled     bool     `json:"enabled"`
+	Remark      string   `json:"remark"`
+	PresetID    string   `json:"preset_id"`
 }
 
 type MetricMappingListReq struct {
@@ -112,25 +114,30 @@ type MetricMappingListReq struct {
 	DatasourceID uint   `form:"datasource_id" json:"datasource_id"`
 	Metric       string `form:"metric" json:"metric"`
 	Level        string `form:"level" json:"level"`
-	Enabled      string `form:"enabled" json:"enabled"`
+	// Scope keeps the templates of one type: module or cluster.
+	Scope   string `form:"scope" json:"scope"`
+	Enabled string `form:"enabled" json:"enabled"`
 }
 
 type MetricMappingCreateReq struct {
 	DatasourceID uint   `json:"datasource_id" binding:"required"`
 	Name         string `json:"name" binding:"required"`
 	Metric       string `json:"metric" binding:"required"`
-	Level        string `json:"level" binding:"required"`
-	Query        string `json:"query" binding:"required"`
-	Unit         string `json:"unit"`
-	StepSeconds  int    `json:"step_seconds"`
-	Enabled      *bool  `json:"enabled"`
-	Remark       string `json:"remark"`
+	// Scope is the type the form chose; when given it has to be the type of the metric (a cluster metric is not a module metric).
+	Scope       string `json:"scope"`
+	Level       string `json:"level" binding:"required"`
+	Query       string `json:"query" binding:"required"`
+	Unit        string `json:"unit"`
+	StepSeconds int    `json:"step_seconds"`
+	Enabled     *bool  `json:"enabled"`
+	Remark      string `json:"remark"`
 }
 
 type MetricMappingUpdateReq struct {
 	DatasourceID *uint   `json:"datasource_id"`
 	Name         *string `json:"name"`
 	Metric       *string `json:"metric"`
+	Scope        *string `json:"scope"`
 	Level        *string `json:"level"`
 	Query        *string `json:"query"`
 	Unit         *string `json:"unit"`
@@ -151,6 +158,8 @@ type MetricCatalogDTO struct {
 type MetricCatalogMetric struct {
 	Metric string `json:"metric"`
 	Unit   string `json:"unit"`
+	// Scope is the type of a template of the metric: module or cluster.
+	Scope string `json:"scope"`
 }
 
 type MetricCatalogLevel struct {

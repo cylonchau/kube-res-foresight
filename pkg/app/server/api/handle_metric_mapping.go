@@ -22,7 +22,7 @@ func metricMappingDTO(m *model.MetricMapping, datasourceName string) *apis.Metri
 	return &apis.MetricMappingDTO{
 		ID: m.ID, CreatedAt: m.CreatedAt, UpdatedAt: m.UpdatedAt,
 		DatasourceID: m.DatasourceID, DatasourceName: datasourceName,
-		Name: m.Name, Metric: m.Metric, Level: m.Level, Query: m.Query,
+		Name: m.Name, Metric: m.Metric, Scope: model.MetricScope(m.Metric), Level: m.Level, Query: m.Query,
 		Variables: model.TemplateVariables(m.Query), Unit: m.Unit,
 		StepSeconds: m.StepSeconds, Enabled: m.Enabled, Remark: m.Remark, PresetID: m.PresetID,
 	}
@@ -94,6 +94,10 @@ func (r *MetricMappingRouter) Create(c *gin.Context) {
 	if req.Enabled != nil {
 		m.Enabled = *req.Enabled
 	}
+	if err := checkScope(req.Scope, m.Metric); err != nil {
+		query.BadRequest(c, err)
+		return
+	}
 	if err := model.ValidateMetricMapping(m); err != nil {
 		query.BadRequest(c, err)
 		return
@@ -154,6 +158,12 @@ func (r *MetricMappingRouter) Update(c *gin.Context) {
 	}
 	if req.Remark != nil {
 		m.Remark = *req.Remark
+	}
+	if req.Scope != nil {
+		if err := checkScope(*req.Scope, m.Metric); err != nil {
+			query.BadRequest(c, err)
+			return
+		}
 	}
 	if err := model.ValidateMetricMapping(m); err != nil {
 		query.BadRequest(c, err)
@@ -221,13 +231,27 @@ func (r *MetricMappingRouter) BatchDelete(c *gin.Context) {
 	query.SuccessResponse(c, nil, "ok")
 }
 
+// checkScope refuses a template whose chosen type is not the type of its metric: a module metric template cannot hold a cluster metric, and the other way round.
+func checkScope(scope, metric string) error {
+	if scope == "" {
+		return nil
+	}
+	if scope != model.ScopeModule && scope != model.ScopeCluster {
+		return fmt.Errorf("unsupported metric type %q: use %q or %q", scope, model.ScopeModule, model.ScopeCluster)
+	}
+	if want := model.MetricScope(metric); scope != want {
+		return fmt.Errorf("the metric %q is a %s metric: it cannot be in a %s metric template", metric, want, scope)
+	}
+	return nil
+}
+
 // Catalog lists the metrics, levels and template variables a mapping may use.
 func (r *MetricMappingRouter) Catalog(c *gin.Context) {
 	catalog := apis.MetricCatalogDTO{
 		Variables: model.MetricVariables, MinStep: model.MinStepSeconds, MaxStep: model.MaxStepSeconds,
 	}
 	for metric, unit := range model.MetricKinds {
-		catalog.Metrics = append(catalog.Metrics, apis.MetricCatalogMetric{Metric: metric, Unit: unit})
+		catalog.Metrics = append(catalog.Metrics, apis.MetricCatalogMetric{Metric: metric, Unit: unit, Scope: model.MetricScope(metric)})
 	}
 	for level, required := range model.MetricLevels {
 		catalog.Levels = append(catalog.Levels, apis.MetricCatalogLevel{Level: level, Required: append([]string{}, required...)})

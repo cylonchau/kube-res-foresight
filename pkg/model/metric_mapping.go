@@ -113,6 +113,21 @@ var ScopedKinds = map[string]string{
 	"node_cpu_requests": "node", "node_memory_requests": "node", "node_ready": "node",
 }
 
+// The type of a metric template: what the template is for. A module metric feeds the resource dashboard of a module; a cluster metric feeds the cluster dashboard
+// (the figures of the cluster and of its nodes). The kind of the metric decides it, so the two are never mixed.
+const (
+	ScopeModule  = "module"
+	ScopeCluster = "cluster"
+)
+
+// MetricScope is the type of a metric kind: ScopeCluster for the kinds of the cluster and of the nodes, ScopeModule for every other.
+func MetricScope(kind string) string {
+	if IsScopedKind(kind) {
+		return ScopeCluster
+	}
+	return ScopeModule
+}
+
 // IsScopedKind reports whether the kind describes the cluster or its nodes (and so is no source of a module).
 func IsScopedKind(kind string) bool {
 	_, ok := ScopedKinds[kind]

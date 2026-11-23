@@ -2,13 +2,16 @@ package forecastsvc
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/cylonchau/kube-res-foresight/pkg/collector"
+	"github.com/cylonchau/kube-res-foresight/pkg/cost"
 	"github.com/cylonchau/kube-res-foresight/pkg/model"
 	"github.com/cylonchau/kube-res-foresight/pkg/overprovision"
+	"github.com/cylonchau/kube-res-foresight/pkg/promclient"
 	"github.com/cylonchau/kube-res-foresight/pkg/timing"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -102,6 +105,7 @@ func TestTheBoardAddsUpWhatTheWorkloadsCouldGiveBack(t *testing.T) {
 
 func TestTheDetailIsReadFromPrometheusWithTheChartAndTheQueries(t *testing.T) {
 	f := opFixture(t)
+	f.withRequests(t, 1.5)
 	ctx := context.Background()
 	_, err := f.svc.RunOverprovision(ctx, f.module.ID)
 	require.NoError(t, err)
@@ -187,6 +191,7 @@ func TestThrottlingOOMAndTheJVMKeepTheAnalysisFromLoweringARequest(t *testing.T)
 		"jvm_heap_max":     func(time.Time) float64 { return 32 * float64(costGiB) },
 	})
 	f.withReplicas()
+	f.withRequests(t, 0)
 	ctx := context.Background()
 	_, err := f.collect(ctx)
 	require.NoError(t, err)
@@ -297,22 +302,29 @@ func TestTheDetailListsTheOtherMetricsTheModuleHasSetUp(t *testing.T) {
 }
 
 // With no limits metric the limit is what the module is configured to give a new Pod: the request times the ratio, said to come from the module.
-func TestTheLimitComesFromTheModuleRatioWhenNoMetricSaysIt(t *testing.T) {
+func TestTheRequestsAndTheLimitsAreThoseOfPrometheusAndNeverTheSettingsOfTheModule(t *testing.T) {
 	f := opFixture(t)
+	// the module is set up to request 4 cores and 4 GiB with a limit ratio, but no metric says so: nothing of it is shown as a request or a limit
 	f.setModule(t, func(m *model.ForecastModule) { m.LimitCPURatio, m.LimitMemoryRatio = 2, 1.5 })
 	d, err := f.svc.OverprovisionDetail(context.Background(), f.module.ID, 24*60, time.Time{}, time.Time{})
 	require.NoError(t, err)
-	cpu, mem := d.Windows[0].CPU, d.Windows[0].Memory
+	cpu := d.Windows[0].CPU
 	require.NotNil(t, cpu)
-	require.NotNil(t, mem)
-	assert.InDelta(t, 8.0, cpu.Limit, 1e-9, "4 cores x 2")
-	assert.Equal(t, "module", cpu.LimitFrom)
-	assert.InDelta(t, 6*float64(costGiB), mem.Limit, 1, "4 GiB x 1.5")
-	f.setModule(t, func(m *model.ForecastModule) { m.LimitCPURatio, m.LimitMemoryRatio = 0, 0 })
+	assert.Zero(t, cpu.Request, "the Pod request of the module is not a Prometheus figure")
+	assert.Zero(t, cpu.Limit, "the limit ratio of the module is not a Prometheus figure")
+	assert.Empty(t, cpu.LimitFrom)
+	assert.Equal(t, overprovision.StatusUnknown, cpu.Status)
+
+	// with the metrics declared, the figures are their answers
+	f.withRequests(t, 1.5)
 	d, err = f.svc.OverprovisionDetail(context.Background(), f.module.ID, 24*60, time.Time{}, time.Time{})
 	require.NoError(t, err)
-	assert.Equal(t, 0.0, d.Windows[0].CPU.Limit)
-	assert.Empty(t, d.Windows[0].CPU.LimitFrom)
+	cpu, mem := d.Windows[0].CPU, d.Windows[0].Memory
+	assert.InDelta(t, 4.0, cpu.Request, 1e-9)
+	assert.InDelta(t, 6.0, cpu.Limit, 1e-9, "4 Pods limited to 24 cores in all")
+	assert.Equal(t, "metric", cpu.LimitFrom)
+	assert.InDelta(t, 4*float64(costGiB), mem.Request, 1)
+	assert.InDelta(t, 6*float64(costGiB), mem.Limit, 1)
 }
 
 // The committed heap, the maximum of the non-heap and the GC are shown next to the used heap and the working set; committed is said not to be use, and a
@@ -417,6 +429,7 @@ func (q slowRange) QueryRange(ctx context.Context, query string, start, end time
 // What the dashboard shows is read from Prometheus: with nothing stored for the module the detail is the same, and it never writes what it read.
 func TestTheDetailDoesNotReadOrWriteTheStoredSamples(t *testing.T) {
 	f := opFixture(t)
+	f.withRequests(t, 1.5)
 	require.NoError(t, f.db.Exec("DELETE FROM metric_sample").Error)
 	var before int64
 	require.NoError(t, f.db.Model(&model.MetricSample{}).Count(&before).Error)
@@ -457,4 +470,108 @@ func TestWhenPrometheusIsSlowTheDetailGivesWhatCameAndSaysWhatDidNot(t *testing.
 		}
 	}
 	assert.Nil(t, d.Windows[0].Memory, "the memory did not come, so there is no verdict made of nothing")
+}
+
+// withRequests declares the requests and the limits of the Pods as Prometheus metrics of the module (the dashboard reads them from nowhere else): 4 Pods that
+// request 4 cores and 4 GiB and are limited to the given multiple of them.
+func (f *fixture) withRequests(t *testing.T, limitTimes float64) {
+	t.Helper()
+	for _, kind := range []string{"k8s_cpu_requests", "k8s_mem_requests", "k8s_cpu_limits", "k8s_mem_limits"} {
+		f.addAux(t, kind)
+	}
+	inner := f.querier.value
+	f.querier.value = func(query string, ts time.Time) float64 {
+		switch {
+		case strings.Contains(query, "k8s_cpu_requests_series{"):
+			return 16
+		case strings.Contains(query, "k8s_mem_requests_series{"):
+			return 16 * float64(costGiB)
+		case strings.Contains(query, "k8s_cpu_limits_series{"):
+			return 16 * limitTimes
+		case strings.Contains(query, "k8s_mem_limits_series{"):
+			return 16 * limitTimes * float64(costGiB)
+		}
+		return inner(query, ts)
+	}
+}
+
+// vectorFn answers an instant query by its text.
+type vectorFn func(query string) []promclient.VectorSample
+
+func (v vectorFn) QueryVector(_ context.Context, query string, _ time.Time) ([]promclient.VectorSample, error) {
+	return v(query), nil
+}
+
+// The table of the dashboard has the requests and the limits of each module, one Pod's, as the Prometheus data source answers them now; a module that has no such
+// metric says which one is missing instead of showing what the platform holds.
+func TestTheResourceTableIsTheRequestsAndLimitsPrometheusAnswers(t *testing.T) {
+	f := opFixture(t)
+	f.svc.NewCostQuerier = func(*model.Datasource) (cost.Querier, error) {
+		return vectorFn(func(q string) []promclient.VectorSample {
+			value := 0.0
+			switch {
+			case strings.Contains(q, "kube_deployment"):
+				value = 4
+			case strings.Contains(q, "k8s_cpu_requests_series{"):
+				value = 16
+			case strings.Contains(q, "k8s_cpu_limits_series{"):
+				value = 24
+			case strings.Contains(q, "k8s_mem_requests_series{"):
+				value = 16 * float64(costGiB)
+			default:
+				return nil
+			}
+			return []promclient.VectorSample{{Value: value}}
+		}), nil
+	}
+	ctx := context.Background()
+	// nothing declared on the module: no figure, and the table says what to add
+	got, err := f.svc.OverprovisionResources(ctx)
+	require.NoError(t, err)
+	require.Len(t, got.Rows, 1)
+	row := got.Rows[0]
+	assert.Nil(t, row.CPURequest)
+	assert.Nil(t, row.MemoryLimit)
+	assert.Contains(t, row.Errors["cpu_request"], "k8s_cpu_requests")
+	assert.Contains(t, row.Errors["memory_limit"], "k8s_mem_limits")
+
+	for _, kind := range []string{"k8s_cpu_requests", "k8s_cpu_limits", "k8s_mem_requests"} {
+		f.addAux(t, kind)
+	}
+	got, err = f.svc.OverprovisionResources(ctx)
+	require.NoError(t, err)
+	row = got.Rows[0]
+	require.NotNil(t, row.CPURequest)
+	assert.InDelta(t, 4.0, *row.CPURequest, 1e-9, "16 cores over 4 replicas")
+	require.NotNil(t, row.CPULimit)
+	assert.InDelta(t, 6.0, *row.CPULimit, 1e-9)
+	require.NotNil(t, row.MemoryRequest)
+	assert.InDelta(t, 4*float64(costGiB), *row.MemoryRequest, 1)
+	assert.Nil(t, row.MemoryLimit, "the memory limit metric is still not declared")
+	assert.Contains(t, row.Errors, "memory_limit")
+	assert.False(t, got.Partial)
+}
+
+// The clusters are the data sources that have cluster metric templates, and the dashboard says how much of the set each declares.
+func TestTheManagedClustersAreTheDataSourcesWithClusterMetricTemplates(t *testing.T) {
+	f, _ := clusterFixture(t, "node_ready", "cluster_pods")
+	got, err := f.svc.ClusterList(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 1, got.Count)
+	require.Len(t, got.Clusters, 1)
+	c := got.Clusters[0]
+	assert.Equal(t, f.cpuMap.DatasourceID, c.DatasourceID)
+	assert.Equal(t, 16, c.Total)
+	assert.Equal(t, 14, c.Declared)
+	assert.Equal(t, []string{"cluster_pods", "node_ready"}, c.Missing)
+
+	// the data source of the system parameter is a cluster even with nothing declared on it
+	other := &model.Datasource{Name: "other", Type: "prometheus", BaseURL: "http://127.0.0.1:1", AuthType: "none", TimeoutSeconds: 5, MaxConcurrency: 1, Enabled: true}
+	require.NoError(t, f.db.Create(other).Error)
+	require.NoError(t, f.db.Create(&model.SysConfig{ConfigKey: timing.ClusterDatasource.Key, ConfigValue: strconv.Itoa(int(other.ID)), ConfigName: "x"}).Error)
+	got, err = f.svc.ClusterList(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 2, got.Count)
+	assert.True(t, got.Clusters[0].Primary, "the primary cluster is first")
+	assert.Equal(t, 0, got.Clusters[0].Declared)
 }

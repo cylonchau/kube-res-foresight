@@ -27,6 +27,9 @@ const (
 	QueryFromMapping   = "mapping"
 	QueryFromParameter = "parameter"
 	QueryFromDefault   = "default"
+	// QueryFromNone is a figure of the cluster dashboard whose metric template is not declared: the dashboard asks nothing for it (the cluster metrics have to be
+	// declared in the metric templates, as cluster metrics) and says so.
+	QueryFromNone = "none"
 )
 
 // The reasons the cluster could not be read at all (a figure that fails is told with the figure instead).
@@ -197,6 +200,9 @@ func (s *Service) clusterQuerier(ctx context.Context, datasourceID uint) (*model
 	return ds, nil
 }
 
+// msgNotDeclared is what a figure says when its metric template is not declared.
+const msgNotDeclared = "the metric is not declared: create it in Metric Templates as a cluster metric (kind %s) on this data source"
+
 // The messages of a cluster that cannot be read; the page shows them with the way to set it up.
 const (
 	msgNoDatasource = "No data source is chosen for the cluster. Create the cluster and node metrics in \"Metric Templates\" (the cluster.* and node.* presets) on a data source, or set the system parameter cluster.datasource_id."
@@ -241,6 +247,13 @@ func (s *Service) ClusterCapacityOf(ctx context.Context, moduleID, datasourceID 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	run := func(name string, into *float64) {
+		if origin[name].source != QueryFromMapping {
+			// the cluster dashboard shows what the metric templates declare and nothing else: no default query stands in for a figure
+			cq := clusterQueryOf(name, "", queryOrigin{source: QueryFromNone})
+			cq.Error = fmt.Sprintf(msgNotDeclared, resourcequery.MappingKind[name])
+			out.Queries = append(out.Queries, cq)
+			return
+		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -367,6 +380,12 @@ func (s *Service) NodeUsageOf(ctx context.Context, datasourceID uint) (*NodeUsag
 		{"node_ready", func(f *NodeFigures, v float64) { ok := v >= 1; f.Ready = &ok }},
 	}
 	for _, sp := range specs {
+		if origin[sp.name].source != QueryFromMapping {
+			cq := clusterQueryOf(sp.name, "", queryOrigin{source: QueryFromNone})
+			cq.Error = fmt.Sprintf(msgNotDeclared, resourcequery.MappingKind[sp.name])
+			out.Queries = append(out.Queries, cq)
+			continue
+		}
 		wg.Add(1)
 		go func(sp spec) {
 			defer wg.Done()

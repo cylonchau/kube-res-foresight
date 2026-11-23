@@ -63,12 +63,24 @@ func clusterAnswers() *answers {
 	}}
 }
 
-func clusterFixture(t *testing.T) (*fixture, *answers) {
+// clusterFixture is a data source whose cluster metric templates are all declared (a figure with no template is not asked), except the kinds in skip.
+func clusterFixture(t *testing.T, skip ...string) (*fixture, *answers) {
 	t.Helper()
 	f, _ := costFixture(t)
 	require.NoError(t, f.db.AutoMigrate(&model.SysConfig{}))
 	fake := clusterAnswers()
 	f.svc.NewCostQuerier = func(*model.Datasource) (cost.Querier, error) { return fake, nil }
+	set := resourcequery.Defaults()
+	skipped := map[string]bool{}
+	for _, kind := range skip {
+		skipped[kind] = true
+	}
+	for _, name := range resourcequery.MappedNames() {
+		kind := resourcequery.MappingKind[name]
+		if !skipped[kind] {
+			scopedMapping(t, f, "tpl "+kind, kind, model.ScopedKinds[kind], set[name])
+		}
+	}
 	return f, fake
 }
 
@@ -100,23 +112,41 @@ func TestTheClusterFiguresAreTheAnswersOfTheDataSourceToTheQueriesOfTheSharedSet
 	assert.Error(t, err)
 }
 
-func TestAQueryTheSystemRewroteIsTheOneThatIsAskedAndTheOneThePageShows(t *testing.T) {
-	f, fake := clusterFixture(t)
+func TestAFigureWithNoMetricTemplateIsNotAskedAndSaysSoWhateverTheParameterOrTheDefaultHolds(t *testing.T) {
+	f, fake := clusterFixture(t, "cluster_cpu_used", "node_ready")
 	mine := `sum(my_cpu_used_cores)`
 	fake.byQuery[mine] = []promclient.VectorSample{{Value: 9.5}}
 	require.NoError(t, f.db.Create(&model.SysConfig{ConfigKey: resourcequery.Key("cluster_used_cpu"), ConfigValue: mine, ConfigName: "x"}).Error)
 	got, err := f.svc.ClusterCapacityOf(context.Background(), f.module.ID, 0)
 	require.NoError(t, err)
-	assert.InDelta(t, 9.5, got.UsedCPU, 1e-9, "the figure is the answer to the system's own query")
-	var shown string
-	for _, q := range got.Queries {
+	assert.Zero(t, got.UsedCPU, "the system parameter does not stand in for a template that is not declared")
+	var shown *ClusterQuery
+	for i, q := range got.Queries {
 		if q.Name == "cluster_used_cpu" {
-			shown = q.Query
+			shown = &got.Queries[i]
 		}
 	}
-	assert.Equal(t, mine, shown)
-	assert.Contains(t, fake.asked, mine)
-	assert.NotContains(t, fake.asked, resourcequery.Expand(resourcequery.Defaults()["cluster_used_cpu"], nil), "the default is not asked when the system has its own")
+	require.NotNil(t, shown)
+	assert.Equal(t, QueryFromNone, shown.Source)
+	assert.Contains(t, shown.Error, "not declared")
+	assert.Contains(t, shown.Error, "cluster_cpu_used")
+	assert.NotContains(t, fake.asked, mine)
+	assert.NotContains(t, fake.asked, resourcequery.Expand(resourcequery.Defaults()["cluster_used_cpu"], nil), "the default is not asked either")
+	assert.Len(t, fake.asked, 8, "the eight figures that are declared")
+	assert.Equal(t, 3, got.Nodes, "the rest is there")
+	assert.Equal(t, []string{"cluster_cpu_used", "node_ready"}, got.Missing)
+
+	nodes, err := f.svc.NodeUsageOf(context.Background(), 0)
+	require.NoError(t, err)
+	assert.Nil(t, nodes.Nodes["n1"].Ready, "the readiness of a node is not asked when its template is not declared")
+	var ready *ClusterQuery
+	for i, q := range nodes.Queries {
+		if q.Name == "node_ready" {
+			ready = &nodes.Queries[i]
+		}
+	}
+	require.NotNil(t, ready)
+	assert.Equal(t, QueryFromNone, ready.Source)
 }
 
 func TestAFigureThatCannotBeReadLeavesTheOthersAndSaysWhy(t *testing.T) {
@@ -154,6 +184,9 @@ func TestTheClusterDataSourceIsTheParameterWhenItIsSetAndTheOneOfAModuleWhenItIs
 func TestWithNoDataSourceTheClusterAnswersWithTheReasonAndWhatToSetUp(t *testing.T) {
 	f, _ := clusterFixture(t)
 	require.NoError(t, f.db.Model(&model.ForecastModule{}).Where("1 = 1").Update("enabled", false).Error)
+	for kind := range model.ScopedKinds {
+		require.NoError(t, f.db.Where("metric = ?", kind).Delete(&model.MetricMapping{}).Error)
+	}
 	got, err := f.svc.ClusterCapacityOf(context.Background(), 0, 0)
 	require.NoError(t, err)
 	assert.Equal(t, ClusterNoDatasource, got.Reason)
@@ -208,7 +241,7 @@ func scopedMapping(t *testing.T, f *fixture, name, kind, level, query string) *m
 }
 
 func TestAMetricMappingOfTheDataSourceIsTheQueryOfTheFigureAndBeatsTheParameter(t *testing.T) {
-	f, fake := clusterFixture(t)
+	f, fake := clusterFixture(t, "cluster_cpu_used")
 	fromMapping := `sum(my_cluster_cpu_used{window="{{range}}"})`
 	fromParameter := `sum(param_cpu_used)`
 	fake.byQuery[`sum(my_cluster_cpu_used{window="5m"})`] = []promclient.VectorSample{{Value: 7.5}}
@@ -229,17 +262,16 @@ func TestAMetricMappingOfTheDataSourceIsTheQueryOfTheFigureAndBeatsTheParameter(
 			require.NotNil(t, q.Value)
 			assert.InDelta(t, 7.5, *q.Value, 1e-9)
 		case "cluster_used_memory":
-			assert.Equal(t, QueryFromDefault, q.Source, "a figure with no mapping and no edit is the default")
+			assert.Equal(t, QueryFromMapping, q.Source, "a declared template is the source of its figure")
 		}
 	}
 	assert.NotContains(t, fake.asked, fromParameter, "the parameter is not asked when a mapping has the figure")
 	assert.NotContains(t, got.Missing, "cluster_cpu_used")
-	assert.Contains(t, got.Missing, "cluster_memory_used", "what has no mapping is listed, so the page can say what to create")
-	assert.Len(t, got.Missing, 15, "the 9 of the cluster and the 7 of the nodes, less the one that has a mapping")
+	assert.Empty(t, got.Missing, "everything is declared")
 }
 
 func TestTheNodeFiguresAreReadFromTheNodeMappingsToo(t *testing.T) {
-	f, fake := clusterFixture(t)
+	f, fake := clusterFixture(t, "node_cpu_used")
 	mine := `sum by (node) (my_node_cpu)`
 	fake.byQuery[mine] = []promclient.VectorSample{{Labels: map[string]string{"node": "n1"}, Value: 4.5}}
 	scopedMapping(t, f, "node cpu", "node_cpu_used", "node", mine)

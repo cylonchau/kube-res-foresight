@@ -150,3 +150,33 @@ func (r *ForecastRouter) ModulePrometheusStats(c *gin.Context) {
 	cacheHeaders(c, kept)
 	query.SuccessResponse(c, nil, out)
 }
+
+// OverprovisionClusters serves GET /overprovision/clusters: the clusters the platform manages (the Prometheus data sources that have cluster metric templates
+// declared, and the one the system parameter names) and how many there are, for the cluster dashboard.
+// @Summary The managed clusters
+// @Tags Forecast
+// @Router /api/v1/overprovision/clusters [get]
+func (r *ForecastRouter) OverprovisionClusters(c *gin.Context) {
+	out, err := r.Service.ClusterList(c.Request.Context())
+	if err != nil {
+		r.writeError(c, err)
+		return
+	}
+	query.SuccessResponse(c, nil, out)
+}
+
+// OverprovisionResources serves GET /overprovision/resources: the CPU and memory requests and limits of one Pod of every enabled module, each asked of the
+// Prometheus data source of the module's metric mapping now (nothing from the module's own settings), for the table of the resource dashboard. It is kept a few
+// minutes; an answer the time limit cut short is given and not kept.
+// @Summary Requests and limits of the modules, from Prometheus
+// @Tags Forecast
+// @Router /api/v1/overprovision/resources [get]
+func (r *ForecastRouter) OverprovisionResources(c *gin.Context) {
+	out, kept, err := r.Service.OverprovisionResourcesCached(c.Request.Context())
+	if err != nil {
+		r.writeError(c, err)
+		return
+	}
+	cacheHeaders(c, kept)
+	query.SuccessResponse(c, nil, out)
+}

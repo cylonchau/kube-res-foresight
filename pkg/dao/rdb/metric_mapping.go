@@ -83,6 +83,12 @@ func (dao *MetricMappingDAO) List(ctx context.Context, req *apis.MetricMappingLi
 	if req.Level != "" {
 		q = q.Where("level = ?", req.Level)
 	}
+	switch req.Scope {
+	case model.ScopeCluster:
+		q = q.Where("metric IN ?", scopedKindList())
+	case model.ScopeModule:
+		q = q.Where("metric NOT IN ?", scopedKindList())
+	}
 	if enabled != nil {
 		q = q.Where("enabled = ?", *enabled)
 	}

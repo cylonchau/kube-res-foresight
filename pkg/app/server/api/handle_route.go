@@ -192,9 +192,16 @@ func routeItem(permission model.Permission, buttons []gin.H) gin.H {
 	}
 	return gin.H{
 		"name": permission.Code, "path": permission.FeRoute, "component": component,
-		"meta": gin.H{"title": permission.Name, "i18nKey": "route." + permission.Code, "icon": permission.Icon, "order": permission.Sort, "hideInMenu": !permission.Visible, "buttons": buttons},
+		"meta": gin.H{"title": permission.Name, "i18nKey": "route." + permission.Code, "icon": permission.Icon, "order": permission.Sort, "hideInMenu": !permission.Visible, "activeMenu": activeMenuOf(permission.Code), "buttons": buttons},
 	}
 }
 
 // homeRoute is the landing page after login.
 const homeRoute = "forecast-modules_modules"
+
+// activeMenus are the pages that are second levels of another page and have no menu of their own: the menu keeps the first level lit while the second is open.
+var activeMenus = map[string]string{
+	"forecast-results_overprovision-detail": "forecast-results_overprovision",
+}
+
+func activeMenuOf(code string) string { return activeMenus[code] }
