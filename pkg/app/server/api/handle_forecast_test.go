@@ -1257,7 +1257,8 @@ func TestTheOverprovisionCallsServeTheBoardTheDetailAndTheRunAndRefuseABadWindow
 	assert.EqualValues(t, id, detail["module_id"])
 	assert.Len(t, detail["windows"].([]any), 1)
 	assert.Contains(t, detail, "params")
-	assert.Contains(t, detail, "history")
+	assert.Contains(t, detail, "queries", "the detail says what it asked Prometheus")
+	assert.NotContains(t, detail, "history", "nothing stored is read for the dashboard")
 
 	for _, bad := range []string{"window=2d", "window_minutes=17", "window_minutes=x", "from=2026-01-01T00:00:00Z&to=2025-01-01T00:00:00Z"} {
 		assert.Equal(t, http.StatusBadRequest, performJSON(t, r, http.MethodGet, fmt.Sprintf("/modules/%d/overprovision?%s", id, bad), "", nil).Code, bad)

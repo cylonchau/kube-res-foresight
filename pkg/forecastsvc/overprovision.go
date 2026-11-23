@@ -92,6 +92,8 @@ type opLoader struct {
 	from, to time.Time
 	reps     []model.MetricSample
 	cache    map[string]*opSeries
+	// live is set when the loader reads Prometheus (see oplive.go) and not the samples the platform stored.
+	live *liveRead
 }
 
 func (s *Service) newOPLoader(ctx context.Context, m *model.ForecastModule, from, to time.Time) *opLoader {
@@ -107,18 +109,25 @@ func (s *Service) newOPLoader(ctx context.Context, m *model.ForecastModule, from
 // repAt is the ready replicas at a moment (the newest sample not after it and not older than costReplicaMaxAge); false when there is none.
 func (l *opLoader) repAt(ts int64) (float64, bool) {
 	i := sort.Search(len(l.reps), func(i int) bool { return l.reps[i].TS > ts }) - 1
-	if i < 0 || ts-l.reps[i].TS > int64(costReplicaMaxAge/time.Second) || l.reps[i].Value < 1 {
+	maxAge := costReplicaMaxAge
+	if l.live != nil {
+		maxAge = l.live.repMaxAge
+	}
+	if i < 0 || ts-l.reps[i].TS > int64(maxAge/time.Second) || l.reps[i].Value < 1 {
 		return 0, false
 	}
 	return l.reps[i].Value, true
 }
 
-// get reads the source of a kind (nil when the module has none, or nothing is stored).
+// get reads the source of a kind (nil when the module has none, or nothing is stored); a live loader has read them all already.
 func (l *opLoader) get(kind string) *opSeries {
 	if v, ok := l.cache[kind]; ok {
 		return v
 	}
 	l.cache[kind] = nil
+	if l.live != nil {
+		return nil
+	}
 	src := l.run.FirstOfKind(kind)
 	if src == nil {
 		return nil
@@ -131,19 +140,27 @@ func (l *opLoader) get(kind string) *opSeries {
 	if err != nil || len(rows) == 0 {
 		return nil
 	}
-	out := &opSeries{step: series.StepSeconds, raw: make([]overprovision.Point, 0, len(rows))}
 	level := ""
 	if mp, err := l.s.Mappings.GetByID(l.ctx, src.MappingID); err == nil {
 		level = mp.Level
 	}
+	points := make([]overprovision.Point, 0, len(rows))
 	for _, r := range rows {
 		if math.IsNaN(r.Value) || math.IsInf(r.Value, 0) {
 			continue
 		}
-		out.raw = append(out.raw, overprovision.Point{TS: r.TS, V: r.Value})
+		points = append(points, overprovision.Point{TS: r.TS, V: r.Value})
 	}
-	// a workload-total series is divided by the ready replicas of the same moment, a series that is already per Pod is taken as it is
-	for _, p := range out.raw {
+	out := l.build(points, level, series.StepSeconds)
+	l.cache[kind] = out
+	return out
+}
+
+// build makes the series of a kind of its points: a workload-total series is divided by the ready replicas of the same moment, a series that is already per
+// Pod is taken as it is (and multiplied by them for the total).
+func (l *opLoader) build(raw []overprovision.Point, level string, step int) *opSeries {
+	out := &opSeries{step: step, raw: raw}
+	for _, p := range raw {
 		rep, known := l.repAt(p.TS)
 		switch {
 		case level == "workload":
@@ -158,7 +175,6 @@ func (l *opLoader) get(kind string) *opSeries {
 			}
 		}
 	}
-	l.cache[kind] = out
 	return out
 }
 
@@ -218,19 +234,14 @@ type JVMInfo struct {
 	Hints            []string             `json:"hints"`
 }
 
-// ResourceChart is the series of a chart: the use of the Pod in the window with its moving averages, and the request. The arrays are aligned.
+// ResourceChart is the series of a chart: the use of the Pod in the window, the request and the suggestion. The arrays are aligned.
 type ResourceChart struct {
 	Resource string    `json:"resource"`
 	StepSecs int       `json:"step_seconds"`
 	TS       []int64   `json:"ts"`
 	Value    []float64 `json:"value"`
-	// MA5, MA15 and MA25 are the moving averages of the last 5, 15 and 25 points of the step (the labels say it: MA5@1m is 5 minutes).
-	MA5     []float64 `json:"ma5"`
-	MA15    []float64 `json:"ma15"`
-	MA25    []float64 `json:"ma25"`
-	Labels  []string  `json:"ma_labels"`
-	Request float64   `json:"request"`
-	Suggest float64   `json:"suggested"`
+	Request  float64   `json:"request"`
+	Suggest  float64   `json:"suggested"`
 	// TotalTS and Total are the use of all the replicas together (the sum over the Pods) over the window, in the step of the chart; empty when the module's
 	// metric has no sum over the Pods. Replicas is the number of replicas the module has now, which the request and the suggestion of one Pod are
 	// multiplied by to be drawn against the total.
@@ -254,6 +265,12 @@ type ModuleOverprovision struct {
 	Charts  []*ResourceChart       `json:"charts,omitempty"`
 	// Metrics are the other metrics the module has set up (container, JVM, throttling, OOM ...), over the window.
 	Metrics []MetricStat `json:"metrics"`
+	// Datasource, Queries, Partial and Skipped are set when the figures were read from Prometheus (the dashboard): the data source, the query of each metric with
+	// what came of it, and whether the time limit of the request stopped some of them.
+	Datasource CostSource  `json:"datasource"`
+	Queries    []LiveQuery `json:"queries"`
+	Partial    bool        `json:"partial"`
+	Skipped    int         `json:"skipped"`
 }
 
 // WindowOverprovision is the result of one window.
@@ -417,8 +434,8 @@ func (s *Service) RunOverprovision(ctx context.Context, moduleID uint) (int, err
 	return done, nil
 }
 
-// OverprovisionDetail analyses one module live, over a window of the list or over a custom range (from and to; both zero for a window), with the
-// series of the chart, the JVM metrics and the stored history. A custom range is never stored.
+// OverprovisionDetail analyses one module from Prometheus, over a window of the list or over a custom range (from and to; both zero for a window), with the
+// series of the chart, the JVM metrics and the query of each metric. Nothing is read from what the platform stored, nothing is stored, and no forecast takes part.
 func (s *Service) OverprovisionDetail(ctx context.Context, moduleID uint, windowMinutes int, from, to time.Time) (*DetailOverprovision, error) {
 	m, err := s.Modules.Get(ctx, moduleID)
 	if err != nil {
@@ -450,8 +467,9 @@ func (s *Service) OverprovisionDetail(ctx context.Context, moduleID uint, window
 		label, to = w.Label, now
 	}
 	p := s.OverprovisionParams(ctx)
-	l := s.newOPLoader(ctx, m, to.Add(-time.Duration(windowMinutes)*time.Minute), to)
-	replicas := s.costReplicas(ctx, m, l.run, nil, to)
+	l := s.newLiveLoader(ctx, m, to.Add(-time.Duration(windowMinutes)*time.Minute), to)
+	l.readLive()
+	replicas := l.liveReplicas()
 	mo := s.moduleHeader(m, replicas, to)
 	wr := l.analyzeWindow(label, windowMinutes, p, replicas)
 	mo.Windows = []*WindowOverprovision{wr}
@@ -474,46 +492,30 @@ func (s *Service) OverprovisionDetail(ctx context.Context, moduleID uint, window
 	}
 	mo.JVM = l.jvm(fromTS, toTS, wr)
 	mo.Metrics = l.metrics(fromTS, toTS)
-
-	hist, err := s.Overprovision.History(ctx, moduleID, "", windowMinutes, opHistoryRows*2)
-	if err != nil {
-		return nil, err
-	}
-	views := make([]*OverprovisionResult, 0, len(hist))
-	for _, h := range hist {
-		views = append(views, viewOf(h))
-	}
-	return &DetailOverprovision{ModuleOverprovision: mo, Params: p, History: views}, nil
+	mo.Datasource = l.live.datasource
+	mo.Queries, mo.Partial, mo.Skipped = l.liveSummary()
+	return &DetailOverprovision{ModuleOverprovision: mo, Params: p}, nil
 }
 
-// DetailOverprovision is the answer of the detail: the analysis, the numbers it was made with, and the stored results of the same window.
+// DetailOverprovision is the answer of the detail: the analysis and the numbers it was made with.
 type DetailOverprovision struct {
 	*ModuleOverprovision
-	Params  overprovision.Params   `json:"params"`
-	History []*OverprovisionResult `json:"history"`
+	Params overprovision.Params `json:"params"`
 }
 
-// opChart downsamples the use of a Pod to at most opMaxPoints and adds the moving averages in the step of the window.
+// opChart downsamples the use of a Pod to at most opMaxPoints, in the step of the window.
 func opChart(kind string, pts []overprovision.Point, stored, windowMinutes int, res *overprovision.Result) *ResourceChart {
-	// the moving averages are made in the step of the window (MA5@5m is five points of five minutes) and only then thinned for the chart: a
-	// thinned series would have a step of its own, and the label would no longer say what the average is
 	step := overprovision.MAStepFor(windowMinutes, stored)
 	rs := overprovision.Resample(pts, step)
-	series := [][]float64{pointValues(rs), pointValues(overprovision.MovingAverage(rs, 5)), pointValues(overprovision.MovingAverage(rs, 15)), pointValues(overprovision.MovingAverage(rs, 25))}
 	stride := (len(rs) + opMaxPoints - 1) / opMaxPoints
 	if stride < 1 {
 		stride = 1
 	}
-	c := &ResourceChart{Resource: kind, StepSecs: step, Request: res.Request, Suggest: res.Suggested,
-		Labels: []string{overprovision.MALabel(5, step), overprovision.MALabel(15, step), overprovision.MALabel(25, step)}}
-	var thinned [4][]float64
+	c := &ResourceChart{Resource: kind, StepSecs: step, Request: res.Request, Suggest: res.Suggested}
 	for i := 0; i < len(rs); i += stride {
 		c.TS = append(c.TS, rs[i].TS)
-		for k := range series {
-			thinned[k] = append(thinned[k], series[k][i])
-		}
+		c.Value = append(c.Value, round6(rs[i].V))
 	}
-	c.Value, c.MA5, c.MA15, c.MA25 = thinned[0], thinned[1], thinned[2], thinned[3]
 	return c
 }
 

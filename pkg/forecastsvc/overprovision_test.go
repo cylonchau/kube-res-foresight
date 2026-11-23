@@ -2,11 +2,14 @@ package forecastsvc
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/cylonchau/kube-res-foresight/pkg/collector"
 	"github.com/cylonchau/kube-res-foresight/pkg/model"
 	"github.com/cylonchau/kube-res-foresight/pkg/overprovision"
+	"github.com/cylonchau/kube-res-foresight/pkg/timing"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -97,7 +100,7 @@ func TestTheBoardAddsUpWhatTheWorkloadsCouldGiveBack(t *testing.T) {
 	assert.ErrorIs(t, err, ErrOverprovisionWindow)
 }
 
-func TestTheDetailHasTheChartTheMovingAveragesAndTheHistory(t *testing.T) {
+func TestTheDetailIsReadFromPrometheusWithTheChartAndTheQueries(t *testing.T) {
 	f := opFixture(t)
 	ctx := context.Background()
 	_, err := f.svc.RunOverprovision(ctx, f.module.ID)
@@ -111,10 +114,7 @@ func TestTheDetailHasTheChartTheMovingAveragesAndTheHistory(t *testing.T) {
 	assert.Equal(t, "cpu", c.Resource)
 	require.NotEmpty(t, c.TS)
 	assert.Len(t, c.Value, len(c.TS))
-	assert.Len(t, c.MA5, len(c.TS))
-	assert.Len(t, c.MA25, len(c.TS))
-	assert.Equal(t, 300, c.StepSecs, "a window of a day is read every 5 minutes")
-	assert.Equal(t, []string{"MA5@5m", "MA15@5m", "MA25@5m"}, c.Labels)
+	assert.Equal(t, 300, c.StepSecs, "a window of a day is drawn every 5 minutes")
 	assert.InDelta(t, 4.0, c.Request, 1e-9)
 	// the use of all the replicas together is drawn next to the use of one Pod
 	require.NotEmpty(t, c.Total, "the module has a sum over the Pods")
@@ -122,7 +122,17 @@ func TestTheDetailHasTheChartTheMovingAveragesAndTheHistory(t *testing.T) {
 	assert.Equal(t, d.Replicas, c.Replicas)
 	assert.Greater(t, c.Total[0], c.Value[0], "the sum of the replicas is more than one of them")
 	assert.Nil(t, d.JVM, "the module has no JVM metric")
-	assert.NotEmpty(t, d.History)
+	// every figure is a query sent to Prometheus, listed with its points
+	require.NotEmpty(t, d.Queries)
+	assert.False(t, d.Partial)
+	for _, q := range d.Queries {
+		if q.Kind == "cpu" || q.Kind == "memory" {
+			assert.NotEmpty(t, q.Query, q.Kind)
+			assert.Greater(t, q.Points, 100, q.Kind)
+			assert.Empty(t, q.Error, q.Kind)
+		}
+	}
+	assert.NotEmpty(t, d.Datasource.Name)
 	assert.Equal(t, 0.9, d.Params.PeakNearLimit)
 
 	// a window that is not one of the seven, and a range that is back to front
@@ -176,6 +186,7 @@ func TestThrottlingOOMAndTheJVMKeepTheAnalysisFromLoweringARequest(t *testing.T)
 		"jvm_heap_used":    func(time.Time) float64 { return 2 * float64(costGiB) },
 		"jvm_heap_max":     func(time.Time) float64 { return 32 * float64(costGiB) },
 	})
+	f.withReplicas()
 	ctx := context.Background()
 	_, err := f.collect(ctx)
 	require.NoError(t, err)
@@ -214,9 +225,8 @@ func TestThrottlingOOMAndTheJVMKeepTheAnalysisFromLoweringARequest(t *testing.T)
 	assert.Equal(t, 0.0, board.CPU.Reclaimable)
 }
 
-// A long window is thinned for the chart, but the moving averages keep the step of the window: MA5@5m is five points of five minutes whatever the
-// chart shows.
-func TestALongWindowIsThinnedForTheChartAndKeepsTheStepOfItsMovingAverages(t *testing.T) {
+// A long window is thinned for the chart and keeps the step of the window.
+func TestALongWindowIsThinnedForTheChart(t *testing.T) {
 	f := opFixture(t)
 	ctx := context.Background()
 	d, err := f.svc.OverprovisionDetail(ctx, f.module.ID, 7*24*60, time.Time{}, time.Time{})
@@ -224,12 +234,11 @@ func TestALongWindowIsThinnedForTheChartAndKeepsTheStepOfItsMovingAverages(t *te
 	require.NotEmpty(t, d.Charts)
 	c := d.Charts[0]
 	assert.LessOrEqual(t, len(c.TS), opMaxPoints)
-	assert.Len(t, c.MA15, len(c.TS))
-	assert.Equal(t, 300, c.StepSecs)
-	assert.Equal(t, "MA5@5m", c.Labels[0])
+	assert.GreaterOrEqual(t, c.StepSecs, 300, "a week is read at a coarser step than a day: at most 1500 steps a query")
+	assert.Equal(t, 0, c.StepSecs%60)
 }
 
-func TestOpChartThinsLongSeriesAndKeepsTheLabelsTrue(t *testing.T) {
+func TestOpChartThinsLongSeries(t *testing.T) {
 	pts := make([]overprovision.Point, 2016) // 7 days every 5 minutes
 	for i := range pts {
 		pts[i] = overprovision.Point{TS: int64(i) * 300, V: float64(i % 10)}
@@ -238,10 +247,8 @@ func TestOpChartThinsLongSeriesAndKeepsTheLabelsTrue(t *testing.T) {
 	assert.LessOrEqual(t, len(c.TS), opMaxPoints)
 	assert.Greater(t, len(c.TS), opMaxPoints/2)
 	assert.Len(t, c.Value, len(c.TS))
-	assert.Len(t, c.MA25, len(c.TS))
-	assert.Equal(t, []string{"MA5@5m", "MA15@5m", "MA25@5m"}, c.Labels)
 	assert.Equal(t, 300, c.StepSecs)
-	// the second point of the thinned series is the 8th point of the full one (stride 7): the label's step is not the thinned step
+	// the second point of the thinned series is the 8th point of the full one (stride 7)
 	assert.Equal(t, pts[7].TS, c.TS[1])
 }
 
@@ -259,6 +266,7 @@ func TestTheDetailListsTheOtherMetricsTheModuleHasSetUp(t *testing.T) {
 		"jvm_heap_used":    func(time.Time) float64 { return 2 * float64(costGiB) },
 		"jvm_heap_max":     func(time.Time) float64 { return 8 * float64(costGiB) },
 	})
+	f.withReplicas()
 	ctx := context.Background()
 	_, err := f.collect(ctx)
 	require.NoError(t, err)
@@ -328,6 +336,7 @@ func TestTheJVMShowsCommittedAndTheGCBesideUsedAndMaxAndNeverTakesCommittedForUs
 		"jvm_gc_count":          func(time.Time) float64 { return 12 },
 		"jvm_gc_pause":          func(time.Time) float64 { return 0.4 },
 	})
+	f.withReplicas()
 	ctx := context.Background()
 	_, err := f.collect(ctx)
 	require.NoError(t, err)
@@ -366,6 +375,7 @@ func TestAJVMWithoutTheGCMetricsIsStillAnalysedAndSaysTheGCIsMissing(t *testing.
 		"jvm_heap_used": func(time.Time) float64 { return 2 * float64(costGiB) },
 		"jvm_heap_max":  func(time.Time) float64 { return 8 * float64(costGiB) },
 	})
+	f.withReplicas()
 	ctx := context.Background()
 	_, err := f.collect(ctx)
 	require.NoError(t, err)
@@ -377,4 +387,74 @@ func TestAJVMWithoutTheGCMetricsIsStillAnalysedAndSaysTheGCIsMissing(t *testing.
 	assert.NotContains(t, d.JVM.Hints, "committed_is_not_use", "nothing committed is shown")
 	assert.Nil(t, d.JVM.HeapCommitted)
 	assert.NotNil(t, d.Windows[0].Memory, "the analysis goes on")
+}
+
+// withReplicas keeps the replicas of the fixture at 4 whatever else f.values answers.
+func (f *fixture) withReplicas() {
+	inner := f.querier.value
+	f.querier.value = func(query string, ts time.Time) float64 {
+		if strings.Contains(query, "kube_deployment") {
+			return 4
+		}
+		return inner(query, ts)
+	}
+}
+
+// slowRange answers the queries that contain fast at once and makes the others wait for the context to end.
+type slowRange struct {
+	inner collector.RangeQuerier
+	fast  string
+}
+
+func (q slowRange) QueryRange(ctx context.Context, query string, start, end time.Time, step time.Duration) ([]collector.Point, error) {
+	if !strings.Contains(query, q.fast) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	return q.inner.QueryRange(ctx, query, start, end, step)
+}
+
+// What the dashboard shows is read from Prometheus: with nothing stored for the module the detail is the same, and it never writes what it read.
+func TestTheDetailDoesNotReadOrWriteTheStoredSamples(t *testing.T) {
+	f := opFixture(t)
+	require.NoError(t, f.db.Exec("DELETE FROM metric_sample").Error)
+	var before int64
+	require.NoError(t, f.db.Model(&model.MetricSample{}).Count(&before).Error)
+	d, err := f.svc.OverprovisionDetail(context.Background(), f.module.ID, 24*60, time.Time{}, time.Time{})
+	require.NoError(t, err)
+	require.NotNil(t, d.Windows[0].CPU)
+	assert.Equal(t, overprovision.StatusOver, d.Windows[0].CPU.Status)
+	assert.Equal(t, 4, d.Replicas, "the replicas are a query too")
+	var after int64
+	require.NoError(t, f.db.Model(&model.MetricSample{}).Count(&after).Error)
+	assert.Equal(t, before, after)
+}
+
+// A slow Prometheus gives the metrics that came and tells which did not, in the time of the request: no 504.
+func TestWhenPrometheusIsSlowTheDetailGivesWhatCameAndSaysWhatDidNot(t *testing.T) {
+	f := opFixture(t)
+	f.addAux(t, "k8s_cpu_throttle")
+	f.addAux(t, "jvm_heap_used")
+	f.withReplicas()
+	inner := f.svc.NewQuerier
+	f.svc.NewQuerier = func(ds *model.Datasource) (collector.RangeQuerier, error) {
+		q, err := inner(ds)
+		return slowRange{inner: q, fast: "cpu{"}, err
+	}
+	require.NoError(t, f.db.Create(&model.SysConfig{ConfigKey: timing.PrometheusTotalConcurrency.Key, ConfigValue: "64", ConfigName: "x"}).Error)
+	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	d, err := f.svc.OverprovisionDetail(ctx, f.module.ID, 24*60, time.Time{}, time.Time{})
+	require.NoError(t, err)
+	assert.Less(t, time.Since(started), 1500*time.Millisecond)
+	assert.True(t, d.Partial)
+	assert.Positive(t, d.Skipped)
+	for _, q := range d.Queries {
+		if q.Skipped {
+			assert.Contains(t, q.Error, "time limit")
+			assert.Zero(t, q.Points)
+		}
+	}
+	assert.Nil(t, d.Windows[0].Memory, "the memory did not come, so there is no verdict made of nothing")
 }

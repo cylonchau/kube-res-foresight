@@ -73,7 +73,7 @@ func (r *ForecastRouter) OverprovisionRun(c *gin.Context) {
 }
 
 // ModuleOverprovision serves GET /modules/:id/overprovision?window=&from=&to=: one module analysed live over a window of the list or a custom range
-// (RFC 3339), with the series of its chart, its JVM metrics and the stored history of the window.
+// (RFC 3339), read from Prometheus: the series of its chart, its JVM metrics and the query of each metric. Nothing stored is read.
 // @Summary Over-provisioning of a module
 // @Tags Forecast
 // @Router /api/v1/modules/{id}/overprovision [get]
@@ -93,11 +93,12 @@ func (r *ForecastRouter) ModuleOverprovision(c *gin.Context) {
 	if t := timeQuery(c, "to"); t != nil {
 		to = *t
 	}
-	out, err := r.Service.OverprovisionDetail(c.Request.Context(), id, minutes, from, to)
+	out, kept, err := r.Service.OverprovisionDetailCached(c.Request.Context(), id, minutes, from, to)
 	if err != nil {
 		r.writeError(c, err)
 		return
 	}
+	cacheHeaders(c, kept)
 	query.SuccessResponse(c, nil, out)
 }
 

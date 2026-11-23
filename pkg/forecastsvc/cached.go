@@ -182,3 +182,22 @@ func (s *Service) PrometheusStatsScopedCached(ctx context.Context, moduleID uint
 	}
 	return out, kept, err
 }
+
+// OverprovisionDetailCached is OverprovisionDetail with its answer kept for a few minutes (the data is read from Prometheus and changes all the time: the answer is
+// for statsBucket at most). An answer that is partial is given and not kept, so the next ask works on the queries that were not reached.
+func (s *Service) OverprovisionDetailCached(ctx context.Context, moduleID uint, windowMinutes int, from, to time.Time) (*DetailOverprovision, resultcache.Result, error) {
+	m, err := s.Modules.Get(ctx, moduleID)
+	if err != nil {
+		return nil, resultcache.Result{Source: resultcache.Bypassed}, err
+	}
+	ttl := min(s.cacheTTL(ctx), statsBucket)
+	key := fmt.Sprintf("opdetail|%d|%d|%d|%d", moduleID, windowMinutes, from.Unix()/60, to.Unix()/60)
+	version := fmt.Sprintf("m%d@%d|b%d", m.ID, m.UpdatedAt.UnixNano(), s.now().Unix()/int64(statsBucket/time.Second))
+	out, kept, err := resultcache.Do(ctx, s.cache(), key, version, ttl, func(ctx context.Context) (*DetailOverprovision, error) {
+		return s.OverprovisionDetail(ctx, moduleID, windowMinutes, from, to)
+	})
+	if err == nil && out != nil && out.Partial {
+		s.cache().Forget(key)
+	}
+	return out, kept, err
+}
