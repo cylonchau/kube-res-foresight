@@ -161,6 +161,15 @@ func (dao *ModuleDAO) ListEnabled(ctx context.Context) ([]*model.ForecastModule,
 	return list, dao.loadSources(ctx, list...)
 }
 
+// ListAll returns every module, enabled or not, with its metric sources.
+func (dao *ModuleDAO) ListAll(ctx context.Context) ([]*model.ForecastModule, error) {
+	var list []*model.ForecastModule
+	if err := dao.db.WithContext(ctx).Order("id ASC").Find(&list).Error; err != nil {
+		return nil, err
+	}
+	return list, dao.loadSources(ctx, list...)
+}
+
 // Delete removes a disabled module with its metric sources, the history collected for them, fixed periods, scores, run
 // state, predictions, backtests, evaluations, training records and recommendations: nothing of a module that is gone is
 // worth listing. The operator reports and admission decisions stay as the audit trail of what was done to the workload.

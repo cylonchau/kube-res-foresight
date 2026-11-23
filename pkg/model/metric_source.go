@@ -73,6 +73,62 @@ type MetricSource struct {
 	Precision   int     `gorm:"not null;default:6" json:"precision" column_setting:"false"`
 	Aggregation string  `gorm:"type:varchar(8);not null;default:'avg'" json:"aggregation" column_setting:"false"`
 	Missing     string  `gorm:"type:varchar(16);not null;default:'interpolate'" json:"missing" column_setting:"false"`
+
+	// Purpose says which of the two readings of a module the source is for: the resource dashboard reads Prometheus as it is now (PurposeDashboard), the history
+	// the platform collects for the forecast, the score and the protection reads the sources that are for history (PurposeHistory); PurposeBoth is a source of
+	// both, so a metric both need (the CPU and the memory in use) is written once. The Requests and Limits are for the dashboard alone.
+	Purpose string `gorm:"type:varchar(10);not null;default:'both'" json:"purpose" column_setting:"false"`
+	// Per says what the query answers: one Pod (PerPod) or all the replicas together (PerTotal). It is empty for what the level of the metric template says
+	// (a query of the workload is the sum over its Pods). The dashboard divides a total by the replicas to get one Pod and multiplies one Pod to get the total.
+	Per string `gorm:"type:varchar(8);not null;default:''" json:"per" column_setting:"false"`
+}
+
+// What a source is for.
+const (
+	PurposeDashboard = "dashboard"
+	PurposeHistory   = "history"
+	PurposeBoth      = "both"
+)
+
+// SourcePurposes lists the purposes.
+var SourcePurposes = []string{PurposeBoth, PurposeDashboard, PurposeHistory}
+
+// What the query of a source answers.
+const (
+	PerPod   = "pod"
+	PerTotal = "total"
+)
+
+// DashboardKinds are the kinds of what a Pod asks for and may use: the dashboard reads them from Prometheus and the history has no use for the first three, so
+// they are set up in the module apart from the metrics the history is made of and written once, for the dashboard. The memory limit is also what the OOM
+// protection reads from the history, so it stays a source of both unless the module says otherwise.
+var DashboardKinds = []string{"k8s_cpu_requests", "k8s_cpu_limits", "k8s_mem_requests", "k8s_mem_limits"}
+
+// IsDashboardKind reports whether the kind is one of the requests and limits.
+func IsDashboardKind(kind string) bool { return oneOf(kind, DashboardKinds) }
+
+// DefaultPurpose is the purpose of a new source of the kind: the requests and the CPU limit are for the dashboard, the other kinds for both.
+func DefaultPurpose(kind string) string {
+	if IsDashboardKind(kind) && kind != "k8s_mem_limits" {
+		return PurposeDashboard
+	}
+	return PurposeBoth
+}
+
+// ForDashboard reports whether the dashboard reads the source; ForHistory whether the history does.
+func (s *MetricSource) ForDashboard() bool { return s.Purpose != PurposeHistory }
+func (s *MetricSource) ForHistory() bool   { return s.Purpose != PurposeDashboard }
+
+// PerOf is what the query of the source answers, given the level of its metric template: the sum over the Pods of a workload is all the replicas together.
+func (s *MetricSource) PerOf(level string) string {
+	switch s.Per {
+	case PerPod, PerTotal:
+		return s.Per
+	}
+	if level == "workload" {
+		return PerTotal
+	}
+	return PerPod
 }
 
 func (MetricSource) TableName() string { return "metric_source" }
@@ -192,6 +248,18 @@ func (s *MetricSource) Validate() error {
 	}
 	if !multimetric.ValidStat(s.Stat) {
 		return fmt.Errorf("stat must be avg, max, sum, last or p<number> for a percentile (p40, p95, p99.9: a number above 0 and below 100)")
+	}
+	if s.Purpose == "" {
+		s.Purpose = DefaultPurpose(s.Kind)
+	}
+	if !oneOf(s.Purpose, SourcePurposes) {
+		return fmt.Errorf("purpose must be one of %v", SourcePurposes)
+	}
+	if IsDashboardKind(s.Kind) && s.Kind != "k8s_mem_limits" && s.Purpose == PurposeHistory {
+		return fmt.Errorf("%q is read by the resource dashboard from Prometheus: its purpose is dashboard (or both), not history alone", s.Kind)
+	}
+	if s.Per != "" && s.Per != PerPod && s.Per != PerTotal {
+		return fmt.Errorf("per must be pod or total")
 	}
 	if s.Basis == "" {
 		s.Basis = DefaultBasis(s.Kind)

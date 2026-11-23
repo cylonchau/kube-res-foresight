@@ -27,7 +27,9 @@ type LiveQuery struct {
 	Unit  string `json:"unit"`
 	// Query is the PromQL as it was sent (the mapping rendered for the module), Step the step of the range query, Points how many points it answered: the
 	// figures of the metric are made of that many samples.
-	Query  string `json:"query"`
+	Query string `json:"query"`
+	// Per says what the query answers: one Pod ("pod") or all the replicas together ("total"), as the module's source says or as the level of the template does.
+	Per    string `json:"per"`
 	Step   string `json:"step"`
 	Points int    `json:"points"`
 	// Error says why there are no points; Skipped is true when the time limit of the request was over before the query was sent or answered.
@@ -47,7 +49,7 @@ var livePriority = []string{"cpu", "memory", "replicas", "k8s_cpu_requests", "k8
 
 // newLiveLoader is a loader that reads Prometheus, for the window [from, to].
 func (s *Service) newLiveLoader(ctx context.Context, m *model.ForecastModule, from, to time.Time) *opLoader {
-	run := &model.AlgorithmRun{ID: m.ID, Sources: m.Sources, Namespace: m.Namespace, Workload: m.Workload, Service: m.Service, Container: m.Container}
+	run := &model.AlgorithmRun{ID: m.ID, Dashboard: true, Sources: m.Sources, Namespace: m.Namespace, Workload: m.Workload, Service: m.Service, Container: m.Container}
 	return &opLoader{s: s, ctx: ctx, m: m, run: run, from: from, to: to, cache: map[string]*opSeries{}, live: &liveRead{repMaxAge: costReplicaMaxAge}}
 }
 
@@ -108,6 +110,7 @@ func (l *opLoader) readLive() {
 			continue
 		}
 		q.Level, q.Unit, q.Group = setup.mapping.Level, setup.mapping.Unit, metricGroup(kind, setup.mapping.Level)
+		q.Per = src.PerOf(setup.mapping.Level)
 		for _, name := range model.TemplateVariables(setup.mapping.Query) {
 			if name == "pod" {
 				q.Error = fmt.Sprintf("mapping %q is pod level and cannot be read for a workload", setup.mapping.Name)
@@ -215,7 +218,12 @@ func (l *opLoader) readLive() {
 			points[k] = overprovision.Point{TS: p.Time.Unix(), V: p.Value}
 		}
 		step, _ := time.ParseDuration(l.live.queries[i].Step)
-		l.cache[kind] = l.build(points, l.live.queries[i].Level, int(step/time.Second))
+		// what the query answers decides how the series is turned into one Pod and into the total
+		level := "container"
+		if l.live.queries[i].Per == model.PerTotal {
+			level = "workload"
+		}
+		l.cache[kind] = l.build(points, level, int(step/time.Second))
 	}
 }
 

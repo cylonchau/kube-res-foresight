@@ -550,6 +550,30 @@ func TestTheResourceTableIsTheRequestsAndLimitsPrometheusAnswers(t *testing.T) {
 	assert.Nil(t, row.MemoryLimit, "the memory limit metric is still not declared")
 	assert.Contains(t, row.Errors, "memory_limit")
 	assert.False(t, got.Partial)
+
+	// the module says what its query answers: a query of one Pod is not divided by the replicas, a query of all of them is
+	require.NoError(t, f.db.Model(&model.MetricSource{}).Where("kind = ?", "k8s_cpu_requests").Update("per", model.PerPod).Error)
+	require.NoError(t, f.db.Model(&model.MetricSource{}).Where("kind = ?", "k8s_cpu_limits").Update("per", model.PerTotal).Error)
+	got, err = f.svc.OverprovisionResources(ctx)
+	require.NoError(t, err)
+	row = got.Rows[0]
+	assert.InDelta(t, 16.0, *row.CPURequest, 1e-9, "answered for one Pod")
+	assert.InDelta(t, 6.0, *row.CPULimit, 1e-9, "answered for all the replicas: 24 over 4")
+}
+
+// Every module of the module management is on the dashboard, one that is switched off too.
+func TestTheDashboardListsEveryModuleOfTheModuleManagement(t *testing.T) {
+	f := opFixture(t)
+	other := &model.ForecastModule{Name: "idle", Namespace: "prod", WorkloadKind: "Deployment", Workload: "idle", Enabled: false}
+	require.NoError(t, f.db.Create(other).Error)
+	got, err := f.svc.OverprovisionResources(context.Background())
+	require.NoError(t, err)
+	ids := []uint{}
+	for _, row := range got.Rows {
+		ids = append(ids, row.ModuleID)
+	}
+	assert.Contains(t, ids, other.ID)
+	assert.Contains(t, ids, f.module.ID)
 }
 
 // The clusters are the data sources that have cluster metric templates, and the dashboard says how much of the set each declares.

@@ -198,8 +198,11 @@ type Result struct {
 	// Coverage is the share of the window that has data (0 to 1).
 	Coverage       float64 `json:"coverage"`
 	ExpectedPoints int     `json:"expected_points"`
-	// Suggested is the request the use supports; 0 when no suggestion is made (see Reasons).
+	// Suggested is the request the use supports; 0 when no suggestion is made (see Reasons). It is made with or without a request to compare with.
 	Suggested float64 `json:"suggested"`
+	// SuggestedLimit is the limit that goes with it: the higher of the suggested request and the highest use, with LimitHeadroom above (so it is never below the P99, and a
+	// memory limit is never below the suggested request); 0 when no suggestion is made.
+	SuggestedLimit float64 `json:"suggested_limit"`
 	// Ratio is (Request - Suggested) / Request, with Numerator and Denominator as put into it; it is negative when the suggestion is above the request.
 	Ratio       float64 `json:"ratio"`
 	Numerator   float64 `json:"numerator"`
@@ -220,6 +223,9 @@ type Result struct {
 	Formula        string `json:"formula"`
 	FormulaVersion string `json:"formula_version"`
 }
+
+// LimitHeadroom is the share the suggested limit is above the higher of the suggested request and the highest use.
+const LimitHeadroom = 0.20
 
 func down(level string) string {
 	switch level {
@@ -267,11 +273,12 @@ func Analyze(in Input, p Params) Result {
 		}
 		r.Coverage = math.Min(1, float64(r.Usage.Points)/float64(r.ExpectedPoints))
 	}
-	switch {
-	case !(in.Request > 0):
+	// what the use supports does not need a request to be compared with: without one the suggestion is still made and the status stays unknown
+	noRequest := !(in.Request > 0)
+	if noRequest {
 		r.Reasons = append(r.Reasons, ReasonNoRequest)
-		return r
-	case r.Usage.Points == 0:
+	}
+	if r.Usage.Points == 0 {
 		r.Reasons = append(r.Reasons, ReasonNoUsage)
 		return r
 	}
@@ -332,6 +339,15 @@ func Analyze(in Input, p Params) Result {
 		suggested = in.Round(suggested)
 	}
 	r.Suggested = suggested
+	r.SuggestedLimit = math.Max(suggested, u.Max) * (1 + LimitHeadroom)
+	if in.Round != nil {
+		r.SuggestedLimit = in.Round(r.SuggestedLimit)
+	}
+	r.Formula += fmt.Sprintf("; limit = max(suggested, Max %s) x (1+%.0f%%) = %s", num(in.Resource, u.Max), LimitHeadroom*100, num(in.Resource, r.SuggestedLimit))
+	if noRequest {
+		// nothing to compare with: no ratio, no grade, no status
+		return r
+	}
 	r.Numerator, r.Denominator = in.Request-suggested, in.Request
 	r.Ratio = r.Numerator / r.Denominator
 	r.Reclaimable = math.Max(0, r.Numerator)

@@ -237,7 +237,7 @@ func (s *Service) PrometheusStatsScoped(ctx context.Context, moduleID uint, wind
 			return nil, ErrOverprovisionWindow
 		}
 	}
-	run := &model.AlgorithmRun{ID: mod.ID, Sources: mod.Sources, Namespace: mod.Namespace, Workload: mod.Workload, Service: mod.Service, Container: mod.Container}
+	run := &model.AlgorithmRun{ID: mod.ID, Dashboard: true, Sources: mod.Sources, Namespace: mod.Namespace, Workload: mod.Workload, Service: mod.Service, Container: mod.Container}
 	core := []string{}
 	for _, kind := range []string{"cpu", "memory"} {
 		if src := run.FirstOfKind(kind); src != nil {

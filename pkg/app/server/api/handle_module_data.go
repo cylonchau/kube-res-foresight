@@ -118,7 +118,7 @@ func (r *ForecastRouter) sourceFromReq(ctx context.Context, moduleID uint, req *
 	}
 	s := &model.MetricSource{ModuleID: moduleID, Name: req.Name, Kind: req.Kind, Resource: req.Resource, MappingID: req.MappingID, Priority: req.Priority,
 		Weight: 1, Stat: req.Stat, Basis: req.Basis, WindowHours: req.WindowHours, Threshold: req.Threshold, Enabled: req.Enabled == nil || *req.Enabled,
-		Remark: req.Remark, Scale: req.Scale, Aggregation: req.Aggregation, Missing: req.Missing}
+		Remark: req.Remark, Scale: req.Scale, Aggregation: req.Aggregation, Missing: req.Missing, Purpose: req.Purpose, Per: req.Per}
 	s.Precision = 6
 	if req.Precision != nil {
 		s.Precision = *req.Precision
@@ -259,6 +259,12 @@ func (r *ForecastRouter) UpdateSource(c *gin.Context) {
 	}
 	if req.Missing != nil {
 		s.Missing = *req.Missing
+	}
+	if req.Purpose != nil {
+		s.Purpose = *req.Purpose
+	}
+	if req.Per != nil {
+		s.Per = *req.Per
 	}
 	// a new mapping written for this update is taken back when the update then fails
 	rollback := func() {

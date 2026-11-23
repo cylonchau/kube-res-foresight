@@ -254,3 +254,26 @@ func TestTheWindowsAreTheSevenOfTheProposal(t *testing.T) {
 	_, ok = WindowByMinutes(5)
 	assert.False(t, ok)
 }
+
+// With no request to compare with the use still gives the request and the limit it supports: the status is unknown, there is no ratio or grade.
+func TestTheSuggestionDoesNotNeedARequestAndComesWithALimit(t *testing.T) {
+	p := DefaultParams()
+	p.BaselineMinutes = 0
+	cpu := Analyze(input(CPU, 0, ramp(100, 1)), p)
+	assert.Contains(t, cpu.Reasons, ReasonNoRequest)
+	assert.Equal(t, StatusUnknown, cpu.Status)
+	// max(P95 95 x 1.2, P99 99) = 114; the limit is max(114, Max 100) x 1.2
+	assert.InDelta(t, 114.0, cpu.Suggested, 1e-9)
+	assert.InDelta(t, 136.8, cpu.SuggestedLimit, 1e-9)
+	assert.Equal(t, 0.0, cpu.Ratio)
+	assert.Equal(t, "", cpu.Grade)
+
+	mem := Analyze(input(Memory, 0, ramp(100, 1)), p)
+	assert.GreaterOrEqual(t, mem.SuggestedLimit, mem.Suggested, "a memory limit is never below the suggested request")
+	assert.GreaterOrEqual(t, mem.SuggestedLimit, mem.Usage.P99, "a limit is never below the P99")
+
+	// with a request the limit is the same, and the status is judged
+	with := Analyze(input(CPU, 200, ramp(100, 1)), p)
+	assert.InDelta(t, cpu.SuggestedLimit, with.SuggestedLimit, 1e-9)
+	assert.NotEqual(t, StatusUnknown, with.Status)
+}

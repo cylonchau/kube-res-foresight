@@ -207,7 +207,7 @@ func (s *Service) OverprovisionDetailCached(ctx context.Context, moduleID uint, 
 func (s *Service) OverprovisionResourcesCached(ctx context.Context) (*ResourceList, resultcache.Result, error) {
 	ttl := min(s.cacheTTL(ctx), statsBucket)
 	key := "opresources"
-	modules, err := s.Modules.ListEnabled(ctx)
+	modules, err := s.Modules.ListAll(ctx)
 	if err != nil {
 		return nil, resultcache.Result{Source: resultcache.Bypassed}, err
 	}
@@ -215,6 +215,10 @@ func (s *Service) OverprovisionResourcesCached(ctx context.Context) (*ResourceLi
 	var stamp int64
 	for _, m := range modules {
 		stamp ^= int64(m.ID)*7919 ^ m.UpdatedAt.UnixNano()
+		// what the module reads (its sources and how each is asked) counts as much as the module itself
+		for _, src := range m.Sources {
+			stamp ^= int64(src.ID)*104729 ^ src.UpdatedAt.UnixNano() ^ int64(len(src.Per)+len(src.Purpose))
+		}
 	}
 	version := fmt.Sprintf("b%d|m%d", s.now().Unix()/int64(statsBucket/time.Second), stamp)
 	out, kept, err := resultcache.Do(ctx, s.cache(), key, version, ttl, func(ctx context.Context) (*ResourceList, error) {

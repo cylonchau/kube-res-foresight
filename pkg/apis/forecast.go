@@ -216,6 +216,10 @@ type SourceReq struct {
 	Precision   *int    `json:"precision"`
 	Aggregation string  `json:"aggregation"`
 	Missing     string  `json:"missing"`
+	// Purpose is dashboard (read by the resource dashboard from Prometheus), history (collected for the forecast) or both; empty takes the default of the kind.
+	// Per is what the query answers: pod (one Pod) or total (all the replicas together); empty follows the level of the metric template.
+	Purpose string `json:"purpose"`
+	Per     string `json:"per"`
 }
 
 // SourceCustomQuery is a PromQL a user writes for a source. The mapping it creates is named after the source and
@@ -248,6 +252,8 @@ type SourceUpdateReq struct {
 	Precision   *int               `json:"precision"`
 	Aggregation *string            `json:"aggregation"`
 	Missing     *string            `json:"missing"`
+	Purpose     *string            `json:"purpose"`
+	Per         *string            `json:"per"`
 }
 
 // PeriodReq creates or replaces a fixed period (see decision.FixedPeriod). A weekly period uses Weekdays (a bit mask,

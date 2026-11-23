@@ -39,10 +39,10 @@ var resourceKinds = []struct{ kind, field string }{
 	{"k8s_cpu_requests", "cpu_request"}, {"k8s_cpu_limits", "cpu_limit"}, {"k8s_mem_requests", "memory_request"}, {"k8s_mem_limits", "memory_limit"},
 }
 
-// OverprovisionResources asks Prometheus for the requests and limits of every enabled module, a few modules at a time and only as long as the time limit of the
+// OverprovisionResources asks Prometheus for the requests and limits of every module of the module management (the dashboard lists them all), a few modules at a time and only as long as the time limit of the
 // request allows.
 func (s *Service) OverprovisionResources(ctx context.Context) (*ResourceList, error) {
-	modules, err := s.Modules.ListEnabled(ctx)
+	modules, err := s.Modules.ListAll(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +95,7 @@ func (s *Service) OverprovisionResources(ctx context.Context) (*ResourceList, er
 // moduleResources fills the four figures of a module. A metric of the workload level is the sum over the Pods and is divided by the replicas (the module's
 // replicas metric, asked the same way), one of the container level is already of one Pod.
 func (s *Service) moduleResources(ctx context.Context, m *model.ForecastModule, at time.Time, row *ModuleResources) {
-	run := &model.AlgorithmRun{ID: m.ID, Sources: m.Sources, Namespace: m.Namespace, Workload: m.Workload, Service: m.Service, Container: m.Container}
+	run := &model.AlgorithmRun{ID: m.ID, Dashboard: true, Sources: m.Sources, Namespace: m.Namespace, Workload: m.Workload, Service: m.Service, Container: m.Container}
 	replicas := math.NaN()
 	for _, f := range resourceKinds {
 		value, level, err := s.instantOfKind(ctx, run, f.kind, at)
@@ -103,7 +103,7 @@ func (s *Service) moduleResources(ctx context.Context, m *model.ForecastModule, 
 			row.Errors[f.field] = err.Error()
 			continue
 		}
-		if level == "workload" {
+		if level == model.PerTotal {
 			if math.IsNaN(replicas) {
 				r, _, rerr := s.instantOfKind(ctx, run, "replicas", at)
 				if rerr != nil || !(r >= 1) {
@@ -133,7 +133,7 @@ func (s *Service) moduleResources(ctx context.Context, m *model.ForecastModule, 
 	}
 }
 
-// instantOfKind asks the data source of the module's source of a kind for its value now; the level of its mapping comes with it.
+// instantOfKind asks the data source of the module's source of a kind for its value now; what the query answers (one Pod or all the replicas) comes with it.
 func (s *Service) instantOfKind(ctx context.Context, run *model.AlgorithmRun, kind string, at time.Time) (float64, string, error) {
 	src := run.FirstOfKind(kind)
 	if src == nil {
@@ -159,5 +159,5 @@ func (s *Service) instantOfKind(ctx context.Context, run *model.AlgorithmRun, ki
 	if scale <= 0 {
 		scale = 1
 	}
-	return value * scale, setup.mapping.Level, nil
+	return value * scale, src.PerOf(setup.mapping.Level), nil
 }
