@@ -356,3 +356,38 @@
 - 前端：`vue-tsc`、oxlint、oxfmt、单元测试（新增 AI 提示词、对比表检查）。
 - 真浏览器（临时库、假 Prometheus、假语言模型）：模块列表的四列、命名空间与关键字筛选、进二级页、点 AI 按钮不发问、点“分析”才发问且答案是四行对比表、返回后筛选还在、集群大盘（1 个集群，14 / 16 已声明、没声明的两项列出）、指标模板的类型列／筛选／表单。
 - **没验证**：真实 Prometheus（模块的 Requests／Limits 查询要自己写对：workload 级用 sum，并配副本数指标）、真实网关、PostgreSQL、MySQL；多个集群（只有一个数据源试过）；固定窗口范围不进地址。
+
+## 资源大盘问题修复与需求调整（2026-11-23 第三次，大盘指标与历史指标分开、模块列表、推荐值）
+
+用户这次的话是语音转写的需求清单（外加一份无关的考勤脚本，我没有处理它）。我的理解（**请纠正**）：“OM 指标”＝OOM；“查询区域（Program Circle）”＝大盘里的 PromQL 查询区；“全副本总和”＝所有副本加起来；“资源表格”＝详情里的 Requests／Limits 对照表。
+
+### 没读到数据的原因（能从代码里查到的）
+- **推荐值缺失**：`overprovision.Analyze` 在没有 Requests 时直接返回，所以模块没配 Requests 指标就既没有建议值也没有可用量；现在没有 Requests 时照样按使用量给出建议 Requests 和建议 Limits，只是状态为“数据不足”、不给超配比例。
+- **模块列表少了模块**：页面请求 `page_size=500`，服务端上限 200 超了就改成 20，所以只列出 20 个；改成每页 200 逐页取到取完，并且不再只列启用的模块，模块管理里有的都列出来（禁用的标“已禁用”）。资源接口 `GET /overprovision/resources` 也改成所有模块。
+- **Requests／Limits 和历史混用**：它们是模块的指标来源，同时会被当成历史指标采集；现在分开（下一节）。
+- 真实环境里 Prometheus 读不到的其他原因（指标名、标签、网关超时）我没法在这里复现；每条查询的错误原因、步长、点数在“查询”折叠区里逐条列出。
+
+### 大盘指标与历史指标（`MetricSource.Purpose`、`MetricSource.Per`）
+- `purpose`：`dashboard`（只给资源大盘，向 Prometheus 实时读）、`history`（只给历史采集、预测、评分、保护）、`both`（两边都用，一个指标只写一次，例如 CPU／内存使用量）。旧数据的列默认 `both`，不动现有采集。新建时按指标种类取默认：`k8s_cpu_requests`、`k8s_cpu_limits`、`k8s_mem_requests` 是 `dashboard`；`k8s_mem_limits` 默认 `both`（OOM 防护从历史里读内存上限），可以改成只给大盘。三个只给大盘的种类不能选 `history`。
+- `AlgorithmRun.ActiveSources()`：历史侧只取给历史的来源，大盘侧（`AlgorithmRun.Dashboard`）只取给大盘的来源。大盘的实时读取（`oplive.go`、`opresources.go`、`promstats.go`）用大盘侧。
+- `per`：这条查询返回的是单 Pod（`pod`）还是全副本总和（`total`），空表示由指标模板的层级决定（workload 层级＝总和）。大盘用副本数在两者之间换算：总和除以副本数是单 Pod，单 Pod 乘以副本数是总和。模块列表的 Requests／Limits 和详情的序列都按它。
+- 模块表单（`module-metrics.vue` 的 `scope="dashboard"`）多一栏“大盘指标（Requests / Limits）”：每种选一个指标模板、“查询结果为”（按模板层级／单 Pod／全副本总和）、“用途”（内存 Limits 可选“大盘和历史”，其他固定“仅大盘”）；每种只能有一条。保存时旧的 `both` 的 Requests／Limits 会改成 `dashboard`，即不再进历史采集。内存 Limits 从“OOM 监控指标”里挪到这一栏。
+- **没做**：把 CPU／内存使用量、副本数、OOM 也拆成两套互不相干的配置——它们是大盘和历史都要的同一个指标，拆开只会让用户写两遍；用 `both` 表示一份配置两边用。
+
+### 模块列表（资源大盘首页）
+- 一行一个模块，只有名称（命名空间／工作负载在提示里和列里），四列 CPU Requests、CPU Limits、Memory Requests、Memory Limits；名称统一用原始指标名，不再翻成“请求上限”等。分页有上一页、下一页和页码，页码和每页条数留在列表状态里，从详情返回落在同一页；筛选条件一变回到第一页。
+- 数据只来自模块管理里的模块（`GET /modules` 分页取全、禁用的也列）。
+
+### 模块详情
+- 最上面是“Requests / Limits：当前与推荐”表：资源项、当前值（单 Pod，旁边是总和）、单 Pod 推荐值（带相对当前值的涨跌）、全副本总和推荐值（单 Pod 推荐值乘以副本数）；没有的格子写“-”并在提示里说原因。当前值只来自 Prometheus。
+- 推荐值：Requests 取 P95＋余量与 P99 的较大者（内存取 P99＋余量与最大值×系数的较大者），有 OOM 或限流时只升不降；Limits＝max(推荐 Requests, 最大使用量)×(1＋`overprovision.LimitHeadroom` 20%)，所以不低于 P99，内存 Limits 不低于推荐 Requests。
+- CPU／内存使用率超过 200% 显示“> 200%”；表格放在自己的滚动框里，不会把页面撑出横向滚动条。
+- OOM：数量卡片（0 绿、大于 0 红）、有 OOM 时的“OOM 时工作集”卡片；没配 OOM 指标时卡片上写到哪里加（模块管理的“OOM 监控指标”）。
+- 查询区：每条查询的名称带指标种类，并标“单 Pod”或“全副本总和”，出错的写明原因。
+- AI 提示词：表格列改成资源项、当前值、单 Pod 推荐值、全副本总和推荐值、依据；数据里带平台算的建议 Requests 和建议 Limits；`hasComparisonTable` 不变（四行名字）。
+
+### 验证与没验证
+- Go：`go test -p 1 ./pkg/...`、`go vet`、`gofmt`；新增：没有 Requests 也给建议和 Limits、来源的用途与单 Pod／总和、`per` 改变换算、所有模块（含禁用）都在资源接口里。
+- 前端：`vue-tsc`、oxlint、oxfmt、单元测试（提示词的新列）。
+- 真浏览器（临时库、假 Prometheus）：31 个模块分 3 页、行高都一样、上一页下一页和页码、禁用的模块在列表里；详情的当前与推荐表（有 Requests 的 shop-api 和没有的 gateway）；模块表单的大盘指标栏，改“单 Pod”和“仅大盘”并保存，库里和接口里都对，列表上 CPU Requests 不再除以副本数。
+- **没验证**：真实 Prometheus（PromQL 要自己写对）、真实网关、PostgreSQL、MySQL；AI 窗口没重新点过（只改了提示词，单元测试覆盖）；多集群。

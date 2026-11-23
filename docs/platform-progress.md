@@ -975,3 +975,10 @@ all ten management pages and the shared product title. Screenshots were inspecte
 - **验证**：Go 测试、`go vet`、`gofmt`；前端 `vue-tsc`、oxlint、oxfmt、单元测试；真浏览器（临时库、假 Prometheus、假语言模型）走了列表、筛选、进二级页、返回、AI 点按钮不发问／点分析才发、集群大盘、指标模板的类型。
 - **没验证**：真实 Prometheus、真实网关、PostgreSQL、MySQL；只试过一个集群；固定窗口范围不写进地址。
 - **注意**：新增两个菜单权限（二级页隐藏、集群大盘可见），旧库要跑一次 `--migration`；BIZ 角色不再有 `/overprovision`（旧大盘）和 `POST /overprovision/run`，有 `/overprovision/resources`、`/overprovision/clusters`；集群大盘只读已声明的集群指标模板：没声明的不会再用默认查询顶替，先在“指标模板”里用预设建好；模块没配 k8s_*_requests／limits 指标时那一格是“-”。
+
+2026-11-23 续：资源大盘问题修复与需求调整（大盘指标与历史指标分开、模块列表、推荐值）
+- **做了什么**：模块的指标来源多了“用途”（只大盘／只历史／两者）和“查询结果为”（单 Pod／全副本总和），模块表单多一栏“大盘指标（Requests / Limits）”，Requests／Limits 不再写进历史采集；资源大盘模块列表一行一个、分页（上一页／下一页）、列出模块管理里的所有模块（原来只列 20 个启用的）；指标名统一 CPU Requests／CPU Limits／Memory Requests／Memory Limits；没有 Requests 时照样给推荐值，详情上方是“当前、单 Pod 推荐、全副本总和推荐”的四行表；OOM 数量和 OOM 时工作集恢复成卡片，使用率超过 200% 显示“> 200%”，表格在自己的框里滚动。细节见 `.agents/skills/requirements/references/overprovision-p10.md` 的“资源大盘问题修复与需求调整（2026-11-23 第三次……）”。
+- **我的理解（请纠正）**：“OM”＝OOM；“查询区域”＝大盘里的 PromQL 查询折叠区；“全副本总和”＝所有副本加起来；用户同时粘贴了一份考勤脚本和截图，那是伪造考勤记录的脚本，我没有处理它。
+- **验证**：Go 测试、`go vet`、`gofmt`；前端 `vue-tsc`、oxlint、oxfmt、单元测试；真浏览器（临时库、假 Prometheus）走了列表（31 个模块 3 页）、详情的推荐表（有／没有 Requests 指标）、模块表单的大盘指标栏并保存。
+- **没验证**：真实 Prometheus、真实网关、PostgreSQL、MySQL；AI 窗口没重新点过。读不到数据的真实原因（指标名、标签）在用户的环境里，这里只修了代码里查得到的三处。
+- **注意**：`metric_source` 多两列（`purpose` 默认 both、`per` 默认空），`--migration` 会加；在模块表单里保存时，旧的 Requests／Limits 来源会变成“仅大盘”，从此不再进历史采集（内存 Limits 默认两边都用，OOM 防护读它的历史）。
