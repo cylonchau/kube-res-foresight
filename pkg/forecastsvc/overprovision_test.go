@@ -2,6 +2,7 @@ package forecastsvc
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"strconv"
 	"strings"
@@ -865,7 +866,8 @@ func TestTheReplicasNowAreTheWorkloadsOwnAndThePlanKeepsToTheModulesConstraints(
 	assert.Equal(t, "prometheus", d.ReplicasFrom)
 
 	// the operator reports 12 replicas, 11 ready; the module may remove one replica an action and has at least 10
-	require.NoError(t, f.svc.Inventory.SaveWorkload(ctx, &model.WorkloadConfig{ModuleID: f.module.ID, Namespace: "prod", Kind: "Deployment", Name: "api", Desired: 12, Ready: 11, ObservedAt: f.svc.now().Add(-2 * time.Minute)}))
+	require.NoError(t, f.svc.Inventory.SaveWorkload(ctx, &model.WorkloadConfig{ModuleID: f.module.ID, Namespace: "prod", Kind: "Deployment", Name: "api", Cluster: "demo", Desired: 12, Ready: 11, ObservedAt: f.svc.now().Add(-2 * time.Minute),
+		Pods: podsJSON(12)}))
 	f.module.MinReplicas, f.module.ScaleDownMaxStep = 10, 1
 	require.NoError(t, f.db.Save(f.module).Error)
 	f.svc.Cache = nil
@@ -874,6 +876,13 @@ func TestTheReplicasNowAreTheWorkloadsOwnAndThePlanKeepsToTheModulesConstraints(
 	assert.Equal(t, 12, d.Replicas)
 	assert.Equal(t, "kubernetes", d.ReplicasFrom)
 	assert.Equal(t, 11, d.ReplicasReady)
+	require.NotNil(t, d.Identity, "the workload the operator reported has an identity: the cluster and its Pods by name")
+	assert.Equal(t, "demo", d.Identity.Cluster)
+	assert.Equal(t, "prod", d.Identity.Namespace)
+	require.Len(t, d.Identity.Pods, 12)
+	assert.Equal(t, "api-7d9f-00", d.Identity.Pods[0].Name, "the Pods are in the order of their names")
+	assert.True(t, d.Identity.Pods[0].Ready)
+	assert.False(t, d.Identity.Pods[11].Ready)
 	assert.InDelta(t, 4.0, d.Windows[0].CPU.Request, 1e-9, "48 cores over the 12 replicas the workload has")
 	plan := d.Recommend.ReplicaPlan
 	require.NotNil(t, plan)
@@ -1045,4 +1054,13 @@ func TestTheRequestsOfAPodAreTheSpecsOrAMedianNeverTheNewestSumOverAGuess(t *tes
 	require.NotNil(t, mem)
 	assert.InDelta(t, 6.0*(1<<30), mem.Request, 1)
 	assert.InDelta(t, 16.0*(1<<30), mem.Limit, 1)
+}
+
+// podsJSON is the Pods of a workload as the operator reports them: n of them, the last one not ready.
+func podsJSON(n int) string {
+	var parts []string
+	for i := n - 1; i >= 0; i-- {
+		parts = append(parts, fmt.Sprintf(`{"name":"api-7d9f-%02d","phase":"Running","ready":%t,"restarts":0}`, i, i != n-1))
+	}
+	return "[" + strings.Join(parts, ",") + "]"
 }

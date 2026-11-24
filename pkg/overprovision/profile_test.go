@@ -46,3 +46,34 @@ func TestAFlatUseHasNoBusyHoursAndAShortPeriodNoProfile(t *testing.T) {
 	assert.Zero(t, prof.Saved)
 	assert.Nil(t, BuildLoadProfile([]LoadInput{{Resource: Memory, Total: flat[:100], Request: 6, StepSeconds: 600}}, 0.85, 95, time.UTC))
 }
+
+// the last day in whole hours, each cut into 10-minute cells with the mean of the use; a cell with no points is -1, and the capacity is what the normal count carries
+func TestTheLastDayIsCutIntoHoursAndCells(t *testing.T) {
+	start := time.Date(2026, 11, 10, 0, 0, 0, 0, time.UTC)
+	var total []Point
+	end := start.Add(7*24*time.Hour + 30*time.Minute) // the last hour is half over
+	for ts := start; ts.Before(end); ts = ts.Add(5 * time.Minute) {
+		v := 5.0
+		if h := ts.Hour(); h == 9 || h == 10 {
+			v = 20
+		}
+		total = append(total, Point{TS: ts.Unix(), V: v})
+	}
+	in := []LoadInput{{Resource: CPU, Total: total, Raw: total, Request: 4, StepSeconds: 300}}
+	prof := BuildLoadProfile(in, 0.85, 95, time.UTC)
+	require.NotNil(t, prof)
+	prof.AddRecent(in, 0.85, end, time.UTC)
+	require.Len(t, prof.Recent, 1)
+	assert.Equal(t, 300, prof.CellSeconds, "a series of 5 minutes is cut into cells of 5 minutes")
+	assert.Len(t, prof.RecentHours, 24)
+	assert.Equal(t, 1, prof.RecentHours[0], "the 24 hours end with the hour the end is in")
+	assert.Equal(t, 0, prof.RecentHours[23])
+	load := prof.Recent[0]
+	assert.InDelta(t, 2*4*0.85, load.Capacity, 1e-9, "what 2 replicas of 4 cores carry at 85%")
+	assert.Len(t, load.Values, 24*12)
+	assert.InDelta(t, 5.0, load.Values[0], 1e-9)
+	assert.InDelta(t, 20.0, load.Values[(9-1)*12], 1e-9, "the 9 o'clock block is the 9th of the 24 from 1 o'clock")
+	assert.InDelta(t, -1.0, load.Values[len(load.Values)-1], 1e-9, "the half of the last hour that has not happened has no use")
+	assert.Equal(t, 600, cellSecondsFor(600))
+	assert.Equal(t, 900, cellSecondsFor(900))
+}

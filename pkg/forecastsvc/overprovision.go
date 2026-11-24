@@ -501,6 +501,8 @@ type ModuleOverprovision struct {
 	ReplicasLatest int    `json:"replicas_latest,omitempty"`
 	// Coefficients are those of the module in module management.
 	Coefficients *ModuleCoefficients `json:"coefficients,omitempty"`
+	// Identity says which workload this is in the cluster: the cluster the operator reports for it and its Pods by name (nil when the operator never reported the workload).
+	Identity *WorkloadIdentity `json:"identity,omitempty"`
 	// Windows are the results, shortest window first; each has a CPU and a memory result (nil when the module has no such use series).
 	Windows []*WindowOverprovision `json:"windows"`
 	JVM     *JVMInfo               `json:"jvm,omitempty"`
@@ -674,9 +676,11 @@ func (l *opLoader) loadProfile(from, to int64, p overprovision.Params, cpu, mem 
 		if len(total) == 0 {
 			continue
 		}
-		ins = append(ins, overprovision.LoadInput{Resource: c.r.Resource, Total: overprovision.Sustained(total, p.SustainMinutes), Request: c.r.Request, StepSeconds: use.step})
+		ins = append(ins, overprovision.LoadInput{Resource: c.r.Resource, Total: overprovision.Sustained(total, p.SustainMinutes), Raw: total, Request: c.r.Request, StepSeconds: use.step})
 	}
-	return overprovision.BuildLoadProfile(ins, p.P95.Target, 95, loc)
+	prof := overprovision.BuildLoadProfile(ins, p.P95.Target, 95, loc)
+	prof.AddRecent(ins, p.P95.Target, time.Unix(to, 0), loc)
+	return prof
 }
 
 // replicaLimits are the constraints the module sets on its replicas in module management: its least and most replicas and the most one action adds or removes. A module
@@ -782,6 +786,45 @@ func (s *Service) workloadReplicas(ctx context.Context, m *model.ForecastModule,
 	}
 	w.Rolling = (row.Updated > 0 && row.Updated < row.Desired) || w.Pods > row.Desired
 	return w
+}
+
+// WorkloadIdentity is the workload of a module as the operator last saw it: the cluster, the namespace, the kind and the name, and the Pods it has by name with whether each is ready.
+// ObservedAt is when the operator read it (unix seconds); Missing says the workload was not found in the cluster then.
+type WorkloadIdentity struct {
+	Cluster    string        `json:"cluster"`
+	Namespace  string        `json:"namespace"`
+	Kind       string        `json:"kind"`
+	Name       string        `json:"name"`
+	Pods       []PodIdentity `json:"pods"`
+	ObservedAt int64         `json:"observed_at"`
+	Missing    bool          `json:"missing,omitempty"`
+}
+
+// PodIdentity is one Pod of the workload: its name, the node it runs on, its phase, whether it is ready and how often its containers restarted.
+type PodIdentity struct {
+	Name     string `json:"name"`
+	Node     string `json:"node,omitempty"`
+	Phase    string `json:"phase,omitempty"`
+	Ready    bool   `json:"ready"`
+	Restarts int    `json:"restarts"`
+}
+
+// workloadIdentity reads the workload of the module from the report of the operator: nil when there is none.
+func (s *Service) workloadIdentity(ctx context.Context, m *model.ForecastModule) *WorkloadIdentity {
+	if s.Inventory == nil {
+		return nil
+	}
+	row, err := s.Inventory.GetWorkload(ctx, m.ID)
+	if err != nil || row == nil {
+		return nil
+	}
+	out := &WorkloadIdentity{Cluster: row.Cluster, Namespace: row.Namespace, Kind: row.Kind, Name: row.Name, Pods: []PodIdentity{}, ObservedAt: row.ObservedAt.Unix(), Missing: row.Missing}
+	var pods []PodIdentity
+	if json.Unmarshal([]byte(row.Pods), &pods) == nil {
+		sort.Slice(pods, func(i, j int) bool { return pods[i].Name < pods[j].Name })
+		out.Pods = append(out.Pods, pods...)
+	}
+	return out
 }
 
 // PodsCounted is the number of Pods a sum of Requests or Limits is of: the Pods that exist (the old and the new ones of a rollout are all in the sum), else the replicas the
@@ -1010,6 +1053,7 @@ func (s *Service) OverprovisionDetail(ctx context.Context, moduleID uint, window
 	}
 	mo := s.moduleHeader(m, replicas, to)
 	mo.Coefficients = coefficientsOf(m)
+	mo.Identity = s.workloadIdentity(ctx, m)
 	switch {
 	case l.podSpec != nil:
 		mo.PodSpecFrom = "kubernetes"
