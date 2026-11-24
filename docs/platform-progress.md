@@ -1012,7 +1012,13 @@ all ten management pages and the shared product title. Screenshots were inspecte
 
 2026-11-24（第四次）：参数解释、配置分组、OOM 与 JVM 拆分、模块策略、副本数依据、曲线筛选
 - **做了什么**：①模块管理表单按基础配置、计算参数、安全边界、模块策略四组分成十七个区块；容量与副本的四张卡片各有含义、数据来源、公式、统计周期，没有依据时写“未设置、无历史数据、数据不足、计算异常”，不显示默认的数（新接口 `GET /modules/:id/capacity`）。②副本边界（最小、最大、方式、硬上限、上限扩展速度）独立成节并写明与降级、节奏的分工；降级只留默认值和恢复。③每个计算系数的“?”有定义、作用、公式、示例（随表单值变）、适用范围；新增 Requests 余量（CPU、内存各一）、Limits 余量改成 CPU、内存各一、Limits 峰值占比上限（原来写死的 0.9，现在是系统参数加模块覆盖）；去掉“看板余量”之类的说法。④OOM 保护与 JVM 压力拆成两节，监控指标有类型标签，大盘只展示 OOM 的次数、时间点、评分和 JVM 的堆占用率与压力评分。⑤模块策略：新增指标触发策略（`module_trigger`，`/modules/:id/triggers`，`decision.ApplyTriggers`）和多策略合并规则，时间周期与预测模式并入这一组，推荐的依据里有每条触发策略的状态和合并过程。⑥资源大盘：期望副本数与就绪副本数分开、两个推荐方案各自成块、副本数的计算依据改成弹窗（公式一步一行、系数、安全边界是否生效）、曲线按分组筛选并区分重合的线。
-- **我的理解（请纠正）**：“OM 计算系数里的预测偏差上限”读作 `max_shortfall`（预测偏差上限）并单独解释；“GVM”读作 JVM；“指标或系数达到阈值”里的“系数”读作平台算出的指标，目前只有 JVM 堆占用率（`jvm_heap_pressure`）一个，其他指标用模块自己的指标；“保底值”读作每个 Pod 的 CPU（m）、内存（MiB）下限；触发策略的缩容“不与扩容、设定、OOM、JVM 压力、预测要更多副本相冲”是我定的规则，用户给的需求没有写冲突怎么处理。
+- **我的理解（请纠正）**：“OM 计算系数里的预测偏差上限”读作 `max_shortfall`（预测偏差上限）并单独解释；“GVM”是笔误，读作 JVM；“指标或系数达到阈值”里的“系数”读作平台算出的指标，目前只有 JVM 堆占用率（`jvm_heap_pressure`）一个，其他指标用模块自己的指标；“保底值”读作每个 Pod 的 CPU（m）、内存（MiB）下限；触发策略的缩容“不与扩容、设定、OOM、JVM 压力、预测要更多副本相冲”是我定的规则，用户给的需求没有写冲突怎么处理。
 - **验证**：`go test -p 1 ./pkg/...`、`go vet`、`gofmt`；前端 `vue-tsc`、`oxlint`、单元测试；真浏览器（临时库、假 Prometheus）：四组十七个区块无横向溢出、容量卡片的状态、“?”的内容、副本边界一句话、添加并保存触发策略后再打开还在、大盘两个方案块、计算依据弹窗、曲线筛选与保存。
 - **没验证**：真实 Prometheus 与真实集群里触发策略的效果（只有假数据和 fake client）；operator 对 `trigger` 来源的副本数没有改动；真实环境里除以容量保留系数后的推荐值；PostgreSQL、MySQL。
 - **注意**：新增表 `module_trigger`；`forecast_module` 新增 `rec_cpu_request_headroom`、`rec_memory_request_headroom`、`rec_cpu_limit_headroom`、`rec_memory_limit_headroom`、`rec_limit_guard`，旧列 `rec_limit_headroom` 的值迁移到两个新的 Limits 余量后清零；新增系统参数 `analysis.rec_limit_guard_percent`（默认 90）和标记行 `migration.capacity_reserve_cleared`（“清掉隐藏的 0.7”改成只跑一次）；系统参数个数 61。
+
+2026-11-24（第五次）：当前副本数、推荐方案上下排与三个口径、依据按方案独立、曲线重合
+- **做了什么**：①当前副本数 22 对 12：按截图读是发布期间新旧 Pod 并存（Requests 总和是 24 个 Pod × 4 核，使用量总和只是 12 个 Pod 的），Prometheus 数的是存在的 Pod。现在当前副本数只取 Kubernetes 的期望副本数（operator 上报），就绪、异常（不就绪的 Pod）、存在的 Pod 数、是否发布中分开显示（三张卡片）；Requests 总和按存在的 Pod 数除；没有上报时，Prometheus 最新值比平时高出 2 个且超过 25% 就不当副本数，按平时的数“估算”并写出原因。②推荐方案改成上下两块，原来的“Requests／Limits 当前与推荐”并入第二块；每块有 P90、P95、P99、综合四列（后端 `ReplicaPlan.by_caliber`、`Result.candidates`），“计算口径”单选决定“调整”和依据。③计算依据按方案独立：输入数据表（单 Pod、全副本、使用量、Requests、Limits、副本数）、系数表（值、单位、来源）、一步一行的公式（单位分开：核、百分比、个副本）、边界是否生效或为什么调／不调。④Requests、推荐 Requests 等同值的线画成条纹，不再相互遮住。⑤“GVM”是笔误，统一叫 JVM。
+- **我的理解（请纠正）**：22 的来源是读截图推出来的（11 就绪 × 2、Requests 总和 24 个 Pod），没有在你的环境里查证；“综合”读作“三个口径里需求最大的一个，再经过模块的边界和保护”，也就是平台原来的推荐值；调整副本数的“推荐副本数”在 OOM 或限流保护下会保持现在的副本数（所以三个口径可能都等于当前值），依据里写明。
+- **验证**：`go test -p 1 ./pkg/...`、`go vet`、`gofmt`；前端 `vue-tsc`、`oxlint`、单元测试；真浏览器（临时库、假 Prometheus）：两块上下排、四列、口径单选后“调整”更新、两个方案的依据弹窗、条纹曲线。
+- **没验证**：真实 operator 的上报与真实 Prometheus（发布期间的 22 只在测试里用假数据重现）；PostgreSQL、MySQL。

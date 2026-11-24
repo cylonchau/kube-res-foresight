@@ -2,6 +2,7 @@ package forecastsvc
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -421,6 +422,15 @@ type ModuleOverprovision struct {
 	ReplicasAt    int64 `json:"replicas_at,omitempty"`
 	ReplicasMin   int   `json:"replicas_min,omitempty"`
 	ReplicasMax   int   `json:"replicas_max,omitempty"`
+	// What Kubernetes says of the replicas when the source is Kubernetes: ReplicasAbnormal are the Pods that are not ready, ReplicasPods the Pods that exist (more than the replicas
+	// the workload is set to while a rollout has the old and the new Pods side by side) and ReplicasUpdating whether a rollout is under way.
+	ReplicasAbnormal int  `json:"replicas_abnormal,omitempty"`
+	ReplicasPods     int  `json:"replicas_pods,omitempty"`
+	ReplicasUpdating bool `json:"replicas_updating,omitempty"`
+	// ReplicasWhy says why Kubernetes could not give the replicas (no_operator, stale, missing, error) when the figure comes from elsewhere. ReplicasLatest is the newest figure of
+	// Prometheus when it was set aside for being far above the usual (from "estimated": the replicas are what the period usually had, not the figure of a rollout).
+	ReplicasWhy    string `json:"replicas_why,omitempty"`
+	ReplicasLatest int    `json:"replicas_latest,omitempty"`
 	// Coefficients are those of the module in module management.
 	Coefficients *ModuleCoefficients `json:"coefficients,omitempty"`
 	// Windows are the results, shortest window first; each has a CPU and a memory result (nil when the module has no such use series).
@@ -562,6 +572,78 @@ func replicaLimits(m *model.ForecastModule) overprovision.ReplicaLimits {
 
 // k8sReportMaxAge is how old the report of the operator may be and still say what the replicas are now: it reads the cluster every five minutes.
 const k8sReportMaxAge = 15 * time.Minute
+
+// WorkloadReplicas is what the operator last read of the replicas of the workload of a module from the Kubernetes API: what it is set to (Desired), what is ready, the Pods that
+// are not ready (Abnormal), the Pods that exist (Pods: more than Desired while a rollout runs the old and the new side by side) and whether a rollout is under way.
+// OK is false when there is no usable report, and Why says why: no_operator (nothing was ever reported), stale (older than the operator reports), missing (the workload is
+// not in the cluster) or error (it could not be read).
+type WorkloadReplicas struct {
+	Desired, Ready, Available, Updated, Pods, Abnormal int
+	Rolling                                            bool
+	At                                                 time.Time
+	OK                                                 bool
+	Why                                                string
+}
+
+func (s *Service) workloadReplicas(ctx context.Context, m *model.ForecastModule, now time.Time) WorkloadReplicas {
+	if s.Inventory == nil {
+		return WorkloadReplicas{Why: "no_operator"}
+	}
+	row, err := s.Inventory.GetWorkload(ctx, m.ID)
+	switch {
+	case err != nil || row == nil:
+		return WorkloadReplicas{Why: "no_operator"}
+	case row.Missing:
+		return WorkloadReplicas{At: row.ObservedAt, Why: "missing"}
+	case row.Error != "":
+		return WorkloadReplicas{At: row.ObservedAt, Why: "error"}
+	case now.Sub(row.ObservedAt) > k8sReportMaxAge:
+		return WorkloadReplicas{At: row.ObservedAt, Why: "stale"}
+	case row.Desired < 1:
+		return WorkloadReplicas{At: row.ObservedAt, Why: "error"}
+	}
+	w := WorkloadReplicas{Desired: row.Desired, Ready: row.Ready, Available: row.Available, Updated: row.Updated, At: row.ObservedAt, OK: true}
+	var pods []struct {
+		Ready bool `json:"ready"`
+	}
+	if json.Unmarshal([]byte(row.Pods), &pods) == nil && len(pods) > 0 {
+		w.Pods = len(pods)
+		for _, pod := range pods {
+			if !pod.Ready {
+				w.Abnormal++
+			}
+		}
+	} else {
+		w.Abnormal = max(row.Desired-row.Ready, 0)
+	}
+	w.Rolling = (row.Updated > 0 && row.Updated < row.Desired) || w.Pods > row.Desired
+	return w
+}
+
+// PodsCounted is the number of Pods a sum of Requests or Limits is of: the Pods that exist (the old and the new ones of a rollout are all in the sum), else the replicas the
+// workload is set to.
+func (w WorkloadReplicas) PodsCounted() int {
+	if w.Pods > 0 {
+		return w.Pods
+	}
+	return w.Desired
+}
+
+// stableReplicas is what the period usually had: the median of the replicas metric since a moment (false when there are too few samples to say). A rollout that has the old
+// and the new Pods side by side makes the newest figure much higher for a while; this is not.
+func (l *opLoader) stableReplicas(since int64) (int, bool) {
+	var values []float64
+	for _, sm := range l.reps {
+		if sm.TS >= since && sm.Value >= 1 && !math.IsNaN(sm.Value) {
+			values = append(values, sm.Value)
+		}
+	}
+	if len(values) < 12 {
+		return 0, false
+	}
+	sort.Float64s(values)
+	return int(math.Round(values[len(values)/2])), true
+}
 
 // kubernetesReplicas is what the operator last read from the Kubernetes API of the workload of the module: the replicas it is set to (spec.replicas), and how many of
 // them are ready. ok is false when nothing was reported, the report is old, the workload was not found or could not be read.
@@ -721,9 +803,9 @@ func (s *Service) OverprovisionDetail(ctx context.Context, moduleID uint, window
 	p := moduleParams(s.OverprovisionParams(ctx), m)
 	l := s.newLiveLoader(ctx, m, to.Add(-time.Duration(windowMinutes)*time.Minute), to)
 	// the replicas the workload is set to, from the Kubernetes API: the Pods a sum of Requests was made over are these (a Pod still starting has its Requests and is not ready)
-	k8sDesired, k8sReady, k8sAt, fromK8s := s.kubernetesReplicas(ctx, m, now)
-	if fromK8s {
-		l.podsHint = k8sDesired
+	w := s.workloadReplicas(ctx, m, now)
+	if w.OK {
+		l.podsHint = w.PodsCounted()
 	}
 	// the recommendation has a period of its own: when it is longer than the window of the page it is read apart (the window would be read in a coarser step to
 	// reach it), and when it is not the window's own series is cut to it
@@ -743,8 +825,15 @@ func (s *Service) OverprovisionDetail(ctx context.Context, moduleID uint, window
 	l.readLive()
 	wg.Wait()
 	replicas, repFrom := l.liveReplicas(), "prometheus"
-	if fromK8s {
-		replicas, repFrom = k8sDesired, "kubernetes"
+	latest := 0
+	if w.OK {
+		replicas, repFrom = w.Desired, "kubernetes"
+	} else if replicas > 0 {
+		// Prometheus counts the Pods that exist, and during a rollout that is the old ones and the new ones: a figure far above what the period usually had is not the replicas
+		// of the workload, and a recommendation made from it would take replicas away that are needed
+		if stable, ok := l.stableReplicas(to.Add(-time.Duration(s.OverprovisionBaseline(ctx)) * time.Minute).Unix()); ok && replicas >= stable+2 && float64(replicas) > 1.25*float64(stable) {
+			latest, replicas, repFrom = replicas, stable, "estimated"
+		}
 	}
 	if replicas == 0 {
 		// Prometheus did not answer the replicas: the newest sample the platform stored of the same metric (a measured figure of the cluster, with an age limit) stands in
@@ -758,8 +847,11 @@ func (s *Service) OverprovisionDetail(ctx context.Context, moduleID uint, window
 	mo.Coefficients = coefficientsOf(m)
 	facts := l.replicaFacts(replicas, to.Add(-time.Duration(recMinutes)*time.Minute).Unix())
 	mo.ReplicasFrom, mo.ReplicasAt, mo.ReplicasMin, mo.ReplicasMax = repFrom, facts.At, facts.Min, facts.Max
-	if fromK8s {
-		mo.ReplicasAt, mo.ReplicasReady = k8sAt.Unix(), k8sReady
+	if w.OK {
+		mo.ReplicasAt, mo.ReplicasReady = w.At.Unix(), w.Ready
+		mo.ReplicasAbnormal, mo.ReplicasPods, mo.ReplicasUpdating = w.Abnormal, w.Pods, w.Rolling
+	} else {
+		mo.ReplicasWhy, mo.ReplicasLatest = w.Why, latest
 	}
 	wr := l.analyzeWindow(label, windowMinutes, p, replicas)
 	mo.Windows = []*WindowOverprovision{wr}

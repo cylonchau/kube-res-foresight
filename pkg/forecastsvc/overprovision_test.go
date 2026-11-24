@@ -901,3 +901,58 @@ func TestTheModulesCoefficientsGoOverTheSystemSettings(t *testing.T) {
 	assert.Equal(t, 0.4, lower.Params.P95.Target)
 	assert.Greater(t, lower.Recommend.CPU.Needed, base.Recommend.CPU.Needed)
 }
+
+// During a rollout the Pods that exist are the old and the new side by side: Prometheus counts them all (22 for a workload set to 12), the Requests are summed over 24 Pods.
+// The replicas of the workload are the 12 Kubernetes says, the Pods that are not ready are told apart, and the Requests of a Pod are still the 4 cores of the spec.
+func TestARolloutDoesNotMakeTheReplicasTwiceAsMany(t *testing.T) {
+	f := opFixture(t)
+	f.withRequests(t, 1.5)
+	require.NoError(t, f.db.AutoMigrate(&model.WorkloadConfig{}))
+	f.svc.Inventory = rdb.NewInventoryDAO(f.db)
+	now := f.svc.now()
+	inner := f.querier.value
+	f.querier.value = func(query string, ts time.Time) float64 {
+		switch {
+		case strings.Contains(query, "k8s_cpu_requests_series{"):
+			return 96 // 24 Pods of 4 cores
+		case strings.Contains(query, "kube_deployment"):
+			if ts.After(now.Add(-30 * time.Minute)) {
+				return 22 // the rollout
+			}
+			return 12
+		}
+		return inner(query, ts)
+	}
+	ctx := context.Background()
+
+	// no report of the operator: the figure of Prometheus is far above what the period had, so it is not taken for the replicas
+	d, err := f.svc.OverprovisionDetail(ctx, f.module.ID, 24*60, time.Time{}, time.Time{})
+	require.NoError(t, err)
+	assert.Equal(t, 12, d.Replicas, "what the period usually had")
+	assert.Equal(t, "estimated", d.ReplicasFrom)
+	assert.Equal(t, 22, d.ReplicasLatest)
+	assert.Equal(t, "no_operator", d.ReplicasWhy)
+
+	// the operator reports the workload: 12 replicas, 11 ready, a rollout with 24 Pods of which 1 is not ready... and the replicas are the 12
+	pods := make([]string, 0, 24)
+	for i := 0; i < 24; i++ {
+		ready := "true"
+		if i == 0 {
+			ready = "false"
+		}
+		pods = append(pods, `{"name":"p`+strconv.Itoa(i)+`","phase":"Running","ready":`+ready+`}`)
+	}
+	require.NoError(t, f.svc.Inventory.SaveWorkload(ctx, &model.WorkloadConfig{ModuleID: f.module.ID, Namespace: "prod", Kind: "Deployment", Name: "api",
+		Desired: 12, Ready: 11, Updated: 6, Pods: "[" + strings.Join(pods, ",") + "]", ObservedAt: now.Add(-time.Minute)}))
+	f.svc.Cache = nil
+	d, err = f.svc.OverprovisionDetail(ctx, f.module.ID, 24*60, time.Time{}, time.Time{})
+	require.NoError(t, err)
+	assert.Equal(t, 12, d.Replicas)
+	assert.Equal(t, "kubernetes", d.ReplicasFrom)
+	assert.Equal(t, 11, d.ReplicasReady)
+	assert.Equal(t, 1, d.ReplicasAbnormal)
+	assert.Equal(t, 24, d.ReplicasPods)
+	assert.True(t, d.ReplicasUpdating)
+	assert.InDelta(t, 4.0, d.Windows[0].CPU.Request, 1e-9, "96 cores over the 24 Pods that exist, not over the 12 the workload is set to")
+	assert.Equal(t, 12, d.Recommend.ReplicaPlan.Current)
+}

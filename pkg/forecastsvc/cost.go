@@ -325,6 +325,9 @@ func (s *Service) moduleCost(ctx context.Context, m *model.ForecastModule, windo
 // costReplicas is how many replicas the money is counted over: the newest ready-replica sample, else the replicas the newest
 // recommendation asked for.
 func (s *Service) costReplicas(ctx context.Context, m *model.ForecastModule, run *model.AlgorithmRun, rec *model.Recommendation, now time.Time) int {
+	if w := s.workloadReplicas(ctx, m, now); w.OK {
+		return w.Desired
+	}
 	if src := run.FirstOfKind("replicas"); src != nil {
 		if series, err := s.Samples.Series(ctx, m.ID, src.Key); err == nil {
 			if rows, err := s.Samples.Range(ctx, series.ID, now.Add(-costReplicaMaxAge), now); err == nil && len(rows) > 0 {

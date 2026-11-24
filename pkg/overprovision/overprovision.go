@@ -267,6 +267,9 @@ type Result struct {
 	Throttle      float64 `json:"throttle"`
 	OOMKills      float64 `json:"oom_kills"`
 	OOMWorkingSet float64 `json:"oom_working_set"`
+	// Candidates is what each percentile asks of the request on its own (P90, P95, P99): the three of them together give Needed, the largest decides. They show which
+	// percentile a recommendation rests on, and what the request would be if only that one counted.
+	Candidates []Candidate `json:"candidates"`
 	// Reasons are codes of why the result is what it is (the page words them).
 	Reasons []string `json:"reasons"`
 	// Formula is the suggestion written out with the numbers put into it.
@@ -301,9 +304,23 @@ func num(resource string, v float64) string {
 	return fmt.Sprintf("%.3f", v)
 }
 
+// Candidate is the request one percentile of the use asks for on its own. Use is the use at the percentile (of one Pod), Target the share of the request it is wanted to
+// take, Needed = Use / Target (times the Requests margin), Suggested the request after the floors of an OOM kill and of throttling, rounded to what a spec can say, and
+// SuggestedLimit the Limits that goes with it (the P99 use with the Limits margin, never below Suggested).
+type Candidate struct {
+	Name           string  `json:"name"`
+	Use            float64 `json:"use"`
+	Target         float64 `json:"target"`
+	Needed         float64 `json:"needed"`
+	Suggested      float64 `json:"suggested"`
+	SuggestedLimit float64 `json:"suggested_limit"`
+	// Decides is true for the percentile whose need is the largest: the one the recommendation rests on.
+	Decides bool `json:"decides"`
+}
+
 // Analyze analyses one resource. It never panics on missing data: it says unknown, with the reason.
 func Analyze(in Input, p Params) Result {
-	r := Result{Resource: in.Resource, WindowMinutes: in.WindowMinutes, Request: in.Request, Limit: in.Limit, RequestTotal: in.RequestTotal, LimitTotal: in.LimitTotal, LimitFrom: in.LimitFrom, Usage: UsageOf(in.Points), Reasons: []string{},
+	r := Result{Candidates: []Candidate{}, Resource: in.Resource, WindowMinutes: in.WindowMinutes, Request: in.Request, Limit: in.Limit, RequestTotal: in.RequestTotal, LimitTotal: in.LimitTotal, LimitFrom: in.LimitFrom, Usage: UsageOf(in.Points), Reasons: []string{},
 		Confidence: Low, Risk: Low, Status: StatusUnknown, Grade: "", Throttle: in.Throttle, OOMKills: in.OOMKills, OOMWorkingSet: in.OOMWorkingSet,
 		FormulaVersion: FormulaVersion}
 	if r.Throttle < 0 {
@@ -355,6 +372,7 @@ func Analyze(in Input, p Params) Result {
 	u := r.Usage
 	var suggested float64
 	var parts []string
+	var cands []Candidate
 	for _, c := range []struct {
 		name  string
 		use   float64
@@ -365,7 +383,14 @@ func Analyze(in Input, p Params) Result {
 		}
 		need := c.use / c.share
 		suggested = math.Max(suggested, need)
+		cands = append(cands, Candidate{Name: c.name, Use: c.use, Target: c.share, Needed: need})
 		parts = append(parts, fmt.Sprintf("%s %s / %.0f%% = %s", c.name, num(in.Resource, c.use), c.share*100, num(in.Resource, need)))
+	}
+	floorV := 0.0 // what an OOM kill or throttling say the request is not below, whichever percentile counts
+	if h := p.RequestHeadroomOf(in.Resource); h > 0 {
+		for i := range cands {
+			cands[i].Needed *= 1 + h
+		}
 	}
 	r.Formula = "max(" + strings.Join(parts, ", ") + ")"
 	if h := p.RequestHeadroomOf(in.Resource); h > 0 {
@@ -377,6 +402,7 @@ func Analyze(in Input, p Params) Result {
 		// an OOM kill: the memory was too little, so it is never advised lower than what it was killed at, and never lower than it is now
 		floor := math.Max(in.OOMWorkingSet*p.OOMUplift, in.Request)
 		suggested = math.Max(suggested, floor)
+		floorV = math.Max(floorV, floor)
 		r.Reasons = append(r.Reasons, ReasonOOM)
 		r.Risk = High
 		limited = true
@@ -385,6 +411,7 @@ func Analyze(in Input, p Params) Result {
 	if in.Resource == CPU && in.Throttle > p.ThrottleLimit {
 		// throttled: the use is what the CPU was allowed, not what it wanted
 		suggested = math.Max(suggested, in.Request)
+		floorV = math.Max(floorV, in.Request)
 		r.Reasons = append(r.Reasons, ReasonThrottled)
 		r.Risk = up(r.Risk)
 		limited = true
@@ -397,6 +424,18 @@ func Analyze(in Input, p Params) Result {
 		return v
 	}
 	suggested = round(suggested)
+	top := 0
+	for i := range cands {
+		cands[i].Suggested = round(math.Max(cands[i].Needed, floorV))
+		cands[i].SuggestedLimit = round(math.Max(cands[i].Suggested, u.P99*(1+p.LimitHeadroomOf(in.Resource))))
+		if cands[i].Needed > cands[top].Needed {
+			top = i
+		}
+	}
+	if len(cands) > 0 {
+		cands[top].Decides = true
+	}
+	r.Candidates = cands
 	r.Needed = suggested
 	if noRequest {
 		// nothing to compare with: the recommendation is what the use needs, with no ratio, no grade and no status

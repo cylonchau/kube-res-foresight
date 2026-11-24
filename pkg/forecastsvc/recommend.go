@@ -553,6 +553,10 @@ func (s *Service) decide(ctx context.Context, moduleID uint, failed map[string]s
 	}
 	urgent := false
 	current := s.currentReplicas(ctx, m.ID, now)
+	// what the workload is set to in Kubernetes is the replicas now, before any report of an action or a count of series
+	if w := s.workloadReplicas(ctx, m, now); w.OK {
+		current = w.Desired
+	}
 	if current == 0 {
 		if rs := bs.firstOfKind("replicas"); rs != nil {
 			if v, ok := s.latestValue(ctx, rs.Inst, rs.Src.Key); ok && v > 0 {

@@ -58,6 +58,8 @@ type ReplicaPart struct {
 	Total  float64 `json:"total"`
 	Target float64 `json:"target"`
 	Needed float64 `json:"needed"`
+	// Counted is whether the part took part in the count of the plan it is in (a plan of one caliber counts the part of that percentile only).
+	Counted bool `json:"counted"`
 }
 
 // ReplicaNeed is what one resource asks of the number of replicas when the Pod keeps the Requests it has.
@@ -97,12 +99,29 @@ type ReplicaPlan struct {
 	Limits  ReplicaLimits `json:"limits"`
 	Reasons []string      `json:"reasons"`
 	Formula string        `json:"formula"`
+	// Caliber says which percentiles the plan was made of: "" for the three together (the largest need decides), or P90, P95 or P99 for that one alone.
+	Caliber string `json:"caliber"`
+	// ByCaliber is the plan made of one percentile at a time (P90, P95, P99), each held to the same bounds and guards; only the plan of the three together has it.
+	ByCaliber map[string]*ReplicaPlan `json:"by_caliber,omitempty"`
 }
+
+// Calibers are the percentiles a plan can be made of alone.
+var Calibers = []string{"P90", "P95", "P99"}
 
 // PlanReplicas works out how many replicas the module needs if every Pod keeps the Requests it has, within the constraints the module sets (lim). current is the replicas the
 // cluster has now (0 = not known); the results are those of Analyze for the CPU and the memory (either may be nil). The use of all the Pods together (Result.Total) is what is divided by the Requests of a Pod.
 func PlanReplicas(current int, p Params, lim ReplicaLimits, results ...*Result) *ReplicaPlan {
-	plan := &ReplicaPlan{Current: max(current, 0), Direction: ScaleUnknown, Primary: PrimaryNone, Resources: []ReplicaNeed{}, Reasons: []string{}, Limits: lim}
+	plan := planReplicas(current, p, lim, "", results...)
+	plan.ByCaliber = map[string]*ReplicaPlan{}
+	for _, name := range Calibers {
+		plan.ByCaliber[name] = planReplicas(current, p, lim, name, results...)
+	}
+	return plan
+}
+
+// planReplicas is PlanReplicas for the three percentiles together (only = "") or for one of them alone.
+func planReplicas(current int, p Params, lim ReplicaLimits, only string, results ...*Result) *ReplicaPlan {
+	plan := &ReplicaPlan{Current: max(current, 0), Direction: ScaleUnknown, Primary: PrimaryNone, Resources: []ReplicaNeed{}, Reasons: []string{}, Limits: lim, Caliber: only}
 	limited, needsChange := false, false
 	var parts []string
 	for _, r := range results {
@@ -118,7 +137,7 @@ func PlanReplicas(current int, p Params, lim ReplicaLimits, results ...*Result) 
 		if !(r.Request > 0) || r.Total == nil || r.Total.Points == 0 || r.Suggested <= 0 {
 			continue
 		}
-		need := replicasFor(r, p)
+		need := replicasFor(r, p, only)
 		plan.Resources = append(plan.Resources, need)
 		parts = append(parts, need.Formula)
 		if need.Needed > plan.Raw {
@@ -189,7 +208,7 @@ func PlanReplicas(current int, p Params, lim ReplicaLimits, results ...*Result) 
 
 // replicasFor is how many replicas one resource asks of: the sum of the use of the Pods at each of P90, P95 and P99 divided by what the band wants of the Requests of
 // a Pod, and the P99 under the share of the Limits the peak guard allows.
-func replicasFor(r *Result, p Params) ReplicaNeed {
+func replicasFor(r *Result, p Params, only string) ReplicaNeed {
 	out := ReplicaNeed{Resource: r.Resource, Request: r.Request, Limit: r.Limit, Parts: []ReplicaPart{}}
 	var parts []string
 	need := 0.0
@@ -202,8 +221,11 @@ func replicasFor(r *Result, p Params) ReplicaNeed {
 			continue
 		}
 		n := c.total / (r.Request * c.share)
-		need = math.Max(need, n)
-		out.Parts = append(out.Parts, ReplicaPart{Name: c.name, Total: c.total, Target: c.share, Needed: n})
+		counted := only == "" || only == c.name
+		if counted {
+			need = math.Max(need, n)
+		}
+		out.Parts = append(out.Parts, ReplicaPart{Name: c.name, Total: c.total, Target: c.share, Needed: n, Counted: counted})
 		parts = append(parts, fmt.Sprintf("%s %s / (%s x %.0f%%) = %.2f", c.name, num(r.Resource, c.total), num(r.Resource, r.Request), c.share*100, n))
 	}
 	out.Formula = r.Resource + " replicas = max(" + strings.Join(parts, ", ") + ")"

@@ -120,3 +120,43 @@ func nilPlanResources(plan *ReplicaPlan) []ReplicaNeed {
 	}
 	return plan.Resources
 }
+
+// Each percentile is a caliber of its own: the plan of one percentile counts only that percentile (and the Limits guard), the three together take the largest, and every
+// one is held to the same bounds.
+func TestEveryCaliberHasAPlanOfItsOwn(t *testing.T) {
+	p := DefaultParams()
+	use := Usage{Points: 100, P90: 6, P95: 8, P99: 9}
+	plan := PlanReplicas(12, p, ReplicaLimits{Min: 2}, result(CPU, 4, 0, use, StatusOver))
+	// P90 6 / (4 x 80%) = 1.88 -> 2; P95 8 / (4 x 85%) = 2.35 -> 3; P99 9 / (4 x 110%) = 2.05 -> 3
+	assert.Equal(t, 3, plan.Needed, "the three together: the largest")
+	require.Len(t, plan.ByCaliber, 3)
+	assert.Equal(t, 2, plan.ByCaliber["P90"].Needed)
+	assert.Equal(t, 3, plan.ByCaliber["P95"].Needed)
+	assert.Equal(t, 3, plan.ByCaliber["P99"].Needed)
+	assert.Equal(t, "P90", plan.ByCaliber["P90"].Caliber)
+	assert.Equal(t, ScaleIn, plan.ByCaliber["P90"].Direction)
+	assert.Nil(t, plan.ByCaliber["P90"].ByCaliber, "only the plan of the three together has the others")
+	for _, part := range plan.ByCaliber["P90"].Resources[0].Parts {
+		assert.Equal(t, part.Name == "P90", part.Counted, part.Name)
+	}
+	// the same bounds hold for every caliber
+	bounded := PlanReplicas(12, p, ReplicaLimits{Min: 5}, result(CPU, 4, 0, use, StatusOver))
+	for name, one := range bounded.ByCaliber {
+		assert.Equal(t, 5, one.Needed, name)
+	}
+}
+
+// The request each percentile asks for alone is listed, and the one that asks for the most is the one the recommendation rests on.
+func TestEveryPercentileHasItsOwnRequest(t *testing.T) {
+	p := DefaultParams()
+	p.BaselineMinutes = 0
+	r := Analyze(input(CPU, 4, ramp(100, 0.05)), p)
+	require.Len(t, r.Candidates, 3)
+	// the use of the ramp: P90 4.5, P95 4.75, P99 4.95 cores: 4.5 / 0.8 = 5.6, 4.75 / 0.85 = 5.59, 4.95 / 1.1 = 4.5
+	assert.Equal(t, "P90", r.Candidates[0].Name)
+	assert.True(t, r.Candidates[0].Decides)
+	assert.False(t, r.Candidates[1].Decides)
+	assert.InDelta(t, 4.5/0.8, r.Candidates[0].Needed, 1e-9)
+	assert.InDelta(t, 4.95/1.1, r.Candidates[2].Needed, 1e-9)
+	assert.GreaterOrEqual(t, r.Candidates[0].SuggestedLimit, r.Candidates[0].Suggested)
+}
