@@ -1,0 +1,68 @@
+<h2 id="where">配置在哪里，怎么看生效值</h2>
+<p>在“模块管理 &gt; 模块列表”里新建或编辑模块。编辑页分四组：<strong>基础配置</strong>、<strong>计算参数</strong>、<strong>安全边界</strong>、<strong>模块策略</strong>；运行模式在基础信息里选。模块列表的操作栏有“参数”按钮，不进入编辑页就能按分组看到每项参数当前的生效值、单位、来源（本模块、系统设置或未设置）和含义。</p>
+<div data-architecture-diagram="module-map"></div>
+<p>大多数计算系数填 0 表示“跟随系统设置”（系统管理 &gt; 系统设置 &gt; 资源分析与推荐）。需要整体调整时改系统设置，某个模块要特殊对待时才在模块里单独填。</p>
+<h2 id="quick-start">一次配置的顺序</h2>
+<ol><li><strong>工作负载与指标。</strong>填命名空间、Kind、名称；在“算法计算指标”里选 CPU、内存等指标模板，在“监控展示指标”里选 Requests、Limits 等只展示的指标，模板由<a href="metrics.html">指标接入</a>里的数据源与指标模板提供。</li><li><strong>运行模式。</strong>先选 Observe 或 Recommend，看资源大盘的结果是否可信，再考虑 Admission 或 Auto。</li><li><strong>计算参数。</strong>多数模块保持默认即可；有明确的余量要求时再改系数。</li><li><strong>安全边界。</strong>至少填最小、最大副本数；要限制动作快慢时填调整节奏。</li><li><strong>模块策略。</strong>需要时再加时间周期、指标触发或固定副本数。</li><li><strong>回到资源大盘</strong>，在“计算依据”里确认每个数字用的是你设的系数。</li></ol>
+<h2 id="base">基础配置</h2>
+<table><thead><tr><th>配置项</th><th>含义</th><th>怎么配</th></tr></thead><tbody>
+<tr><td>名称、命名空间、Kind、工作负载</td><td>这个模块管哪个工作负载。命名空间、Kind、名称合起来不能重复。</td><td>Kind 支持 Deployment、StatefulSet、DaemonSet。</td></tr>
+<tr><td>Service、Container</td><td>指标 PromQL 里的 <code>{{service}}</code>、<code>{{container}}</code> 变量，不属于工作负载的身份。</td><td>只有指标模板用到这些变量时才填。</td></tr>
+<tr><td>运行模式</td><td>Observe 只观察；Recommend 给建议；Admission 允许为新 Pod 应用资源建议；Auto 允许 Operator 调副本。</td><td>准入与自动还要全局开关打开，默认关闭。</td></tr>
+<tr><td>历史范围（默认 720 小时）、预测提前量（15 分钟）、采样步长、训练窗口步数、最少数据点、最大补点步数（3）</td><td>预测用的数据与周期。资源大盘不用它们。</td><td>历史范围至少覆盖算法需要的周期数；步长留空沿用指标查询的步长。</td></tr>
+<tr><td>最大缺失比例（30%）、最少历史占比（80%）</td><td>数据质量底线：缺得太多或历史太短，这一轮降级。</td><td>数据源经常抖动时适当放宽，而不是关掉检查。</td></tr>
+<tr><td>时区</td><td>时间周期、指标触发的生效时间和大盘按小时的分析都按它算，默认 Asia/Shanghai。</td><td>写 IANA 时区名。</td></tr>
+</tbody></table>
+<h2 id="metrics">指标绑定：大盘读什么数据</h2>
+<p>资源大盘读模块的每个指标来源，向 Prometheus 当场查询。绑定时注意：</p>
+<ul><li>使用量指标要么返回<strong>一个 Pod</strong>、要么返回<strong>全部副本的总和</strong>，在来源里说明“查询结果为单 Pod / 全副本”。查询对每个 Pod 返回一条序列时，平台会提示：求总和用 <code>sum(...)</code>，求单 Pod 用 <code>avg(...)</code> 或 <code>max(...)</code>。</li><li>Requests、Limits 属于展示指标，不参与算法。有 Operator 上报时大盘用 Pod 模板，指标只作旁证。</li><li>要显示 OOM、限流、JVM，需要分别绑定 OOM 次数、OOM 前工作集、CPU 限流、JVM 堆等指标；没绑定的规则不生效，页面写明缺什么。</li></ul>
+<h2 id="capacity">计算参数：容量与副本</h2>
+<table><thead><tr><th>配置项</th><th>含义</th><th>默认与怎么配</th></tr></thead><tbody>
+<tr><td>副本模式、容量方式</td><td>副本上限是固定还是可动态抬高；单 Pod 容量是手填还是从历史估算。</td><td>默认固定、手动。</td></tr>
+<tr><td>单 Pod 容量（请求/秒）</td><td>动态副本按它算副本数。</td><td>要先验证过再填。</td></tr>
+<tr><td>单 Pod CPU、内存 Requests（模块填写）</td><td>容量计算用。资源大盘用的是 Kubernetes 的 Pod 模板，不是这两项。</td><td>与工作负载实际的 Requests 保持一致。</td></tr>
+<tr><td>容量保留系数</td><td>一个 Pod 的容量最多用到多少，推荐值 = 需要量 ÷ 系数。</td><td>0 表示不保留；0.8 即留 20% 余量。</td></tr>
+<tr><td>推荐值系数</td><td>预测峰值乘以它。</td><td>默认 1。</td></tr>
+</tbody></table>
+<h2 id="coefficients">计算参数：资源大盘的推荐系数</h2>
+<p>下面是大盘推荐 Requests、Limits 和副本数的全部系数。模块填 0 跟随系统设置，括号里是系统默认。</p>
+<table><thead><tr><th>配置项</th><th>含义</th><th>怎么配</th></tr></thead><tbody>
+<tr><td>P90、P95、P99 目标占比（80%、85%、110%）</td><td>推荐后这个百分位的使用量占 Requests 的比例，推荐 Requests = 使用量 ÷ 它。</td><td>占比越小推荐越大。P99 可以大于 100%：短时超出 Requests 由 Limits 承担。</td></tr>
+<tr><td>持续时间窗口（30 分钟）</td><td>推荐用的百分位取“持续使用量”，窗口越长，越短的峰值越不影响长期配置。</td><td>0 按原始点；对每天有规律短峰的负载可加大。</td></tr>
+<tr><td>CPU、内存 Requests 余量（不加）</td><td>在三个百分位的最大需求上再加的比例，0.1 即多 10%。</td><td>CPU、内存分别设。</td></tr>
+<tr><td>CPU、内存 Limits 系数（120%）</td><td>推荐 Limits = max(推荐 Requests, P99 × 系数)。</td><td>填 1.2 就是 P99 × 1.2，不得小于 1。内存的系数不要压得太低：Limits 低于峰值会被 OOM 杀掉。</td></tr>
+<tr><td>Limits 峰值占比上限（90%）</td><td>推荐副本下，全副本 P99 使用量不超过 Limits 总和的这个比例。</td><td>防止副本被减得太少，峰值顶到 Limits。</td></tr>
+<tr><td>保底系数</td><td>大于 0 时，推荐不低于模块填写的 Pod Requests × 它。</td><td>0 关闭。</td></tr>
+</tbody></table>
+<p>三个百分位的合理区间、超配分级、CPU 限流界限、分析周期只在系统设置里改；模块列表的“参数”窗口里能看到它们，标“系统设置”。</p>
+<div class="callout"><strong>两个“Limits 系数”不是一回事</strong><p>“CPU、内存 Limits 系数”只影响资源大盘<em>推荐</em>的 Limits。基础信息里的“CPU limit 系数、内存 limit 系数”是准入给新 Pod 设置的 Limits = 推荐 Requests × 系数，见<a href="scaling.html#limit-ratios">Request、Limit 比例与 OOM 地板</a>。</p></div>
+<h2 id="oom-jvm">计算参数：OOM 与 JVM</h2>
+<table><thead><tr><th>配置项</th><th>含义</th><th>默认与怎么配</th></tr></thead><tbody>
+<tr><td>OOM 追溯天数</td><td>预测流水线看 OOM 的周期。</td><td>14 天。</td></tr>
+<tr><td>OOM 保护系数</td><td>窗口内有 OOM 时，内存推荐不低于被杀时的工作集 × 它，并且不低于现在的 Requests。</td><td>1.2；发生过 OOM 的负载可调高。</td></tr>
+<tr><td>OOM 扣算法评分、OOM 权重</td><td>开启后每次 OOM 扣预测算法的内存评分：评分 = 100 × (1 − 次数 × 权重)。只影响算法选择，不改大盘推荐值。</td><td>默认关闭，权重 0.2。</td></tr>
+<tr><td>OOM 下限：工作集、Limits、历史倍数</td><td>OOM 下限里三种底数各乘自己的系数，取最大的。</td><td>默认都是 1。</td></tr>
+<tr><td>JVM 堆压力阈值</td><td>P99 堆使用量占堆上限超过它视为堆压力，不缩容。</td><td>默认 0.85；0 关闭，需要绑定 JVM 堆指标。</td></tr>
+</tbody></table>
+<h2 id="bounds">安全边界</h2>
+<table><thead><tr><th>配置项</th><th>含义</th><th>怎么配</th></tr></thead><tbody>
+<tr><td>最小、最大副本数</td><td>所有策略给出的结果最后都要落在这个区间，永远在最后一步。</td><td>至少填一个；不填就没有这一侧的限制。</td></tr>
+<tr><td>硬上限、上限扩展速度</td><td>最大副本数模式为动态时：预测需要更多，上限每个周期最多抬高当前上限的这个比例，最高到硬上限。</td><td>只在动态扩展下使用。</td></tr>
+<tr><td>CPU、内存的最小、最大值</td><td>推荐的 Requests 不会越过它。</td><td>按节点规格和业务底线填。</td></tr>
+<tr><td>扩容、缩容单次最多增减，扩容、缩容冷却</td><td>一次动作最多动几个副本、同方向动作的间隔。限制动作快慢，不限制数量上下限。</td><td>0 不限制。缩容单次 1 个是常见的稳健起点。</td></tr>
+<tr><td>推荐有效期（900 秒）、算法最低评分</td><td>一份推荐多久内可用；评分低于它的算法不被采用。</td><td>过短时推荐会在下一轮预测前过期。</td></tr>
+<tr><td>降级 CPU、内存、副本数</td><td>预测不可用时的默认值，经过上面的边界。</td><td>可选；不填则保持原值。</td></tr>
+<tr><td>恢复观察周期数（2）</td><td>降级恢复后要连续健康这么多个周期才解除。</td><td>避免在异常边缘频繁切换。</td></tr>
+<tr><td>旁路</td><td>开启后模块不参与自动决策，也不改任何配置。</td><td>需要人工接管时开，并写原因。</td></tr>
+</tbody></table>
+<h2 id="strategies">模块策略</h2>
+<p>预测模式、时间周期、指标触发和固定副本数在<a href="strategies.html">模块策略与合并顺序</a>里说明，包括几个策略同时给出不同副本数时怎么合并。</p>
+<h2 id="example">示例：一个 12 副本的 Deployment</h2>
+<p>单 Pod Requests 4 核、6 GiB，Limits 8 核、16 GiB。目标：先观察，再逐步收紧。</p>
+<table><thead><tr><th>步骤</th><th>配置</th><th>在资源大盘上看到什么</th></tr></thead><tbody>
+<tr><td>1</td><td>运行模式 Recommend，其余系数跟随系统。</td><td>方案①、方案②给出建议，依据里的系数都是系统值。</td></tr>
+<tr><td>2</td><td>最小副本数 4、最大副本数 20，缩容单次最多 1 个。</td><td>推荐 9、现在 12 时，“推荐副本数”是 9，“本次动作到”是 11。</td></tr>
+<tr><td>3</td><td>内存 Limits 系数 1.3。</td><td>推荐 Limits = max(推荐 Requests, P99 × 1.3)，依据里的 Limits 公式随之变化。</td></tr>
+<tr><td>4</td><td>需要时再加时间周期：工作日 09:00–18:00 至少 8 个副本。</td><td>常态与高负载时段里的高峰小时可作为设置周期的依据。</td></tr>
+<tr><td>5</td><td>确认效果后再改为 Auto，并打开全局开关。</td><td>Operator 在边界、步长和冷却内调副本。</td></tr>
+</tbody></table>

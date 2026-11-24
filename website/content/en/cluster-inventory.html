@@ -1,0 +1,18 @@
+<h2 id="cluster-dashboard">The cluster dashboard: every item is declared first</h2>
+<p>"Results &gt; Cluster dashboard" shows the nodes, Pods, CPU and memory of a cluster. It has no built-in query: every item it shows must be declared in a "metric template"; an item that is not declared is not queried and no other query stands in for it, and the page lists the metrics still to declare.</p>
+<ol><li>Create a metric template with the <strong>metric type "cluster metric"</strong> and the Prometheus of the cluster as its data source. A preset creates one in a click.</li><li>Every Prometheus data source with declared cluster metrics is a cluster; the one the system parameter <code>cluster.datasource_id</code> points to is the default.</li><li>Choose the cluster on the cluster dashboard to see its nodes, Pods, CPU and memory.</li></ol>
+<h2 id="template-types">Module metrics and cluster metrics</h2>
+<table><thead><tr><th>Type</th><th>Used by</th><th>Notes</th></tr></thead><tbody>
+<tr><td>Module metric</td><td>The metric sources of a module, the resource dashboard</td><td>A module picks its metrics from these: metrics that take part in algorithms, and display-only metrics (Requests, Limits, OOM, JVM, throttling and others).</td></tr>
+<tr><td>Cluster metric</td><td>The cluster dashboard</td><td>A module cannot pick it.</td></tr>
+</tbody></table>
+<p>A module metric says whether its query answers "one Pod" or "the sum of all replicas". When a query returns a series for each Pod, the platform says how to join them: <code>sum(...)</code> for the total, <code>avg(...)</code> or <code>max(...)</code> for one Pod. A template whose name and query clearly disagree (named Limits, querying requests) is pointed out.</p>
+<h2 id="inventory">The Operator report: the real settings in the cluster</h2>
+<p>The Operator reads the cluster read-only and reports to the platform:</p>
+<ul><li><strong>Nodes:</strong> ready or not, schedulable, capacity and allocatable, and the sum of the Requests and Limits of the module Pods that run on them (only the Pods of the modules; no other Pod is read).</li><li><strong>The workload of each module:</strong> desired, ready, available and updated replicas; the Requests and Limits of every container; the Pods (name, node, phase, ready, restarts); and whether an HPA or KEDA object scales it.</li></ul>
+<p>The Operator reads about every 5 minutes; the platform keeps the newest report and records changes of the settings (kept longer than the snapshots). The resource dashboard takes the Requests and Limits of a Pod, the replicas now, the cluster name and the Pod names from it; a report older than 15 minutes is no longer "now". With no report the dashboard falls back to a Prometheus estimate and says "estimated".</p>
+<p>The cluster name is the system parameter <code>cluster.name</code> (<code>default</code> by default); it is in the node and workload data, on the resource pages, in the mail and in the cluster variable of the Grafana dashboard. The platform manages one cluster: change it to a meaningful name such as demo.</p>
+<h2 id="grafana">The Grafana dashboard</h2>
+<p><code>deploy/grafana</code> in the repository has the resource dashboard; the system settings take the address of Grafana, and the "Open in Grafana" links of the resource dashboard carry the module and the window as variables.</p>
+<h2 id="limits">Limits of use</h2>
+<ul><li>The Operator has been tested only with a fake client, not on a real cluster.</li><li>Reading is read-only and a report changes nothing in the cluster; replicas are changed separately by the Operator in Auto mode; see <a href="scaling.html">Admission and scaling</a>.</li></ul>

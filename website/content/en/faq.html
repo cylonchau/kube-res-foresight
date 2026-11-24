@@ -10,3 +10,11 @@
 <p>Admission affects new Pods; running configurations change through creation or rolling updates. Replica scaling is a separate action performed by the Operator.</p>
 <h2 id="stop">How do I pause automation?</h2>
 <p>Enable module bypass or disable the corresponding global gate, then return to Observe or Recommend. Review actual resources before restoring earlier settings; bypass does not undo previous changes.</p>
+<h2 id="dashboard-replicas">The use is not high, so why does the dashboard recommend many replicas?</h2>
+<p>Look at which resource sets the count. Total memory does not shrink with the replicas: when the use of each Pod is already near the target share, fewer replicas go over the target even if the CPU is idle. The basis has a line for each resource. See <a href="resource-dashboard.html#low-use">Why so many replicas when the use is not high</a>.</p>
+<h2 id="estimated">Why does the page say "estimated"?</h2>
+<p>With no Operator report, the Requests and Limits of a Pod cannot be read from Kubernetes, so the platform works them out from Prometheus totals and says so. Once the Operator is deployed and connected, the Pod spec counts; see <a href="cluster-inventory.html#inventory">The Operator report</a>.</p>
+<h2 id="limits-coefficient">What is the difference between the two "Limits coefficients"?</h2>
+<p>"CPU and memory Limits coefficient" under Calculation decides only the Limits recommended by the resource dashboard (P99 x coefficient); the "limit ratio" in the basic information is what admission uses to set the Limits of a new Pod (recommended Requests x ratio). See <a href="module-settings.html#coefficients">Module settings</a>.</p>
+<h2 id="ai-auto">Does the AI analyse by itself when I open the dashboard?</h2>
+<p>No. It starts only when "AI analysis" is pressed; opening the page or the window asks nothing and an earlier answer is not kept.</p>

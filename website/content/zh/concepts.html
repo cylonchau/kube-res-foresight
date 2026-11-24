@@ -11,3 +11,5 @@
 <h2 id="prediction-and-action">模型计算与执行授权分别配置</h2>
 <p>预测方式回答“建议怎样算”：不预测、固定算法或动态算法。运行模式回答“允许做什么”：仅观察、仅推荐、准入或自动。两者独立配置，因此可以运行模型并比较效果，同时保持集群资源不变。</p>
 <p>新模块默认关闭预测。打开后，固定算法只运行指定方法；动态算法使用已启用的方法，并在动态副本决策中形成多算法共识。查看<a href="algorithms.html#prediction-modes">模型与预测方式</a>了解采用规则。</p>
+<h2 id="dashboard-and-settings">资源大盘与模块配置</h2>
+<p>资源大盘读取实测使用量，按模块配置里的系数给出 Requests、Limits 与副本数的推荐，并说明每个数字的依据，见<a href="resource-dashboard.html">资源大盘与推荐依据</a>。每项系数怎么配置见<a href="module-settings.html">模块配置说明</a>，几类策略如何合并见<a href="strategies.html">模块策略与合并顺序</a>。</p>

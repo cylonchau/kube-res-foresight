@@ -17,4 +17,5 @@
 <p>Optional action columns include <code>record_id</code>, occurrence and reporting times, decision source, outage state, and Operator identity. The platform deduplicates by record ID and archives late reports by occurrence time.</p>
 <h2 id="limit-ratios">Requests, limit ratios, and OOM floors</h2>
 <p>When configured, limit ratios apply to the final request: a 10 GiB memory request with a 1.2 ratio produces a 12 GiB limit. OOM uplift raises the request floor without repeatedly compounding the limit ratio.</p>
-<p>Admission calls carry <code>request_uid</code> and <code>operation</code> for attribution and deduplication. Queries without a request UID still return advice but do not create admission records.</p>
+<p>The "Limits coefficient" of the resource dashboard is another thing: it decides only the <em>recommended</em> Limits of the dashboard (P99 x coefficient); see <a href="module-settings.html#coefficients">Module settings</a>.</p>
+<p>Admission queries carry <code>request_uid</code> and <code>operation</code> for attribution and deduplication. Queries without a request UID still return advice but do not create admission records.</p>

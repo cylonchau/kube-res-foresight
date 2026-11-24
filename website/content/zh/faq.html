@@ -10,3 +10,11 @@
 <p>资源准入作用于新 Pod，运行中的配置通过新建或滚动更新应用。副本伸缩是独立动作，由 Operator 按有效建议执行。</p>
 <h2 id="stop">如何暂停自动化？</h2>
 <p>启用模块旁路或关闭对应全局开关，回到观察或推荐。检查实际资源状态后再决定是否恢复先前配置，旁路不会自动撤销已经发生的变化。</p>
+<h2 id="dashboard-replicas">使用量不高，为什么大盘仍推荐很多副本？</h2>
+<p>看是哪个资源决定了副本数。内存总量不随副本数缩小：每个 Pod 的使用量已经接近目标占比时，副本再少就会超过目标，即使 CPU 很空。依据里每个资源有一行说明。详见<a href="resource-dashboard.html#low-use">使用量不高，为什么还要这么多副本</a>。</p>
+<h2 id="estimated">页面上为什么标“推算”？</h2>
+<p>没有 Operator 上报时，单 Pod 的 Requests、Limits 无法从 Kubernetes 读到，平台用 Prometheus 的总量推算，并明确标注。部署并接入 Operator 后以 Pod Spec 为准，见<a href="cluster-inventory.html#inventory">Operator 上报</a>。</p>
+<h2 id="limits-coefficient">两个“Limits 系数”有什么区别？</h2>
+<p>计算参数里的“CPU、内存 Limits 系数”只决定资源大盘推荐的 Limits（P99 × 系数）；基础信息里的“limit 系数”是准入给新 Pod 设 Limits 时用的（推荐 Requests × 系数）。见<a href="module-settings.html#coefficients">模块配置说明</a>。</p>
+<h2 id="ai-auto">打开资源大盘，AI 会自动分析吗？</h2>
+<p>不会。只有点“AI 分析”才开始，打开页面或助手窗口都不请求，也不保留上一次的结果。</p>

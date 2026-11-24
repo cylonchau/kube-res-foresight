@@ -128,6 +128,8 @@ def home(lang):
     features.extend([
         ("book", "AI 助手与定时分析", "AI assistant and scheduled analysis", "通过技能查询运行状态，按计划生成分析并发送邮件。", "Query state with skills and schedule analyses delivered by email.", "assistant"),
         ("layers", "平台运行概览", "Platform activity", "集中查看需要关注的模块与已执行扩缩容。", "Review modules needing attention and applied scaling activity.", "dashboard"),
+        ("chart", "资源大盘与推荐依据", "Resource dashboard", "实测使用量、Requests、Limits 与副本数的推荐，每个数字都有依据。", "Measured use and recommended Requests, Limits and replicas, with the basis of every figure.", "resource-dashboard"),
+        ("sliders", "模块配置与策略", "Module settings and strategies", "逐项说明系数、边界、时间周期、指标触发和合并顺序。", "How to set coefficients, bounds, periods, triggers and the order they combine in.", "module-settings"),
     ])
     features_html = "".join(f'<a class="feature-item" href="{link("docs/"+page+".html")}"><span class="feature-icon">{icon(i)}</span><div><h3>{label(lang, zh, en)}</h3><p>{label(lang, zhd, end)}</p></div>{icon("arrow")}</a>' for i, zh, en, zhd, end, page in features)
     flow = [("01", "指标接入", "Connect metrics", "指标模板 · 数据质量", "Templates · Data quality"), ("02", "预测与评估", "Forecast & compare", "多算法 · 滚动回测", "Models · Rolling backtests"), ("03", "推荐与共识", "Recommend", "提前量 · 资源约束", "Lead time · Constraints"), ("04", "执行与反馈", "Act & review", "资源准入 · 副本伸缩", "Admission · Scaling")]
@@ -152,7 +154,7 @@ def sidebar(current, lang, page_id):
 
 
 def format_content(body, lang, current):
-    body = re.sub(r'<div data-architecture-diagram="([a-z]+)"></div>', lambda match: diagram_figure(match[1], lang, relative(current, f"assets/diagrams/{match[1]}-{lang}.svg")), body)
+    body = re.sub(r'<div data-architecture-diagram="([a-z-]+)"></div>', lambda match: diagram_figure(match[1], lang, relative(current, f"assets/diagrams/{match[1]}-{lang}.svg")), body)
     def code_block(match):
         number = code_block.number
         code_block.number += 1
