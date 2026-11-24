@@ -340,7 +340,7 @@ func EnsureDefaultConfigs() error {
 
 // retiredAnalysisKeys are the system parameters of the first rules of the recommendation (a margin over P95, a margin over P99 and a factor over the highest use,
 // and the share of the mildest grade): the bands of the second rules (analysis.rec_*) take their place.
-var retiredAnalysisKeys = []string{"analysis.cpu_margin_percent", "analysis.memory_margin_percent", "analysis.memory_peak_percent", "analysis.grade_mild_percent"}
+var retiredAnalysisKeys = []string{"analysis.cpu_margin_percent", "analysis.memory_margin_percent", "analysis.memory_peak_percent", "analysis.grade_mild_percent", "analysis.rec_min_replicas", "analysis.rec_max_scale_in_percent"}
 
 // retiredWorkflowTables are the tables of the removed workflow engine and Telegram integration. Tables whose
 // name starts with "telegram" are retired as well, which also covers the GORM default names of the binding tables.

@@ -35,11 +35,21 @@ const (
 const (
 	ReasonReplicasNoCurrent = "replicas_no_current" // the replicas now are not known: the plan says how many, not by how many
 	ReasonReplicasNoTotal   = "replicas_no_total"   // the use of all the Pods together was not measured: no plan
-	ReasonReplicasFloor     = "replicas_floor"      // the plan is not below the least number of replicas
-	ReasonReplicasStep      = "replicas_step"       // one recommendation takes away only a share of the replicas
+	ReasonReplicasFloor     = "replicas_floor"      // the plan is not below the module's least replicas
+	ReasonReplicasCeiling   = "replicas_ceiling"    // the plan is not above the module's most replicas
+	ReasonReplicasStep      = "replicas_step"       // the module lets one action add or remove only so many replicas
 	ReasonReplicasLimited   = "replicas_limited"    // OOM or throttling: the use understates the need, so no replica is taken away
 	ReasonReplicasLimit     = "replicas_limit"      // the P99 use of a Pod would come near its Limits with fewer replicas
 )
+
+// ReplicaLimits are the constraints the module itself sets on its replicas (module management): the least and the most replicas and the most one action adds or removes
+// (0 = not set). The plan keeps to them and has no numbers of its own for the replicas.
+type ReplicaLimits struct {
+	Min           int `json:"min"`
+	Max           int `json:"max"`
+	ScaleUpStep   int `json:"scale_up_step"`
+	ScaleDownStep int `json:"scale_down_step"`
+}
 
 // ReplicaNeed is what one resource asks of the number of replicas when the Pod keeps the Requests it has.
 type ReplicaNeed struct {
@@ -67,15 +77,17 @@ type ReplicaPlan struct {
 	// Resources are the need of each resource apart.
 	Resources []ReplicaNeed `json:"resources"`
 	// Primary is what to change first: the replicas, or (when they cannot do it) the Pod spec, or nothing.
-	Primary string   `json:"primary"`
-	Reasons []string `json:"reasons"`
-	Formula string   `json:"formula"`
+	Primary string `json:"primary"`
+	// Limits are the constraints of the module the plan was held to.
+	Limits  ReplicaLimits `json:"limits"`
+	Reasons []string      `json:"reasons"`
+	Formula string        `json:"formula"`
 }
 
-// PlanReplicas works out how many replicas the module needs if every Pod keeps the Requests it has. current is the replicas the cluster has now (0 = not known); the
-// results are those of Analyze for the CPU and the memory (either may be nil). The use of all the Pods together (Result.Total) is what is divided by the Requests of a Pod.
-func PlanReplicas(current int, p Params, results ...*Result) *ReplicaPlan {
-	plan := &ReplicaPlan{Current: max(current, 0), Direction: ScaleUnknown, Primary: PrimaryNone, Resources: []ReplicaNeed{}, Reasons: []string{}}
+// PlanReplicas works out how many replicas the module needs if every Pod keeps the Requests it has, within the constraints the module sets (lim). current is the replicas the
+// cluster has now (0 = not known); the results are those of Analyze for the CPU and the memory (either may be nil). The use of all the Pods together (Result.Total) is what is divided by the Requests of a Pod.
+func PlanReplicas(current int, p Params, lim ReplicaLimits, results ...*Result) *ReplicaPlan {
+	plan := &ReplicaPlan{Current: max(current, 0), Direction: ScaleUnknown, Primary: PrimaryNone, Resources: []ReplicaNeed{}, Reasons: []string{}, Limits: lim}
 	limited, needsChange := false, false
 	var parts []string
 	for _, r := range results {
@@ -104,28 +116,34 @@ func PlanReplicas(current int, p Params, results ...*Result) *ReplicaPlan {
 	}
 	plan.Formula = strings.Join(parts, "; ")
 	plan.Needed = plan.Raw
+	// the module's own bounds: not below its least replicas, not above its most
+	if lim.Min > 0 && plan.Needed < lim.Min {
+		plan.Needed = lim.Min
+		plan.Reasons = append(plan.Reasons, ReasonReplicasFloor)
+	}
+	if lim.Max > 0 && plan.Needed > lim.Max {
+		plan.Needed = lim.Max
+		plan.Reasons = append(plan.Reasons, ReasonReplicasCeiling)
+	}
 	if plan.Current <= 0 {
-		// the replicas now are not known: the plan is how many the use asks for, held to the floor, and not by how many it moves
+		// the replicas now are not known: the plan is how many the use asks for within the bounds, and not by how many it moves
 		plan.Reasons = append(plan.Reasons, ReasonReplicasNoCurrent)
-		plan.Needed = max(plan.Needed, min(max(p.MinReplicas, 1), plan.Raw))
 		return plan
 	}
-	if plan.Needed < plan.Current {
-		floor := min(max(p.MinReplicas, 1), plan.Current)
-		if limited {
-			plan.Needed = plan.Current
-			plan.Reasons = append(plan.Reasons, ReasonReplicasLimited)
-		} else {
-			if plan.Needed < floor {
-				plan.Needed = floor
-				plan.Reasons = append(plan.Reasons, ReasonReplicasFloor)
-			}
-			if p.MaxScaleIn > 0 && p.MaxScaleIn < 1 {
-				if step := int(math.Ceil(float64(plan.Current)*(1-p.MaxScaleIn) - 1e-9)); plan.Needed < step {
-					plan.Needed = step
-					plan.Reasons = append(plan.Reasons, ReasonReplicasStep)
-				}
-			}
+	switch {
+	case plan.Needed < plan.Current && limited:
+		// the use understates the need under OOM or throttling: no replica is taken away
+		plan.Needed = plan.Current
+		plan.Reasons = append(plan.Reasons, ReasonReplicasLimited)
+	case plan.Needed < plan.Current:
+		if lim.ScaleDownStep > 0 && plan.Current-plan.Needed > lim.ScaleDownStep {
+			plan.Needed = plan.Current - lim.ScaleDownStep
+			plan.Reasons = append(plan.Reasons, ReasonReplicasStep)
+		}
+	case plan.Needed > plan.Current:
+		if lim.ScaleUpStep > 0 && plan.Needed-plan.Current > lim.ScaleUpStep {
+			plan.Needed = plan.Current + lim.ScaleUpStep
+			plan.Reasons = append(plan.Reasons, ReasonReplicasStep)
 		}
 	}
 	for _, need := range plan.Resources {

@@ -9,6 +9,7 @@ import (
 
 	"github.com/cylonchau/kube-res-foresight/pkg/collector"
 	"github.com/cylonchau/kube-res-foresight/pkg/cost"
+	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
 	"github.com/cylonchau/kube-res-foresight/pkg/model"
 	"github.com/cylonchau/kube-res-foresight/pkg/overprovision"
 	"github.com/cylonchau/kube-res-foresight/pkg/promclient"
@@ -794,4 +795,52 @@ func TestTheReplicasNowAreTheClustersAndThePlanStartsFromThem(t *testing.T) {
 	assert.Equal(t, 11, plan.Current, "the replicas of the plan are the ones of the cluster")
 	assert.NotEqual(t, overprovision.ScaleUnknown, plan.Direction)
 	assert.Equal(t, plan.Needed-plan.Current, plan.Delta)
+}
+
+// The replicas now are what the workload is set to in Kubernetes (the operator read them), not the ready ones of Prometheus: 12 Pods of which 11 are ready are 12
+// replicas, and a total of Requests is divided by the 12. The plan keeps to the constraints of the module.
+func TestTheReplicasNowAreTheWorkloadsOwnAndThePlanKeepsToTheModulesConstraints(t *testing.T) {
+	f := opFixture(t)
+	f.withRequests(t, 1.5)
+	require.NoError(t, f.db.AutoMigrate(&model.WorkloadConfig{}))
+	f.svc.Inventory = rdb.NewInventoryDAO(f.db)
+	inner := f.querier.value
+	f.querier.value = func(query string, ts time.Time) float64 {
+		switch {
+		case strings.Contains(query, "k8s_cpu_requests_series{"):
+			return 48
+		case strings.Contains(query, "kube_deployment"):
+			return 11
+		}
+		return inner(query, ts)
+	}
+	ctx := context.Background()
+	// nothing was reported: the ready replicas of Prometheus are what there is
+	d, err := f.svc.OverprovisionDetail(ctx, f.module.ID, 24*60, time.Time{}, time.Time{})
+	require.NoError(t, err)
+	assert.Equal(t, 11, d.Replicas)
+	assert.Equal(t, "prometheus", d.ReplicasFrom)
+
+	// the operator reports 12 replicas, 11 ready; the module may remove one replica an action and has at least 10
+	require.NoError(t, f.svc.Inventory.SaveWorkload(ctx, &model.WorkloadConfig{ModuleID: f.module.ID, Namespace: "prod", Kind: "Deployment", Name: "api", Desired: 12, Ready: 11, ObservedAt: f.svc.now().Add(-2 * time.Minute)}))
+	f.module.MinReplicas, f.module.ScaleDownMaxStep = 10, 1
+	require.NoError(t, f.db.Save(f.module).Error)
+	f.svc.Cache = nil
+	d, err = f.svc.OverprovisionDetail(ctx, f.module.ID, 24*60, time.Time{}, time.Time{})
+	require.NoError(t, err)
+	assert.Equal(t, 12, d.Replicas)
+	assert.Equal(t, "kubernetes", d.ReplicasFrom)
+	assert.Equal(t, 11, d.ReplicasReady)
+	assert.InDelta(t, 4.0, d.Windows[0].CPU.Request, 1e-9, "48 cores over the 12 replicas the workload has")
+	plan := d.Recommend.ReplicaPlan
+	require.NotNil(t, plan)
+	assert.Equal(t, 12, plan.Current)
+	assert.Equal(t, overprovision.ReplicaLimits{Min: 10, Max: f.module.MaxReplicas, ScaleDownStep: 1}, plan.Limits)
+	assert.GreaterOrEqual(t, plan.Needed, 11, "no more than one replica an action, as the module says")
+
+	// an old report is not "now"
+	require.NoError(t, f.svc.Inventory.SaveWorkload(ctx, &model.WorkloadConfig{ModuleID: f.module.ID, Namespace: "prod", Kind: "Deployment", Name: "api", Desired: 12, Ready: 11, ObservedAt: f.svc.now().Add(-time.Hour)}))
+	d, err = f.svc.OverprovisionDetail(ctx, f.module.ID, 24*60, time.Time{}, time.Time{})
+	require.NoError(t, err)
+	assert.Equal(t, "prometheus", d.ReplicasFrom)
 }

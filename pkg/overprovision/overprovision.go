@@ -123,10 +123,6 @@ type Params struct {
 	CoverageMid  float64 `json:"coverage_mid"`
 	// PeakNearLimit is the share of the limit the highest use may reach before the risk goes up.
 	PeakNearLimit float64 `json:"peak_near_limit"`
-	// MinReplicas is the least number of replicas a plan goes down to (a module that has fewer is not raised to it), and MaxScaleIn the share of the replicas now that one
-	// recommendation may take away (0 or 1: no limit). They keep the plan from a number that is right for the average and wrong for the day the load is not.
-	MinReplicas int     `json:"min_replicas"`
-	MaxScaleIn  float64 `json:"max_scale_in"`
 }
 
 // DefaultParams are the proposals of P10 A2, as the second version of the rules sets them: the use of the request that is wanted is P90 80%, P95 85% and
@@ -135,7 +131,7 @@ func DefaultParams() Params {
 	return Params{
 		P90: Band{Target: 0.80, Low: 0.70, High: 0.85}, P95: Band{Target: 0.85, Low: 0.80, High: 0.90}, P99: Band{Target: 1.10, Low: 0.80, High: 1.20},
 		LimitHeadroom: 0.20, OOMUplift: 1.2, ThrottleLimit: 0.05, BaselineMinutes: 7 * 24 * 60,
-		Severe: 0.50, Moderate: 0.30, CoverageHigh: 0.80, CoverageMid: 0.50, PeakNearLimit: 0.90, MinReplicas: 2, MaxScaleIn: 0.50}
+		Severe: 0.50, Moderate: 0.30, CoverageHigh: 0.80, CoverageMid: 0.50, PeakNearLimit: 0.90}
 }
 
 // Point is one measured value of a Pod at a moment (unix seconds).

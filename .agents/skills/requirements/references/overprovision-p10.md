@@ -480,12 +480,14 @@
 ### 副本数推荐（`pkg/overprovision/replicas.go`，纯函数 `PlanReplicas`）
 - 同一份使用量有两种调整办法，分开算、分开列：①**调整副本数**（每个 Pod 的 Requests 不变）；②**调整单 Pod 配置**（副本数不变，就是原来的推荐 Requests／Limits）。**优先推荐副本数**，副本数调不动才推荐改 Pod 配置。
 - 方案①的算法：每个资源取 P90、P95、P99 各自的（全副本使用量总和 ÷（每 Pod Requests × 该分位数的目标比例））的最大者，再向上取整；有 Limits 时另加保护：全副本 P99 ÷（Limits × 90%）；CPU 和内存取最大者，决定的资源写在 `binding`。它假设各 Pod 平均分担负载、单 Pod 使用量随副本数反比变化；每个 Pod 都要付一份的部分（JVM 堆）不按这个规律变，页面和 AI 提示词里都写明。
-- 防止不合理缩容：不低于 `analysis.rec_min_replicas`（默认 2，当前副本更少时不抬高）；一次最多减少 `analysis.rec_max_scale_in_percent`（默认 50%）；CPU 被限流或内存出过 OOM 时不减副本（`replicas_limited`）。原因码：`replicas_floor`、`replicas_step`、`replicas_limited`、`replicas_limit`、`replicas_no_current`、`replicas_no_total`。
+- **约束只来自模块管理里这个模块自己配置的，平台不另设系统参数**（上一版加过 `analysis.rec_min_replicas`、`analysis.rec_max_scale_in_percent`，用户指出模块里已经配了，已删除，迁移时也删这两行）：最少副本数（`min_replicas`）、最多副本数（`max_replicas`）、扩容和缩容每次最多增减的副本数（`scale_up_max_step`、`scale_down_max_step`）；固定副本数（`fixed_replicas`）的模块没有调整空间。没配的约束不套用任何默认数。唯一平台自己的规则：CPU 被限流或内存出过 OOM 时不减副本（`replicas_limited`）。原因码：`replicas_floor`、`replicas_ceiling`、`replicas_step`（都是模块的约束）、`replicas_limited`、`replicas_limit`、`replicas_no_current`、`replicas_no_total`。结果的 `limits` 带出算时用的约束。
 - 结果 `replica_plan`（在 `recommend` 里）：`current`、`needed`、`raw`、`direction`（out／in／same／unknown）、`delta`、`share`、`binding`、`resources`（各资源要几个）、`primary`（replicas／config／none）、`reasons`、`formula`。没有全副本使用量时不给计划（`replicas_no_total`）；没有当前副本数时只给数量不判增减。
-- 两个系统参数（“系统设置 > 资源分析与推荐”）：最少副本数、一次最多减少的比例；由迁移种子写入（系统参数的数量测试由 60 变 62）。
 
 ### 当前副本数（继承 Kubernetes 实际值）
-- 详情的 `replicas` 只来自模块配置的副本数指标（Prometheus 读 Kubernetes 的实际值）的最新一次采样；Prometheus 没有返回时用平台**保存的最近一次实测采样**（有年龄上限，`replicas_from: stored`，页面标橙）；都没有就是没有（页面写原因），**不用预测、推荐值或过期结果代替**。同时带出 `replicas_at`（测量时间）、`replicas_min`／`replicas_max`（推荐周期内最少与最多）。
+- **用户指出的问题**：大盘上的副本数和实际副本数不一样（他的 Deployment 是 12 个副本，大盘写 11）。原因：大盘的副本数是模块里“副本数”指标的值，常见模板是 `kube_deployment_status_replicas_available`（就绪的），一个还在启动的 Pod 不算，而 Requests 的总和里有它。
+- 现在的取法（`OverprovisionDetail`）：①优先取 operator 最近从 Kubernetes API 读到的 `spec.replicas`（`workload_config.desired`，operator 每 5 分钟读一次，超过 15 分钟的报告不算“现在”，没报告、找不到工作负载或读取失败也不用），`replicas_from: kubernetes`，同时带出就绪数 `replicas_ready`；②没有则取模块副本数指标的 Prometheus 最新值（`prometheus`，通常是就绪的，页面写明可能比 Kubernetes 设定的少）；③再没有取平台保存的最近一次实测采样（`stored`，有年龄上限，页面标橙）；都没有就是没有。**不用预测、推荐值或过期结果代替。** 同时带出 `replicas_at`、`replicas_min`／`replicas_max`（推荐周期内最少与最多）。
+- Requests／Limits 总和除以的 Pod 数：有 Kubernetes 的副本数时就用它做起点（12 个 Pod 的 48 核＝4 核），不再靠就绪副本数猜（`opLoader.podsHint`）。
+- **没有真实环境验证**：operator 没部署或没有报告时仍是 Prometheus 的就绪副本数，此时和实际的差异依旧存在，页面的来源一行会写明。
 - 页面“副本数”卡片写来源、测量时间和周期内的范围：一处写 8、另一处写 22 这类差异，用这个范围就能看出是不是副本数在周期内真的变过（HPA 或手动扩缩）。**没有复现过“卡片墙 8 个、别处 22 个”**，没有找到另一个用不同口径算副本的地方；原因没查实，只是把口径统一成一个并写明来源、时间和范围。
 - 大盘（板）上的合计用存下的分析行里的副本数（定时任务读存下的实测样本，不用预测）。
 

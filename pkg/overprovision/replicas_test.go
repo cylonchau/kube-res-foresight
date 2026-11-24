@@ -18,7 +18,7 @@ func TestReplicasAreWorkedOutFromTheSumOfTheUse(t *testing.T) {
 	cpu := result(CPU, 4, 8, Usage{Points: 100, P90: 26.674, P95: 33.032, P99: 38.438}, StatusOver)
 	gib := float64(1 << 30)
 	mem := result(Memory, 8*gib, 16*gib, Usage{Points: 100, P90: 12 * 7.95 * gib, P95: 12 * 8.18 * gib, P99: 12 * 8.69 * gib}, StatusUnder)
-	plan := PlanReplicas(12, p, cpu, mem)
+	plan := PlanReplicas(12, p, ReplicaLimits{}, cpu, mem)
 	require.NotNil(t, plan)
 	byResource := map[string]int{}
 	for _, n := range plan.Resources {
@@ -36,34 +36,47 @@ func TestReplicasAreWorkedOutFromTheSumOfTheUse(t *testing.T) {
 	assert.Contains(t, plan.Formula, "P95")
 }
 
-func TestAScaleInIsHeldToTheFloorAndTheStep(t *testing.T) {
+func TestTheReplicasKeepToTheConstraintsOfTheModule(t *testing.T) {
 	p := DefaultParams()
-	cpu := result(CPU, 4, 8, Usage{Points: 100, P90: 6, P95: 8, P99: 9}, StatusOver)
-	// 8 / (4 x 85%) = 2.35 -> 3 replicas of 12: a step of at most half of them keeps 6
-	plan := PlanReplicas(12, p, cpu)
+	use := Usage{Points: 100, P90: 6, P95: 8, P99: 9}
+	// 8 / (4 x 85%) = 2.35 -> 3 replicas of 12; the module sets no bound: the plan is what the use asks
+	plan := PlanReplicas(12, p, ReplicaLimits{}, result(CPU, 4, 8, use, StatusOver))
 	assert.Equal(t, 3, plan.Raw)
-	assert.Equal(t, 6, plan.Needed)
+	assert.Equal(t, 3, plan.Needed)
 	assert.Equal(t, ScaleIn, plan.Direction)
-	assert.Equal(t, -6, plan.Delta)
-	assert.Contains(t, plan.Reasons, ReasonReplicasStep)
+	assert.Equal(t, -9, plan.Delta)
 
-	// no limit on the step: the floor (2) is what holds it
-	p.MaxScaleIn = 1
-	plan = PlanReplicas(12, p, result(CPU, 4, 8, Usage{Points: 100, P90: 1, P95: 1, P99: 1.2}, StatusOver))
-	assert.Equal(t, 2, plan.Needed)
+	// the module's least replicas
+	plan = PlanReplicas(12, p, ReplicaLimits{Min: 5}, result(CPU, 4, 8, use, StatusOver))
+	assert.Equal(t, 5, plan.Needed)
 	assert.Contains(t, plan.Reasons, ReasonReplicasFloor)
 
-	// a module that has one replica is not raised to the floor
-	plan = PlanReplicas(1, p, result(CPU, 4, 8, Usage{Points: 100, P90: 1, P95: 1, P99: 1.2}, StatusOver))
+	// the most one action may remove
+	plan = PlanReplicas(12, p, ReplicaLimits{ScaleDownStep: 2}, result(CPU, 4, 8, use, StatusOver))
+	assert.Equal(t, 10, plan.Needed)
+	assert.Contains(t, plan.Reasons, ReasonReplicasStep)
+
+	// the most replicas, and the most one action may add
+	big := Usage{Points: 100, P90: 60, P95: 80, P99: 90}
+	plan = PlanReplicas(12, p, ReplicaLimits{Max: 20}, result(CPU, 4, 8, big, StatusUnder))
+	assert.Equal(t, 20, plan.Needed)
+	assert.Contains(t, plan.Reasons, ReasonReplicasCeiling)
+	plan = PlanReplicas(12, p, ReplicaLimits{ScaleUpStep: 3}, result(CPU, 4, 8, big, StatusUnder))
+	assert.Equal(t, 15, plan.Needed)
+	assert.Equal(t, ScaleOut, plan.Direction)
+
+	// nothing of it is the platform's own: no bound is set, none is applied (a module that has one replica stays at one when the use asks for one)
+	plan = PlanReplicas(1, p, ReplicaLimits{}, result(CPU, 4, 8, Usage{Points: 100, P90: 1, P95: 1, P99: 1.2}, StatusOver))
 	assert.Equal(t, 1, plan.Needed)
 	assert.Equal(t, ScaleSame, plan.Direction)
 	assert.Equal(t, PrimaryConfig, plan.Primary, "the replicas cannot move: the Pod spec is what is left")
+	assert.Equal(t, 5, PlanReplicas(12, p, ReplicaLimits{Min: 5, Max: 5}, result(CPU, 4, 8, use, StatusOver)).Needed, "a module kept at a fixed number has no room")
 }
 
 func TestNoReplicaIsTakenAwayWhileTheUseUnderstatesTheNeed(t *testing.T) {
 	p := DefaultParams()
 	cpu := result(CPU, 4, 8, Usage{Points: 100, P90: 6, P95: 8, P99: 9}, StatusLimited)
-	plan := PlanReplicas(12, p, cpu)
+	plan := PlanReplicas(12, p, ReplicaLimits{}, cpu)
 	assert.Equal(t, 12, plan.Needed)
 	assert.Equal(t, ScaleSame, plan.Direction)
 	assert.Contains(t, plan.Reasons, ReasonReplicasLimited)
@@ -74,26 +87,26 @@ func TestThePeakOfAPodStaysUnderItsLimits(t *testing.T) {
 	p := DefaultParams()
 	// the sum P99 of 20 cores over Limits of 4 cores x 90%: 5.56 -> 6 replicas, more than the 4.55 -> 5 the Requests ask
 	cpu := result(CPU, 4, 4, Usage{Points: 100, P90: 14, P95: 15, P99: 16}, StatusOver)
-	plan := PlanReplicas(10, p, cpu)
+	plan := PlanReplicas(10, p, ReplicaLimits{}, cpu)
 	assert.Equal(t, 5, plan.Raw)
 	cpu.Total.P99 = 20
-	plan = PlanReplicas(10, p, cpu)
+	plan = PlanReplicas(10, p, ReplicaLimits{}, cpu)
 	assert.Equal(t, 6, plan.Raw)
 	assert.Contains(t, plan.Formula, "limit guard")
 }
 
 func TestAPlanNeedsTheUseOfAllThePods(t *testing.T) {
 	p := DefaultParams()
-	plan := PlanReplicas(12, p, &Result{Resource: CPU, Request: 4, Suggested: 3})
+	plan := PlanReplicas(12, p, ReplicaLimits{}, &Result{Resource: CPU, Request: 4, Suggested: 3})
 	assert.Equal(t, 0, plan.Needed)
 	assert.Equal(t, ScaleUnknown, plan.Direction)
 	assert.Contains(t, plan.Reasons, ReasonReplicasNoTotal)
-	assert.Nil(t, nilPlanResources(PlanReplicas(12, p)))
+	assert.Nil(t, nilPlanResources(PlanReplicas(12, p, ReplicaLimits{})))
 }
 
 func TestWithoutTheReplicasNowThePlanSaysHowManyAndNotByHowMany(t *testing.T) {
 	p := DefaultParams()
-	plan := PlanReplicas(0, p, result(CPU, 4, 8, Usage{Points: 100, P90: 26.674, P95: 33.032, P99: 38.438}, StatusOver))
+	plan := PlanReplicas(0, p, ReplicaLimits{}, result(CPU, 4, 8, Usage{Points: 100, P90: 26.674, P95: 33.032, P99: 38.438}, StatusOver))
 	assert.Equal(t, 10, plan.Needed)
 	assert.Equal(t, ScaleUnknown, plan.Direction)
 	assert.Zero(t, plan.Delta)

@@ -998,8 +998,8 @@ all ten management pages and the shared product title. Screenshots were inspecte
 - **注意**：迁移会删掉 `analysis.cpu_margin_percent`、`memory_margin_percent`、`memory_peak_percent`、`grade_mild_percent` 四个系统参数，新增 10 个 `analysis.rec_*`；`analysis.baseline_window_days` 的含义变成“推荐分析周期”。
 
 2026-11-24（第二次）：副本数推荐、当前副本数、独立 AI 分析、邮件表格
-- **做了什么**：①“当前与推荐”新增副本数：`PlanReplicas`（pkg/overprovision/replicas.go）按全副本使用量总和算 Pod 配置不变时需要几个副本，和“副本数不变、改单 Pod 配置”两种办法分开列，优先副本数；不合理缩容有下限（最少副本数）、步长（一次最多减的比例）、OOM／限流不减、Limits 保护（两个新系统参数 `analysis.rec_min_replicas`、`analysis.rec_max_scale_in_percent`）。②当前副本数只取集群实测（Prometheus 读 Kubernetes，Prometheus 没返回时用平台保存的最近实测采样），不用预测、推荐值代替；带来源、测量时间和推荐周期内的最少与最多。③表格与卡片的颜色统一（绿合理、橙多于需要、红少于需要、蓝仅提示），每个“调整”后面加“?”写含义、算式、单位和数据来源。④AI 改为独立分析（平台推荐仅供对照、两种方案、安全边界、与平台差异表）。⑤邮件：平台自己的表格加内联样式一起发，AI 答案里的表格也带样式。细节见 `overprovision-p10.md` 末尾“副本数推荐、独立 AI 分析、邮件表格”。
-- **我的理解（请纠正）**：“超配 300CM”读作“超配 300 mCPU”这类带单位的量（代码里没有 CM 这个单位）；“当前副本数继承 Kubernetes 实际值”＝只用集群实测，不用预测；“卡片墙 8 个、别处 22 个”没有复现，用“当前副本数的来源、时间、周期内最少与最多”让差异可见；邮件版式等截图。
+- **做了什么**：①“当前与推荐”新增副本数：`PlanReplicas`（pkg/overprovision/replicas.go）按全副本使用量总和算 Pod 配置不变时需要几个副本，和“副本数不变、改单 Pod 配置”两种办法分开列，优先副本数；副本数方案遵守模块管理里这个模块配置的约束（最少、最多副本数，扩缩容每次最多增减的副本数，固定副本数），平台没有另设系统参数；OOM／限流时不减，另有 Limits 保护。②当前副本数优先取 operator 从 Kubernetes API 读到的 spec.replicas（几分钟内），再是 Prometheus 副本数指标（就绪的），再是平台保存的最近实测采样，不用预测、推荐值代替；带来源、测量时间、就绪数和推荐周期内的最少与最多；Requests 总和除以的 Pod 数也以它为起点。③表格与卡片的颜色统一（绿合理、橙多于需要、红少于需要、蓝仅提示），每个“调整”后面加“?”写含义、算式、单位和数据来源。④AI 改为独立分析（平台推荐仅供对照、两种方案、安全边界、与平台差异表）。⑤邮件：平台自己的表格加内联样式一起发，AI 答案里的表格也带样式。细节见 `overprovision-p10.md` 末尾“副本数推荐、独立 AI 分析、邮件表格”。
+- **我的理解（请纠正）**：“超配 300CM”读作“超配 300 mCPU”这类带单位的量（代码里没有 CM 这个单位）；“当前副本数继承 Kubernetes 实际值”＝只用集群实测，不用预测；“大盘副本数和实际副本数不一样”的原因是副本数指标是就绪的、实际是 Kubernetes 的 spec.replicas，改为优先取后者；“卡片墙 8 个、别处 22 个”没有复现，用来源、时间、周期内最少与最多让差异可见；邮件版式等截图。
 - **验证**：`go test -p 1 ./pkg/...`、`go vet`、`gofmt`；前端 `vue-tsc`、`oxlint`、单元测试 83 个；真浏览器（临时库、假 Prometheus、假语言模型）；邮件 HTML 渲染成图。
 - **没验证**：真实 Prometheus 和副本数指标；真实模型是否照提示词答；JVM 堆等每个 Pod 都要付一份的内存不随副本数变化（页面只写明）；真发邮件；PostgreSQL、MySQL。
-- **注意**：迁移会新增两个 `analysis.rec_*` 系统参数；`PlanReplicas` 的结果在详情的 `recommend.replica_plan`。
+- **注意**：`PlanReplicas` 的结果在详情的 `recommend.replica_plan`；没有新增系统参数。上一版曾加过 `analysis.rec_min_replicas`、`analysis.rec_max_scale_in_percent`，用户指出模块管理里已经配了，已删除（迁移时一并清掉）。
