@@ -401,10 +401,10 @@ func (s *Service) decide(ctx context.Context, moduleID uint, failed map[string]s
 	in := decision.Inputs{
 		Now: now, Bypass: m.Bypass, BypassReason: m.BypassReason,
 		Policy: decision.Policy{
-			Bounds: decision.Bounds{MinCPUMilli: m.MinCPUMilli, MaxCPUMilli: m.MaxCPUMilli, MinMemoryBytes: m.MinMemoryBytes,
+			Bounds: decision.Bounds{MinCPUMilli: floorOf(m.MinCPUMilli, m.PodCPURequestMilli, m.FloorRatio), MaxCPUMilli: m.MaxCPUMilli, MinMemoryBytes: floorOf(m.MinMemoryBytes, m.PodMemoryRequestBytes, m.FloorRatio),
 				MaxMemoryBytes: m.MaxMemoryBytes, MinReplicas: m.MinReplicas, MaxReplicas: ceiling, MinGPU: m.MinGPU, MaxGPU: m.MaxGPU},
 			Fallback:      decision.Fallback{CPUMilli: m.FallbackCPUMilli, MemoryBytes: m.FallbackMemoryBytes, Replicas: m.FallbackReplicas, GPU: m.FallbackGPU},
-			HeadroomRatio: m.HeadroomRatio, PodCapacityRPS: m.PodCapacityRPS, Location: loc, TTL: ttl,
+			HeadroomRatio: m.HeadroomRatio, CapacityReserve: m.CapacityReserve(), PodCapacityRPS: m.PodCapacityRPS, Location: loc, TTL: ttl,
 			FixedReplicas: m.FixedReplicas,
 		},
 	}

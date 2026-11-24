@@ -231,9 +231,27 @@ type ForecastModule struct {
 	MaxGPU        int `gorm:"not null;default:0" json:"max_gpu" column_setting:"false"`
 	FallbackGPU   int `gorm:"not null;default:0" json:"fallback_gpu" column_setting:"false"`
 
-	// HeadroomRatio >= 1 multiplies the predicted peak; PodCapacityRPS is the verified safe load of one pod.
+	// HeadroomRatio >= 1 multiplies the predicted peak (the recommendation coefficient); PodCapacityRPS is the verified safe load of one pod, in requests per second.
 	HeadroomRatio  float64 `gorm:"not null;default:1" json:"headroom_ratio" column_setting:"false"`
 	PodCapacityRPS float64 `gorm:"not null;default:0" json:"pod_capacity_rps" column_setting:"false"`
+
+	// The coefficients of the calculation that have no home among the fields above, so no number in a formula is written in the code (module management has
+	// them in one place; TargetUtilization is the capacity reserve coefficient and OOMMemoryUplift the OOM protection coefficient):
+	// OOMCalc*Ratio are what each kind of base of the OOM floor is multiplied by before the largest is taken (the working set before the kill, the memory limit
+	// in force, the memory history when there is no other); FloorRatio, when positive, keeps the CPU and memory recommendation from going below the Pod request the module
+	// states times it (0 = off); MaxShortfall is the largest peak shortfall of an algorithm a forecast is scaled by (0.5 scales a forecast by at most 2).
+	OOMCalcWorkingSetRatio float64 `gorm:"not null;default:1" json:"oom_calc_working_set_ratio" column_setting:"false"`
+	OOMCalcLimitRatio      float64 `gorm:"not null;default:1" json:"oom_calc_limit_ratio" column_setting:"false"`
+	OOMCalcHistoryRatio    float64 `gorm:"not null;default:1" json:"oom_calc_history_ratio" column_setting:"false"`
+	FloorRatio             float64 `gorm:"not null;default:0" json:"floor_ratio" column_setting:"false"`
+	// RecP90Target, RecP95Target, RecP99Target and RecLimitHeadroom are the coefficients of the recommendation of the resource dashboard for this module: the share of
+	// the Requests the percentile is wanted to take at the recommended Requests (0.8 divides the use by 0.8), and the margin of the recommended Limits over the P99.
+	// 0 follows the system setting (System settings > Resource analysis and recommendation).
+	RecP90Target     float64 `gorm:"not null;default:0" json:"rec_p90_target" column_setting:"false"`
+	RecP95Target     float64 `gorm:"not null;default:0" json:"rec_p95_target" column_setting:"false"`
+	RecP99Target     float64 `gorm:"not null;default:0" json:"rec_p99_target" column_setting:"false"`
+	RecLimitHeadroom float64 `gorm:"not null;default:0" json:"rec_limit_headroom" column_setting:"false"`
+	MaxShortfall     float64 `gorm:"not null;default:0.5" json:"max_shortfall" column_setting:"false"`
 
 	// Dynamic replica solving. ReplicaMode "" or "fixed" keeps the original formula and ignores the fields below.
 	ReplicaMode           string  `gorm:"type:varchar(16);not null;default:'fixed'" json:"replica_mode" column_setting:"false"`
@@ -254,6 +272,32 @@ func (ForecastModule) TableName() string { return "forecast_module" }
 func (m *ForecastModule) Predicts() bool {
 	return m.PredictEnabled && m.PredictMode != PredictNone
 }
+
+// CapacityReserve is the capacity reserve coefficient: the share of the capacity (of a Pod, of a request) the load may take, in (0, 1]; a recommendation is the need divided
+// by it, so 0.8 leaves a fifth free. An unset (0) coefficient is 1: nothing is held back.
+func (m *ForecastModule) CapacityReserve() float64 {
+	if m.TargetUtilization > 0 && m.TargetUtilization <= 1 {
+		return m.TargetUtilization
+	}
+	return 1
+}
+
+// ShortfallCap is the largest peak shortfall a forecast is scaled by (default 0.5) and MaxUncertainty the scale that goes with it, s / (1 - s).
+func (m *ForecastModule) ShortfallCap() float64 {
+	if m.MaxShortfall > 0 && m.MaxShortfall < 1 {
+		return m.MaxShortfall
+	}
+	return DefaultMaxShortfall
+}
+
+// MaxUncertainty is the most a forecast is scaled by, as a share of itself: the shortfall cap s gives s / (1 - s) (0.5 gives 1: twice the forecast).
+func (m *ForecastModule) MaxUncertainty() float64 {
+	s := m.ShortfallCap()
+	return s / (1 - s)
+}
+
+// DefaultMaxShortfall is the peak shortfall cap of a module that sets none.
+const DefaultMaxShortfall = 0.5
 
 // OOMScoreWeight is the share of the memory score one OOM kill takes away: 0 unless the OOM weight is switched on.
 func (m *ForecastModule) OOMScoreWeight() float64 {
@@ -403,7 +447,32 @@ func (m *ForecastModule) Validate() error {
 		return fmt.Errorf("pod requests must not be negative")
 	}
 	if m.TargetUtilization < 0 || m.TargetUtilization > 1 {
-		return fmt.Errorf("target_utilization must be between 0 and 1")
+		return fmt.Errorf("target_utilization (the capacity reserve coefficient) must be between 0 and 1")
+	}
+	for name, v := range map[string]*float64{"oom_calc_working_set_ratio": &m.OOMCalcWorkingSetRatio, "oom_calc_limit_ratio": &m.OOMCalcLimitRatio, "oom_calc_history_ratio": &m.OOMCalcHistoryRatio} {
+		if *v == 0 {
+			*v = 1
+		}
+		if *v < 0.1 || *v > 5 {
+			return fmt.Errorf("%s must be between 0.1 and 5", name)
+		}
+	}
+	for name, v := range map[string]float64{"rec_p90_target": m.RecP90Target, "rec_p95_target": m.RecP95Target, "rec_p99_target": m.RecP99Target} {
+		if v != 0 && (v < 0.1 || v > 3) {
+			return fmt.Errorf("%s must be 0 (follow the system setting) or between 0.1 and 3", name)
+		}
+	}
+	if m.RecLimitHeadroom < 0 || m.RecLimitHeadroom > 3 {
+		return fmt.Errorf("rec_limit_headroom must be between 0 (follow the system setting) and 3")
+	}
+	if m.FloorRatio < 0 || m.FloorRatio > 1 {
+		return fmt.Errorf("floor_ratio must be between 0 and 1 (0 = off)")
+	}
+	if m.MaxShortfall == 0 {
+		m.MaxShortfall = DefaultMaxShortfall
+	}
+	if m.MaxShortfall < 0.05 || m.MaxShortfall > 0.9 {
+		return fmt.Errorf("max_shortfall must be between 0.05 and 0.9")
 	}
 	switch m.PredictMode {
 	case "":

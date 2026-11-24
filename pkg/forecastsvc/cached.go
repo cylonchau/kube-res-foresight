@@ -193,7 +193,7 @@ func (s *Service) OverprovisionDetailCached(ctx context.Context, moduleID uint, 
 	ttl := min(s.cacheTTL(ctx), statsBucket)
 	key := fmt.Sprintf("opdetail|%d|%d|%d|%d", moduleID, windowMinutes, from.Unix()/60, to.Unix()/60)
 	// the rules of the recommendation (the bands and the period) are in the version: a changed system parameter is not answered from the old figures
-	version := fmt.Sprintf("m%d@%d|b%d|%v|%d", m.ID, m.UpdatedAt.UnixNano(), s.now().Unix()/int64(statsBucket/time.Second), s.OverprovisionParams(ctx), s.OverprovisionBaseline(ctx))
+	version := fmt.Sprintf("m%d@%d|b%d|%v|%d", m.ID, m.UpdatedAt.UnixNano(), s.now().Unix()/int64(statsBucket/time.Second), moduleParams(s.OverprovisionParams(ctx), m), s.OverprovisionBaseline(ctx))
 	out, kept, err := resultcache.Do(ctx, s.cache(), key, version, ttl, func(ctx context.Context) (*DetailOverprovision, error) {
 		return s.OverprovisionDetail(ctx, moduleID, windowMinutes, from, to)
 	})

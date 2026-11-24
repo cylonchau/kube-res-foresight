@@ -58,6 +58,27 @@ func (s *Service) OverprovisionParams(ctx context.Context) overprovision.Params 
 	return p
 }
 
+// moduleParams are the numbers of the analysis for one module: the system settings, with the coefficients the module sets in module management over them (the target
+// share of each percentile, the margin of the recommended Limits, the OOM protection coefficient). A coefficient the module leaves at 0 follows the system.
+func moduleParams(p overprovision.Params, m *model.ForecastModule) overprovision.Params {
+	if m.RecP90Target > 0 {
+		p.P90.Target = m.RecP90Target
+	}
+	if m.RecP95Target > 0 {
+		p.P95.Target = m.RecP95Target
+	}
+	if m.RecP99Target > 0 {
+		p.P99.Target = m.RecP99Target
+	}
+	if m.RecLimitHeadroom > 0 {
+		p.LimitHeadroom = m.RecLimitHeadroom
+	}
+	if m.OOMMemoryUplift >= 1 {
+		p.OOMUplift = m.OOMMemoryUplift
+	}
+	return p
+}
+
 // OverprovisionBaseline is the window (in minutes) the dashboard shows: the system parameter in days, taken to the nearest window of the list.
 func (s *Service) OverprovisionBaseline(ctx context.Context) int {
 	days := s.targetPercent(ctx, timing.OPBaselineDays)
@@ -340,6 +361,8 @@ type ModuleOverprovision struct {
 	ReplicasAt    int64 `json:"replicas_at,omitempty"`
 	ReplicasMin   int   `json:"replicas_min,omitempty"`
 	ReplicasMax   int   `json:"replicas_max,omitempty"`
+	// Coefficients are those of the module in module management.
+	Coefficients *ModuleCoefficients `json:"coefficients,omitempty"`
 	// Windows are the results, shortest window first; each has a CPU and a memory result (nil when the module has no such use series).
 	Windows []*WindowOverprovision `json:"windows"`
 	JVM     *JVMInfo               `json:"jvm,omitempty"`
@@ -355,6 +378,25 @@ type ModuleOverprovision struct {
 	Queries    []LiveQuery `json:"queries"`
 	Partial    bool        `json:"partial"`
 	Skipped    int         `json:"skipped"`
+}
+
+// ModuleCoefficients are the coefficients of the calculation as module management has them for the module, so a card of the dashboard shows the figure that is
+// set and not one written into the page.
+type ModuleCoefficients struct {
+	// CapacityReserve is the capacity reserve coefficient in force (1 when the module sets none, Set false): a recommendation is the need divided by it.
+	CapacityReserve    float64 `json:"capacity_reserve"`
+	CapacityReserveSet bool    `json:"capacity_reserve_set"`
+	// Headroom is the recommendation coefficient (the peak is multiplied by it), OOMUplift the OOM protection coefficient.
+	Headroom  float64 `json:"headroom"`
+	OOMUplift float64 `json:"oom_uplift"`
+}
+
+func coefficientsOf(m *model.ForecastModule) *ModuleCoefficients {
+	headroom := m.HeadroomRatio
+	if headroom < 1 {
+		headroom = 1
+	}
+	return &ModuleCoefficients{CapacityReserve: m.CapacityReserve(), CapacityReserveSet: m.TargetUtilization > 0 && m.TargetUtilization <= 1, Headroom: headroom, OOMUplift: m.OOMMemoryUplift}
 }
 
 // WindowOverprovision is the result of one window.
@@ -509,7 +551,7 @@ func (s *Service) moduleHeader(m *model.ForecastModule, replicas int, at time.Ti
 func (s *Service) AnalyzeOverprovision(ctx context.Context, m *model.ForecastModule) (*ModuleOverprovision, error) {
 	now := s.now()
 	last := overprovision.Windows[len(overprovision.Windows)-1]
-	p := s.OverprovisionParams(ctx)
+	p := moduleParams(s.OverprovisionParams(ctx), m)
 	l := s.newOPLoader(ctx, m, now.Add(-time.Duration(last.Minutes)*time.Minute), now)
 	replicas := s.costReplicas(ctx, m, l.run, nil, now)
 	out := s.moduleHeader(m, replicas, now)
@@ -615,7 +657,7 @@ func (s *Service) OverprovisionDetail(ctx context.Context, moduleID uint, window
 		}
 		label, to = w.Label, now
 	}
-	p := s.OverprovisionParams(ctx)
+	p := moduleParams(s.OverprovisionParams(ctx), m)
 	l := s.newLiveLoader(ctx, m, to.Add(-time.Duration(windowMinutes)*time.Minute), to)
 	// the replicas the workload is set to, from the Kubernetes API: the Pods a sum of Requests was made over are these (a Pod still starting has its Requests and is not ready)
 	k8sDesired, k8sReady, k8sAt, fromK8s := s.kubernetesReplicas(ctx, m, now)
@@ -652,6 +694,7 @@ func (s *Service) OverprovisionDetail(ctx context.Context, moduleID uint, window
 		repFrom = ""
 	}
 	mo := s.moduleHeader(m, replicas, to)
+	mo.Coefficients = coefficientsOf(m)
 	facts := l.replicaFacts(replicas, to.Add(-time.Duration(recMinutes)*time.Minute).Unix())
 	mo.ReplicasFrom, mo.ReplicasAt, mo.ReplicasMin, mo.ReplicasMax = repFrom, facts.At, facts.Min, facts.Max
 	if fromK8s {

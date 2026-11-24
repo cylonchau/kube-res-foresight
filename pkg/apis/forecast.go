@@ -72,6 +72,17 @@ type ModuleCreateReq struct {
 	PodMemoryRequestBytes int64   `json:"pod_memory_request_bytes"`
 	TargetUtilization     float64 `json:"target_utilization"`
 
+	// The coefficients of the calculation (zero takes the default: 1, 0 = off for the floor, 0.5 for the shortfall cap).
+	OOMCalcWorkingSetRatio float64 `json:"oom_calc_working_set_ratio"`
+	OOMCalcLimitRatio      float64 `json:"oom_calc_limit_ratio"`
+	OOMCalcHistoryRatio    float64 `json:"oom_calc_history_ratio"`
+	FloorRatio             float64 `json:"floor_ratio"`
+	MaxShortfall           float64 `json:"max_shortfall"`
+	RecP90Target           float64 `json:"rec_p90_target"`
+	RecP95Target           float64 `json:"rec_p95_target"`
+	RecP99Target           float64 `json:"rec_p99_target"`
+	RecLimitHeadroom       float64 `json:"rec_limit_headroom"`
+
 	// Replica ceiling: fixed, or dynamic (up to HardMaxReplicas, by ExpandStepRatio per cycle).
 	MaxReplicasMode string  `json:"max_replicas_mode"`
 	HardMaxReplicas int     `json:"hard_max_replicas"`
@@ -149,6 +160,16 @@ type ModuleUpdateReq struct {
 	PodCPURequestMilli    *int64   `json:"pod_cpu_request_milli"`
 	PodMemoryRequestBytes *int64   `json:"pod_memory_request_bytes"`
 	TargetUtilization     *float64 `json:"target_utilization"`
+
+	OOMCalcWorkingSetRatio *float64 `json:"oom_calc_working_set_ratio"`
+	OOMCalcLimitRatio      *float64 `json:"oom_calc_limit_ratio"`
+	OOMCalcHistoryRatio    *float64 `json:"oom_calc_history_ratio"`
+	FloorRatio             *float64 `json:"floor_ratio"`
+	MaxShortfall           *float64 `json:"max_shortfall"`
+	RecP90Target           *float64 `json:"rec_p90_target"`
+	RecP95Target           *float64 `json:"rec_p95_target"`
+	RecP99Target           *float64 `json:"rec_p99_target"`
+	RecLimitHeadroom       *float64 `json:"rec_limit_headroom"`
 
 	MaxReplicasMode *string  `json:"max_replicas_mode"`
 	HardMaxReplicas *int     `json:"hard_max_replicas"`

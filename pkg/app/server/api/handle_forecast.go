@@ -151,6 +151,9 @@ func (r *ForecastRouter) CreateModule(c *gin.Context) {
 		HeadroomRatio: req.HeadroomRatio, PodCapacityRPS: req.PodCapacityRPS, Timezone: req.Timezone,
 		ReplicaMode: req.ReplicaMode, CapacityMode: req.CapacityMode,
 		PodCPURequestMilli: req.PodCPURequestMilli, PodMemoryRequestBytes: req.PodMemoryRequestBytes, TargetUtilization: req.TargetUtilization,
+		OOMCalcWorkingSetRatio: req.OOMCalcWorkingSetRatio, OOMCalcLimitRatio: req.OOMCalcLimitRatio, OOMCalcHistoryRatio: req.OOMCalcHistoryRatio,
+		FloorRatio: req.FloorRatio, MaxShortfall: req.MaxShortfall,
+		RecP90Target: req.RecP90Target, RecP95Target: req.RecP95Target, RecP99Target: req.RecP99Target, RecLimitHeadroom: req.RecLimitHeadroom,
 		MaxReplicasMode: req.MaxReplicasMode, HardMaxReplicas: req.HardMaxReplicas, ExpandStepRatio: req.ExpandStepRatio,
 		OOMLookbackDays: req.OOMLookbackDays, OOMMemoryUplift: req.OOMMemoryUplift, JVMHeapPressure: 0.85, RecoverCycles: req.RecoverCycles,
 	}
@@ -270,6 +273,9 @@ func applyModuleUpdate(m *model.ForecastModule, req *apis.ModuleUpdateReq) {
 	}
 	for dst, src := range map[*float64]*float64{
 		&m.LimitCPURatio: req.LimitCPURatio, &m.LimitMemoryRatio: req.LimitMemoryRatio, &m.HeadroomRatio: req.HeadroomRatio, &m.PodCapacityRPS: req.PodCapacityRPS, &m.TargetUtilization: req.TargetUtilization,
+		&m.OOMCalcWorkingSetRatio: req.OOMCalcWorkingSetRatio, &m.OOMCalcLimitRatio: req.OOMCalcLimitRatio, &m.OOMCalcHistoryRatio: req.OOMCalcHistoryRatio,
+		&m.FloorRatio: req.FloorRatio, &m.MaxShortfall: req.MaxShortfall,
+		&m.RecP90Target: req.RecP90Target, &m.RecP95Target: req.RecP95Target, &m.RecP99Target: req.RecP99Target, &m.RecLimitHeadroom: req.RecLimitHeadroom,
 		&m.FallbackMinHistoryRatio: req.FallbackMinHistoryRatio, &m.MaxMissingRatio: req.MaxMissingRatio,
 		&m.OOMMemoryUplift: req.OOMMemoryUplift, &m.OOMWeight: req.OOMWeight, &m.JVMHeapPressure: req.JVMHeapPressure, &m.MinScore: req.MinScore, &m.ExpandStepRatio: req.ExpandStepRatio,
 	} {

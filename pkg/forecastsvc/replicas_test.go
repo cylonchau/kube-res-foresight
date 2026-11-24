@@ -210,9 +210,10 @@ func TestDynamicReplicasEstimateCapacityFromHistoryOrExplainWhatIsMissing(t *tes
 // factor is cut at 2 and the plan says that it was cut. Before the cap, an algorithm that had missed a peak by 95% five times in
 // its last thirty runs was given (1 + 9) times its forecast, which put the replicas at the maximum whatever the load was.
 func TestAMeasuredShortfallIsCutAtTheCapAndThePlanSaysSo(t *testing.T) {
-	assert.InDelta(t, 1.0, shortfallToUncertainty(0.95), 1e-9, "a factor of 2 at most")
-	assert.InDelta(t, 1.0, shortfallToUncertainty(0.5), 1e-9)
-	assert.InDelta(t, 0.25, shortfallToUncertainty(0.2), 1e-9, "a shortfall below the cap is used as it is")
+	assert.InDelta(t, 1.0, shortfallToUncertainty(0.95, 0.5), 1e-9, "a factor of 2 at most")
+	assert.InDelta(t, 1.0, shortfallToUncertainty(0.5, 0.5), 1e-9)
+	assert.InDelta(t, 0.25, shortfallToUncertainty(0.2, 0.5), 1e-9, "a shortfall below the cap is used as it is")
+	assert.InDelta(t, 3.0, shortfallToUncertainty(0.9, 0.75), 1e-9, "the cap of the module: 0.75 scales a forecast by at most 4")
 
 	f := newFixture(t)
 	ctx := context.Background()

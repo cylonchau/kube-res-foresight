@@ -334,8 +334,22 @@ func EnsureDefaultConfigs() error {
 		return err
 	}
 	// the period of the analysis changed its meaning: it is what the recommendation is worked out over, so a row of an older version says so too
-	return model.DB.Model(&model.SysConfig{}).Where("config_key = ?", timing.OPBaselineDays.Key).
-		Updates(map[string]any{"config_name": timing.OPBaselineDays.Name, "remark": timing.OPBaselineDays.Remark}).Error
+	if err := model.DB.Model(&model.SysConfig{}).Where("config_key = ?", timing.OPBaselineDays.Key).
+		Updates(map[string]any{"config_name": timing.OPBaselineDays.Name, "remark": timing.OPBaselineDays.Remark}).Error; err != nil {
+		return err
+	}
+	return resetHiddenCapacityReserve()
+}
+
+// resetHiddenCapacityReserve clears the 0.7 the module form wrote into the capacity reserve coefficient (target_utilization) of every module it saved, although the
+// field was shown only for the dynamic replicas: the CPU and memory recommendation is now divided by that coefficient, and a figure nobody saw must not shrink the
+// recommendation of a module that never used it. A module with dynamic replicas chose its figure where it was shown, and keeps it.
+func resetHiddenCapacityReserve() error {
+	if !model.DB.Migrator().HasTable(&model.ForecastModule{}) {
+		return nil // a database that has no modules yet has nothing to clear
+	}
+	return model.DB.Model(&model.ForecastModule{}).Where("target_utilization = ? AND replica_mode <> ?", 0.7, model.ReplicaModeDynamic).
+		Update("target_utilization", 0).Error
 }
 
 // retiredAnalysisKeys are the system parameters of the first rules of the recommendation (a margin over P95, a margin over P99 and a factor over the highest use,

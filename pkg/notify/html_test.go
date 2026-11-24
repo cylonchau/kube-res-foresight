@@ -32,3 +32,11 @@ func TestInlineMailStylesPutTheStyleOnTheTagAndKeepWhatTheAnswerHas(t *testing.T
 	assert.Contains(t, out, `<h2 style="margin:16px 0 6px`)
 	assert.NotContains(t, out, "<tr style", "rows are left as they are")
 }
+
+func TestAFormulaOfTheAnswerIsTypesetOnItsTags(t *testing.T) {
+	out := InlineMailStyles(`<div class="fx"><div>P95 ÷ <span class="fx-c">0.85</span> = <span class="fx-r">3.76 cores</span></div></div><div class="other">x</div>`)
+	assert.Contains(t, out, `style="margin:6px 0;padding:6px 10px;border:1px solid #d5d8de`)
+	assert.Contains(t, out, `style="padding:0 5px;font-weight:600;color:#c77d0a`)
+	assert.Contains(t, out, `style="padding:0 5px;font-weight:700;color:#18a058`)
+	assert.Contains(t, out, `<div class="other">x</div>`, "a div that is not a formula is left as it is")
+}

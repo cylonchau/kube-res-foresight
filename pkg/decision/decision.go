@@ -69,6 +69,8 @@ type Policy struct {
 	Fallback
 	// HeadroomRatio multiplies the predicted peak (>= 1; 1 = no headroom).
 	HeadroomRatio float64
+	// CapacityReserve is the capacity reserve coefficient in (0, 1] (0 = 1): the CPU and the memory recommended are the need divided by it, so 0.8 leaves a fifth free.
+	CapacityReserve float64
 	// PodCapacityRPS is the verified safe requests-per-second of one Ready pod. Zero disables replica
 	// recommendations from the model: total RPS divided by guessed capacity would be invented precision.
 	PodCapacityRPS float64
@@ -207,14 +209,18 @@ func Decide(in Inputs) Recommendation {
 	if headroom < 1 {
 		headroom = 1
 	}
+	reserve := in.Policy.CapacityReserve
+	if reserve <= 0 || reserve > 1 {
+		reserve = 1
+	}
 	b := in.Policy.Bounds
 
 	rec.CPUMilli = decideField(fieldSpec{
 		name: "cpu", lo: b.MinCPUMilli, hi: b.MaxCPUMilli, fallback: in.Policy.CPUMilli,
 		period: func(p FixedPeriod) int64 { return p.CPUMilli },
 		convert: func(c Candidate) (int64, string) {
-			v := math.Ceil(c.Peak * headroom * 1000)
-			return int64(v), fmt.Sprintf("peak %.4g cores x headroom %.3g", c.Peak, headroom)
+			v := math.Ceil(c.Peak * headroom / reserve * 1000)
+			return int64(v), fmt.Sprintf("peak %.4g cores x headroom %.3g / capacity reserve %.3g", c.Peak, headroom, reserve)
 		},
 		candidates: in.CPUCores,
 	}, periods)
@@ -222,8 +228,8 @@ func Decide(in Inputs) Recommendation {
 		name: "memory", lo: b.MinMemoryBytes, hi: b.MaxMemoryBytes, fallback: in.Policy.MemoryBytes,
 		period: func(p FixedPeriod) int64 { return p.MemoryBytes },
 		convert: func(c Candidate) (int64, string) {
-			v := math.Ceil(c.Peak * headroom)
-			return int64(v), fmt.Sprintf("peak %.4g bytes x headroom %.3g", c.Peak, headroom)
+			v := math.Ceil(c.Peak * headroom / reserve)
+			return int64(v), fmt.Sprintf("peak %.4g bytes x headroom %.3g / capacity reserve %.3g", c.Peak, headroom, reserve)
 		},
 		candidates: in.MemoryBytes,
 	}, periods)

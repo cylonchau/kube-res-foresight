@@ -25,7 +25,7 @@ const (
 	// would otherwise multiply every later forecast by up to 10 and put the replicas at the maximum for good. At 0.5 the forecast is
 	// scaled by at most 2; an algorithm that misses peaks by more than half is not made safe by a bigger factor, it is the wrong
 	// algorithm, and the plan says so.
-	maxShortfall = 0.5
+	maxShortfall = model.DefaultMaxShortfall
 	// capacityLookback is the history the pod capacity is estimated from.
 	capacityLookback = 7 * 24 * time.Hour
 	// executionFreshness is how long the operator's last report is trusted as the current replica count.
@@ -53,23 +53,23 @@ type ReplicaDetail struct {
 
 // shortfallToUncertainty turns the relative shortfall of the predicted peak (0.2: the forecast peak was 20%
 // below what happened) into the factor u such that forecast x (1 + u) restores the actual peak.
-func shortfallToUncertainty(s float64) float64 {
-	s = math.Min(math.Max(s, 0), maxShortfall)
+func shortfallToUncertainty(s, cap float64) float64 {
+	s = math.Min(math.Max(s, 0), cap)
 	return s / (1 - s)
 }
 
 // uncertaintyCapNote is the sentence that says a measured shortfall was cut to the cap; empty when it was not.
-func uncertaintyCapNote(algorithm string, shortfall float64) string {
-	if shortfall <= maxShortfall {
+func uncertaintyCapNote(algorithm string, shortfall, cap float64) string {
+	if shortfall <= cap {
 		return ""
 	}
 	return fmt.Sprintf("%s missed the peak by %.0f%% at the P90 of its recent evaluations, above the limit of %.0f%%: its forecast is scaled by at most x%.1f, not by x%.1f",
-		algorithm, shortfall*100, maxShortfall*100, 1+shortfallToUncertainty(maxShortfall), 1/(1-math.Min(shortfall, 0.99)))
+		algorithm, shortfall*100, cap*100, 1+shortfallToUncertainty(cap, cap), 1/(1-math.Min(shortfall, 0.99)))
 }
 
 // uncertainty is the expected peak shortfall of an algorithm on a metric: the P90 of its measured shortfall
 // over recent prediction runs, else its latest backtest, else nothing (the caller uses the module headroom).
-func (s *Service) uncertainty(ctx context.Context, instanceID uint, metric, algorithm string, now time.Time) (*float64, string, float64, error) {
+func (s *Service) uncertainty(ctx context.Context, instanceID uint, metric, algorithm string, now time.Time, cap float64) (*float64, string, float64, error) {
 	since := now.Add(-uncertaintyWindow)
 	evals, err := s.Predictions.AllEvaluations(ctx, rdb.EvaluationFilter{ModuleID: instanceID, Metric: metric, AlgorithmID: algorithm, Since: &since})
 	if err != nil {
@@ -84,7 +84,7 @@ func (s *Service) uncertainty(ctx context.Context, instanceID uint, metric, algo
 			shortfalls[i] = e.PeakUnder
 		}
 		raw := decision.Percentile(shortfalls, s.Percentile(ctx, timing.UncertaintyPercentile))
-		u := shortfallToUncertainty(raw)
+		u := shortfallToUncertainty(raw, cap)
 		return &u, decision.UncertaintyMeasured, raw, nil
 	}
 	run, err := s.Predictions.LatestBacktest(ctx, instanceID, metric, algorithm)
@@ -98,7 +98,7 @@ func (s *Service) uncertainty(ctx context.Context, instanceID uint, metric, algo
 			Points    int     `json:"points"`
 		}
 		if json.Unmarshal([]byte(run.Metrics), &res) == nil && res.Skipped == "" && res.Points > 0 {
-			u := shortfallToUncertainty(res.PeakUnder)
+			u := shortfallToUncertainty(res.PeakUnder, cap)
 			return &u, decision.UncertaintyBacktest, res.PeakUnder, nil
 		}
 	}
@@ -238,9 +238,9 @@ func (s *Service) solverSeries(ctx context.Context, m *model.ForecastModule, cal
 			}
 			sc := decision.SeriesCandidate{Algorithm: algo, Values: values}
 			if m.ReplicaMode == model.ReplicaModeDynamic {
-				if u, source, raw, err := s.cachedUncertainty(ctx, cache, c.st.inst.ID, rv.Sources[0], algo, now); err == nil {
+				if u, source, raw, err := s.cachedUncertainty(ctx, cache, c.st.inst.ID, rv.Sources[0], algo, now, m.ShortfallCap()); err == nil {
 					sc.Uncertainty, sc.UncertaintySource = u, source
-					if note := uncertaintyCapNote(algo, raw); note != "" && !noted["cap:"+algo+spec.resource] {
+					if note := uncertaintyCapNote(algo, raw, m.ShortfallCap()); note != "" && !noted["cap:"+algo+spec.resource] {
 						noted["cap:"+algo+spec.resource] = true
 						notes = append(notes, note)
 					}
@@ -262,15 +262,15 @@ type uncertaintyResult struct {
 	err    error
 }
 
-func (s *Service) cachedUncertainty(ctx context.Context, cache uncertaintyCache, instanceID uint, metric, algorithm string, now time.Time) (*float64, string, float64, error) {
+func (s *Service) cachedUncertainty(ctx context.Context, cache uncertaintyCache, instanceID uint, metric, algorithm string, now time.Time, cap float64) (*float64, string, float64, error) {
 	if cache == nil {
-		return s.uncertainty(ctx, instanceID, metric, algorithm, now)
+		return s.uncertainty(ctx, instanceID, metric, algorithm, now, cap)
 	}
 	key := fmt.Sprintf("%d/%s/%s", instanceID, metric, algorithm)
 	if r, ok := cache[key]; ok {
 		return r.u, r.source, r.raw, r.err
 	}
-	u, source, raw, err := s.uncertainty(ctx, instanceID, metric, algorithm, now)
+	u, source, raw, err := s.uncertainty(ctx, instanceID, metric, algorithm, now, cap)
 	cache[key] = uncertaintyResult{u, source, raw, err}
 	return u, source, raw, err
 }
@@ -282,7 +282,7 @@ func (s *Service) solveReplicas(ctx context.Context, m *model.ForecastModule, bs
 	detail := &ReplicaDetail{Mode: model.ReplicaModeDynamic, Capacity: CapacityDetail{Source: decision.CapacityNone}, Plans: []decision.ReplicaPlan{}, Notes: notes}
 	cfg := decision.SolverConfig{
 		PodCPUCores: float64(m.PodCPURequestMilli) / 1000, PodMemoryBytes: float64(m.PodMemoryRequestBytes),
-		TargetUtilization: m.TargetUtilization, Headroom: m.HeadroomRatio,
+		TargetUtilization: m.TargetUtilization, Headroom: m.HeadroomRatio, MaxUncertainty: m.MaxUncertainty(),
 		Bounds:           decision.Bounds{MinReplicas: m.MinReplicas, MaxReplicas: ceiling},
 		CurrentReplicas:  current,
 		PressureReplicas: pressure, PressureAlgorithm: pressureAlgorithm, PressureReason: pressureWhy, PressureSteps: 3,

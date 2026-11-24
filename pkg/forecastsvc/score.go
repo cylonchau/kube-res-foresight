@@ -43,12 +43,13 @@ func outcomeOf(m *model.ForecastModule, res multimetric.Result, current int) sco
 	if headroom < 1 {
 		headroom = 1
 	}
+	reserve := m.CapacityReserve()
 	var o scoring.Outcome
 	if v, ok := res.Resources[multimetric.ResourceCPU]; ok {
-		o.CPU, o.HasCPU = v.Value*headroom, true
+		o.CPU, o.HasCPU = v.Value*headroom/reserve, true
 	}
 	if v, ok := res.Resources[multimetric.ResourceMemory]; ok {
-		o.Memory, o.HasMemory = v.Value*headroom, true
+		o.Memory, o.HasMemory = v.Value*headroom/reserve, true
 	}
 	if v, ok := res.Resources[multimetric.ResourceGPU]; ok {
 		o.GPU, o.HasGPU = math.Ceil(v.Value*headroom), true
@@ -401,4 +402,13 @@ func (s *Service) replayForecast(ctx context.Context, b *model.AlgorithmRun, bm 
 		return nil, false
 	}
 	return values, true
+}
+
+// floorOf is the least a CPU or memory recommendation may be: the module's own minimum, or the Pod request it states times the floor coefficient when that is more
+// (no floor coefficient, or no stated request, leaves the minimum as it is).
+func floorOf(minimum, stated int64, ratio float64) int64 {
+	if ratio <= 0 || stated <= 0 {
+		return minimum
+	}
+	return max(minimum, int64(math.Ceil(float64(stated)*ratio)))
 }

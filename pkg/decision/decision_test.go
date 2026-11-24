@@ -212,3 +212,20 @@ func TestValidatePeriod(t *testing.T) {
 		assert.Error(t, ValidatePeriod(p), name)
 	}
 }
+
+// The CPU and the memory recommended are the need divided by the capacity reserve coefficient of the module (0.8 leaves a fifth free), not multiplied by it; with none
+// set the coefficient is 1 and nothing changes. The replicas of the throughput capacity are not touched by it.
+func TestTheRecommendationIsTheNeedDividedByTheCapacityReserve(t *testing.T) {
+	in := inputs()
+	in.Policy.CapacityReserve = 0.8
+	rec := Decide(in)
+	assert.EqualValues(t, math.Ceil(1.5*1.2/0.8*1000), rec.CPUMilli.Value, "1.5 cores x headroom 1.2 / 0.8")
+	assert.Contains(t, rec.CPUMilli.Reason, "capacity reserve 0.8")
+	assert.EqualValues(t, math.Ceil(float64(1<<30)*1.2/0.8), rec.MemoryBytes.Value)
+	assert.EqualValues(t, 6, rec.Replicas.Value)
+
+	for _, unset := range []float64{0, 1, -1, 1.5} {
+		in.Policy.CapacityReserve = unset
+		assert.EqualValues(t, 1800, Decide(in).CPUMilli.Value, "an unset or impossible coefficient is 1")
+	}
+}

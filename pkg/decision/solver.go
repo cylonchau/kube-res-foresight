@@ -45,7 +45,9 @@ type SolverConfig struct {
 	CapacitySource string
 	// Headroom is the multiplier used where no measured uncertainty exists (>= 1).
 	Headroom float64
-	Bounds   Bounds
+	// MaxUncertainty is the most a forecast is scaled by, as a share of itself (0 = MaxUncertainty, 1: twice the forecast).
+	MaxUncertainty float64
+	Bounds         Bounds
 	// HeapPressure is the JVM heap used / heap max seen recently (0 = unknown) and HeapThreshold the ratio above
 	// which the replica count is raised in proportion; a zero threshold disables the rule.
 	HeapPressure  float64
@@ -128,7 +130,7 @@ func peakOf(values []float64) (float64, bool) {
 	return peak, ok
 }
 
-func factorOf(c SeriesCandidate, headroom float64) (factor, uncertainty float64, source string) {
+func factorOf(c SeriesCandidate, headroom, maxUncertainty float64) (factor, uncertainty float64, source string) {
 	if headroom < 1 {
 		headroom = 1
 	}
@@ -141,11 +143,14 @@ func factorOf(c SeriesCandidate, headroom float64) (factor, uncertainty float64,
 	}
 	// Whatever algorithm the series came from and whoever measured it, the forecast is scaled by 2 at most: a bigger factor does not
 	// make a forecast that misses peaks by more than half safe, it puts the replicas at the maximum (see the cap in forecastsvc).
-	u := math.Min(*c.Uncertainty, MaxUncertainty)
+	if maxUncertainty <= 0 {
+		maxUncertainty = MaxUncertainty
+	}
+	u := math.Min(*c.Uncertainty, maxUncertainty)
 	return 1 + u, u, source
 }
 
-// MaxUncertainty is the largest relative uncertainty a forecast is scaled by: 1 = twice the forecast.
+// MaxUncertainty is the largest relative uncertainty a forecast is scaled by when the module sets no cap: 1 = twice the forecast.
 const MaxUncertainty = 1.0
 
 // SolveReplicas computes, for every algorithm that has an eligible series, how many replicas the forecast
@@ -226,7 +231,7 @@ func solveFor(cfg SolverConfig, in ReplicaInputs, algo string) (ReplicaPlan, boo
 			plan.Skipped = append(plan.Skipped, fmt.Sprintf("%s: the %s forecast is empty or invalid", s.name, cand.Algorithm))
 			continue
 		}
-		factor, u, source := factorOf(cand, cfg.Headroom)
+		factor, u, source := factorOf(cand, cfg.Headroom, cfg.MaxUncertainty)
 		needed := int(math.Ceil(peak * factor / s.unit))
 		if s.name == ConstraintThroughput && needed < 1 {
 			needed = 1

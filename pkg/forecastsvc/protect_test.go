@@ -388,3 +388,48 @@ func TestHeapPressureRaisesDynamicReplicas(t *testing.T) {
 	assert.Greater(t, hot.Replicas, calm.Replicas)
 	assert.Contains(t, strings.Join(detail.Replica.Notes, " "), "JVM heap pressure")
 }
+
+// The base of the OOM floor has a coefficient for each kind (the working set before the kill, the limit in force); the largest is what the OOM protection
+// coefficient multiplies. With none set they are 1 and the floor is what it was.
+func TestEachKindOfOOMBaseHasACoefficientOfItsOwn(t *testing.T) {
+	ctx := context.Background()
+	floorWith := func(t *testing.T, wsRatio, limitRatio float64) OOMFloor {
+		f := newFixture(t)
+		for _, kind := range []string{"oom", "oom_working_set", "k8s_mem_limits"} {
+			f.addAux(t, kind)
+		}
+		f.bind(t, "cpu", "naive", nil, 0)
+		oomAt := testNow.Add(-2 * time.Hour)
+		f.values(map[string]func(time.Time) float64{
+			"oom_working_set": func(time.Time) float64 { return 1 * gib },
+			"k8s_mem_limits":  func(time.Time) float64 { return 3 * gib },
+			"oom": func(ts time.Time) float64 {
+				if ts.Equal(oomAt) {
+					return 1
+				}
+				return 0
+			},
+		})
+		_, err := f.collect(ctx)
+		require.NoError(t, err)
+		mod, err := f.svc.Modules.Get(ctx, f.module.ID)
+		require.NoError(t, err)
+		bs, err := f.svc.boundSet(ctx, mod)
+		require.NoError(t, err)
+		f.module.OOMCalcWorkingSetRatio, f.module.OOMCalcLimitRatio = wsRatio, limitRatio
+		floor, err := f.svc.oomFloor(ctx, f.module, bs, testNow)
+		require.NoError(t, err)
+		require.True(t, floor.Active, floor.Reason)
+		return floor
+	}
+	assert.EqualValues(t, int64(math.Ceil(3*gib*1.2)), floorWith(t, 1, 1).FloorBytes, "the limit of 3 GiB is the base")
+	assert.EqualValues(t, int64(math.Ceil(1.5*gib*1.2)), floorWith(t, 1, 0.5).FloorBytes, "the limit counted at half is 1.5 GiB, more than the 1 GiB working set")
+	assert.EqualValues(t, int64(math.Ceil(4*gib*1.2)), floorWith(t, 4, 1).FloorBytes, "the working set counted four times is 4 GiB, more than the limit")
+}
+
+func TestTheFloorCoefficientKeepsTheRecommendationFromGoingBelowTheStatedRequest(t *testing.T) {
+	assert.EqualValues(t, 100, floorOf(100, 0, 0.5), "no stated request: the module's own minimum")
+	assert.EqualValues(t, 100, floorOf(100, 1000, 0), "no coefficient: the module's own minimum")
+	assert.EqualValues(t, 500, floorOf(100, 1000, 0.5), "half of the stated request is more than the minimum")
+	assert.EqualValues(t, 600, floorOf(600, 1000, 0.5), "the minimum is more")
+}

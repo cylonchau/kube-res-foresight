@@ -793,6 +793,10 @@ func TestTheReplicasNowAreTheClustersAndThePlanStartsFromThem(t *testing.T) {
 	require.NotNil(t, d.Recommend.ReplicaPlan)
 	plan := d.Recommend.ReplicaPlan
 	assert.Equal(t, 11, plan.Current, "the replicas of the plan are the ones of the cluster")
+	// the coefficients are those of the module, as module management has them
+	require.NotNil(t, d.Coefficients)
+	assert.False(t, d.Coefficients.CapacityReserveSet)
+	assert.Equal(t, 1.0, d.Coefficients.CapacityReserve)
 	assert.NotEqual(t, overprovision.ScaleUnknown, plan.Direction)
 	assert.Equal(t, plan.Needed-plan.Current, plan.Delta)
 }
@@ -843,4 +847,54 @@ func TestTheReplicasNowAreTheWorkloadsOwnAndThePlanKeepsToTheModulesConstraints(
 	d, err = f.svc.OverprovisionDetail(ctx, f.module.ID, 24*60, time.Time{}, time.Time{})
 	require.NoError(t, err)
 	assert.Equal(t, "prometheus", d.ReplicasFrom)
+}
+
+// The card of the capacity reserve coefficient shows what module management has: a change of the module is in the next answer, not in a kept one.
+func TestTheDetailCarriesTheCoefficientsOfTheModule(t *testing.T) {
+	f := opFixture(t)
+	f.withRequests(t, 1.5)
+	ctx := context.Background()
+	d, err := f.svc.OverprovisionDetail(ctx, f.module.ID, 24*60, time.Time{}, time.Time{})
+	require.NoError(t, err)
+	require.NotNil(t, d.Coefficients)
+	assert.False(t, d.Coefficients.CapacityReserveSet)
+
+	f.module.TargetUtilization, f.module.HeadroomRatio, f.module.OOMMemoryUplift = 0.8, 1.2, 1.5
+	require.NoError(t, f.db.Save(f.module).Error)
+	d, err = f.svc.OverprovisionDetail(ctx, f.module.ID, 24*60, time.Time{}, time.Time{})
+	require.NoError(t, err)
+	assert.True(t, d.Coefficients.CapacityReserveSet)
+	assert.Equal(t, 0.8, d.Coefficients.CapacityReserve)
+	assert.Equal(t, 1.2, d.Coefficients.Headroom)
+	assert.Equal(t, 1.5, d.Coefficients.OOMUplift)
+}
+
+// The coefficients a module sets in module management go over the system settings; one it leaves at 0 follows the system.
+func TestTheModulesCoefficientsGoOverTheSystemSettings(t *testing.T) {
+	p := overprovision.DefaultParams()
+	same := moduleParams(p, &model.ForecastModule{})
+	assert.Equal(t, p.P90, same.P90)
+	assert.Equal(t, p.LimitHeadroom, same.LimitHeadroom)
+
+	m := &model.ForecastModule{RecP90Target: 0.7, RecP95Target: 0.9, RecP99Target: 1.2, RecLimitHeadroom: 0.3, OOMMemoryUplift: 1.5}
+	got := moduleParams(p, m)
+	assert.Equal(t, 0.7, got.P90.Target)
+	assert.Equal(t, p.P90.Low, got.P90.Low, "the range that is reasonable stays the system's")
+	assert.Equal(t, 0.9, got.P95.Target)
+	assert.Equal(t, 1.2, got.P99.Target)
+	assert.Equal(t, 0.3, got.LimitHeadroom)
+	assert.Equal(t, 1.5, got.OOMUplift)
+
+	// the recommended Requests is the use divided by the target of the module, so a lower target asks for more
+	f := opFixture(t)
+	f.withRequests(t, 1.5)
+	ctx := context.Background()
+	base, err := f.svc.OverprovisionDetail(ctx, f.module.ID, 24*60, time.Time{}, time.Time{})
+	require.NoError(t, err)
+	f.module.RecP90Target, f.module.RecP95Target, f.module.RecP99Target = 0.4, 0.4, 0.4
+	require.NoError(t, f.db.Save(f.module).Error)
+	lower, err := f.svc.OverprovisionDetail(ctx, f.module.ID, 24*60, time.Time{}, time.Time{})
+	require.NoError(t, err)
+	assert.Equal(t, 0.4, lower.Params.P95.Target)
+	assert.Greater(t, lower.Recommend.CPU.Needed, base.Recommend.CPU.Needed)
 }

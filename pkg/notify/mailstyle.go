@@ -17,6 +17,13 @@ var levelStyles = map[string]string{
 	"info": "color:#2080f0;background:#e8f1fd;font-weight:600",
 }
 
+var formulaStyles = map[string]string{
+	"fx":   "margin:6px 0;padding:6px 10px;border:1px solid #d5d8de;border-radius:6px;background:#f6f7f9;line-height:24px",
+	"fx-n": "font-style:italic",
+	"fx-c": "padding:0 5px;font-weight:600;color:#c77d0a;background:#fdf3e1;border-radius:4px",
+	"fx-r": "padding:0 5px;font-weight:700;color:#18a058;background:#e8f6ee;border-radius:4px",
+}
+
 const (
 	tableStyle   = "border-collapse:collapse;width:100%;margin:8px 0 14px;font-size:13px"
 	cellStyle    = "border:1px solid #d5d8de;padding:6px 8px;text-align:left;vertical-align:top"
@@ -26,10 +33,11 @@ const (
 )
 
 var (
-	openTag   = regexp.MustCompile(`(?is)<(table|thead|tbody|tr|th|td|caption|h[1-4])\b([^>]*)>`)
+	openTag   = regexp.MustCompile(`(?is)<(table|thead|tbody|tr|th|td|caption|h[1-4]|div|span)\b([^>]*)>`)
 	styleAttr = regexp.MustCompile(`(?is)\sstyle\s*=\s*("[^"]*"|'[^']*')`)
 	classAttr = regexp.MustCompile(`(?is)\sclass\s*=\s*("([^"]*)"|'([^']*)')`)
 	levelName = regexp.MustCompile(`lv-(ok|warn|bad|info)`)
+	fxName    = regexp.MustCompile(`(?:^|\s)(fx|fx-c|fx-n|fx-r)(?:\s|$)`)
 )
 
 // InlineMailStyles puts the styles of a table, its cells and its headings, and the colour of a level (class lv-ok, lv-warn, lv-bad, lv-info), on the tags of an HTML
@@ -50,6 +58,17 @@ func InlineMailStyles(page string) string {
 			style = captionStyle
 		case "h1", "h2", "h3", "h4":
 			style = headingStyle
+		case "div", "span":
+			// a formula the answer typeset: a block of lines, a coefficient, a name, a result
+			c := classAttr.FindStringSubmatch(attrs)
+			if c == nil {
+				return tag
+			}
+			f := fxName.FindStringSubmatch(c[2] + c[3])
+			if f == nil {
+				return tag
+			}
+			style = formulaStyles[f[1]]
 		default:
 			return tag
 		}

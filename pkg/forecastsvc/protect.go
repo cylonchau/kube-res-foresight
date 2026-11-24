@@ -84,6 +84,13 @@ func maxValue(samples []model.MetricSample) float64 {
 // The two coefficients have one job each: the OOM uplift raises the request after a kill, the limit ratio turns the final
 // request into the limit; neither is applied to the other's result. Without an OOM mapping or without events the floor is
 // inactive. An OOM with no usable baseline is reported but gives no floor (inventing a number would be worse than saying so).
+func orOne(v float64) float64 {
+	if v > 0 {
+		return v
+	}
+	return 1
+}
+
 func (s *Service) oomFloor(ctx context.Context, m *model.ForecastModule, bs boundSet, now time.Time) (OOMFloor, error) {
 	out := OOMFloor{Uplift: m.OOMMemoryUplift}
 	if len(bs.sourcesOfKind("oom")) == 0 {
@@ -121,19 +128,21 @@ func (s *Service) oomFloor(ctx context.Context, m *model.ForecastModule, bs boun
 	} else {
 		out.Limit = int64(maxValue(lim))
 	}
-	base := out.WorkingSet
+	// each kind of base has the coefficient of its own (module management; 1 leaves it as it is); the largest of them is what the uplift multiplies
+	wsRatio, limRatio, histRatio := orOne(m.OOMCalcWorkingSetRatio), orOne(m.OOMCalcLimitRatio), orOne(m.OOMCalcHistoryRatio)
+	base := int64(math.Ceil(float64(out.WorkingSet) * wsRatio))
 	inForce := out.Limit
 	if m.LimitMemoryRatio > 0 && inForce > 0 {
 		inForce = int64(math.Ceil(float64(inForce) / m.LimitMemoryRatio))
 	}
-	if inForce > base {
-		base = inForce
+	if v := int64(math.Ceil(float64(inForce) * limRatio)); v > base {
+		base = v
 	}
 	if base == 0 { // no OOM detail: the memory the workload itself used before the kill is the best evidence left
 		if mem, err := s.auxRange(ctx, bs, model.MetricMemory, last.Add(-window), last); err != nil {
 			return out, err
 		} else {
-			base = int64(maxValue(mem))
+			base = int64(math.Ceil(maxValue(mem) * histRatio))
 		}
 	}
 	if base == 0 {
