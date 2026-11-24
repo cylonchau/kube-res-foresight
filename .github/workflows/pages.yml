@@ -60,7 +60,7 @@ jobs:
       id-token: write
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: ${{ steps.deployment.outputs.page_url || steps.fallback.outputs.page_url }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -68,7 +68,7 @@ jobs:
           python-version: '3.x'
       - name: Generate the Pages artifact from source
         run: python scripts/build-site.py
-      - uses: actions/configure-pages@v5
+      - uses: actions/configure-pages@v6
         id: pages
       - name: Set the 404 home URL
         env:
@@ -81,9 +81,65 @@ jobs:
           home = html.escape(os.environ['PAGES_BASE_URL'].rstrip('/') + '/', quote=True)
           path.write_text(path.read_text(encoding='utf-8').replace('href="./" data-pages-home', f'href="{home}" data-pages-home'), encoding='utf-8')
           PY
-      - uses: actions/upload-pages-artifact@v4
+      - uses: actions/upload-pages-artifact@v5
+        id: upload
         with:
           path: site
+      - name: Show what was uploaded
+        if: always()
+        run: |
+          echo "artifact id: '${{ steps.upload.outputs.artifact_id }}'"
+          ls -l "$RUNNER_TEMP/artifact.tar" || true
+          tar -tf "$RUNNER_TEMP/artifact.tar" | head -5 || true
+          echo "files in the archive: $(tar -tf "$RUNNER_TEMP/artifact.tar" | wc -l)"
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        continue-on-error: true
+        uses: actions/deploy-pages@v5
+      # deploy-pages lists the artifacts of the run through the artifact service and finds none, although the upload step made one (the REST API of the
+      # run lists it, with its size). When that happens the deployment is created with the Pages API from the artifact id the upload step returned,
+      # which is what deploy-pages does once it has the id, and its status is polled until it ends.
+      - name: Deploy through the Pages API when the artifact cannot be listed
+        id: fallback
+        if: steps.deployment.outcome == 'failure'
+        uses: actions/github-script@v8
+        env:
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact_id }}
+        with:
+          script: |
+            const artifactId = Number(process.env.ARTIFACT_ID);
+            if (!artifactId) {
+              core.setFailed('the upload step returned no artifact id: there is nothing to deploy');
+              return;
+            }
+            const idToken = await core.getIDToken();
+            const created = await github.request('POST /repos/{owner}/{repo}/pages/deployments', {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              artifact_id: artifactId,
+              pages_build_version: context.sha,
+              oidc_token: idToken
+            });
+            const id = created.data.id || String(created.data.status_url || '').split('/').pop() || context.sha;
+            core.info(`Created deployment ${id} from artifact ${artifactId}`);
+            const failed = ['deployment_failed', 'deployment_content_failed', 'deployment_cancelled', 'deployment_lost'];
+            const started = Date.now();
+            let status = '';
+            while (Date.now() - started < 10 * 60 * 1000) {
+              await new Promise(resolve => setTimeout(resolve, 5000));
+              try {
+                const r = await github.request('GET /repos/{owner}/{repo}/pages/deployments/{id}', { owner: context.repo.owner, repo: context.repo.repo, id });
+                status = r.data.status;
+              } catch (error) {
+                core.warning(`status not read: ${error.message}`);
+                continue;
+              }
+              core.info(`status: ${status}`);
+              if (status === 'succeed') break;
+              if (failed.includes(status)) break;
+            }
+            if (status !== 'succeed') {
+              core.setFailed(`the Pages deployment ended as "${status || 'unknown'}"`);
+              return;
+            }
+            core.setOutput('page_url', created.data.page_url || '');

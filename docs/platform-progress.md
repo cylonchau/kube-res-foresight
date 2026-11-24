@@ -1054,3 +1054,9 @@ all ten management pages and the shared product title. Screenshots were inspecte
 - **约束**：不写没有实现或没有验证的能力；Operator 只用模拟客户端验证、没有真实集群，写在使用边界里；准入与自动默认关闭；图里的数字标明示意或来自代码里的示例；不复制需求原话。
 - **验证**：`python scripts/build-site.py`、`python scripts/check-site.py`（87 页、资源、锚点、双语目录）、`node --check`；Chrome 里看了 6 张图的亮色、暗色和中英文、文档页版式、手机宽度无横向溢出。
 - **没验证**：页面里的数字是代码与测试里的默认值和示例，没有在真实负载下看过；没有推送或发布 Pages。
+
+2026-11-25（第六次）：官网部署：产物在、deploy-pages 却列不到
+- **现象**：`deploy-pages` 报 “Found 0 artifact(s) … No artifacts named github-pages”，换成 v5 也一样。
+- **查到的**（仓库公开，用 GitHub REST 读了运行记录，没有登录）：失败的运行里 `upload-pages-artifact` 步骤成功，运行的产物接口列出一个 `github-pages` 产物（495 KB，未过期）；`deploy-pages` 通过产物服务（Twirp `ListArtifacts`）列这次运行的产物却是 0 个。2026-11-06 的运行用同样的工作流成功，GitHub 状态页没有相关故障。根因（为什么产物服务列不到）没有查到。
+- **做了什么**：`.github/workflows/pages.yml`：①`configure-pages`、`upload-pages-artifact`、`deploy-pages` 升到 v6、v5、v5（Node 24 动作）；②上传后打印 `artifact_id` 与归档大小；③`deploy-pages` 设为 `continue-on-error`，它失败时用上传步骤返回的 `artifact_id` 调用 Pages 接口（`POST /repos/{owner}/{repo}/pages/deployments`，带 OIDC 令牌和 `GITHUB_SHA`）创建部署，每 5 秒轮询到 `succeed`，最长 10 分钟；环境地址取两者之一的 `page_url`。
+- **没验证**：回退路径只做了脚本语法检查，没有在 GitHub 上运行。
