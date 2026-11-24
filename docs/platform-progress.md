@@ -1029,3 +1029,10 @@ all ten management pages and the shared product title. Screenshots were inspecte
 - **验证**：`go test -p 1 ./pkg/...`、`go vet`、`gofmt`；前端 `vue-tsc`、`oxlint`、单元测试；真浏览器（临时库、假 Prometheus）：副本方案的 CPU／内存／推荐／本次动作行、依据里的输入与来源表、OOM 保护卡片与说明。
 - **没验证**：真实 operator 的 Pod 模板上报；真实 Prometheus；30 分钟窗口是否合适要按模块调；PostgreSQL、MySQL。
 - **注意**：`forecast_module` 新增 `rec_sustain_minutes`；新增系统参数 `analysis.rec_sustain_minutes`（默认 30），系统参数个数 62；`ReplicaPlan.needed` 的含义变了（不再含节奏限制），节奏在 `this_round`。
+
+2026-11-25（第二次）：Limits 系数、全副本总量、AI 分析不预生成、列头术语与线宽
+- **做了什么**：①推荐 Limits ＝ max(推荐 Requests, P99 × Limits 系数)：原来的“再加余量”在填 110 时成了 P99 × 2.1（7.75 核），改为系数（120 即 ×1.2）；系统参数 `analysis.rec_limit_factor_percent`（默认 120，100–500），模块字段 `rec_cpu_limit_factor`／`rec_memory_limit_factor`（0 跟随系统，否则 1–5）；迁移把旧余量转成 1＋余量、旧参数行转成 100＋旧值，一次性。②全副本 Requests／Limits ＝ 单 Pod × 工作负载现在的副本数（12 × 16 GiB ＝ 192 GiB），不再用 Prometheus 求和（24 个 Pod 的量，384 GiB）。③AI 分析：进入页面不请求也不显示上次的结果（原来存在浏览器里，进入页面就出现），只有点“AI 分析”才请求。④配置方案和副本方案的列头“按 P90 推荐”等，图例说明列是推荐值、实测 P90／P95／P99 不随配置变。⑤折线图 Requests 与 Limits 同宽 3.9（原压在推荐线下的 5.6 的 70%）。
+- **我的理解（请纠正）**：“110%”读作 ×1.1；“全副本”读作单 Pod × 工作负载现在的副本数；内存推荐 12 个副本是计算结果（内存总量不随副本缩小），没有改规则。
+- **验证**：`go test -p 1 ./pkg/...`、`go vet`、`gofmt`；前端 `vue-tsc`、单元测试；迁移用临时库测试（旧列、旧参数行、重复运行）。
+- **没验证**：真浏览器里的新线宽、列头和 Limits 公式显示；真实环境的迁移；真实 operator 的上报。
+- **注意**：`forecast_module` 新列 `rec_cpu_limit_factor`、`rec_memory_limit_factor`，旧的 headroom 列保留在库里但不再读；系统参数键改名（旧行迁移时删除）。

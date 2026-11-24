@@ -754,8 +754,8 @@ func TestTheRecommendationDoesNotFollowTheWindowOfThePage(t *testing.T) {
 	assert.InDelta(t, long.Recommend.CPU.Suggested, long.Charts[0].Suggest, 1e-9)
 }
 
-// The totals of the Requests and the Limits are what Prometheus summed, and the figure of one Pod is that sum over the Pods it was made of: 12 Pods of 4 cores are 48 cores
-// and 4 cores, whatever number of them is ready.
+// The figure of one Pod is the sum Prometheus made over the Pods it was made of (12 Pods of 4 cores are 48 cores, so 4 cores, whatever number of them is ready), and all the
+// replicas together are that Pod times the replicas of the workload (11 x 4 = 44), not the sum: the sum counts Pods the workload does not have.
 func TestTheRequestsOfTwelvePodsWithElevenReadyAreStillFourCoresAPod(t *testing.T) {
 	f := opFixture(t)
 	f.withRequests(t, 1.5)
@@ -778,8 +778,33 @@ func TestTheRequestsOfTwelvePodsWithElevenReadyAreStillFourCoresAPod(t *testing.
 	require.NotNil(t, cpu)
 	assert.InDelta(t, 4.0, cpu.Request, 1e-9, "48 cores of 12 Pods, not 48 over 11 ready")
 	assert.InDelta(t, 8.0, cpu.Limit, 1e-9)
-	assert.InDelta(t, 48.0, cpu.RequestTotal, 1e-9)
-	assert.InDelta(t, 96.0, cpu.LimitTotal, 1e-9)
+	assert.InDelta(t, 44.0, cpu.RequestTotal, 1e-9, "one Pod x the replicas, not the 48 that were summed")
+	assert.InDelta(t, 88.0, cpu.LimitTotal, 1e-9)
+}
+
+// 12 replicas of 4 cores / 16 GiB Limits are 192 GiB of Limits, however many Pods the sum of Prometheus counted (24 here: it holds the series twice).
+func TestAllTheReplicasAreOnePodTimesTheReplicasNotWhatPrometheusSummed(t *testing.T) {
+	f := opFixture(t)
+	f.withRequests(t, 1.5)
+	inner := f.querier.value
+	f.querier.value = func(query string, ts time.Time) float64 {
+		switch {
+		case strings.Contains(query, "k8s_cpu_requests_series{"):
+			return 96
+		case strings.Contains(query, "k8s_cpu_limits_series{"):
+			return 192
+		case strings.Contains(query, "kube_deployment"):
+			return 12
+		}
+		return inner(query, ts)
+	}
+	d, err := f.svc.OverprovisionDetail(context.Background(), f.module.ID, 24*60, time.Time{}, time.Time{})
+	require.NoError(t, err)
+	require.Equal(t, 12, d.Replicas)
+	cpu := d.Windows[0].CPU
+	require.NotNil(t, cpu)
+	assert.InDelta(t, cpu.Request*12, cpu.RequestTotal, 1e-9)
+	assert.InDelta(t, cpu.Limit*12, cpu.LimitTotal, 1e-9)
 }
 
 // The replicas now are the figure of the cluster (the replicas metric), with when it was measured and the fewest and the most of the period; the plan of the replicas starts from it.
@@ -885,16 +910,16 @@ func TestTheModulesCoefficientsGoOverTheSystemSettings(t *testing.T) {
 	p := overprovision.DefaultParams()
 	same := moduleParams(p, &model.ForecastModule{})
 	assert.Equal(t, p.P90, same.P90)
-	assert.Equal(t, p.LimitHeadroom, same.LimitHeadroom)
+	assert.Equal(t, p.LimitFactor, same.LimitFactor)
 
-	m := &model.ForecastModule{RecP90Target: 0.7, RecP95Target: 0.9, RecP99Target: 1.2, RecCPULimitHeadroom: 0.3, RecMemoryRequestHeadroom: 0.1, OOMMemoryUplift: 1.5}
+	m := &model.ForecastModule{RecP90Target: 0.7, RecP95Target: 0.9, RecP99Target: 1.2, RecCPULimitFactor: 1.3, RecMemoryRequestHeadroom: 0.1, OOMMemoryUplift: 1.5}
 	got := moduleParams(p, m)
 	assert.Equal(t, 0.7, got.P90.Target)
 	assert.Equal(t, p.P90.Low, got.P90.Low, "the range that is reasonable stays the system's")
 	assert.Equal(t, 0.9, got.P95.Target)
 	assert.Equal(t, 1.2, got.P99.Target)
-	assert.Equal(t, 0.3, got.LimitHeadroomOf("cpu"))
-	assert.Equal(t, p.LimitHeadroom, got.LimitHeadroomOf("memory"), "a margin the module sets for the CPU is not the memory one")
+	assert.Equal(t, 1.3, got.LimitFactorOf("cpu"))
+	assert.Equal(t, p.LimitFactor, got.LimitFactorOf("memory"), "a margin the module sets for the CPU is not the memory one")
 	assert.Equal(t, 0.1, got.RequestHeadroomOf("memory"))
 	assert.Zero(t, got.RequestHeadroomOf("cpu"))
 	assert.Equal(t, 1.5, got.OOMUplift)

@@ -39,7 +39,7 @@ func (s *Service) OverprovisionParams(ctx context.Context) overprovision.Params 
 	}
 	p := overprovision.Params{
 		P90: band(timing.OPP90Target, timing.OPP90Low, timing.OPP90High), P95: band(timing.OPP95Target, timing.OPP95Low, timing.OPP95High), P99: band(timing.OPP99Target, timing.OPP99Low, timing.OPP99High),
-		LimitHeadroom: pc(timing.OPLimitHeadroom), OOMUplift: pc(timing.OPOOMUplift), ThrottleLimit: pc(timing.OPThrottle), Severe: pc(timing.OPGradeSevere), Moderate: pc(timing.OPGradeModerate),
+		LimitFactor: pc(timing.OPLimitFactor), OOMUplift: pc(timing.OPOOMUplift), ThrottleLimit: pc(timing.OPThrottle), Severe: pc(timing.OPGradeSevere), Moderate: pc(timing.OPGradeModerate),
 		CoverageHigh: pc(timing.OPCoverageHigh), CoverageMid: pc(timing.OPCoverageMid), PeakNearLimit: pc(timing.OPLimitGuard), SustainMinutes: s.targetPercent(ctx, timing.OPSustain),
 	}
 	p.BaselineMinutes = s.OverprovisionBaseline(ctx)
@@ -79,7 +79,7 @@ func moduleParams(p overprovision.Params, m *model.ForecastModule) overprovision
 	}
 	// each resource has its own margins: the Requests margin is the module's (none by default), the Limits margin follows the system setting where the module sets none
 	p.CPURequestHeadroom, p.MemoryRequestHeadroom = m.RecCPURequestHeadroom, m.RecMemoryRequestHeadroom
-	p.CPULimitHeadroom, p.MemoryLimitHeadroom = m.RecCPULimitHeadroom, m.RecMemoryLimitHeadroom
+	p.CPULimitFactor, p.MemoryLimitFactor = m.RecCPULimitFactor, m.RecMemoryLimitFactor
 	if m.OOMMemoryUplift >= 1 {
 		p.OOMUplift = m.OOMMemoryUplift
 	}
@@ -616,6 +616,16 @@ func (l *opLoader) analyzeWindow(label string, minutes int, p overprovision.Para
 		if in.Limit <= 0 && limitRatio >= 1 && in.Request > 0 {
 			// admission gives a new Pod the request times this ratio as its limit: it is what the module is configured to, not what was measured
 			in.Limit, in.LimitFrom = in.Request*limitRatio, "module"
+		}
+		// all the replicas together are one Pod times the replicas the workload has now (12 x 16 GiB = 192 GiB): not the sum Prometheus made, which counts the old and the
+		// new Pods of a rollout and every series it holds twice, and gave 24 x 16 GiB = 384 GiB for 12 replicas. It is kept only when no replicas are known.
+		if replicas > 0 {
+			if in.Request > 0 {
+				in.RequestTotal = in.Request * float64(replicas)
+			}
+			if in.Limit > 0 {
+				in.LimitTotal = in.Limit * float64(replicas)
+			}
 		}
 		if resource == overprovision.CPU {
 			if ts := l.get("k8s_cpu_throttle"); ts != nil {

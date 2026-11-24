@@ -154,7 +154,7 @@ func (r *ForecastRouter) CreateModule(c *gin.Context) {
 		OOMCalcWorkingSetRatio: req.OOMCalcWorkingSetRatio, OOMCalcLimitRatio: req.OOMCalcLimitRatio, OOMCalcHistoryRatio: req.OOMCalcHistoryRatio,
 		FloorRatio: req.FloorRatio, MaxShortfall: req.MaxShortfall,
 		RecP90Target: req.RecP90Target, RecP95Target: req.RecP95Target, RecP99Target: req.RecP99Target, RecLimitGuard: req.RecLimitGuard, RecSustainMinutes: req.RecSustainMinutes,
-		RecCPURequestHeadroom: req.RecCPURequestHeadroom, RecMemoryRequestHeadroom: req.RecMemoryRequestHeadroom, RecCPULimitHeadroom: req.RecCPULimitHeadroom, RecMemoryLimitHeadroom: req.RecMemoryLimitHeadroom,
+		RecCPURequestHeadroom: req.RecCPURequestHeadroom, RecMemoryRequestHeadroom: req.RecMemoryRequestHeadroom, RecCPULimitFactor: req.RecCPULimitFactor, RecMemoryLimitFactor: req.RecMemoryLimitFactor,
 		MaxReplicasMode: req.MaxReplicasMode, HardMaxReplicas: req.HardMaxReplicas, ExpandStepRatio: req.ExpandStepRatio,
 		OOMLookbackDays: req.OOMLookbackDays, OOMMemoryUplift: req.OOMMemoryUplift, JVMHeapPressure: 0.85, RecoverCycles: req.RecoverCycles,
 	}
@@ -277,7 +277,7 @@ func applyModuleUpdate(m *model.ForecastModule, req *apis.ModuleUpdateReq) {
 		&m.OOMCalcWorkingSetRatio: req.OOMCalcWorkingSetRatio, &m.OOMCalcLimitRatio: req.OOMCalcLimitRatio, &m.OOMCalcHistoryRatio: req.OOMCalcHistoryRatio,
 		&m.FloorRatio: req.FloorRatio, &m.MaxShortfall: req.MaxShortfall,
 		&m.RecP90Target: req.RecP90Target, &m.RecP95Target: req.RecP95Target, &m.RecP99Target: req.RecP99Target, &m.RecLimitGuard: req.RecLimitGuard,
-		&m.RecCPURequestHeadroom: req.RecCPURequestHeadroom, &m.RecMemoryRequestHeadroom: req.RecMemoryRequestHeadroom, &m.RecCPULimitHeadroom: req.RecCPULimitHeadroom, &m.RecMemoryLimitHeadroom: req.RecMemoryLimitHeadroom,
+		&m.RecCPURequestHeadroom: req.RecCPURequestHeadroom, &m.RecMemoryRequestHeadroom: req.RecMemoryRequestHeadroom, &m.RecCPULimitFactor: req.RecCPULimitFactor, &m.RecMemoryLimitFactor: req.RecMemoryLimitFactor,
 		&m.FallbackMinHistoryRatio: req.FallbackMinHistoryRatio, &m.MaxMissingRatio: req.MaxMissingRatio,
 		&m.OOMMemoryUplift: req.OOMMemoryUplift, &m.OOMWeight: req.OOMWeight, &m.JVMHeapPressure: req.JVMHeapPressure, &m.MinScore: req.MinScore, &m.ExpandStepRatio: req.ExpandStepRatio,
 	} {

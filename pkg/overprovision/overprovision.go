@@ -106,12 +106,12 @@ type Params struct {
 	P90 Band `json:"p90"`
 	P95 Band `json:"p95"`
 	P99 Band `json:"p99"`
-	// LimitHeadroom is the share the recommended limit is above the P99 use (it is never below the recommended request); CPULimitHeadroom and MemoryLimitHeadroom are the
-	// module's own for one resource (0 = LimitHeadroom). CPURequestHeadroom and MemoryRequestHeadroom are the margin the recommended Requests get over the largest of
+	// LimitFactor is the multiple of the P99 use the recommended limit is (1.2 = P99 x 1.2; it is never below the recommended request); CPULimitFactor and MemoryLimitFactor are the
+	// module's own for one resource (0 = LimitFactor). CPURequestHeadroom and MemoryRequestHeadroom are the margin the recommended Requests get over the largest of
 	// the needs of the three percentiles (0 = none).
-	LimitHeadroom       float64 `json:"limit_headroom"`
-	CPULimitHeadroom    float64 `json:"cpu_limit_headroom"`
-	MemoryLimitHeadroom float64 `json:"memory_limit_headroom"`
+	LimitFactor       float64 `json:"limit_factor"`
+	CPULimitFactor    float64 `json:"cpu_limit_factor"`
+	MemoryLimitFactor float64 `json:"memory_limit_factor"`
 	// SustainMinutes is the window the use is held for before a percentile is taken (see Sustained); 0 takes the percentiles of the raw points.
 	SustainMinutes        int     `json:"sustain_minutes"`
 	CPURequestHeadroom    float64 `json:"cpu_request_headroom"`
@@ -133,16 +133,16 @@ type Params struct {
 	PeakNearLimit float64 `json:"peak_near_limit"`
 }
 
-// LimitHeadroomOf is the margin of the recommended Limits over the P99 use for the resource: the module's own, else the one of the system.
-func (p Params) LimitHeadroomOf(resource string) float64 {
-	own := p.CPULimitHeadroom
+// LimitFactorOf is the multiple of the P99 use the recommended Limits is for the resource: the module's own, else the one of the system.
+func (p Params) LimitFactorOf(resource string) float64 {
+	own := p.CPULimitFactor
 	if resource == Memory {
-		own = p.MemoryLimitHeadroom
+		own = p.MemoryLimitFactor
 	}
 	if own > 0 {
 		return own
 	}
-	return p.LimitHeadroom
+	return p.LimitFactor
 }
 
 // RequestHeadroomOf is the margin added to the recommended Requests for the resource (0 = none).
@@ -158,7 +158,7 @@ func (p Params) RequestHeadroomOf(resource string) float64 {
 func DefaultParams() Params {
 	return Params{
 		P90: Band{Target: 0.80, Low: 0.70, High: 0.85}, P95: Band{Target: 0.85, Low: 0.80, High: 0.90}, P99: Band{Target: 1.10, Low: 0.80, High: 1.20},
-		LimitHeadroom: 0.20, OOMUplift: 1.2, ThrottleLimit: 0.05, BaselineMinutes: 7 * 24 * 60,
+		LimitFactor: 1.20, OOMUplift: 1.2, ThrottleLimit: 0.05, BaselineMinutes: 7 * 24 * 60,
 		Severe: 0.50, Moderate: 0.30, CoverageHigh: 0.80, CoverageMid: 0.50, PeakNearLimit: 0.90}
 }
 
@@ -449,7 +449,7 @@ func Analyze(in Input, p Params) Result {
 	top := 0
 	for i := range cands {
 		cands[i].Suggested = round(math.Max(cands[i].Needed, floorV))
-		cands[i].SuggestedLimit = round(math.Max(cands[i].Suggested, u.P99*(1+p.LimitHeadroomOf(in.Resource))))
+		cands[i].SuggestedLimit = round(math.Max(cands[i].Suggested, u.P99*p.LimitFactorOf(in.Resource)))
 		if cands[i].Needed > cands[top].Needed {
 			top = i
 		}
@@ -462,8 +462,8 @@ func Analyze(in Input, p Params) Result {
 	if noRequest {
 		// nothing to compare with: the recommendation is what the use needs, with no ratio, no grade and no status
 		r.Suggested = suggested
-		r.SuggestedLimit = round(math.Max(suggested, u.P99*(1+p.LimitHeadroomOf(in.Resource))))
-		r.Formula += fmt.Sprintf("; limit = max(recommended, P99 %s x (1+%.0f%%)) = %s", num(in.Resource, u.P99), p.LimitHeadroomOf(in.Resource)*100, num(in.Resource, r.SuggestedLimit))
+		r.SuggestedLimit = round(math.Max(suggested, u.P99*p.LimitFactorOf(in.Resource)))
+		r.Formula += fmt.Sprintf("; limit = max(recommended, P99 %s x %.2f) = %s", num(in.Resource, u.P99), p.LimitFactorOf(in.Resource), num(in.Resource, r.SuggestedLimit))
 		return r
 	}
 
@@ -511,8 +511,8 @@ func Analyze(in Input, p Params) Result {
 		}
 	}
 	r.Suggested = suggested
-	r.SuggestedLimit = round(math.Max(suggested, u.P99*(1+p.LimitHeadroomOf(in.Resource))))
-	r.Formula += fmt.Sprintf("; limit = max(recommended, P99 %s x (1+%.0f%%)) = %s", num(in.Resource, u.P99), p.LimitHeadroomOf(in.Resource)*100, num(in.Resource, r.SuggestedLimit))
+	r.SuggestedLimit = round(math.Max(suggested, u.P99*p.LimitFactorOf(in.Resource)))
+	r.Formula += fmt.Sprintf("; limit = max(recommended, P99 %s x %.2f) = %s", num(in.Resource, u.P99), p.LimitFactorOf(in.Resource), num(in.Resource, r.SuggestedLimit))
 	r.ExceedSuggested = ExceedOf(in.Points, suggested, in.StepSeconds)
 	r.ExceedNow = ExceedOf(in.Points, in.Request, in.StepSeconds)
 	r.Numerator, r.Denominator = in.Request-suggested, in.Request

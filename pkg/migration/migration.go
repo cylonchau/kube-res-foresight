@@ -356,20 +356,69 @@ func EnsureDefaultConfigs() error {
 // capacityReserveMarker is the system parameter row that says the hidden capacity reserve was cleared.
 const capacityReserveMarker = "migration.capacity_reserve_cleared"
 
-// splitLimitHeadroom moves the one Limits margin a module could set (rec_limit_headroom) to the two it has now, one for the CPU and one for the memory: a module that set
-// it keeps the same figure for both resources, and the old column is emptied so the move is done once and stays done.
+// limitFactorMarker is the system parameter row that says the Limits margins were turned into coefficients.
+const limitFactorMarker = "migration.limit_margin_to_factor"
+
+// splitLimitHeadroom turns the Limits margin of a module (the share added over the P99 use: 0.3 = +30%) into the coefficient it is now (the multiple of the P99 use: 1.3), one
+// for the CPU and one for the memory, and does the same for the system parameter. A margin written in two forms earlier (rec_limit_headroom, one for both resources) goes
+// the same way. Each old column is emptied once its figure has moved, and a marker row keeps the system parameter from being turned twice.
 func splitLimitHeadroom() error {
 	db := model.DB
-	if !db.Migrator().HasTable("forecast_module") || !db.Migrator().HasColumn("forecast_module", "rec_limit_headroom") {
+	if db.Migrator().HasTable("forecast_module") {
+		for _, c := range []struct{ old, cpu, memory string }{
+			{"rec_limit_headroom", "rec_cpu_limit_factor", "rec_memory_limit_factor"},
+		} {
+			if db.Migrator().HasColumn("forecast_module", c.old) {
+				if err := db.Exec("UPDATE forecast_module SET " + c.cpu + " = 1 + " + c.old + " WHERE " + c.old + " > 0 AND " + c.cpu + " = 0").Error; err != nil {
+					return err
+				}
+				if err := db.Exec("UPDATE forecast_module SET " + c.memory + " = 1 + " + c.old + " WHERE " + c.old + " > 0 AND " + c.memory + " = 0").Error; err != nil {
+					return err
+				}
+				if err := db.Exec("UPDATE forecast_module SET " + c.old + " = 0 WHERE " + c.old + " > 0").Error; err != nil {
+					return err
+				}
+			}
+		}
+		for _, c := range []struct{ old, factor string }{
+			{"rec_cpu_limit_headroom", "rec_cpu_limit_factor"},
+			{"rec_memory_limit_headroom", "rec_memory_limit_factor"},
+		} {
+			if db.Migrator().HasColumn("forecast_module", c.old) {
+				if err := db.Exec("UPDATE forecast_module SET " + c.factor + " = 1 + " + c.old + " WHERE " + c.old + " > 0 AND " + c.factor + " = 0").Error; err != nil {
+					return err
+				}
+				if err := db.Exec("UPDATE forecast_module SET " + c.old + " = 0 WHERE " + c.old + " > 0").Error; err != nil {
+					return err
+				}
+			}
+		}
+	}
+	// the system parameter: the old row held the margin in percent (20 = +20%), the new one the multiple in percent (120 = x1.2); a value an administrator set is kept
+	marker := model.SysConfig{ConfigKey: limitFactorMarker, ConfigValue: "done", ConfigName: "Upgrade Marker: Limits Margin Turned Into A Coefficient",
+		Remark: "Written when the Limits margin of the system settings (percent added over the P99 use) was turned into the Limits coefficient (percent of the P99 use). Do not delete it."}
+	res := db.Where("config_key = ?", limitFactorMarker).FirstOrCreate(&marker)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
 		return nil
 	}
-	if err := db.Exec("UPDATE forecast_module SET rec_cpu_limit_headroom = rec_limit_headroom WHERE rec_limit_headroom > 0 AND rec_cpu_limit_headroom = 0").Error; err != nil {
+	var old model.SysConfig
+	if err := db.Where("config_key = ?", "analysis.rec_limit_headroom_percent").Limit(1).Find(&old).Error; err != nil {
 		return err
 	}
-	if err := db.Exec("UPDATE forecast_module SET rec_memory_limit_headroom = rec_limit_headroom WHERE rec_limit_headroom > 0 AND rec_memory_limit_headroom = 0").Error; err != nil {
-		return err
+	if old.ConfigKey == "" {
+		return nil
 	}
-	return db.Exec("UPDATE forecast_module SET rec_limit_headroom = 0 WHERE rec_limit_headroom > 0").Error
+	if margin, err := strconv.ParseFloat(strings.TrimSpace(old.ConfigValue), 64); err == nil && margin >= 0 {
+		factor := model.SysConfig{ConfigKey: "analysis.rec_limit_factor_percent", ConfigValue: strconv.FormatFloat(100+margin, 'f', -1, 64), ConfigName: "Recommendation Limits Coefficient (percent of the P99 use)",
+			Remark: "Moved from the Limits margin of the system settings."}
+		if err := db.Where("config_key = ?", factor.ConfigKey).Assign(map[string]any{"config_value": factor.ConfigValue}).FirstOrCreate(&factor).Error; err != nil {
+			return err
+		}
+	}
+	return db.Unscoped().Where("config_key = ?", old.ConfigKey).Delete(&model.SysConfig{}).Error
 }
 
 // resetHiddenCapacityReserve clears the 0.7 the module form wrote into the capacity reserve coefficient (target_utilization) of every module it saved, although the

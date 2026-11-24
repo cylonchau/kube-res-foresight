@@ -353,9 +353,20 @@ func TestTheMarginsOfTheRequestsAndOfTheLimitsAreEachResourcesOwn(t *testing.T) 
 	assert.InDelta(t, Analyze(input(Memory, 200, ramp(100, 1)), DefaultParams()).Needed, mem.Needed, 1e-9, "the memory has none")
 
 	p = DefaultParams()
-	p.MemoryLimitHeadroom = 0.5
-	assert.Equal(t, 0.2, p.LimitHeadroomOf(CPU), "no margin of its own: the system one")
-	assert.Equal(t, 0.5, p.LimitHeadroomOf(Memory))
+	p.MemoryLimitFactor = 1.5
+	assert.Equal(t, 1.2, p.LimitFactorOf(CPU), "no factor of its own: the system one")
+	assert.Equal(t, 1.5, p.LimitFactorOf(Memory))
 	limit := Analyze(input(Memory, 200, ramp(100, 1)), p)
 	assert.InDelta(t, 99*1.5, limit.SuggestedLimit, 1e-6)
+}
+
+// The Limits coefficient is a multiple of the P99 use: 110% is P99 x 1.1, not P99 x 2.1, and the Limits is never below the recommended Requests.
+func TestTheLimitsCoefficientIsAMultipleOfTheP99NotAMarginOnTopOfIt(t *testing.T) {
+	p := DefaultParams()
+	p.LimitFactor = 1.1
+	r := Analyze(input(CPU, 200, ramp(100, 1)), p)
+	require.Greater(t, r.Usage.P99, 0.0)
+	assert.InDelta(t, math.Max(r.Suggested, r.Usage.P99*1.1), r.SuggestedLimit, 1e-6)
+	assert.Contains(t, r.Formula, "x 1.10)")
+	assert.GreaterOrEqual(t, r.SuggestedLimit, r.Suggested)
 }

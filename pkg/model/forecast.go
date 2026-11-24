@@ -247,14 +247,14 @@ type ForecastModule struct {
 	// RecP90Target, RecP95Target and RecP99Target are the coefficients of the recommended Requests of the resource dashboard for this module: the share of the Requests the
 	// percentile is wanted to take at the recommended Requests (0.8 divides the use by 0.8); 0 follows the system setting (System settings > Resource analysis and
 	// recommendation). RecCPURequestHeadroom and RecMemoryRequestHeadroom are the margin added over the largest of the three needs (0.1 = 10%, 0 = none), each for its own
-	// resource; RecCPULimitHeadroom and RecMemoryLimitHeadroom the margin of the recommended Limits over the P99 use, each for its own resource (0 follows the system setting).
+	// resource; RecCPULimitFactor and RecMemoryLimitFactor the multiple of the P99 use the recommended Limits is (1.2 = P99 x 1.2), each for its own resource (0 follows the system setting).
 	RecP90Target             float64 `gorm:"not null;default:0" json:"rec_p90_target" column_setting:"false"`
 	RecP95Target             float64 `gorm:"not null;default:0" json:"rec_p95_target" column_setting:"false"`
 	RecP99Target             float64 `gorm:"not null;default:0" json:"rec_p99_target" column_setting:"false"`
 	RecCPURequestHeadroom    float64 `gorm:"not null;default:0" json:"rec_cpu_request_headroom" column_setting:"false"`
 	RecMemoryRequestHeadroom float64 `gorm:"not null;default:0" json:"rec_memory_request_headroom" column_setting:"false"`
-	RecCPULimitHeadroom      float64 `gorm:"not null;default:0" json:"rec_cpu_limit_headroom" column_setting:"false"`
-	RecMemoryLimitHeadroom   float64 `gorm:"not null;default:0" json:"rec_memory_limit_headroom" column_setting:"false"`
+	RecCPULimitFactor        float64 `gorm:"not null;default:0" json:"rec_cpu_limit_factor" column_setting:"false"`
+	RecMemoryLimitFactor     float64 `gorm:"not null;default:0" json:"rec_memory_limit_factor" column_setting:"false"`
 	// RecLimitGuard is the share of the Limits the P99 use of all the Pods together may take at the recommended replicas (0 follows the system setting).
 	RecLimitGuard float64 `gorm:"not null;default:0" json:"rec_limit_guard" column_setting:"false"`
 	// RecSustainMinutes is how long the use is held before a percentile is taken for the recommended Requests and replicas (0 follows the system setting; see overprovision.Sustained).
@@ -476,10 +476,15 @@ func (m *ForecastModule) Validate() error {
 	if m.RecLimitGuard != 0 && (m.RecLimitGuard < 0.3 || m.RecLimitGuard > 1) {
 		return fmt.Errorf("rec_limit_guard must be 0 (follow the system setting) or between 0.3 and 1")
 	}
-	for name, v := range map[string]float64{"rec_cpu_request_headroom": m.RecCPURequestHeadroom, "rec_memory_request_headroom": m.RecMemoryRequestHeadroom,
-		"rec_cpu_limit_headroom": m.RecCPULimitHeadroom, "rec_memory_limit_headroom": m.RecMemoryLimitHeadroom} {
+	for name, v := range map[string]float64{"rec_cpu_request_headroom": m.RecCPURequestHeadroom, "rec_memory_request_headroom": m.RecMemoryRequestHeadroom} {
 		if v < 0 || v > 3 {
 			return fmt.Errorf("%s must be between 0 and 3", name)
+		}
+	}
+	// the Limits is a multiple of the P99 use (1.2 = P99 x 1.2), so a figure under 1 would put it under the use itself
+	for name, v := range map[string]float64{"rec_cpu_limit_factor": m.RecCPULimitFactor, "rec_memory_limit_factor": m.RecMemoryLimitFactor} {
+		if v != 0 && (v < 1 || v > 5) {
+			return fmt.Errorf("%s must be 0 (follow the system setting) or between 1 and 5", name)
 		}
 	}
 	if m.FloorRatio < 0 || m.FloorRatio > 1 {

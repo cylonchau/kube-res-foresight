@@ -85,8 +85,8 @@ type ModuleCreateReq struct {
 	RecSustainMinutes        int     `json:"rec_sustain_minutes"`
 	RecCPURequestHeadroom    float64 `json:"rec_cpu_request_headroom"`
 	RecMemoryRequestHeadroom float64 `json:"rec_memory_request_headroom"`
-	RecCPULimitHeadroom      float64 `json:"rec_cpu_limit_headroom"`
-	RecMemoryLimitHeadroom   float64 `json:"rec_memory_limit_headroom"`
+	RecCPULimitFactor        float64 `json:"rec_cpu_limit_factor"`
+	RecMemoryLimitFactor     float64 `json:"rec_memory_limit_factor"`
 
 	// Replica ceiling: fixed, or dynamic (up to HardMaxReplicas, by ExpandStepRatio per cycle).
 	MaxReplicasMode string  `json:"max_replicas_mode"`
@@ -178,8 +178,8 @@ type ModuleUpdateReq struct {
 	RecSustainMinutes        *int     `json:"rec_sustain_minutes"`
 	RecCPURequestHeadroom    *float64 `json:"rec_cpu_request_headroom"`
 	RecMemoryRequestHeadroom *float64 `json:"rec_memory_request_headroom"`
-	RecCPULimitHeadroom      *float64 `json:"rec_cpu_limit_headroom"`
-	RecMemoryLimitHeadroom   *float64 `json:"rec_memory_limit_headroom"`
+	RecCPULimitFactor        *float64 `json:"rec_cpu_limit_factor"`
+	RecMemoryLimitFactor     *float64 `json:"rec_memory_limit_factor"`
 
 	MaxReplicasMode *string  `json:"max_replicas_mode"`
 	HardMaxReplicas *int     `json:"hard_max_replicas"`

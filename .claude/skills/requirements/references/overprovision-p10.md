@@ -454,7 +454,7 @@
 - **推荐 Requests** ＝ P90、P95、P99 各自（使用量 ÷ 目标比例）的最大者（再按规格取整：CPU 1 核起 50 mCPU，内存 1 GiB 起 64 MiB）。**最大值（Max）不参与**，一次性的高峰不决定推荐。有 OOM、被限流时只升不降（地板：OOM 工作集×系数、现在的 Requests）。
 - **状态**看三个分位数落在各自区间的哪里（`Shares` 是使用量占 Requests 的比例）：P95 或 P90 高于上限，或 P99 高于上限且 P95 不低于下限 → **欠配**；P95、P90 或 P99 低于下限 → **超配**；但平时低、P99 高于上限（偶发高峰）→ **合理**（原因 `burst_tail`），Requests 不下调；其余 → **合理**。例：Requests 4 核，P90 2.92、P95 3.22、P99 4.02（73%、80.5%、100.5%）→ 合理，推荐 3.79 核，写“合理，可优化 0.21 核（5.3%）”；内存 Requests 6 GiB、P95 8.18 GiB（136%）→ 欠配，推荐 9.94 GiB，欠配 3.94 GiB（65.6%）。
 - 超配分级：超配的 Requests 里比推荐多出的占比 ≥50% 严重、≥30% 中度，其余轻度（`grade_severe_percent`、`grade_moderate_percent`；原来的轻度界限 `grade_mild_percent` 和 `cpu_margin_percent`、`memory_margin_percent`、`memory_peak_percent` 删掉了，迁移时删除这四行）。
-- **推荐 Limits** ＝ max(推荐 Requests, P99 × (1 + `analysis.rec_limit_headroom_percent` 20%))。
+- **推荐 Limits** ＝ max(推荐 Requests, P99 × `analysis.rec_limit_factor_percent` 120%（×1.2，第十一次由“再加的余量”改为系数））。
 - 合理区间内：推荐 ≥ 现在时保持现在的值；推荐比现在低时给出推荐，写“可优化”的量。
 
 ### 独立的分析周期
@@ -660,3 +660,28 @@
 ### 验证与没验证
 - Go：新增“Pod 模板与中位数估算”“发布期间的副本数与 Requests”“持续使用量”“超过多久”“推荐副本数与本次动作”“OOM 保护数据”的测试；`go test -p 1 ./pkg/...` 全过。前端：`config-basis`、`replica-basis`、`param-docs` 的单元测试。
 - **没验证**：真实 operator 的 Pod 模板上报（只写进库的上报）；真实 Prometheus；“持续使用量”的窗口默认 30 分钟是按常见的发布、峰值时长取的起点，要按各模块的负载调；PostgreSQL、MySQL。
+
+## 系统功能调整与优化（2026-11-25 第十一次：Limits 系数、全副本总量、AI 分析不预生成、术语与线宽）
+
+### Limits：系数是 P99 的倍数，不再是“再加的余量”
+- **原因**：推荐 Limits 原来是 max(推荐 Requests, P99 × (1 + Limits 余量))，系统参数 `analysis.rec_limit_headroom_percent` 填 110 时就成了 P99 × 2.1（7.75 核）。填 110 的人想要的是 P99 × 1.1。
+- **现在**：推荐 Limits ＝ max(推荐 Requests, P99 × Limits 系数)，系数 120 即 ×1.2，和“OOM 保护系数”同一种写法。系统参数改名 `analysis.rec_limit_factor_percent`（默认 120，范围 100–500）；模块字段 `rec_cpu_limit_headroom`、`rec_memory_limit_headroom` 改为 `rec_cpu_limit_factor`、`rec_memory_limit_factor`（0 跟随系统，否则 1–5）。Requests 的余量 `rec_*_request_headroom` 不变，它是真正“再加的”比例。
+- **迁移**：旧模块字段 ＝ 1 ＋ 旧余量（0.3 → 1.3），旧列清零；旧系统参数行 ＝ 100 ＋ 旧值（20 → 120），旧行删除；标记行 `migration.limit_margin_to_factor` 保证只转一次，之后管理员改的值不会被覆盖。
+- 依据里每个 Limits 公式写成 `Limits = max(推荐 Requests, P99 × 系数) = …`，两个候选值（Requests 与 P99 × 系数）各自有数，取较大者。模块管理里“Limits 系数”的“?”给出定义、公式、带当前值的例子。
+
+### 全副本总量 ＝ 单 Pod × 副本数
+- 原来全副本的 Requests／Limits 用 Prometheus 求和的最新值：求和里有 24 个 Pod 的量（发布时新旧 Pod 并存，或同一个 Pod 的序列被数了两次），图上就成了 24 × 16 GiB ＝ 384 GiB，推荐 Limits 也乘了 24。
+- 现在 `RequestTotal`／`LimitTotal` ＝ 单 Pod 的值 × 工作负载现在的副本数（Kubernetes 的设置值，没有上报时用 Prometheus 的副本数）：12 × 16 GiB ＝ 192 GiB；折线图、表格、依据、AI 的问题用同一个数。没有副本数时才用 Prometheus 的求和。
+
+### P90／P95／P99 的叫法
+- 副本方案、配置方案的列头改为“按 P90 推荐”“按 P95 推荐”“按 P99 推荐”“综合”，图例里写明：列里是按该百分位推荐的结果，不是实测使用量；实测 P90、P95、P99 是 Prometheus 的原始值（使用量表、折线图），不会因 Requests、Limits、系数改变；Limits 一律按 P99 × Limits 系数，所以各列相同。
+
+### AI 分析
+- 页面（和助手窗口）打开时不请求；之前版本把上一次的分析结果存在浏览器里，进入页面就显示出来，看着像“预先生成”。现在不再存，进入页面是空的，只有点“AI 分析”才请求，结果只在这个页面里显示。
+
+### 折线图
+- Requests 和 Limits 同宽（3.9，是原来 Requests 压在推荐线下时 5.6 的 70%），与它们重合的线更窄（2），边缘仍看得见。
+
+### 没改
+- 内存推荐副本数（12 个）：内存总量不随副本数缩小，单 Pod 5 GiB 左右、Requests 6 GiB、目标占比 85% 时，需要 ⌈总量 ÷ (6 GiB × 85%)⌉ ＝ 12 个，这是计算结果而不是由“当前 6 GiB”直接推出；依据里有各步数字。若要更少副本，需要提高单 Pod 内存 Requests 或降低目标占比。
+- **没验证**：真浏览器里的新线宽和列头；真实环境的迁移（用临时库的测试验证了旧列、旧参数行、重复运行）；真实 operator 的上报。

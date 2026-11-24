@@ -34,9 +34,9 @@ var (
 	OPP99High = Param{Key: "analysis.rec_p99_high_percent", Default: 120, Min: 10, Max: 400,
 		Name:   "Recommendation P99 Reasonable Up To (percent of Requests)",
 		Remark: "The tail is above its range over this share of the Requests. With a steady use that is a real one the Requests is under-provisioned; with a low steady use it is a burst that comes now and then, and the Requests is not lowered for it (10-400)."}
-	OPLimitHeadroom = Param{Key: "analysis.rec_limit_headroom_percent", Default: 20, Min: 0, Max: 300,
-		Name:   "Recommendation Limits Headroom (percent)",
-		Remark: "The recommended Limits is the P99 use plus this margin, and never below the recommended Requests (0-300). The Limits of a module that admission sets from the Requests are the Requests times its limit ratio, not this."}
+	OPLimitFactor = Param{Key: "analysis.rec_limit_factor_percent", Default: 120, Min: 100, Max: 500,
+		Name:   "Recommendation Limits Coefficient (percent of the P99 use)",
+		Remark: "The recommended Limits is the P99 use times this coefficient (120 = P99 x 1.2), and never below the recommended Requests (100-500). The Limits of a module that admission sets from the Requests are the Requests times its limit ratio, not this."}
 	OPLimitGuard = Param{Key: "analysis.rec_limit_guard_percent", Default: 90, Min: 30, Max: 100,
 		Name:   "Recommendation Limits Guard (percent of Limits)",
 		Remark: "The P99 use of all the Pods together must stay under this share of their Limits at the recommended replicas, so a replica count is never taken so low that the tail runs into the Limits (30-100). It is also the share of the Limits above which the peak counts as near the Limits in the risk of a result. A module can set its own in module management."}
