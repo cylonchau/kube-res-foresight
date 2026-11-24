@@ -750,6 +750,10 @@ func TestTheRecommendationDoesNotFollowTheWindowOfThePage(t *testing.T) {
 	assert.Equal(t, long.Recommend.CPU.Status, short.Recommend.CPU.Status)
 	assert.InDelta(t, long.Recommend.CPU.Suggested, short.Recommend.CPU.Suggested, 1e-9)
 	assert.NotZero(t, short.Recommend.CPU.Needed)
+	if prof := long.Recommend.LoadProfile; prof != nil {
+		assert.Len(t, prof.Hours, 24)
+		assert.GreaterOrEqual(t, prof.Peak, prof.Normal)
+	}
 	// the line of the recommended Requests in the chart is the recommendation's
 	assert.InDelta(t, long.Recommend.CPU.Suggested, long.Charts[0].Suggest, 1e-9)
 }

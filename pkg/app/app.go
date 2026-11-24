@@ -55,35 +55,23 @@ func NewHTTPServer(ctx context.Context) error {
 
 		subFS, _ := fs.Sub(staticFS, "router/dist")
 		filePath := strings.TrimPrefix(path, "/")
-
-		data, err := fs.ReadFile(subFS, filePath)
-		if err != nil {
+		answer := serveStatic(subFS, filePath, c.GetHeader("Accept-Encoding"), c.GetHeader("If-None-Match"))
+		if answer.Missing {
 			// Fallback to index.html for Vue SPA History Mode
-			dataIndex, errIndex := fs.ReadFile(subFS, "index.html")
-			if errIndex != nil {
+			answer = serveStatic(subFS, "index.html", c.GetHeader("Accept-Encoding"), c.GetHeader("If-None-Match"))
+			if answer.Missing {
 				query.ErrorResponse(c, http.StatusNotFound, query.ErrRouteNotFound)
 				return
 			}
-			c.Data(http.StatusOK, "text/html; charset=utf-8", dataIndex)
+		}
+		for k, v := range answer.Header {
+			c.Header(k, v)
+		}
+		if answer.Status == http.StatusNotModified {
+			c.Status(http.StatusNotModified)
 			return
 		}
-
-		contentType := "application/octet-stream"
-		if strings.HasSuffix(filePath, ".html") {
-			contentType = "text/html; charset=utf-8"
-		} else if strings.HasSuffix(filePath, ".js") {
-			contentType = "application/javascript"
-		} else if strings.HasSuffix(filePath, ".css") {
-			contentType = "text/css"
-		} else if strings.HasSuffix(filePath, ".svg") {
-			contentType = "image/svg+xml"
-		} else if strings.HasSuffix(filePath, ".png") {
-			contentType = "image/png"
-		} else if strings.HasSuffix(filePath, ".ico") {
-			contentType = "image/x-icon"
-		}
-
-		c.Data(http.StatusOK, contentType, data)
+		c.Data(answer.Status, answer.Header["Content-Type"], answer.Body)
 	})
 
 	// Register Routers

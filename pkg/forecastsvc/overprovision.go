@@ -547,6 +547,9 @@ type WindowOverprovision struct {
 	// ReplicaPlan is how many replicas the module needs if every Pod keeps the Requests it has (the other way to the same use: the Pod spec stays, the replicas move);
 	// the CPU and memory results are the way where the replicas stay and the Pod spec moves. The replicas it starts from are the ones the cluster has now.
 	ReplicaPlan *overprovision.ReplicaPlan `json:"replica_plan"`
+	// LoadProfile is the replicas each hour of the day asks for: which hours are the busy ones and what a count that follows them would save (nil when the window is shorter than
+	// two days or the use of all the Pods was not measured).
+	LoadProfile *overprovision.LoadProfile `json:"load_profile"`
 }
 
 func (s *Service) opRounders() (cpu, mem func(float64) float64) {
@@ -648,7 +651,32 @@ func (l *opLoader) analyzeWindow(label string, minutes int, p overprovision.Para
 	}
 	cpu := one(overprovision.CPU, "cpu", "k8s_cpu_requests", "k8s_cpu_limits", cpuRequest, cpuRatio, cpuRound)
 	mem := one(overprovision.Memory, "memory", "k8s_mem_requests", "k8s_mem_limits", memRequest, memRatio, memRound)
-	return &WindowOverprovision{Label: label, WindowMinutes: minutes, CPU: cpu, Memory: mem, ReplicaPlan: overprovision.PlanReplicas(replicas, p, replicaLimits(l.m), cpu, mem)}
+	return &WindowOverprovision{Label: label, WindowMinutes: minutes, CPU: cpu, Memory: mem, ReplicaPlan: overprovision.PlanReplicas(replicas, p, replicaLimits(l.m), cpu, mem),
+		LoadProfile: l.loadProfile(from, to, p, cpu, mem)}
+}
+
+// loadProfile is the replicas each hour of the day asks for, from the use of all the Pods as it counts (held for the sustain window) and the Requests of a Pod.
+func (l *opLoader) loadProfile(from, to int64, p overprovision.Params, cpu, mem *overprovision.Result) *overprovision.LoadProfile {
+	loc, err := time.LoadLocation(l.m.Timezone)
+	if err != nil {
+		loc = time.UTC
+	}
+	var ins []overprovision.LoadInput
+	for _, c := range []struct {
+		kind string
+		r    *overprovision.Result
+	}{{"cpu", cpu}, {"memory", mem}} {
+		use := l.get(c.kind)
+		if use == nil || c.r == nil || !(c.r.Request > 0) {
+			continue
+		}
+		total := sliceFrom(use.total, from, to)
+		if len(total) == 0 {
+			continue
+		}
+		ins = append(ins, overprovision.LoadInput{Resource: c.r.Resource, Total: overprovision.Sustained(total, p.SustainMinutes), Request: c.r.Request, StepSeconds: use.step})
+	}
+	return overprovision.BuildLoadProfile(ins, p.P95.Target, 95, loc)
 }
 
 // replicaLimits are the constraints the module sets on its replicas in module management: its least and most replicas and the most one action adds or removes. A module
