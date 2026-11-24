@@ -1022,3 +1022,10 @@ all ten management pages and the shared product title. Screenshots were inspecte
 - **我的理解（请纠正）**：22 的来源是读截图推出来的（11 就绪 × 2、Requests 总和 24 个 Pod），没有在你的环境里查证；“综合”读作“三个口径里需求最大的一个，再经过模块的边界和保护”，也就是平台原来的推荐值；调整副本数的“推荐副本数”在 OOM 或限流保护下会保持现在的副本数（所以三个口径可能都等于当前值），依据里写明。
 - **验证**：`go test -p 1 ./pkg/...`、`go vet`、`gofmt`；前端 `vue-tsc`、`oxlint`、单元测试；真浏览器（临时库、假 Prometheus）：两块上下排、四列、口径单选后“调整”更新、两个方案的依据弹窗、条纹曲线。
 - **没验证**：真实 operator 的上报与真实 Prometheus（发布期间的 22 只在测试里用假数据重现）；PostgreSQL、MySQL。
+
+2026-11-25：当前配置的来源、推荐副本数与计算一致、持续使用量、OOM 与 Limits 依据
+- **做了什么**：①当前 CPU Requests 5.82 核、Memory Limits 23 GiB：原来是“最新的总和 ÷ 猜出来的 Pod 数”，发布期间总和是 32 个 Pod 的、副本数指标是 22，猜错了（5.82＝128 ÷ 22）。现在单 Pod 的 Requests／Limits 先用 operator 上报的 Pod 模板（Kubernetes），没有上报就用最近 6 小时总和的中位数 ÷ 同期副本数的中位数推算并标“推算”。②推荐副本数＝max(CPU 所需, 内存所需)，就是计算结果（9 就是 9），“副本调整节奏”限制的一次动作另起一行（`this_round`，11、要 3 次到位），依据里说明。③副本方案的表里 CPU、内存各一行并带当前单 Pod Requests（不再是空），口径写“单 Pod”。④P90／P95／P99 改按“持续使用量”取（系统参数 `analysis.rec_sustain_minutes` 默认 30，模块可覆盖），Limits 仍按原始峰值；依据里写出使用量超过推荐值的时间占比、段数、最长连续分钟。⑤OOM：评分只影响预测算法的内存评分，改推荐的是“OOM 保护下限”（新增卡片和依据说明）。⑥依据弹窗新增“参数来源”表、取整规则、max 规则、Limits／Requests 倍数、百分位怎么影响推荐的说明。
+- **我的理解（请纠正）**：“持续使用量”读作滑动平均，窗口 30 分钟是我定的默认值；“推荐副本数”读作计算结果（只经过最小、最大副本数和 OOM、限流、Limits 保护），不含副本调整节奏；OOM 评分的“生效”读作：它只影响预测算法的选择，不进大盘的推荐值（大盘用的是 OOM 保护下限），如果你希望评分也影响大盘，需要另定规则。
+- **验证**：`go test -p 1 ./pkg/...`、`go vet`、`gofmt`；前端 `vue-tsc`、`oxlint`、单元测试；真浏览器（临时库、假 Prometheus）：副本方案的 CPU／内存／推荐／本次动作行、依据里的输入与来源表、OOM 保护卡片与说明。
+- **没验证**：真实 operator 的 Pod 模板上报；真实 Prometheus；30 分钟窗口是否合适要按模块调；PostgreSQL、MySQL。
+- **注意**：`forecast_module` 新增 `rec_sustain_minutes`；新增系统参数 `analysis.rec_sustain_minutes`（默认 30），系统参数个数 62；`ReplicaPlan.needed` 的含义变了（不再含节奏限制），节奏在 `this_round`。

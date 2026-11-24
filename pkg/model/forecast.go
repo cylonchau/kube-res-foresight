@@ -257,7 +257,9 @@ type ForecastModule struct {
 	RecMemoryLimitHeadroom   float64 `gorm:"not null;default:0" json:"rec_memory_limit_headroom" column_setting:"false"`
 	// RecLimitGuard is the share of the Limits the P99 use of all the Pods together may take at the recommended replicas (0 follows the system setting).
 	RecLimitGuard float64 `gorm:"not null;default:0" json:"rec_limit_guard" column_setting:"false"`
-	MaxShortfall  float64 `gorm:"not null;default:0.5" json:"max_shortfall" column_setting:"false"`
+	// RecSustainMinutes is how long the use is held before a percentile is taken for the recommended Requests and replicas (0 follows the system setting; see overprovision.Sustained).
+	RecSustainMinutes int     `gorm:"not null;default:0" json:"rec_sustain_minutes" column_setting:"false"`
+	MaxShortfall      float64 `gorm:"not null;default:0.5" json:"max_shortfall" column_setting:"false"`
 
 	// Dynamic replica solving. ReplicaMode "" or "fixed" keeps the original formula and ignores the fields below.
 	ReplicaMode           string  `gorm:"type:varchar(16);not null;default:'fixed'" json:"replica_mode" column_setting:"false"`
@@ -467,6 +469,9 @@ func (m *ForecastModule) Validate() error {
 		if v != 0 && (v < 0.1 || v > 3) {
 			return fmt.Errorf("%s must be 0 (follow the system setting) or between 0.1 and 3", name)
 		}
+	}
+	if m.RecSustainMinutes < 0 || m.RecSustainMinutes > 720 {
+		return fmt.Errorf("rec_sustain_minutes must be between 0 (follow the system setting) and 720")
 	}
 	if m.RecLimitGuard != 0 && (m.RecLimitGuard < 0.3 || m.RecLimitGuard > 1) {
 		return fmt.Errorf("rec_limit_guard must be 0 (follow the system setting) or between 0.3 and 1")

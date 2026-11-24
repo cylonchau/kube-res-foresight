@@ -40,7 +40,7 @@ func (s *Service) OverprovisionParams(ctx context.Context) overprovision.Params 
 	p := overprovision.Params{
 		P90: band(timing.OPP90Target, timing.OPP90Low, timing.OPP90High), P95: band(timing.OPP95Target, timing.OPP95Low, timing.OPP95High), P99: band(timing.OPP99Target, timing.OPP99Low, timing.OPP99High),
 		LimitHeadroom: pc(timing.OPLimitHeadroom), OOMUplift: pc(timing.OPOOMUplift), ThrottleLimit: pc(timing.OPThrottle), Severe: pc(timing.OPGradeSevere), Moderate: pc(timing.OPGradeModerate),
-		CoverageHigh: pc(timing.OPCoverageHigh), CoverageMid: pc(timing.OPCoverageMid), PeakNearLimit: pc(timing.OPLimitGuard),
+		CoverageHigh: pc(timing.OPCoverageHigh), CoverageMid: pc(timing.OPCoverageMid), PeakNearLimit: pc(timing.OPLimitGuard), SustainMinutes: s.targetPercent(ctx, timing.OPSustain),
 	}
 	p.BaselineMinutes = s.OverprovisionBaseline(ctx)
 	// the limits must be in order, or a share would be graded twice: a limit above the one over it is brought down to it
@@ -70,6 +70,9 @@ func moduleParams(p overprovision.Params, m *model.ForecastModule) overprovision
 	}
 	if m.RecP99Target > 0 {
 		p.P99.Target = m.RecP99Target
+	}
+	if m.RecSustainMinutes > 0 {
+		p.SustainMinutes = m.RecSustainMinutes
 	}
 	if m.RecLimitGuard > 0 {
 		p.PeakNearLimit = m.RecLimitGuard
@@ -137,6 +140,11 @@ type opLoader struct {
 	live *liveRead
 	// podsHint, when set, is the number of Pods a sum of Requests or Limits is of (the replicas the workload is set to, from the Kubernetes API); else the ready replicas are the start.
 	podsHint int
+	// podSpec, when set, is the Requests and the Limits of one Pod as Kubernetes has them (the operator read the Pod template): they are the figures now, and nothing is worked
+	// out of a sum. configEstimated is set when a figure of a Pod had to be worked out of a sum of Prometheus (see buildConfig).
+	podSpec         *PodSpec
+	desired         int
+	configEstimated bool
 	// only, when set, limits a live reading to the kinds in it (the reading of the recommendation period needs only what the verdict is made of).
 	only map[string]bool
 }
@@ -229,8 +237,13 @@ func (l *opLoader) build(raw []overprovision.Point, level string, step int) *opS
 // and Limits of a Pod are figures somebody wrote in a spec (4 cores, 6 GiB), so of the counts near the ready replicas the first that gives such a figure is taken.
 func (l *opLoader) buildConfig(raw []overprovision.Point, step int, unit string) *opSeries {
 	out := &opSeries{step: step, raw: raw}
+	est, estimated := l.estimatePod(raw, unit)
 	for _, p := range raw {
 		out.total = append(out.total, p)
+		if estimated {
+			out.pod = append(out.pod, overprovision.Point{TS: p.TS, V: est})
+			continue
+		}
 		rep, known := l.repAt(p.TS)
 		if l.podsHint > 0 {
 			rep, known = float64(l.podsHint), true
@@ -240,6 +253,39 @@ func (l *opLoader) buildConfig(raw []overprovision.Point, step int, unit string)
 		}
 	}
 	return out
+}
+
+// estimateWindow is how far back the figure of one Pod is worked out of a sum: the median of the sum and of the replicas over it. A rollout puts the old and the new Pods in the
+// sum for a while and the newest total is then twice what a steady workload has; the median of a few hours is not.
+const estimateWindow = 6 * time.Hour
+
+// estimatePod works out the Requests (or the Limits) of one Pod from the sum over the Pods, with no Kubernetes report to read it from: the median of the sum over the last hours
+// divided by the median of the replicas over the same hours (the Pods near it are tried for a figure a spec can say, see podsOfTotal). It is an estimate, and the answer says
+// so. false when there is no such stretch (too few points of either), and then the sum at each moment is divided by the replicas of that moment.
+func (l *opLoader) estimatePod(raw []overprovision.Point, unit string) (float64, bool) {
+	if l.podsHint > 0 || len(raw) < 6 {
+		return 0, false
+	}
+	since := raw[len(raw)-1].TS - int64(estimateWindow/time.Second)
+	var totals, reps []float64
+	for _, p := range raw {
+		if p.TS >= since && p.V > 0 {
+			totals = append(totals, p.V)
+		}
+	}
+	for _, sm := range l.reps {
+		if sm.TS >= since && sm.Value >= 1 && !math.IsNaN(sm.Value) {
+			reps = append(reps, sm.Value)
+		}
+	}
+	if len(totals) < 6 || len(reps) < 6 {
+		return 0, false
+	}
+	sort.Float64s(totals)
+	sort.Float64s(reps)
+	total, rep := totals[len(totals)/2], reps[len(reps)/2]
+	l.configEstimated = true
+	return total / podsOfTotal(total, rep, unit), true
 }
 
 // podsOfTotal is how many Pods a sum of the Requests or the Limits was made over, taken near the ready replicas: the ready replicas themselves when that gives a figure a
@@ -358,6 +404,25 @@ type OOMInfo struct {
 	ScoreOn      bool    `json:"score_on"`
 	Weight       float64 `json:"weight"`
 	Score        float64 `json:"score"`
+	// Protection is what the kills did to the recommendation of the memory of this page (nil when there was no kill in the recommendation period). The score is a different
+	// thing: it counts kills against the memory score of a forecasting algorithm (which algorithm is followed) and never changes a Requests or a replica count here.
+	Protection *OOMProtection `json:"protection,omitempty"`
+}
+
+// OOMProtection is the protection a kill gives the memory: the memory Requests is not recommended below max(the working set measured at the kill x the OOM protection
+// coefficient, the Requests it has now), and no replica is taken away. The kills counted are those of the recommendation period (the period of the page's recommendation); the
+// "look-back days" of module management are the period the forecast pipeline's own OOM floor looks at.
+type OOMProtection struct {
+	Kills         float64 `json:"kills"`
+	PeriodMinutes int     `json:"period_minutes"`
+	WorkingSet    float64 `json:"working_set"`
+	Uplift        float64 `json:"uplift"`
+	Request       float64 `json:"request"`
+	Floor         float64 `json:"floor"`
+	// NeedBefore is what the percentiles asked of the Requests before the floor, and FloorRaised whether the floor is above it (the kill is what sets the recommendation).
+	NeedBefore   float64 `json:"need_before"`
+	FloorRaised  bool    `json:"floor_raised"`
+	ReplicasHeld bool    `json:"replicas_held"`
 }
 
 // maxOOMEvents is how many moments of kills the detail lists (the newest).
@@ -429,7 +494,10 @@ type ModuleOverprovision struct {
 	ReplicasUpdating bool `json:"replicas_updating,omitempty"`
 	// ReplicasWhy says why Kubernetes could not give the replicas (no_operator, stale, missing, error) when the figure comes from elsewhere. ReplicasLatest is the newest figure of
 	// Prometheus when it was set aside for being far above the usual (from "estimated": the replicas are what the period usually had, not the figure of a rollout).
-	ReplicasWhy    string `json:"replicas_why,omitempty"`
+	ReplicasWhy string `json:"replicas_why,omitempty"`
+	// PodSpecFrom says where the Requests and the Limits of one Pod come from: "kubernetes" (the Pod template the operator read) or "estimated" (worked out of the sums of Prometheus
+	// by the median of the last hours, see estimatePod); empty when the module has neither.
+	PodSpecFrom    string `json:"pod_spec_from,omitempty"`
 	ReplicasLatest int    `json:"replicas_latest,omitempty"`
 	// Coefficients are those of the module in module management.
 	Coefficients *ModuleCoefficients `json:"coefficients,omitempty"`
@@ -532,6 +600,19 @@ func (l *opLoader) analyzeWindow(label string, minutes int, p overprovision.Para
 				in.LimitTotal = lastValue(sliceFrom(ls.total, from, to))
 			}
 		}
+		// what the Pod template says is what the Pod has: it is not worked out of a sum, and it is not a figure of Prometheus
+		if spec := l.podSpec; spec != nil {
+			request, limit := spec.CPURequest, spec.CPULimit
+			if resource == overprovision.Memory {
+				request, limit = spec.MemoryRequest, spec.MemoryLimit
+			}
+			if request > 0 {
+				in.Request, in.RequestTotal = request, request*float64(l.desired)
+			}
+			if limit > 0 {
+				in.Limit, in.LimitFrom, in.LimitTotal = limit, "kubernetes", limit*float64(l.desired)
+			}
+		}
 		if in.Limit <= 0 && limitRatio >= 1 && in.Request > 0 {
 			// admission gives a new Pod the request times this ratio as its limit: it is what the module is configured to, not what was measured
 			in.Limit, in.LimitFrom = in.Request*limitRatio, "module"
@@ -578,11 +659,56 @@ const k8sReportMaxAge = 15 * time.Minute
 // OK is false when there is no usable report, and Why says why: no_operator (nothing was ever reported), stale (older than the operator reports), missing (the workload is
 // not in the cluster) or error (it could not be read).
 type WorkloadReplicas struct {
+	// Spec is the Requests and the Limits of one Pod as the operator read them from the Pod template of the workload (the sum over its containers); nil when the report has none.
+	Spec                                               *PodSpec
 	Desired, Ready, Available, Updated, Pods, Abnormal int
 	Rolling                                            bool
 	At                                                 time.Time
 	OK                                                 bool
 	Why                                                string
+}
+
+// PodSpec is the Requests and the Limits of one Pod, CPU in cores and memory in bytes (a Limits of 0 says the Pod has none for that resource).
+type PodSpec struct {
+	CPURequest, CPULimit, MemoryRequest, MemoryLimit float64
+}
+
+// podSpecOf sums the containers of the Pod template (the Pod asks for what its containers ask for together). A Limits counts only when every container sets one: a container
+// without it can use what the node has, so the Pod has none.
+func podSpecOf(containers string) *PodSpec {
+	var list []struct {
+		Requests struct {
+			CPUMilli    int64 `json:"cpu_milli"`
+			MemoryBytes int64 `json:"memory_bytes"`
+		} `json:"requests"`
+		Limits struct {
+			CPUMilli    int64 `json:"cpu_milli"`
+			MemoryBytes int64 `json:"memory_bytes"`
+		} `json:"limits"`
+	}
+	if json.Unmarshal([]byte(containers), &list) != nil || len(list) == 0 {
+		return nil
+	}
+	spec := &PodSpec{}
+	cpuLimit, memLimit := true, true
+	for _, c := range list {
+		spec.CPURequest += float64(c.Requests.CPUMilli) / 1000
+		spec.MemoryRequest += float64(c.Requests.MemoryBytes)
+		spec.CPULimit += float64(c.Limits.CPUMilli) / 1000
+		spec.MemoryLimit += float64(c.Limits.MemoryBytes)
+		cpuLimit = cpuLimit && c.Limits.CPUMilli > 0
+		memLimit = memLimit && c.Limits.MemoryBytes > 0
+	}
+	if !cpuLimit {
+		spec.CPULimit = 0
+	}
+	if !memLimit {
+		spec.MemoryLimit = 0
+	}
+	if spec.CPURequest <= 0 && spec.MemoryRequest <= 0 {
+		return nil
+	}
+	return spec
 }
 
 func (s *Service) workloadReplicas(ctx context.Context, m *model.ForecastModule, now time.Time) WorkloadReplicas {
@@ -602,7 +728,7 @@ func (s *Service) workloadReplicas(ctx context.Context, m *model.ForecastModule,
 	case row.Desired < 1:
 		return WorkloadReplicas{At: row.ObservedAt, Why: "error"}
 	}
-	w := WorkloadReplicas{Desired: row.Desired, Ready: row.Ready, Available: row.Available, Updated: row.Updated, At: row.ObservedAt, OK: true}
+	w := WorkloadReplicas{Desired: row.Desired, Ready: row.Ready, Available: row.Available, Updated: row.Updated, At: row.ObservedAt, OK: true, Spec: podSpecOf(row.Containers)}
 	var pods []struct {
 		Ready bool `json:"ready"`
 	}
@@ -806,6 +932,7 @@ func (s *Service) OverprovisionDetail(ctx context.Context, moduleID uint, window
 	w := s.workloadReplicas(ctx, m, now)
 	if w.OK {
 		l.podsHint = w.PodsCounted()
+		l.podSpec, l.desired = w.Spec, w.Desired
 	}
 	// the recommendation has a period of its own: when it is longer than the window of the page it is read apart (the window would be read in a coarser step to
 	// reach it), and when it is not the window's own series is cut to it
@@ -814,7 +941,7 @@ func (s *Service) OverprovisionDetail(ctx context.Context, moduleID uint, window
 	var wg sync.WaitGroup
 	if recMinutes > windowMinutes {
 		recLoader = s.newLiveLoader(ctx, m, to.Add(-time.Duration(recMinutes)*time.Minute), to)
-		recLoader.podsHint = l.podsHint
+		recLoader.podsHint, recLoader.podSpec, recLoader.desired = l.podsHint, l.podSpec, l.desired
 		recLoader.only = recommendKinds
 		wg.Add(1)
 		go func() {
@@ -845,6 +972,12 @@ func (s *Service) OverprovisionDetail(ctx context.Context, moduleID uint, window
 	}
 	mo := s.moduleHeader(m, replicas, to)
 	mo.Coefficients = coefficientsOf(m)
+	switch {
+	case l.podSpec != nil:
+		mo.PodSpecFrom = "kubernetes"
+	case l.configEstimated || recLoader.configEstimated:
+		mo.PodSpecFrom = "estimated"
+	}
 	facts := l.replicaFacts(replicas, to.Add(-time.Duration(recMinutes)*time.Minute).Unix())
 	mo.ReplicasFrom, mo.ReplicasAt, mo.ReplicasMin, mo.ReplicasMax = repFrom, facts.At, facts.Min, facts.Max
 	if w.OK {
@@ -884,6 +1017,16 @@ func (s *Service) OverprovisionDetail(ctx context.Context, moduleID uint, window
 	}
 	mo.JVM = l.jvm(m, fromTS, toTS, wr)
 	mo.OOM = l.oomInfo(m, fromTS, toTS)
+	if mem := mo.Recommend.Memory; mem != nil && mem.OOMKills > 0 && mo.OOM != nil {
+		need := 0.0
+		for _, c := range mem.Candidates {
+			need = math.Max(need, c.Needed)
+		}
+		floor := math.Max(mem.OOMWorkingSet*p.OOMUplift, mem.Request)
+		held := mo.Recommend.ReplicaPlan != nil && containsString(mo.Recommend.ReplicaPlan.Reasons, overprovision.ReasonReplicasLimited)
+		mo.OOM.Protection = &OOMProtection{Kills: mem.OOMKills, PeriodMinutes: recMinutes, WorkingSet: mem.OOMWorkingSet, Uplift: p.OOMUplift, Request: mem.Request, Floor: floor,
+			NeedBefore: need, FloorRaised: floor > need, ReplicasHeld: held}
+	}
 	mo.Metrics = l.metrics(fromTS, toTS)
 	mo.Datasource = l.live.datasource
 	mo.Queries, mo.Partial, mo.Skipped = l.liveSummary()
@@ -1279,4 +1422,13 @@ func (l *opLoader) metrics(from, to int64) []MetricStat {
 		out = append(out, ms)
 	}
 	return out
+}
+
+func containsString(list []string, v string) bool {
+	for _, x := range list {
+		if x == v {
+			return true
+		}
+	}
+	return false
 }

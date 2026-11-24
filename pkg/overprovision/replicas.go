@@ -37,7 +37,7 @@ const (
 	ReasonReplicasNoTotal   = "replicas_no_total"   // the use of all the Pods together was not measured: no plan
 	ReasonReplicasFloor     = "replicas_floor"      // the plan is not below the module's least replicas
 	ReasonReplicasCeiling   = "replicas_ceiling"    // the plan is not above the module's most replicas
-	ReasonReplicasStep      = "replicas_step"       // the module lets one action add or remove only so many replicas
+	ReasonReplicasStep      = "replicas_step"       // the module lets one action add or remove only so many replicas: ThisRound is short of Needed
 	ReasonReplicasLimited   = "replicas_limited"    // OOM or throttling: the use understates the need, so no replica is taken away
 	ReasonReplicasLimit     = "replicas_limit"      // the P99 use of a Pod would come near its Limits with fewer replicas
 )
@@ -54,8 +54,11 @@ type ReplicaLimits struct {
 // ReplicaPart is the replicas one percentile of the use asks of: the sum of the use of all the Pods at that percentile divided by the Requests of a Pod and the share of it
 // the percentile is wanted to take.
 type ReplicaPart struct {
-	Name   string  `json:"name"`
+	Name string `json:"name"`
+	// Total is the sum of the use of all the Pods at the percentile as it counts (held for the sustain window, see Sustained); Raw is the same percentile of the sum as it was
+	// measured moment by moment. They are one figure when the use is not held.
 	Total  float64 `json:"total"`
+	Raw    float64 `json:"raw"`
 	Target float64 `json:"target"`
 	Needed float64 `json:"needed"`
 	// Counted is whether the part took part in the count of the plan it is in (a plan of one caliber counts the part of that percentile only).
@@ -93,6 +96,9 @@ type ReplicaPlan struct {
 	Binding string `json:"binding"`
 	// Resources are the need of each resource apart.
 	Resources []ReplicaNeed `json:"resources"`
+	// ThisRound is the count one action of the operator reaches: Needed held to the most replicas one action may add or remove (the pace of the module). It differs from Needed
+	// only while the pace is what holds it back (reason replicas_step), and then Needed is reached in the next actions; Needed is the recommendation.
+	ThisRound int `json:"this_round"`
 	// Primary is what to change first: the replicas, or (when they cannot do it) the Pod spec, or nothing.
 	Primary string `json:"primary"`
 	// Limits are the constraints of the module the plan was held to.
@@ -162,6 +168,7 @@ func planReplicas(current int, p Params, lim ReplicaLimits, only string, results
 	if plan.Current <= 0 {
 		// the replicas now are not known: the plan is how many the use asks for within the bounds, and not by how many it moves
 		plan.Reasons = append(plan.Reasons, ReasonReplicasNoCurrent)
+		plan.ThisRound = plan.Needed
 		return plan
 	}
 	switch {
@@ -169,14 +176,18 @@ func planReplicas(current int, p Params, lim ReplicaLimits, only string, results
 		// the use understates the need under OOM or throttling: no replica is taken away
 		plan.Needed = plan.Current
 		plan.Reasons = append(plan.Reasons, ReasonReplicasLimited)
+	}
+	// the recommendation is the count the use asks for within the bounds and the protections; the pace of the module only says how many actions it takes to get there
+	plan.ThisRound = plan.Needed
+	switch {
 	case plan.Needed < plan.Current:
 		if lim.ScaleDownStep > 0 && plan.Current-plan.Needed > lim.ScaleDownStep {
-			plan.Needed = plan.Current - lim.ScaleDownStep
+			plan.ThisRound = plan.Current - lim.ScaleDownStep
 			plan.Reasons = append(plan.Reasons, ReasonReplicasStep)
 		}
 	case plan.Needed > plan.Current:
 		if lim.ScaleUpStep > 0 && plan.Needed-plan.Current > lim.ScaleUpStep {
-			plan.Needed = plan.Current + lim.ScaleUpStep
+			plan.ThisRound = plan.Current + lim.ScaleUpStep
 			plan.Reasons = append(plan.Reasons, ReasonReplicasStep)
 		}
 	}
@@ -212,11 +223,16 @@ func replicasFor(r *Result, p Params, only string) ReplicaNeed {
 	out := ReplicaNeed{Resource: r.Resource, Request: r.Request, Limit: r.Limit, Parts: []ReplicaPart{}}
 	var parts []string
 	need := 0.0
+	held := r.Total // the sums as they count: held for the sustain window when there is one
+	if r.TotalSustained != nil {
+		held = r.TotalSustained
+	}
 	for _, c := range []struct {
 		name  string
 		total float64
 		share float64
-	}{{"P90", r.Total.P90, p.P90.Target}, {"P95", r.Total.P95, p.P95.Target}, {"P99", r.Total.P99, p.P99.Target}} {
+		raw   float64
+	}{{"P90", held.P90, p.P90.Target, r.Total.P90}, {"P95", held.P95, p.P95.Target, r.Total.P95}, {"P99", held.P99, p.P99.Target, r.Total.P99}} {
 		if !(c.share > 0) {
 			continue
 		}
@@ -225,7 +241,7 @@ func replicasFor(r *Result, p Params, only string) ReplicaNeed {
 		if counted {
 			need = math.Max(need, n)
 		}
-		out.Parts = append(out.Parts, ReplicaPart{Name: c.name, Total: c.total, Target: c.share, Needed: n, Counted: counted})
+		out.Parts = append(out.Parts, ReplicaPart{Name: c.name, Total: c.total, Raw: c.raw, Target: c.share, Needed: n, Counted: counted})
 		parts = append(parts, fmt.Sprintf("%s %s / (%s x %.0f%%) = %.2f", c.name, num(r.Resource, c.total), num(r.Resource, r.Request), c.share*100, n))
 	}
 	out.Formula = r.Resource + " replicas = max(" + strings.Join(parts, ", ") + ")"

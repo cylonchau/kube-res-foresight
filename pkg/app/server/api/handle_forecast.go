@@ -153,7 +153,7 @@ func (r *ForecastRouter) CreateModule(c *gin.Context) {
 		PodCPURequestMilli: req.PodCPURequestMilli, PodMemoryRequestBytes: req.PodMemoryRequestBytes, TargetUtilization: req.TargetUtilization,
 		OOMCalcWorkingSetRatio: req.OOMCalcWorkingSetRatio, OOMCalcLimitRatio: req.OOMCalcLimitRatio, OOMCalcHistoryRatio: req.OOMCalcHistoryRatio,
 		FloorRatio: req.FloorRatio, MaxShortfall: req.MaxShortfall,
-		RecP90Target: req.RecP90Target, RecP95Target: req.RecP95Target, RecP99Target: req.RecP99Target, RecLimitGuard: req.RecLimitGuard,
+		RecP90Target: req.RecP90Target, RecP95Target: req.RecP95Target, RecP99Target: req.RecP99Target, RecLimitGuard: req.RecLimitGuard, RecSustainMinutes: req.RecSustainMinutes,
 		RecCPURequestHeadroom: req.RecCPURequestHeadroom, RecMemoryRequestHeadroom: req.RecMemoryRequestHeadroom, RecCPULimitHeadroom: req.RecCPULimitHeadroom, RecMemoryLimitHeadroom: req.RecMemoryLimitHeadroom,
 		MaxReplicasMode: req.MaxReplicasMode, HardMaxReplicas: req.HardMaxReplicas, ExpandStepRatio: req.ExpandStepRatio,
 		OOMLookbackDays: req.OOMLookbackDays, OOMMemoryUplift: req.OOMMemoryUplift, JVMHeapPressure: 0.85, RecoverCycles: req.RecoverCycles,
@@ -255,7 +255,7 @@ func applyModuleUpdate(m *model.ForecastModule, req *apis.ModuleUpdateReq) {
 		&m.StepSeconds: req.StepSeconds, &m.MinPoints: req.MinPoints, &m.WindowSteps: req.WindowSteps, &m.RunIntervalMinutes: req.RunIntervalMinutes,
 		&m.TTLSeconds: req.TTLSeconds, &m.MinReplicas: req.MinReplicas, &m.MaxReplicas: req.MaxReplicas, &m.FallbackReplicas: req.FallbackReplicas, &m.FixedReplicas: req.FixedReplicas,
 		&m.HardMaxReplicas: req.HardMaxReplicas, &m.MinGPU: req.MinGPU, &m.MaxGPU: req.MaxGPU, &m.FallbackGPU: req.FallbackGPU,
-		&m.OOMLookbackDays: req.OOMLookbackDays, &m.RecoverCycles: req.RecoverCycles,
+		&m.OOMLookbackDays: req.OOMLookbackDays, &m.RecoverCycles: req.RecoverCycles, &m.RecSustainMinutes: req.RecSustainMinutes,
 		&m.ScaleUpMaxStep: req.ScaleUpMaxStep, &m.ScaleDownMaxStep: req.ScaleDownMaxStep,
 		&m.ScaleUpCooldownSeconds: req.ScaleUpCooldownSeconds, &m.ScaleDownCooldownSeconds: req.ScaleDownCooldownSeconds,
 	} {

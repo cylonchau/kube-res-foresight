@@ -82,6 +82,7 @@ type ModuleCreateReq struct {
 	RecP95Target             float64 `json:"rec_p95_target"`
 	RecP99Target             float64 `json:"rec_p99_target"`
 	RecLimitGuard            float64 `json:"rec_limit_guard"`
+	RecSustainMinutes        int     `json:"rec_sustain_minutes"`
 	RecCPURequestHeadroom    float64 `json:"rec_cpu_request_headroom"`
 	RecMemoryRequestHeadroom float64 `json:"rec_memory_request_headroom"`
 	RecCPULimitHeadroom      float64 `json:"rec_cpu_limit_headroom"`
@@ -174,6 +175,7 @@ type ModuleUpdateReq struct {
 	RecP95Target             *float64 `json:"rec_p95_target"`
 	RecP99Target             *float64 `json:"rec_p99_target"`
 	RecLimitGuard            *float64 `json:"rec_limit_guard"`
+	RecSustainMinutes        *int     `json:"rec_sustain_minutes"`
 	RecCPURequestHeadroom    *float64 `json:"rec_cpu_request_headroom"`
 	RecMemoryRequestHeadroom *float64 `json:"rec_memory_request_headroom"`
 	RecCPULimitHeadroom      *float64 `json:"rec_cpu_limit_headroom"`

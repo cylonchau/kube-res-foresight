@@ -40,6 +40,9 @@ var (
 	OPLimitGuard = Param{Key: "analysis.rec_limit_guard_percent", Default: 90, Min: 30, Max: 100,
 		Name:   "Recommendation Limits Guard (percent of Limits)",
 		Remark: "The P99 use of all the Pods together must stay under this share of their Limits at the recommended replicas, so a replica count is never taken so low that the tail runs into the Limits (30-100). It is also the share of the Limits above which the peak counts as near the Limits in the risk of a result. A module can set its own in module management."}
+	OPSustain = Param{Key: "analysis.rec_sustain_minutes", Default: 30, Min: 0, Max: 720,
+		Name:   "Recommendation Sustain Window (minutes)",
+		Remark: "The percentiles the recommended Requests and replicas are made of are taken of the use held for this many minutes (every point is the mean of the use over the window that ends at it), so a peak that lasts for less than the window does not raise a long-term recommendation, and a use that lasts for the whole window does. The Limits is still sized for the raw peak. 0 takes the percentiles of the raw points (0-720). A module can set its own in module management."}
 	OPOOMUplift = Param{Key: "analysis.oom_uplift_percent", Default: 120, Min: 100, Max: 300,
 		Name:   "OOM Uplift (percent)",
 		Remark: "When the memory was OOM-killed in the window, the suggestion is never below the working set measured at the kill times this, and never below the request it has now: lowering it is not suggested (100-300)."}

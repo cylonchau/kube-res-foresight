@@ -2,6 +2,7 @@ package forecastsvc
 
 import (
 	"context"
+	"math"
 	"strconv"
 	"strings"
 	"testing"
@@ -220,6 +221,15 @@ func TestThrottlingOOMAndTheJVMKeepTheAnalysisFromLoweringARequest(t *testing.T)
 	require.NotNil(t, d.JVM.HeapMax)
 	assert.Contains(t, d.JVM.Hints, "heap_max_above_working_set")
 	assert.NotContains(t, cpu.Reasons, overprovision.ReasonJVMMissing)
+
+	// what the kills did to the memory recommendation is written down: the floor, the working set and the coefficient it is made of, and whether it is what set the figure
+	require.NotNil(t, d.OOM)
+	require.NotNil(t, d.OOM.Protection)
+	prot := d.OOM.Protection
+	assert.Greater(t, prot.Kills, 0.0)
+	assert.InDelta(t, math.Max(prot.WorkingSet*prot.Uplift, prot.Request), prot.Floor, 1e-6)
+	assert.Equal(t, prot.Floor > prot.NeedBefore, prot.FloorRaised)
+	assert.GreaterOrEqual(t, d.Recommend.Memory.Suggested, prot.Floor, "the recommendation is not below the floor")
 
 	// the board counts it as a risk, and what is limited is not given back
 	_, err = f.svc.RunOverprovision(ctx, 0)
@@ -840,7 +850,8 @@ func TestTheReplicasNowAreTheWorkloadsOwnAndThePlanKeepsToTheModulesConstraints(
 	require.NotNil(t, plan)
 	assert.Equal(t, 12, plan.Current)
 	assert.Equal(t, overprovision.ReplicaLimits{Min: 10, Max: f.module.MaxReplicas, ScaleDownStep: 1}, plan.Limits)
-	assert.GreaterOrEqual(t, plan.Needed, 11, "no more than one replica an action, as the module says")
+	assert.GreaterOrEqual(t, plan.ThisRound, 11, "no more than one replica an action, as the module says")
+	assert.GreaterOrEqual(t, plan.Needed, 10, "the recommendation keeps to the least replicas of the module")
 
 	// an old report is not "now"
 	require.NoError(t, f.svc.Inventory.SaveWorkload(ctx, &model.WorkloadConfig{ModuleID: f.module.ID, Namespace: "prod", Kind: "Deployment", Name: "api", Desired: 12, Ready: 11, ObservedAt: f.svc.now().Add(-time.Hour)}))
@@ -955,4 +966,54 @@ func TestARolloutDoesNotMakeTheReplicasTwiceAsMany(t *testing.T) {
 	assert.True(t, d.ReplicasUpdating)
 	assert.InDelta(t, 4.0, d.Windows[0].CPU.Request, 1e-9, "96 cores over the 24 Pods that exist, not over the 12 the workload is set to")
 	assert.Equal(t, 12, d.Recommend.ReplicaPlan.Current)
+}
+
+// The Requests of a Pod are the Pod template's, or (with no report) the median of the sum over the last hours divided by the median of the replicas, never the newest sum
+// divided by a guess of the Pods in it: with the old and the new Pods of a rollout in the newest sum (128 cores) and 22 replicas, that gave 5.82 cores for a Pod of 4.
+func TestTheRequestsOfAPodAreTheSpecsOrAMedianNeverTheNewestSumOverAGuess(t *testing.T) {
+	f := opFixture(t)
+	f.withRequests(t, 1.5)
+	require.NoError(t, f.db.AutoMigrate(&model.WorkloadConfig{}))
+	f.svc.Inventory = rdb.NewInventoryDAO(f.db)
+	now := f.svc.now()
+	inner := f.querier.value
+	rollout := func(ts time.Time) bool { return ts.After(now.Add(-30 * time.Minute)) }
+	f.querier.value = func(query string, ts time.Time) float64 {
+		switch {
+		case strings.Contains(query, "k8s_cpu_requests_series{"):
+			if rollout(ts) {
+				return 128 // 32 Pods of 4 cores: the old and the new ones of a rollout
+			}
+			return 48 // 12 Pods of 4 cores
+		case strings.Contains(query, "kube_deployment"):
+			if rollout(ts) {
+				return 22
+			}
+			return 12
+		}
+		return inner(query, ts)
+	}
+	ctx := context.Background()
+
+	d, err := f.svc.OverprovisionDetail(ctx, f.module.ID, 24*60, time.Time{}, time.Time{})
+	require.NoError(t, err)
+	assert.Equal(t, "estimated", d.PodSpecFrom)
+	assert.InDelta(t, 4.0, d.Recommend.CPU.Request, 1e-9, "the median of the sum over the median of the replicas")
+
+	// the operator read the Pod template: that is what the Pod has
+	containers := `[{"name":"app","requests":{"cpu_milli":4000,"memory_bytes":6442450944},"limits":{"cpu_milli":8000,"memory_bytes":17179869184}}]`
+	require.NoError(t, f.svc.Inventory.SaveWorkload(ctx, &model.WorkloadConfig{ModuleID: f.module.ID, Namespace: "prod", Kind: "Deployment", Name: "api",
+		Desired: 12, Ready: 11, Containers: containers, ObservedAt: now.Add(-time.Minute)}))
+	f.svc.Cache = nil
+	d, err = f.svc.OverprovisionDetail(ctx, f.module.ID, 24*60, time.Time{}, time.Time{})
+	require.NoError(t, err)
+	assert.Equal(t, "kubernetes", d.PodSpecFrom)
+	cpu, mem := d.Recommend.CPU, d.Recommend.Memory
+	assert.InDelta(t, 4.0, cpu.Request, 1e-9)
+	assert.InDelta(t, 8.0, cpu.Limit, 1e-9)
+	assert.Equal(t, "kubernetes", cpu.LimitFrom)
+	assert.InDelta(t, 48.0, cpu.RequestTotal, 1e-9, "all the replicas the workload is set to")
+	require.NotNil(t, mem)
+	assert.InDelta(t, 6.0*(1<<30), mem.Request, 1)
+	assert.InDelta(t, 16.0*(1<<30), mem.Limit, 1)
 }

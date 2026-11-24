@@ -53,7 +53,9 @@ func TestTheReplicasKeepToTheConstraintsOfTheModule(t *testing.T) {
 
 	// the most one action may remove
 	plan = PlanReplicas(12, p, ReplicaLimits{ScaleDownStep: 2}, result(CPU, 4, 8, use, StatusOver))
-	assert.Equal(t, 10, plan.Needed)
+	assert.Equal(t, 3, plan.Needed, "the recommendation is what the use asks for, whatever the pace")
+	assert.Equal(t, 10, plan.ThisRound, "one action removes two replicas at most")
+	assert.Equal(t, -9, plan.Delta)
 	assert.Contains(t, plan.Reasons, ReasonReplicasStep)
 
 	// the most replicas, and the most one action may add
@@ -62,7 +64,8 @@ func TestTheReplicasKeepToTheConstraintsOfTheModule(t *testing.T) {
 	assert.Equal(t, 20, plan.Needed)
 	assert.Contains(t, plan.Reasons, ReasonReplicasCeiling)
 	plan = PlanReplicas(12, p, ReplicaLimits{ScaleUpStep: 3}, result(CPU, 4, 8, big, StatusUnder))
-	assert.Equal(t, 15, plan.Needed)
+	assert.Equal(t, 24, plan.Needed)
+	assert.Equal(t, 15, plan.ThisRound, "one action adds three replicas at most")
 	assert.Equal(t, ScaleOut, plan.Direction)
 
 	// nothing of it is the platform's own: no bound is set, none is applied (a module that has one replica stays at one when the use asks for one)

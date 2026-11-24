@@ -109,9 +109,11 @@ type Params struct {
 	// LimitHeadroom is the share the recommended limit is above the P99 use (it is never below the recommended request); CPULimitHeadroom and MemoryLimitHeadroom are the
 	// module's own for one resource (0 = LimitHeadroom). CPURequestHeadroom and MemoryRequestHeadroom are the margin the recommended Requests get over the largest of
 	// the needs of the three percentiles (0 = none).
-	LimitHeadroom         float64 `json:"limit_headroom"`
-	CPULimitHeadroom      float64 `json:"cpu_limit_headroom"`
-	MemoryLimitHeadroom   float64 `json:"memory_limit_headroom"`
+	LimitHeadroom       float64 `json:"limit_headroom"`
+	CPULimitHeadroom    float64 `json:"cpu_limit_headroom"`
+	MemoryLimitHeadroom float64 `json:"memory_limit_headroom"`
+	// SustainMinutes is the window the use is held for before a percentile is taken (see Sustained); 0 takes the percentiles of the raw points.
+	SustainMinutes        int     `json:"sustain_minutes"`
 	CPURequestHeadroom    float64 `json:"cpu_request_headroom"`
 	MemoryRequestHeadroom float64 `json:"memory_request_headroom"`
 	// OOMUplift multiplies the working set an OOM kill was seen at: the suggestion is never below it.
@@ -242,6 +244,14 @@ type Result struct {
 	Usage     Usage  `json:"usage"`
 	// Total is the quantiles of the sum over all the Pods (nil when it could not be made).
 	Total *Usage `json:"total,omitempty"`
+	// Sustained and TotalSustained are the same quantiles of the use held for SustainMinutes (see Sustained): what the recommended Requests and the replicas are made of.
+	// Both are nil when the use is not held (the window is 0 or the step is too coarse), and then Usage and Total are what counts.
+	Sustained      *Usage `json:"sustained,omitempty"`
+	TotalSustained *Usage `json:"total_sustained,omitempty"`
+	SustainMinutes int    `json:"sustain_minutes"`
+	// ExceedSuggested and ExceedNow say how long the use of a Pod was above the recommended Requests and above the Requests it has now (raw points).
+	ExceedSuggested *Exceed `json:"exceed_suggested,omitempty"`
+	ExceedNow       *Exceed `json:"exceed_now,omitempty"`
 	// Coverage is the share of the window that has data (0 to 1).
 	Coverage       float64 `json:"coverage"`
 	ExpectedPoints int     `json:"expected_points"`
@@ -329,6 +339,11 @@ func Analyze(in Input, p Params) Result {
 	if len(in.Total) > 0 {
 		t := UsageOf(in.Total)
 		r.Total = &t
+		if p.SustainMinutes > 0 {
+			if st := UsageOf(Sustained(in.Total, p.SustainMinutes)); st.Points > 0 && st != t {
+				r.TotalSustained = &st
+			}
+		}
 	}
 	if in.StepSeconds > 0 && in.WindowMinutes > 0 {
 		r.ExpectedPoints = in.WindowMinutes * 60 / in.StepSeconds
@@ -370,6 +385,13 @@ func Analyze(in Input, p Params) Result {
 	// The recommended request: the least that puts each percentile of the use at or under the share of it that the band asks for. The highest use (Max) takes no
 	// part: a peak that came once is not what a request is sized for.
 	u := r.Usage
+	// the use the Requests is sized for is the use held for a stretch, not the height of a moment
+	eff := u
+	if p.SustainMinutes > 0 {
+		if st := UsageOf(Sustained(in.Points, p.SustainMinutes)); st.Points > 0 {
+			eff, r.Sustained, r.SustainMinutes = st, &st, p.SustainMinutes
+		}
+	}
 	var suggested float64
 	var parts []string
 	var cands []Candidate
@@ -377,7 +399,7 @@ func Analyze(in Input, p Params) Result {
 		name  string
 		use   float64
 		share float64
-	}{{"P90", u.P90, p.P90.Target}, {"P95", u.P95, p.P95.Target}, {"P99", u.P99, p.P99.Target}} {
+	}{{"P90", eff.P90, p.P90.Target}, {"P95", eff.P95, p.P95.Target}, {"P99", eff.P99, p.P99.Target}} {
 		if !(c.share > 0) {
 			continue
 		}
@@ -446,7 +468,7 @@ func Analyze(in Input, p Params) Result {
 	}
 
 	// Where each percentile stands against the request: below its reasonable range (-1), in it (0) or above it (1).
-	r.Shares = &Usage{P50: u.P50 / in.Request, P90: u.P90 / in.Request, P95: u.P95 / in.Request, P99: u.P99 / in.Request, Max: u.Max / in.Request}
+	r.Shares = &Usage{P50: eff.P50 / in.Request, P90: eff.P90 / in.Request, P95: eff.P95 / in.Request, P99: eff.P99 / in.Request, Max: eff.Max / in.Request}
 	stand := func(share float64, b Band) int {
 		switch {
 		case share < b.Low:
@@ -491,6 +513,8 @@ func Analyze(in Input, p Params) Result {
 	r.Suggested = suggested
 	r.SuggestedLimit = round(math.Max(suggested, u.P99*(1+p.LimitHeadroomOf(in.Resource))))
 	r.Formula += fmt.Sprintf("; limit = max(recommended, P99 %s x (1+%.0f%%)) = %s", num(in.Resource, u.P99), p.LimitHeadroomOf(in.Resource)*100, num(in.Resource, r.SuggestedLimit))
+	r.ExceedSuggested = ExceedOf(in.Points, suggested, in.StepSeconds)
+	r.ExceedNow = ExceedOf(in.Points, in.Request, in.StepSeconds)
 	r.Numerator, r.Denominator = in.Request-suggested, in.Request
 	r.Ratio = r.Numerator / r.Denominator
 	r.Reclaimable = math.Max(0, r.Numerator)
