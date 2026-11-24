@@ -21,3 +21,14 @@ func TestHTMLTextKeepsLinesAndRows(t *testing.T) {
 		"<table><tr><th>name</th><th>cpu</th></tr><tr><td>web</td><td>4</td></tr></table></body></html>")
 	assert.Equal(t, "Usage\na & b\nname | cpu\nweb | 4", text)
 }
+
+func TestInlineMailStylesPutTheStyleOnTheTagAndKeepWhatTheAnswerHas(t *testing.T) {
+	out := InlineMailStyles(`<table><tr><th>A</th><td class="lv-bad" style="color:red">x</td></tr></table><h2>T</h2>`)
+	assert.Contains(t, out, `<table style="border-collapse:collapse`)
+	assert.Contains(t, out, `<th style="border:1px solid #d5d8de`)
+	// the colour of the level is on the cell, and what the answer wrote comes last so it wins
+	assert.Contains(t, out, "background:#fbe9ed")
+	assert.Contains(t, out, ";color:red")
+	assert.Contains(t, out, `<h2 style="margin:16px 0 6px`)
+	assert.NotContains(t, out, "<tr style", "rows are left as they are")
+}

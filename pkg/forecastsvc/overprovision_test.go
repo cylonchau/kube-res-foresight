@@ -770,3 +770,28 @@ func TestTheRequestsOfTwelvePodsWithElevenReadyAreStillFourCoresAPod(t *testing.
 	assert.InDelta(t, 48.0, cpu.RequestTotal, 1e-9)
 	assert.InDelta(t, 96.0, cpu.LimitTotal, 1e-9)
 }
+
+// The replicas now are the figure of the cluster (the replicas metric), with when it was measured and the fewest and the most of the period; the plan of the replicas starts from it.
+func TestTheReplicasNowAreTheClustersAndThePlanStartsFromThem(t *testing.T) {
+	f := opFixture(t)
+	f.withRequests(t, 1.5)
+	inner := f.querier.value
+	f.querier.value = func(query string, ts time.Time) float64 {
+		if strings.Contains(query, "kube_deployment") {
+			return 11
+		}
+		return inner(query, ts)
+	}
+	d, err := f.svc.OverprovisionDetail(context.Background(), f.module.ID, 24*60, time.Time{}, time.Time{})
+	require.NoError(t, err)
+	assert.Equal(t, 11, d.Replicas)
+	assert.Equal(t, "prometheus", d.ReplicasFrom)
+	assert.NotZero(t, d.ReplicasAt)
+	assert.Equal(t, 11, d.ReplicasMin)
+	assert.Equal(t, 11, d.ReplicasMax)
+	require.NotNil(t, d.Recommend.ReplicaPlan)
+	plan := d.Recommend.ReplicaPlan
+	assert.Equal(t, 11, plan.Current, "the replicas of the plan are the ones of the cluster")
+	assert.NotEqual(t, overprovision.ScaleUnknown, plan.Direction)
+	assert.Equal(t, plan.Needed-plan.Current, plan.Delta)
+}

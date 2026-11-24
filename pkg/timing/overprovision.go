@@ -37,6 +37,12 @@ var (
 	OPLimitHeadroom = Param{Key: "analysis.rec_limit_headroom_percent", Default: 20, Min: 0, Max: 300,
 		Name:   "Recommendation Limits Headroom (percent)",
 		Remark: "The recommended Limits is the P99 use plus this margin, and never below the recommended Requests (0-300). The Limits of a module that admission sets from the Requests are the Requests times its limit ratio, not this."}
+	OPMinReplicas = Param{Key: "analysis.rec_min_replicas", Default: 2, Min: 1, Max: 100,
+		Name:   "Recommendation Least Replicas",
+		Remark: "The recommended number of replicas does not go below this (1-100), so a scale-in is never a recommendation to run on one Pod. A module that has fewer replicas than this now is not raised to it."}
+	OPMaxScaleIn = Param{Key: "analysis.rec_max_scale_in_percent", Default: 50, Min: 5, Max: 100,
+		Name:   "Recommendation Largest Scale-in Per Step (percent)",
+		Remark: "One recommendation takes away at most this share of the replicas the module has now (5-100): 12 replicas at 50% are recommended no lower than 6, and the next analysis goes on from there. Nothing is taken away while the CPU is throttled or the memory was OOM-killed."}
 	OPOOMUplift = Param{Key: "analysis.oom_uplift_percent", Default: 120, Min: 100, Max: 300,
 		Name:   "OOM Uplift (percent)",
 		Remark: "When the memory was OOM-killed in the window, the suggestion is never below the working set measured at the kill times this, and never below the request it has now: lowering it is not suggested (100-300)."}

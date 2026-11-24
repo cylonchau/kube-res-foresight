@@ -40,6 +40,7 @@ func (s *Service) OverprovisionParams(ctx context.Context) overprovision.Params 
 		P90: band(timing.OPP90Target, timing.OPP90Low, timing.OPP90High), P95: band(timing.OPP95Target, timing.OPP95Low, timing.OPP95High), P99: band(timing.OPP99Target, timing.OPP99Low, timing.OPP99High),
 		LimitHeadroom: pc(timing.OPLimitHeadroom), OOMUplift: pc(timing.OPOOMUplift), ThrottleLimit: pc(timing.OPThrottle), Severe: pc(timing.OPGradeSevere), Moderate: pc(timing.OPGradeModerate),
 		CoverageHigh: pc(timing.OPCoverageHigh), CoverageMid: pc(timing.OPCoverageMid), PeakNearLimit: 0.9,
+		MinReplicas: int(s.targetPercent(ctx, timing.OPMinReplicas)), MaxScaleIn: pc(timing.OPMaxScaleIn),
 	}
 	p.BaselineMinutes = s.OverprovisionBaseline(ctx)
 	// the limits must be in order, or a share would be graded twice: a limit above the one over it is brought down to it
@@ -324,6 +325,13 @@ type ModuleOverprovision struct {
 	Workload     string    `json:"workload"`
 	Replicas     int       `json:"replicas"`
 	At           time.Time `json:"at"`
+	// ReplicasFrom says where the replicas now come from: "prometheus" (the newest figure of the replicas metric the module has set up, which reads Kubernetes) or
+	// "stored" (the newest sample the platform stored of that metric when Prometheus did not answer, not older than the age a figure may have); empty when there is none.
+	// ReplicasAt is when it was measured (unix seconds), ReplicasMin and ReplicasMax the fewest and the most in the recommendation period.
+	ReplicasFrom string `json:"replicas_from,omitempty"`
+	ReplicasAt   int64  `json:"replicas_at,omitempty"`
+	ReplicasMin  int    `json:"replicas_min,omitempty"`
+	ReplicasMax  int    `json:"replicas_max,omitempty"`
 	// Windows are the results, shortest window first; each has a CPU and a memory result (nil when the module has no such use series).
 	Windows []*WindowOverprovision `json:"windows"`
 	JVM     *JVMInfo               `json:"jvm,omitempty"`
@@ -347,6 +355,9 @@ type WindowOverprovision struct {
 	WindowMinutes int                   `json:"window_minutes"`
 	CPU           *overprovision.Result `json:"cpu"`
 	Memory        *overprovision.Result `json:"memory"`
+	// ReplicaPlan is how many replicas the module needs if every Pod keeps the Requests it has (the other way to the same use: the Pod spec stays, the replicas move);
+	// the CPU and memory results are the way where the replicas stay and the Pod spec moves. The replicas it starts from are the ones the cluster has now.
+	ReplicaPlan *overprovision.ReplicaPlan `json:"replica_plan"`
 }
 
 func (s *Service) opRounders() (cpu, mem func(float64) float64) {
@@ -423,9 +434,36 @@ func (l *opLoader) analyzeWindow(label string, minutes int, p overprovision.Para
 	if l.live != nil {
 		cpuRequest, memRequest, cpuRatio, memRatio = 0, 0, 0, 0
 	}
-	return &WindowOverprovision{Label: label, WindowMinutes: minutes,
-		CPU:    one(overprovision.CPU, "cpu", "k8s_cpu_requests", "k8s_cpu_limits", cpuRequest, cpuRatio, cpuRound),
-		Memory: one(overprovision.Memory, "memory", "k8s_mem_requests", "k8s_mem_limits", memRequest, memRatio, memRound)}
+	cpu := one(overprovision.CPU, "cpu", "k8s_cpu_requests", "k8s_cpu_limits", cpuRequest, cpuRatio, cpuRound)
+	mem := one(overprovision.Memory, "memory", "k8s_mem_requests", "k8s_mem_limits", memRequest, memRatio, memRound)
+	return &WindowOverprovision{Label: label, WindowMinutes: minutes, CPU: cpu, Memory: mem, ReplicaPlan: overprovision.PlanReplicas(replicas, p, cpu, mem)}
+}
+
+// replicaFacts are what the replicas metric says over the period: the newest value and when it was measured, the fewest and the most. The replicas "now" are the
+// newest figure of the cluster (Prometheus reads what Kubernetes has), never one a forecast, a recommendation or an old stored result made: when there is none, there is none.
+type replicaFacts struct {
+	Now, Min, Max int
+	At            int64
+}
+
+func (l *opLoader) replicaFacts(replicas int, since int64) replicaFacts {
+	f := replicaFacts{Now: replicas}
+	for i, s := range l.reps {
+		if i == len(l.reps)-1 && !math.IsNaN(s.Value) && s.Value >= 1 {
+			f.At = s.TS
+		}
+		if math.IsNaN(s.Value) || s.Value < 1 || s.TS < since {
+			continue
+		}
+		v := int(math.Round(s.Value))
+		if f.Min == 0 || v < f.Min {
+			f.Min = v
+		}
+		if v > f.Max {
+			f.Max = v
+		}
+	}
+	return f
 }
 
 func (s *Service) moduleHeader(m *model.ForecastModule, replicas int, at time.Time) *ModuleOverprovision {
@@ -561,8 +599,18 @@ func (s *Service) OverprovisionDetail(ctx context.Context, moduleID uint, window
 	}
 	l.readLive()
 	wg.Wait()
-	replicas := l.liveReplicas()
+	replicas, repFrom := l.liveReplicas(), "prometheus"
+	if replicas == 0 {
+		// Prometheus did not answer the replicas: the newest sample the platform stored of the same metric (a measured figure of the cluster, with an age limit) stands in
+		// for it; a recommendation or a forecast never does
+		replicas, repFrom = s.costReplicas(ctx, m, l.run, nil, now), "stored"
+	}
+	if replicas == 0 {
+		repFrom = ""
+	}
 	mo := s.moduleHeader(m, replicas, to)
+	facts := l.replicaFacts(replicas, to.Add(-time.Duration(recMinutes)*time.Minute).Unix())
+	mo.ReplicasFrom, mo.ReplicasAt, mo.ReplicasMin, mo.ReplicasMax = repFrom, facts.At, facts.Min, facts.Max
 	wr := l.analyzeWindow(label, windowMinutes, p, replicas)
 	mo.Windows = []*WindowOverprovision{wr}
 	recLabel := fmt.Sprintf("%dm", recMinutes)

@@ -24,6 +24,9 @@ type AssistantMailReq struct {
 	Title string `json:"title"`
 	// Content is the answer as the model wrote it: an HTML page or fragment (it is mailed as one, with its text beside it), or Markdown / text.
 	Content string `json:"content" binding:"required"`
+	// Tables are tables the page holds the figures of (the current and the recommended configuration, the replicas): the mail has them as tables whatever the
+	// answer of the model holds. They go before the answer.
+	Tables []notify.MailTable `json:"tables"`
 }
 
 // MailToMe serves POST /assistant/mail-me {title, content}: mails an answer of the AI assistant (the analysis of the resource dashboard) to the address of the
@@ -79,7 +82,8 @@ func (r *AssistantRouter) MailToMe(c *gin.Context) {
 	query.SuccessResponse(c, nil, gin.H{"sent": sent, "to": addresses[:sent], "failed": failed})
 }
 
-// analysisMail builds the mail of an answer: the subject names the module, an HTML answer goes out as HTML (with its text beside it).
+// analysisMail builds the mail of an answer: the subject names the module; the tables of the page come first, with their borders and colours on the tags, then the
+// answer (an HTML answer is styled the same way, a Markdown or text one is kept as it is); the text of the mail is the same in plain lines.
 func analysisMail(req AssistantMailReq, at time.Time) notify.Message {
 	title := strings.TrimSpace(req.Title)
 	subject := "[kube-res-foresight] AI resource analysis"
@@ -87,11 +91,25 @@ func analysisMail(req AssistantMailReq, at time.Time) notify.Message {
 		subject += " · " + strings.NewReplacer("\r", " ", "\n", " ").Replace(title)
 	}
 	line := fmt.Sprintf("%s · %s · kube-res-foresight", title, at.Format("2006-01-02 15:04 MST"))
-	msg := notify.Message{Title: subject, Content: req.Content + "\n\n--\n" + line}
-	if page := notify.HTMLBody(req.Content); page != "" {
-		footer := `<p style="color:#888;font-size:12px;border-top:1px solid #ddd;padding-top:8px">` + html.EscapeString(line) + "</p>"
-		msg.Content = notify.HTMLText(page) + "\n\n--\n" + line
-		msg.HTML = page + footer
+	tablesHTML, tablesText := notify.MailTablesHTML(req.Tables)
+	page := notify.HTMLBody(req.Content)
+	if page == "" && tablesHTML == "" {
+		return notify.Message{Title: subject, Content: req.Content + "\n\n--\n" + line}
 	}
+	answerHTML, answerText := "", req.Content
+	if page != "" {
+		answerHTML, answerText = notify.InlineMailStyles(page), notify.HTMLText(page)
+	} else {
+		answerHTML = `<div style="white-space:pre-wrap;font-size:13px;line-height:1.6">` + html.EscapeString(req.Content) + "</div>"
+	}
+	footer := `<p style="color:#888;font-size:12px;border-top:1px solid #ddd;padding-top:8px">` + html.EscapeString(line) + "</p>"
+	msg := notify.Message{Title: subject}
+	msg.HTML = `<div style="font-family:-apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',Arial,sans-serif;color:#222;max-width:900px">` + tablesHTML + answerHTML + footer + "</div>"
+	parts := []string{}
+	if tablesText != "" {
+		parts = append(parts, tablesText)
+	}
+	parts = append(parts, answerText, "--\n"+line)
+	msg.Content = strings.Join(parts, "\n\n")
 	return msg
 }

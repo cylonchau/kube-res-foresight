@@ -117,7 +117,7 @@ func All() []Param {
 		OperatorRequestTimeout, OperatorSyncInterval, OperatorDecisionCacheTTL, OperatorModuleCacheTTL, OperatorRecoverAnswers, OperatorSettingsRefresh,
 		OperatorDegradeHold, OperatorDegradeCooldown, OperatorRecoverStable, NotifyEmailTimeout, LeadPercentile, JudgePercentile, UncertaintyPercentile, MinSeasons,
 		HTTPGatewayTimeout, HTTPSlowRequest, UIRequestTimeout, UIRequestRetries, ListQuery, ListSearchDays, SummaryWindowHours, PrometheusTotalConcurrency, PruneBudget, ConversationRetentionDays, AuditRetentionDays, AsyncRetentionHours, OverprovisionUtilization, TightUtilization,
-		OPP90Target, OPP90Low, OPP90High, OPP95Target, OPP95Low, OPP95High, OPP99Target, OPP99Low, OPP99High, OPLimitHeadroom, OPOOMUplift, OPThrottle, OPBaselineDays, OPGradeSevere, OPGradeModerate, OPCoverageHigh, OPCoverageMid, OPRetentionDays, PredictionThinAfter, ForecastReuse, ResultCache, InventorySnapshotDays, InventoryChangeDays, ClusterDatasource}
+		OPP90Target, OPP90Low, OPP90High, OPP95Target, OPP95Low, OPP95High, OPP99Target, OPP99Low, OPP99High, OPLimitHeadroom, OPMinReplicas, OPMaxScaleIn, OPOOMUplift, OPThrottle, OPBaselineDays, OPGradeSevere, OPGradeModerate, OPCoverageHigh, OPCoverageMid, OPRetentionDays, PredictionThinAfter, ForecastReuse, ResultCache, InventorySnapshotDays, InventoryChangeDays, ClusterDatasource}
 }
 
 // Clamp brings a number into the range of the limit.
