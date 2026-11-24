@@ -31,7 +31,7 @@ func costTestRouter(t *testing.T) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	db := apiTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.Datasource{}, &model.MetricMapping{}, &model.ForecastModule{PredictEnabled: true}, &model.AlgorithmConfig{},
-		&model.ModulePeriod{}, &model.MetricSeries{}, &model.MetricSample{}, &model.Prediction{}, &model.BacktestRun{}, &model.Recommendation{},
+		&model.ModulePeriod{}, &model.ModuleTrigger{}, &model.MetricSeries{}, &model.MetricSample{}, &model.Prediction{}, &model.BacktestRun{}, &model.Recommendation{},
 		&model.PredictionEvaluation{}, &model.ScalingExecution{}, &model.MetricSource{}, &model.AlgorithmScore{}, &model.AdmissionDecision{}, &model.TrainingRun{},
 		&model.ScaleOutcome{}, &model.ModuleRunState{}, &model.CostPriceRule{}, &model.SysConfig{}))
 	require.NoError(t, db.Create(&model.Datasource{Name: "prom", Type: "prometheus", BaseURL: "http://prom:9090", AuthType: "none", TimeoutSeconds: 30, MaxConcurrency: 1, Enabled: true, Status: "unknown"}).Error)

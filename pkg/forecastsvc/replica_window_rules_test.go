@@ -37,20 +37,20 @@ func TestTimeWindowsAlgorithmAndAFixedCountWorkTogether(t *testing.T) {
 	assert.True(t, detail.ReplicaWindow)
 	assert.Contains(t, detail.Replicas.Reason, "floor")
 
-	require.NoError(t, f.db.Where("module_id = ?", f.module.ID).Delete(&model.ModulePeriod{}).Error)
+	require.NoError(t, f.db.Where("module_id = ?", f.module.ID).Delete(&model.ModulePeriod{}, &model.ModuleTrigger{}).Error)
 	window("floor-low", "min", 1)
 	rec, detail, err = f.svc.Recommend(ctx, f.module.ID)
 	require.NoError(t, err)
 	assert.Equal(t, algo, rec.Replicas, "a floor below the algorithm changes nothing")
 	assert.False(t, detail.ReplicaWindow)
 
-	require.NoError(t, f.db.Where("module_id = ?", f.module.ID).Delete(&model.ModulePeriod{}).Error)
+	require.NoError(t, f.db.Where("module_id = ?", f.module.ID).Delete(&model.ModulePeriod{}, &model.ModuleTrigger{}).Error)
 	window("cap", "max", 1)
 	rec, _, err = f.svc.Recommend(ctx, f.module.ID)
 	require.NoError(t, err)
 	assert.Equal(t, 1, rec.Replicas)
 
-	require.NoError(t, f.db.Where("module_id = ?", f.module.ID).Delete(&model.ModulePeriod{}).Error)
+	require.NoError(t, f.db.Where("module_id = ?", f.module.ID).Delete(&model.ModulePeriod{}, &model.ModuleTrigger{}).Error)
 	window("pin", "fixed", 33)
 	rec, _, err = f.svc.Recommend(ctx, f.module.ID)
 	require.NoError(t, err)
@@ -58,7 +58,7 @@ func TestTimeWindowsAlgorithmAndAFixedCountWorkTogether(t *testing.T) {
 	assert.Equal(t, "fixed_period", rec.ReplicasSource)
 
 	// the module keeps a fixed count: no algorithm decides, and a floor window still raises it
-	require.NoError(t, f.db.Where("module_id = ?", f.module.ID).Delete(&model.ModulePeriod{}).Error)
+	require.NoError(t, f.db.Where("module_id = ?", f.module.ID).Delete(&model.ModulePeriod{}, &model.ModuleTrigger{}).Error)
 	f.dynamic(t, func(m *model.ForecastModule) { m.FixedReplicas = 3 })
 	rec, _, err = f.svc.Recommend(ctx, f.module.ID)
 	require.NoError(t, err)

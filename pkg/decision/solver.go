@@ -348,6 +348,13 @@ type CapacityEstimate struct {
 // MinCapacitySamples is the least number of near-saturation samples an estimate may rest on.
 const MinCapacitySamples = 30
 
+// BusyShare is how close to the capacity reserve a Pod has to run for a moment to say anything about its capacity: a Pod below 70% of it is idle, and the load it
+// carried is not what it can carry. The moments below are left out of the estimate.
+const BusyShare = 0.7
+
+// CapacityRule says in one sentence how the estimate is made (the explanation of the figure on the page).
+const CapacityRule = "P50 of requests per second / replicas, scaled to the capacity reserve coefficient, over the moments the Pods were busy"
+
 // EstimateCapacity estimates the safe requests per second of one pod from history. It looks at moments when
 // the pods were busy (CPU at least 70% of the target utilization of the requests), divides the load by the
 // pod count to get the per-pod load, and scales it linearly to the target utilization:
@@ -367,7 +374,7 @@ func EstimateCapacity(samples []Sample, podCPUCores, target float64) (CapacityEs
 			continue
 		}
 		saturation := s.CPUCores / (s.Replicas * podCPUCores)
-		if saturation < 0.7*target {
+		if saturation < BusyShare*target {
 			continue
 		}
 		perPod = append(perPod, s.RPS/s.Replicas*target/saturation)
@@ -375,7 +382,7 @@ func EstimateCapacity(samples []Sample, podCPUCores, target float64) (CapacityEs
 	est.Used = len(perPod)
 	if len(perPod) < MinCapacitySamples {
 		return est, fmt.Errorf("only %d of %d samples were near saturation (CPU at least %.0f%% of the requests); %d are needed",
-			len(perPod), len(samples), 70*target, MinCapacitySamples)
+			len(perPod), len(samples), 100*BusyShare*target, MinCapacitySamples)
 	}
 	est.RPSPerPod = Percentile(perPod, 0.5)
 	est.Basis = fmt.Sprintf("P50 of rps / replicas x target %.2g / saturation over %d busy samples", target, len(perPod))

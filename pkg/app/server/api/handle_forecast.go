@@ -153,7 +153,8 @@ func (r *ForecastRouter) CreateModule(c *gin.Context) {
 		PodCPURequestMilli: req.PodCPURequestMilli, PodMemoryRequestBytes: req.PodMemoryRequestBytes, TargetUtilization: req.TargetUtilization,
 		OOMCalcWorkingSetRatio: req.OOMCalcWorkingSetRatio, OOMCalcLimitRatio: req.OOMCalcLimitRatio, OOMCalcHistoryRatio: req.OOMCalcHistoryRatio,
 		FloorRatio: req.FloorRatio, MaxShortfall: req.MaxShortfall,
-		RecP90Target: req.RecP90Target, RecP95Target: req.RecP95Target, RecP99Target: req.RecP99Target, RecLimitHeadroom: req.RecLimitHeadroom,
+		RecP90Target: req.RecP90Target, RecP95Target: req.RecP95Target, RecP99Target: req.RecP99Target, RecLimitGuard: req.RecLimitGuard,
+		RecCPURequestHeadroom: req.RecCPURequestHeadroom, RecMemoryRequestHeadroom: req.RecMemoryRequestHeadroom, RecCPULimitHeadroom: req.RecCPULimitHeadroom, RecMemoryLimitHeadroom: req.RecMemoryLimitHeadroom,
 		MaxReplicasMode: req.MaxReplicasMode, HardMaxReplicas: req.HardMaxReplicas, ExpandStepRatio: req.ExpandStepRatio,
 		OOMLookbackDays: req.OOMLookbackDays, OOMMemoryUplift: req.OOMMemoryUplift, JVMHeapPressure: 0.85, RecoverCycles: req.RecoverCycles,
 	}
@@ -275,7 +276,8 @@ func applyModuleUpdate(m *model.ForecastModule, req *apis.ModuleUpdateReq) {
 		&m.LimitCPURatio: req.LimitCPURatio, &m.LimitMemoryRatio: req.LimitMemoryRatio, &m.HeadroomRatio: req.HeadroomRatio, &m.PodCapacityRPS: req.PodCapacityRPS, &m.TargetUtilization: req.TargetUtilization,
 		&m.OOMCalcWorkingSetRatio: req.OOMCalcWorkingSetRatio, &m.OOMCalcLimitRatio: req.OOMCalcLimitRatio, &m.OOMCalcHistoryRatio: req.OOMCalcHistoryRatio,
 		&m.FloorRatio: req.FloorRatio, &m.MaxShortfall: req.MaxShortfall,
-		&m.RecP90Target: req.RecP90Target, &m.RecP95Target: req.RecP95Target, &m.RecP99Target: req.RecP99Target, &m.RecLimitHeadroom: req.RecLimitHeadroom,
+		&m.RecP90Target: req.RecP90Target, &m.RecP95Target: req.RecP95Target, &m.RecP99Target: req.RecP99Target, &m.RecLimitGuard: req.RecLimitGuard,
+		&m.RecCPURequestHeadroom: req.RecCPURequestHeadroom, &m.RecMemoryRequestHeadroom: req.RecMemoryRequestHeadroom, &m.RecCPULimitHeadroom: req.RecCPULimitHeadroom, &m.RecMemoryLimitHeadroom: req.RecMemoryLimitHeadroom,
 		&m.FallbackMinHistoryRatio: req.FallbackMinHistoryRatio, &m.MaxMissingRatio: req.MaxMissingRatio,
 		&m.OOMMemoryUplift: req.OOMMemoryUplift, &m.OOMWeight: req.OOMWeight, &m.JVMHeapPressure: req.JVMHeapPressure, &m.MinScore: req.MinScore, &m.ExpandStepRatio: req.ExpandStepRatio,
 	} {
@@ -464,6 +466,115 @@ func (r *ForecastRouter) DeletePeriod(c *gin.Context) {
 	query.SuccessResponse(c, nil, "ok")
 }
 
+func (r *ForecastRouter) ListTriggers(c *gin.Context) {
+	m, ok := r.module(c)
+	if !ok {
+		return
+	}
+	list, err := r.Modules.Triggers(c.Request.Context(), m.ID)
+	if err != nil {
+		query.InternalError(c, err)
+		return
+	}
+	query.SuccessResponse(c, nil, list)
+}
+
+// triggerFromReq builds and checks a trigger: its metric is a source of the module, or the JVM heap pressure.
+func (r *ForecastRouter) triggerFromReq(c *gin.Context, moduleID uint, req *apis.TriggerReq) (*model.ModuleTrigger, error) {
+	t := &model.ModuleTrigger{
+		ModuleID: moduleID, Name: req.Name, Enabled: req.Enabled == nil || *req.Enabled, Priority: req.Priority, Metric: req.Metric, Stat: req.Stat,
+		WindowMinutes: req.WindowMinutes, Operator: req.Operator, Threshold: req.Threshold, Action: req.Action, Unit: req.Unit, Amount: req.Amount,
+		Weekdays: req.Weekdays, StartMinute: req.StartMinute, EndMinute: req.EndMinute, Remark: req.Remark,
+	}
+	if err := t.Validate(); err != nil {
+		return nil, err
+	}
+	if t.Metric != model.TriggerJVMHeap {
+		sources, err := r.Modules.Sources(c.Request.Context(), moduleID)
+		if err != nil {
+			return nil, err
+		}
+		known := false
+		for _, s := range sources {
+			known = known || s.Key == t.Metric
+		}
+		if !known {
+			return nil, fmt.Errorf("metric %q is not a metric of the module (add it to the module's metrics first) and is not %s", t.Metric, model.TriggerJVMHeap)
+		}
+	}
+	return t, nil
+}
+
+func (r *ForecastRouter) CreateTrigger(c *gin.Context) {
+	m, ok := r.module(c)
+	if !ok {
+		return
+	}
+	var req apis.TriggerReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		query.BadRequest(c, err)
+		return
+	}
+	t, err := r.triggerFromReq(c, m.ID, &req)
+	if err != nil {
+		query.BadRequest(c, err)
+		return
+	}
+	if err := r.Modules.SaveTrigger(c.Request.Context(), t); err != nil {
+		r.writeError(c, err)
+		return
+	}
+	query.SuccessResponse(c, nil, t)
+}
+
+func (r *ForecastRouter) UpdateTrigger(c *gin.Context) {
+	m, ok := r.module(c)
+	if !ok {
+		return
+	}
+	tid, ok := parseUintParam(c, "tid")
+	if !ok {
+		return
+	}
+	existing, err := r.Modules.GetTrigger(c.Request.Context(), tid)
+	if err != nil || existing.ModuleID != m.ID {
+		query.NotFound(c, query.ErrRecordNotFound)
+		return
+	}
+	var req apis.TriggerReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		query.BadRequest(c, err)
+		return
+	}
+	t, err := r.triggerFromReq(c, m.ID, &req)
+	if err != nil {
+		query.BadRequest(c, err)
+		return
+	}
+	t.ID, t.CreatedAt = existing.ID, existing.CreatedAt
+	if err := r.Modules.SaveTrigger(c.Request.Context(), t); err != nil {
+		r.writeError(c, err)
+		return
+	}
+	query.SuccessResponse(c, nil, t)
+}
+
+func (r *ForecastRouter) DeleteTrigger(c *gin.Context) {
+	id, ok := parseUintParam(c, "id")
+	if !ok {
+		return
+	}
+	tid, ok := parseUintParam(c, "tid")
+	if !ok {
+		return
+	}
+	if err := r.Modules.DeleteTrigger(c.Request.Context(), id, tid); err != nil {
+		r.writeError(c, err)
+		return
+	}
+	query.SuccessResponse(c, nil, "ok")
+}
+
 // Recommend decides and stores a new recommendation version for a module outside observe mode.
 func (r *ForecastRouter) Recommend(c *gin.Context) {
 	id, ok := parseUintParam(c, "id")
@@ -495,6 +606,22 @@ func (r *ForecastRouter) ModuleNeed(c *gin.Context) {
 	}
 	query.SuccessResponse(c, nil, gin.H{"need": detail.Need, "algorithm": detail.Algorithm, "score": detail.Score, "degraded": detail.Degraded,
 		"degrade_notes": detail.DegradeNotes, "predict": detail.Predict, "valid_until": rec.ValidUntil})
+}
+
+// ModuleCapacity is the capacity of one Pod of the module with where each figure comes from (module management shows it beside the capacity settings).
+func (r *ForecastRouter) ModuleCapacity(c *gin.Context) {
+	id, ok := parseUintParam(c, "id")
+	if !ok {
+		return
+	}
+	ctx, cancel := r.stepCtx(c)
+	defer cancel()
+	rep, err := r.Service.CapacityReportOf(ctx, id)
+	if err != nil {
+		r.writeError(c, err)
+		return
+	}
+	query.SuccessResponse(c, nil, rep)
 }
 
 func recommendationFilter(c *gin.Context) rdb.RecommendationFilter {

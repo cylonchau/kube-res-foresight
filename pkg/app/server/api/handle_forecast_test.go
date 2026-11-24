@@ -34,7 +34,7 @@ func forecastTestRouter(t *testing.T) (*gin.Engine, *model.MetricMapping) {
 	gin.SetMode(gin.TestMode)
 	db := apiTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.Datasource{}, &model.MetricMapping{}, &model.ForecastModule{PredictEnabled: true}, &model.AlgorithmConfig{},
-		&model.ModulePeriod{}, &model.MetricSeries{}, &model.MetricSample{}, &model.Prediction{}, &model.BacktestRun{}, &model.Recommendation{}, &model.PredictionEvaluation{}, &model.ScalingExecution{}, &model.MetricSource{}, &model.AlgorithmScore{}, &model.AdmissionDecision{}, &model.TrainingRun{}, &model.ScaleOutcome{}, &model.ModuleRunState{}, &model.SysConfig{}, &model.TaskDefinition{}, &model.Job{}, &model.OverprovisionAnalysis{}))
+		&model.ModulePeriod{}, &model.ModuleTrigger{}, &model.MetricSeries{}, &model.MetricSample{}, &model.Prediction{}, &model.BacktestRun{}, &model.Recommendation{}, &model.PredictionEvaluation{}, &model.ScalingExecution{}, &model.MetricSource{}, &model.AlgorithmScore{}, &model.AdmissionDecision{}, &model.TrainingRun{}, &model.ScaleOutcome{}, &model.ModuleRunState{}, &model.SysConfig{}, &model.TaskDefinition{}, &model.Job{}, &model.OverprovisionAnalysis{}))
 	previous := model.DB
 	model.DB = db
 	t.Cleanup(func() { model.DB = previous })
@@ -105,7 +105,12 @@ func forecastTestRouter(t *testing.T) (*gin.Engine, *model.MetricMapping) {
 	r.POST("/modules/:id/overrides", h.CreatePeriod)
 	r.PUT("/modules/:id/overrides/:pid", h.UpdatePeriod)
 	r.DELETE("/modules/:id/overrides/:pid", h.DeletePeriod)
+	r.GET("/modules/:id/triggers", h.ListTriggers)
+	r.POST("/modules/:id/triggers", h.CreateTrigger)
+	r.PUT("/modules/:id/triggers/:tid", h.UpdateTrigger)
+	r.DELETE("/modules/:id/triggers/:tid", h.DeleteTrigger)
 	r.POST("/modules/:id/recommend", h.Recommend)
+	r.GET("/modules/:id/capacity", h.ModuleCapacity)
 	r.POST("/modules/:id/score", center.RunScore)
 	r.GET("/modules/:id/ranking", center.Ranking)
 	r.GET("/modules/:id/leaderboard", h.Leaderboard)
@@ -365,6 +370,71 @@ func TestFixedPeriodsAreValidated(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	assert.EqualValues(t, 12, decodeData(t, rec.Body.Bytes())["replicas"])
 	assert.Equal(t, http.StatusOK, performJSON(t, r, http.MethodDelete, fmt.Sprintf("%s/%d", path, pid), "", nil).Code)
+}
+
+// A module with nothing entered and no history says so, state by state, instead of a number: not set, no history, and the entered figure once it is there.
+func TestTheCapacityOfAModuleIsAStateAndNotAGuess(t *testing.T) {
+	r, cpu := forecastTestRouter(t)
+	id := moduleWithCPU(t, r, cpu, map[string]any{"name": "cap", "namespace": "prod", "workload": "cap"})
+	path := fmt.Sprintf("/modules/%d/capacity", id)
+	rec := performJSON(t, r, http.MethodGet, path, "", nil)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	data := decodeData(t, rec.Body.Bytes())
+	assert.Equal(t, "manual", data["mode"])
+	assert.Equal(t, "not_set", data["state"])
+	assert.EqualValues(t, 0, data["value"])
+	assert.Equal(t, "not_set", data["estimate_state"], "the estimate needs the CPU request of a Pod")
+	assert.EqualValues(t, 30, data["min_samples"])
+	assert.EqualValues(t, 0.7, data["busy_share"])
+
+	update := map[string]any{"pod_capacity_rps": 120, "pod_cpu_request_milli": 1000, "capacity_mode": "manual"}
+	require.Equal(t, http.StatusOK, performJSON(t, r, http.MethodPut, fmt.Sprintf("/modules/%d", id), "", update).Code)
+	data = decodeData(t, performJSON(t, r, http.MethodGet, path, "", nil).Body.Bytes())
+	assert.Equal(t, "ready", data["state"])
+	assert.EqualValues(t, 120, data["value"])
+	assert.Contains(t, []any{"no_source", "no_history"}, data["estimate_state"], "no history of requests, replicas and CPU yet")
+
+	update["capacity_mode"] = "estimate"
+	require.Equal(t, http.StatusOK, performJSON(t, r, http.MethodPut, fmt.Sprintf("/modules/%d", id), "", update).Code)
+	data = decodeData(t, performJSON(t, r, http.MethodGet, path, "", nil).Body.Bytes())
+	assert.Equal(t, data["estimate_state"], data["state"], "the estimate decides when the mode is estimate")
+	assert.EqualValues(t, 0, data["value"])
+}
+
+func TestMetricTriggersAreValidatedAgainstTheModule(t *testing.T) {
+	r, cpu := forecastTestRouter(t)
+	id := moduleWithCPU(t, r, cpu, map[string]any{"name": "trig", "namespace": "prod", "workload": "trig"})
+	path := fmt.Sprintf("/modules/%d/triggers", id)
+	good := map[string]any{"name": "cpu-hot", "metric": "cpu", "operator": "gt", "threshold": 0.8, "action": "scale_up", "unit": "percent", "amount": 20}
+	rec := performJSON(t, r, http.MethodPost, path, "", good)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	tid := int(decodeData(t, rec.Body.Bytes())["id"].(float64))
+
+	for name, body := range map[string]map[string]any{
+		"duplicate name":   good,
+		"unknown metric":   {"name": "x", "metric": "nope", "threshold": 1, "action": "scale_up", "amount": 1},
+		"bad operator":     {"name": "x", "metric": "cpu", "operator": "eq", "threshold": 1, "amount": 1},
+		"bad action":       {"name": "x", "metric": "cpu", "action": "explode", "amount": 1},
+		"no amount":        {"name": "x", "metric": "cpu", "action": "scale_up", "amount": 0},
+		"fractional set":   {"name": "x", "metric": "cpu", "action": "set", "amount": 2.5},
+		"weekday overflow": {"name": "x", "metric": "cpu", "action": "scale_up", "amount": 1, "weekdays": 200},
+		"window too long":  {"name": "x", "metric": "cpu", "action": "scale_up", "amount": 1, "window_minutes": 5000},
+		"missing metric":   {"name": "x", "action": "scale_up", "amount": 1},
+	} {
+		assert.Equal(t, http.StatusBadRequest, performJSON(t, r, http.MethodPost, path, "", body).Code, name)
+	}
+	// the JVM heap pressure is a metric of the platform, not a source of the module
+	heap := map[string]any{"name": "heap", "metric": "jvm_heap_pressure", "threshold": 0.9, "action": "scale_up", "amount": 1, "weekdays": 62, "start_minute": 1200, "end_minute": 0}
+	assert.Equal(t, http.StatusOK, performJSON(t, r, http.MethodPost, path, "", heap).Code)
+
+	good["amount"] = 30
+	rec = performJSON(t, r, http.MethodPut, fmt.Sprintf("%s/%d", path, tid), "", good)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.EqualValues(t, 30, decodeData(t, rec.Body.Bytes())["amount"])
+	list := performJSON(t, r, http.MethodGet, path, "", nil)
+	assert.Equal(t, http.StatusOK, list.Code)
+	assert.Equal(t, http.StatusOK, performJSON(t, r, http.MethodDelete, fmt.Sprintf("%s/%d", path, tid), "", nil).Code)
+	assert.Equal(t, http.StatusNotFound, performJSON(t, r, http.MethodDelete, fmt.Sprintf("%s/%d", path, tid), "", nil).Code)
 }
 
 func TestPipelineFromTheModuleThroughTheEnabledAlgorithmsToTheRecommendation(t *testing.T) {

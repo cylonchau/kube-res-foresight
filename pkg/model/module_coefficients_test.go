@@ -48,10 +48,10 @@ func TestTheCoefficientsOfTheRecommendationFollowTheSystemAtZeroAndKeepTheirRang
 	m := coefficientModule()
 	require.NoError(t, m.Validate())
 	assert.Zero(t, m.RecP95Target, "0 follows the system setting")
-	m.RecP95Target, m.RecLimitHeadroom = 0.9, 0.25
+	m.RecP95Target, m.RecCPULimitHeadroom = 0.9, 0.25
 	require.NoError(t, m.Validate())
 	m.RecP95Target = 0.05
 	assert.ErrorContains(t, m.Validate(), "rec_p95_target")
-	m.RecP95Target, m.RecLimitHeadroom = 0, 5
-	assert.ErrorContains(t, m.Validate(), "rec_limit_headroom")
+	m.RecP95Target, m.RecCPULimitHeadroom = 0, 5
+	assert.ErrorContains(t, m.Validate(), "rec_cpu_limit_headroom")
 }

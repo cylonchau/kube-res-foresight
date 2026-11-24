@@ -3,6 +3,7 @@ package forecastsvc
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -105,17 +106,23 @@ func (s *Service) uncertainty(ctx context.Context, instanceID uint, metric, algo
 	return nil, decision.UncertaintyHeadroom, 0, nil
 }
 
+// What kept a capacity from being estimated: the module lacks a source the estimate reads, or the source has no history yet.
+var (
+	errCapacityNoSource  = errors.New("a metric source is missing")
+	errCapacityNoHistory = errors.New("no history")
+)
+
 // estimateCapacity derives the pod capacity from the stored rps, replicas and cpu history.
 func (s *Service) estimateCapacity(ctx context.Context, m *model.ForecastModule, bs boundSet, now time.Time) (CapacityDetail, error) {
 	d := CapacityDetail{Source: decision.CapacityNone}
 	load := func(kind string) (map[int64]float64, error) {
 		ref := bs.firstOfKind(kind)
 		if ref == nil {
-			return nil, fmt.Errorf("no algorithm instance bound to the module has a %s metric source", kind)
+			return nil, fmt.Errorf("%w: the module has no %s metric source", errCapacityNoSource, kind)
 		}
 		series, err := s.Samples.Series(ctx, ref.Inst.ID, ref.Src.Key)
 		if err != nil {
-			return nil, fmt.Errorf("no %s history collected yet", kind)
+			return nil, fmt.Errorf("%w: no %s history collected yet", errCapacityNoHistory, kind)
 		}
 		rows, err := s.Samples.Range(ctx, series.ID, now.Add(-capacityLookback), now)
 		if err != nil {

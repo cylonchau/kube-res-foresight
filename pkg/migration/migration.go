@@ -338,7 +338,38 @@ func EnsureDefaultConfigs() error {
 		Updates(map[string]any{"config_name": timing.OPBaselineDays.Name, "remark": timing.OPBaselineDays.Remark}).Error; err != nil {
 		return err
 	}
-	return resetHiddenCapacityReserve()
+	// the two upgrades below change what the module rows hold, so each runs once: the marker row says it did (a figure an administrator sets afterwards is theirs)
+	marker := model.SysConfig{ConfigKey: capacityReserveMarker, ConfigValue: "done", ConfigName: "Upgrade Marker: Hidden Capacity Reserve Cleared",
+		Remark: "Written when the 0.7 that older module forms stored in the capacity reserve coefficient of a module without dynamic replicas was cleared. It keeps that clearing from running again, so a 0.7 set on purpose stays. Do not delete it."}
+	res := model.DB.Where("config_key = ?", capacityReserveMarker).FirstOrCreate(&marker)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected > 0 {
+		if err := resetHiddenCapacityReserve(); err != nil {
+			return err
+		}
+	}
+	return splitLimitHeadroom()
+}
+
+// capacityReserveMarker is the system parameter row that says the hidden capacity reserve was cleared.
+const capacityReserveMarker = "migration.capacity_reserve_cleared"
+
+// splitLimitHeadroom moves the one Limits margin a module could set (rec_limit_headroom) to the two it has now, one for the CPU and one for the memory: a module that set
+// it keeps the same figure for both resources, and the old column is emptied so the move is done once and stays done.
+func splitLimitHeadroom() error {
+	db := model.DB
+	if !db.Migrator().HasTable("forecast_module") || !db.Migrator().HasColumn("forecast_module", "rec_limit_headroom") {
+		return nil
+	}
+	if err := db.Exec("UPDATE forecast_module SET rec_cpu_limit_headroom = rec_limit_headroom WHERE rec_limit_headroom > 0 AND rec_cpu_limit_headroom = 0").Error; err != nil {
+		return err
+	}
+	if err := db.Exec("UPDATE forecast_module SET rec_memory_limit_headroom = rec_limit_headroom WHERE rec_limit_headroom > 0 AND rec_memory_limit_headroom = 0").Error; err != nil {
+		return err
+	}
+	return db.Exec("UPDATE forecast_module SET rec_limit_headroom = 0 WHERE rec_limit_headroom > 0").Error
 }
 
 // resetHiddenCapacityReserve clears the 0.7 the module form wrote into the capacity reserve coefficient (target_utilization) of every module it saved, although the

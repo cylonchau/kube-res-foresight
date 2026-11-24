@@ -876,13 +876,16 @@ func TestTheModulesCoefficientsGoOverTheSystemSettings(t *testing.T) {
 	assert.Equal(t, p.P90, same.P90)
 	assert.Equal(t, p.LimitHeadroom, same.LimitHeadroom)
 
-	m := &model.ForecastModule{RecP90Target: 0.7, RecP95Target: 0.9, RecP99Target: 1.2, RecLimitHeadroom: 0.3, OOMMemoryUplift: 1.5}
+	m := &model.ForecastModule{RecP90Target: 0.7, RecP95Target: 0.9, RecP99Target: 1.2, RecCPULimitHeadroom: 0.3, RecMemoryRequestHeadroom: 0.1, OOMMemoryUplift: 1.5}
 	got := moduleParams(p, m)
 	assert.Equal(t, 0.7, got.P90.Target)
 	assert.Equal(t, p.P90.Low, got.P90.Low, "the range that is reasonable stays the system's")
 	assert.Equal(t, 0.9, got.P95.Target)
 	assert.Equal(t, 1.2, got.P99.Target)
-	assert.Equal(t, 0.3, got.LimitHeadroom)
+	assert.Equal(t, 0.3, got.LimitHeadroomOf("cpu"))
+	assert.Equal(t, p.LimitHeadroom, got.LimitHeadroomOf("memory"), "a margin the module sets for the CPU is not the memory one")
+	assert.Equal(t, 0.1, got.RequestHeadroomOf("memory"))
+	assert.Zero(t, got.RequestHeadroomOf("cpu"))
 	assert.Equal(t, 1.5, got.OOMUplift)
 
 	// the recommended Requests is the use divided by the target of the module, so a lower target asks for more

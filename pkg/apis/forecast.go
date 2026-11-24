@@ -73,15 +73,19 @@ type ModuleCreateReq struct {
 	TargetUtilization     float64 `json:"target_utilization"`
 
 	// The coefficients of the calculation (zero takes the default: 1, 0 = off for the floor, 0.5 for the shortfall cap).
-	OOMCalcWorkingSetRatio float64 `json:"oom_calc_working_set_ratio"`
-	OOMCalcLimitRatio      float64 `json:"oom_calc_limit_ratio"`
-	OOMCalcHistoryRatio    float64 `json:"oom_calc_history_ratio"`
-	FloorRatio             float64 `json:"floor_ratio"`
-	MaxShortfall           float64 `json:"max_shortfall"`
-	RecP90Target           float64 `json:"rec_p90_target"`
-	RecP95Target           float64 `json:"rec_p95_target"`
-	RecP99Target           float64 `json:"rec_p99_target"`
-	RecLimitHeadroom       float64 `json:"rec_limit_headroom"`
+	OOMCalcWorkingSetRatio   float64 `json:"oom_calc_working_set_ratio"`
+	OOMCalcLimitRatio        float64 `json:"oom_calc_limit_ratio"`
+	OOMCalcHistoryRatio      float64 `json:"oom_calc_history_ratio"`
+	FloorRatio               float64 `json:"floor_ratio"`
+	MaxShortfall             float64 `json:"max_shortfall"`
+	RecP90Target             float64 `json:"rec_p90_target"`
+	RecP95Target             float64 `json:"rec_p95_target"`
+	RecP99Target             float64 `json:"rec_p99_target"`
+	RecLimitGuard            float64 `json:"rec_limit_guard"`
+	RecCPURequestHeadroom    float64 `json:"rec_cpu_request_headroom"`
+	RecMemoryRequestHeadroom float64 `json:"rec_memory_request_headroom"`
+	RecCPULimitHeadroom      float64 `json:"rec_cpu_limit_headroom"`
+	RecMemoryLimitHeadroom   float64 `json:"rec_memory_limit_headroom"`
 
 	// Replica ceiling: fixed, or dynamic (up to HardMaxReplicas, by ExpandStepRatio per cycle).
 	MaxReplicasMode string  `json:"max_replicas_mode"`
@@ -161,15 +165,19 @@ type ModuleUpdateReq struct {
 	PodMemoryRequestBytes *int64   `json:"pod_memory_request_bytes"`
 	TargetUtilization     *float64 `json:"target_utilization"`
 
-	OOMCalcWorkingSetRatio *float64 `json:"oom_calc_working_set_ratio"`
-	OOMCalcLimitRatio      *float64 `json:"oom_calc_limit_ratio"`
-	OOMCalcHistoryRatio    *float64 `json:"oom_calc_history_ratio"`
-	FloorRatio             *float64 `json:"floor_ratio"`
-	MaxShortfall           *float64 `json:"max_shortfall"`
-	RecP90Target           *float64 `json:"rec_p90_target"`
-	RecP95Target           *float64 `json:"rec_p95_target"`
-	RecP99Target           *float64 `json:"rec_p99_target"`
-	RecLimitHeadroom       *float64 `json:"rec_limit_headroom"`
+	OOMCalcWorkingSetRatio   *float64 `json:"oom_calc_working_set_ratio"`
+	OOMCalcLimitRatio        *float64 `json:"oom_calc_limit_ratio"`
+	OOMCalcHistoryRatio      *float64 `json:"oom_calc_history_ratio"`
+	FloorRatio               *float64 `json:"floor_ratio"`
+	MaxShortfall             *float64 `json:"max_shortfall"`
+	RecP90Target             *float64 `json:"rec_p90_target"`
+	RecP95Target             *float64 `json:"rec_p95_target"`
+	RecP99Target             *float64 `json:"rec_p99_target"`
+	RecLimitGuard            *float64 `json:"rec_limit_guard"`
+	RecCPURequestHeadroom    *float64 `json:"rec_cpu_request_headroom"`
+	RecMemoryRequestHeadroom *float64 `json:"rec_memory_request_headroom"`
+	RecCPULimitHeadroom      *float64 `json:"rec_cpu_limit_headroom"`
+	RecMemoryLimitHeadroom   *float64 `json:"rec_memory_limit_headroom"`
 
 	MaxReplicasMode *string  `json:"max_replicas_mode"`
 	HardMaxReplicas *int     `json:"hard_max_replicas"`
@@ -294,6 +302,26 @@ type PeriodReq struct {
 	// ReplicaMode is fixed (the count is Replicas; the default), min (at least Replicas) or max (at most Replicas).
 	ReplicaMode string `json:"replica_mode"`
 	Remark      string `json:"remark"`
+}
+
+// TriggerReq creates or replaces a metric trigger of a module (see model.ModuleTrigger): while the metric (a source key, or jvm_heap_pressure) stands on the wrong side of the
+// threshold within the window, the replicas are raised, lowered or set.
+type TriggerReq struct {
+	Name          string  `json:"name" binding:"required"`
+	Enabled       *bool   `json:"enabled"`
+	Priority      int     `json:"priority"`
+	Metric        string  `json:"metric" binding:"required"`
+	Stat          string  `json:"stat"`
+	WindowMinutes int     `json:"window_minutes"`
+	Operator      string  `json:"operator"`
+	Threshold     float64 `json:"threshold"`
+	Action        string  `json:"action"`
+	Unit          string  `json:"unit"`
+	Amount        float64 `json:"amount"`
+	Weekdays      int     `json:"weekdays"`
+	StartMinute   int     `json:"start_minute"`
+	EndMinute     int     `json:"end_minute"`
+	Remark        string  `json:"remark"`
 }
 
 // BacktestReq asks for a rolling backtest of one metric source.

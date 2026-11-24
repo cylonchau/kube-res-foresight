@@ -106,8 +106,14 @@ type Params struct {
 	P90 Band `json:"p90"`
 	P95 Band `json:"p95"`
 	P99 Band `json:"p99"`
-	// LimitHeadroom is the share the recommended limit is above the P99 use (it is never below the recommended request).
-	LimitHeadroom float64 `json:"limit_headroom"`
+	// LimitHeadroom is the share the recommended limit is above the P99 use (it is never below the recommended request); CPULimitHeadroom and MemoryLimitHeadroom are the
+	// module's own for one resource (0 = LimitHeadroom). CPURequestHeadroom and MemoryRequestHeadroom are the margin the recommended Requests get over the largest of
+	// the needs of the three percentiles (0 = none).
+	LimitHeadroom         float64 `json:"limit_headroom"`
+	CPULimitHeadroom      float64 `json:"cpu_limit_headroom"`
+	MemoryLimitHeadroom   float64 `json:"memory_limit_headroom"`
+	CPURequestHeadroom    float64 `json:"cpu_request_headroom"`
+	MemoryRequestHeadroom float64 `json:"memory_request_headroom"`
 	// OOMUplift multiplies the working set an OOM kill was seen at: the suggestion is never below it.
 	OOMUplift float64 `json:"oom_uplift"`
 	// ThrottleLimit is the share of time the CPU was throttled above which the use is said to understate the need.
@@ -123,6 +129,26 @@ type Params struct {
 	CoverageMid  float64 `json:"coverage_mid"`
 	// PeakNearLimit is the share of the limit the highest use may reach before the risk goes up.
 	PeakNearLimit float64 `json:"peak_near_limit"`
+}
+
+// LimitHeadroomOf is the margin of the recommended Limits over the P99 use for the resource: the module's own, else the one of the system.
+func (p Params) LimitHeadroomOf(resource string) float64 {
+	own := p.CPULimitHeadroom
+	if resource == Memory {
+		own = p.MemoryLimitHeadroom
+	}
+	if own > 0 {
+		return own
+	}
+	return p.LimitHeadroom
+}
+
+// RequestHeadroomOf is the margin added to the recommended Requests for the resource (0 = none).
+func (p Params) RequestHeadroomOf(resource string) float64 {
+	if resource == Memory {
+		return p.MemoryRequestHeadroom
+	}
+	return p.CPURequestHeadroom
 }
 
 // DefaultParams are the proposals of P10 A2, as the second version of the rules sets them: the use of the request that is wanted is P90 80%, P95 85% and
@@ -342,6 +368,10 @@ func Analyze(in Input, p Params) Result {
 		parts = append(parts, fmt.Sprintf("%s %s / %.0f%% = %s", c.name, num(in.Resource, c.use), c.share*100, num(in.Resource, need)))
 	}
 	r.Formula = "max(" + strings.Join(parts, ", ") + ")"
+	if h := p.RequestHeadroomOf(in.Resource); h > 0 {
+		suggested *= 1 + h
+		r.Formula += fmt.Sprintf(" x (1+%.0f%%) = %s", h*100, num(in.Resource, suggested))
+	}
 	limited := false
 	if in.Resource == Memory && in.OOMKills > 0 {
 		// an OOM kill: the memory was too little, so it is never advised lower than what it was killed at, and never lower than it is now
@@ -371,8 +401,8 @@ func Analyze(in Input, p Params) Result {
 	if noRequest {
 		// nothing to compare with: the recommendation is what the use needs, with no ratio, no grade and no status
 		r.Suggested = suggested
-		r.SuggestedLimit = round(math.Max(suggested, u.P99*(1+p.LimitHeadroom)))
-		r.Formula += fmt.Sprintf("; limit = max(recommended, P99 %s x (1+%.0f%%)) = %s", num(in.Resource, u.P99), p.LimitHeadroom*100, num(in.Resource, r.SuggestedLimit))
+		r.SuggestedLimit = round(math.Max(suggested, u.P99*(1+p.LimitHeadroomOf(in.Resource))))
+		r.Formula += fmt.Sprintf("; limit = max(recommended, P99 %s x (1+%.0f%%)) = %s", num(in.Resource, u.P99), p.LimitHeadroomOf(in.Resource)*100, num(in.Resource, r.SuggestedLimit))
 		return r
 	}
 
@@ -420,8 +450,8 @@ func Analyze(in Input, p Params) Result {
 		}
 	}
 	r.Suggested = suggested
-	r.SuggestedLimit = round(math.Max(suggested, u.P99*(1+p.LimitHeadroom)))
-	r.Formula += fmt.Sprintf("; limit = max(recommended, P99 %s x (1+%.0f%%)) = %s", num(in.Resource, u.P99), p.LimitHeadroom*100, num(in.Resource, r.SuggestedLimit))
+	r.SuggestedLimit = round(math.Max(suggested, u.P99*(1+p.LimitHeadroomOf(in.Resource))))
+	r.Formula += fmt.Sprintf("; limit = max(recommended, P99 %s x (1+%.0f%%)) = %s", num(in.Resource, u.P99), p.LimitHeadroomOf(in.Resource)*100, num(in.Resource, r.SuggestedLimit))
 	r.Numerator, r.Denominator = in.Request-suggested, in.Request
 	r.Ratio = r.Numerator / r.Denominator
 	r.Reclaimable = math.Max(0, r.Numerator)

@@ -37,6 +37,9 @@ var (
 	OPLimitHeadroom = Param{Key: "analysis.rec_limit_headroom_percent", Default: 20, Min: 0, Max: 300,
 		Name:   "Recommendation Limits Headroom (percent)",
 		Remark: "The recommended Limits is the P99 use plus this margin, and never below the recommended Requests (0-300). The Limits of a module that admission sets from the Requests are the Requests times its limit ratio, not this."}
+	OPLimitGuard = Param{Key: "analysis.rec_limit_guard_percent", Default: 90, Min: 30, Max: 100,
+		Name:   "Recommendation Limits Guard (percent of Limits)",
+		Remark: "The P99 use of all the Pods together must stay under this share of their Limits at the recommended replicas, so a replica count is never taken so low that the tail runs into the Limits (30-100). It is also the share of the Limits above which the peak counts as near the Limits in the risk of a result. A module can set its own in module management."}
 	OPOOMUplift = Param{Key: "analysis.oom_uplift_percent", Default: 120, Min: 100, Max: 300,
 		Name:   "OOM Uplift (percent)",
 		Remark: "When the memory was OOM-killed in the window, the suggestion is never below the working set measured at the kill times this, and never below the request it has now: lowering it is not suggested (100-300)."}

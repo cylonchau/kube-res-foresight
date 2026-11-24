@@ -39,7 +39,7 @@ func (s *Service) OverprovisionParams(ctx context.Context) overprovision.Params 
 	p := overprovision.Params{
 		P90: band(timing.OPP90Target, timing.OPP90Low, timing.OPP90High), P95: band(timing.OPP95Target, timing.OPP95Low, timing.OPP95High), P99: band(timing.OPP99Target, timing.OPP99Low, timing.OPP99High),
 		LimitHeadroom: pc(timing.OPLimitHeadroom), OOMUplift: pc(timing.OPOOMUplift), ThrottleLimit: pc(timing.OPThrottle), Severe: pc(timing.OPGradeSevere), Moderate: pc(timing.OPGradeModerate),
-		CoverageHigh: pc(timing.OPCoverageHigh), CoverageMid: pc(timing.OPCoverageMid), PeakNearLimit: 0.9,
+		CoverageHigh: pc(timing.OPCoverageHigh), CoverageMid: pc(timing.OPCoverageMid), PeakNearLimit: pc(timing.OPLimitGuard),
 	}
 	p.BaselineMinutes = s.OverprovisionBaseline(ctx)
 	// the limits must be in order, or a share would be graded twice: a limit above the one over it is brought down to it
@@ -70,9 +70,12 @@ func moduleParams(p overprovision.Params, m *model.ForecastModule) overprovision
 	if m.RecP99Target > 0 {
 		p.P99.Target = m.RecP99Target
 	}
-	if m.RecLimitHeadroom > 0 {
-		p.LimitHeadroom = m.RecLimitHeadroom
+	if m.RecLimitGuard > 0 {
+		p.PeakNearLimit = m.RecLimitGuard
 	}
+	// each resource has its own margins: the Requests margin is the module's (none by default), the Limits margin follows the system setting where the module sets none
+	p.CPURequestHeadroom, p.MemoryRequestHeadroom = m.RecCPURequestHeadroom, m.RecMemoryRequestHeadroom
+	p.CPULimitHeadroom, p.MemoryLimitHeadroom = m.RecCPULimitHeadroom, m.RecMemoryLimitHeadroom
 	if m.OOMMemoryUplift >= 1 {
 		p.OOMUplift = m.OOMMemoryUplift
 	}
@@ -324,6 +327,63 @@ type JVMInfo struct {
 	GCPause          *overprovision.Usage `json:"gc_pause,omitempty"`
 	WorkingSetP99    float64              `json:"working_set_p99"`
 	Hints            []string             `json:"hints"`
+	// Threshold is the heap pressure of the module (module management: the heap used over the heap maximum above which the replicas are raised; 0 = the rule is off),
+	// Ratio the P99 of the heap used over the highest heap maximum of the window, and Score what the pressure comes to: 100 x (1 - Ratio / Threshold), 0 at the
+	// threshold and above it. Score is set only when both the threshold and the two heap metrics are there.
+	Threshold float64 `json:"threshold"`
+	Ratio     float64 `json:"ratio,omitempty"`
+	Score     float64 `json:"score"`
+	Scored    bool    `json:"scored"`
+}
+
+// OOMEvent is a moment containers of the module were killed for memory and how many.
+type OOMEvent struct {
+	TS    int64   `json:"ts"`
+	Count float64 `json:"count"`
+}
+
+// OOMInfo is what the OOM metric of a module says over the window: how many kills, when, and the score they come to. The coefficients of the OOM protection are not a
+// part of it (they belong to module management); the dashboard shows the count, the moments and the score.
+type OOMInfo struct {
+	// Configured is whether the module has an OOM metric at all.
+	Configured bool    `json:"configured"`
+	Kills      float64 `json:"kills"`
+	// Moments is how many moments the kills were at; Events lists the newest of them (at most maxOOMEvents).
+	Moments int        `json:"moments"`
+	Events  []OOMEvent `json:"events"`
+	// LookbackDays is how far back the OOM protection looks (module management). Weight is the share of the memory score one kill takes away; ScoreOn says whether the
+	// OOM weight is switched on, Score is 100 x (1 - kills x weight), never below 0.
+	LookbackDays int     `json:"lookback_days"`
+	ScoreOn      bool    `json:"score_on"`
+	Weight       float64 `json:"weight"`
+	Score        float64 `json:"score"`
+}
+
+// maxOOMEvents is how many moments of kills the detail lists (the newest).
+const maxOOMEvents = 20
+
+func (l *opLoader) oomInfo(m *model.ForecastModule, from, to int64) *OOMInfo {
+	info := &OOMInfo{LookbackDays: m.OOMLookbackDays, ScoreOn: m.OOMWeightEnabled, Weight: m.OOMScoreWeight(), Score: 100, Events: []OOMEvent{}}
+	u := l.get("oom")
+	if u == nil {
+		return info
+	}
+	info.Configured = true
+	for _, pt := range sliceFrom(u.raw, from, to) {
+		if pt.V > 0 && !math.IsNaN(pt.V) {
+			info.Kills += pt.V
+			info.Events = append(info.Events, OOMEvent{TS: pt.TS, Count: pt.V})
+		}
+	}
+	info.Moments = len(info.Events)
+	sort.Slice(info.Events, func(i, j int) bool { return info.Events[i].TS > info.Events[j].TS })
+	if len(info.Events) > maxOOMEvents {
+		info.Events = info.Events[:maxOOMEvents]
+	}
+	if info.ScoreOn {
+		info.Score = math.Max(0, 100*(1-info.Kills*info.Weight))
+	}
+	return info
 }
 
 // ResourceChart is the series of a chart: the use of the Pod in the window, the request and the suggestion. The arrays are aligned.
@@ -366,6 +426,7 @@ type ModuleOverprovision struct {
 	// Windows are the results, shortest window first; each has a CPU and a memory result (nil when the module has no such use series).
 	Windows []*WindowOverprovision `json:"windows"`
 	JVM     *JVMInfo               `json:"jvm,omitempty"`
+	OOM     *OOMInfo               `json:"oom,omitempty"`
 	Charts  []*ResourceChart       `json:"charts,omitempty"`
 	// Recommend is the analysis over the recommendation period (a system parameter), which does not follow the window of the page: the verdict, the figures of what the
 	// Requests and the Limits could be and by how much they are more or less than the use needs are this one's. The usage figures, the charts and the metrics are of the window.
@@ -729,7 +790,8 @@ func (s *Service) OverprovisionDetail(ctx context.Context, moduleID uint, window
 		opTotal(chart, sliceFrom(use.total, fromTS, toTS), use.step, windowMinutes, replicas)
 		mo.Charts = append(mo.Charts, chart)
 	}
-	mo.JVM = l.jvm(fromTS, toTS, wr)
+	mo.JVM = l.jvm(m, fromTS, toTS, wr)
+	mo.OOM = l.oomInfo(m, fromTS, toTS)
 	mo.Metrics = l.metrics(fromTS, toTS)
 	mo.Datasource = l.live.datasource
 	mo.Queries, mo.Partial, mo.Skipped = l.liveSummary()
@@ -801,7 +863,7 @@ func pointValues(p []overprovision.Point) []float64 {
 func round6(v float64) float64 { return math.Round(v*1e6) / 1e6 }
 
 // jvm reads the JVM metrics of the window; nil when the module has none set up.
-func (l *opLoader) jvm(from, to int64, wr *WindowOverprovision) *JVMInfo {
+func (l *opLoader) jvm(m *model.ForecastModule, from, to int64, wr *WindowOverprovision) *JVMInfo {
 	expected := false
 	for _, src := range l.run.ActiveSources() {
 		if strings.HasPrefix(src.Kind, "jvm_") {
@@ -811,7 +873,7 @@ func (l *opLoader) jvm(from, to int64, wr *WindowOverprovision) *JVMInfo {
 	if !expected {
 		return nil
 	}
-	info := &JVMInfo{Expected: true, Hints: []string{}}
+	info := &JVMInfo{Expected: true, Hints: []string{}, Threshold: m.JVMHeapPressure}
 	usage := func(kind string) *overprovision.Usage {
 		s := l.get(kind)
 		if s == nil {
@@ -835,13 +897,21 @@ func (l *opLoader) jvm(from, to int64, wr *WindowOverprovision) *JVMInfo {
 	if info.HeapMax != nil && info.WorkingSetP99 > 0 && info.HeapMax.Max > 1.5*info.WorkingSetP99 {
 		info.Hints = append(info.Hints, "heap_max_above_working_set")
 	}
-	if info.HeapUsed != nil && info.HeapMax != nil && info.HeapMax.Max > 0 && info.HeapUsed.P99 >= 0.9*info.HeapMax.Max {
-		info.Hints = append(info.Hints, "heap_near_max")
+	if info.HeapUsed != nil && info.HeapMax != nil && info.HeapMax.Max > 0 {
+		info.Ratio = info.HeapUsed.P99 / info.HeapMax.Max
+		if m.JVMHeapPressure > 0 {
+			// the threshold of the module is the line: no number of the code says where "near" starts
+			info.Scored = true
+			info.Score = math.Max(0, 100*(1-info.Ratio/m.JVMHeapPressure))
+			if info.Ratio >= m.JVMHeapPressure {
+				info.Hints = append(info.Hints, "heap_near_max")
+			}
+		}
 	}
 	if info.HeapCommitted != nil {
 		// said whenever it is shown: the committed heap is a request to the system, not a measure of use
 		info.Hints = append(info.Hints, "committed_is_not_use")
-		if info.HeapUsed != nil && info.HeapCommitted.P99 > 0 && info.HeapUsed.P99 >= 0.9*info.HeapCommitted.P99 {
+		if m.JVMHeapPressure > 0 && info.HeapUsed != nil && info.HeapCommitted.P99 > 0 && info.HeapUsed.P99 >= m.JVMHeapPressure*info.HeapCommitted.P99 {
 			info.Hints = append(info.Hints, "heap_near_committed")
 		}
 	}

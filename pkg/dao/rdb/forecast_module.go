@@ -191,7 +191,7 @@ func (dao *ModuleDAO) Delete(ctx context.Context, id uint) error {
 				return err
 			}
 		}
-		for _, table := range []interface{}{&model.MetricSeries{}, &model.MetricSource{}, &model.ModulePeriod{}, &model.ModuleRunState{}, &model.AlgorithmScore{},
+		for _, table := range []interface{}{&model.MetricSeries{}, &model.MetricSource{}, &model.ModulePeriod{}, &model.ModuleTrigger{}, &model.ModuleRunState{}, &model.AlgorithmScore{},
 			&model.Recommendation{}, &model.Prediction{}, &model.PredictionEvaluation{}, &model.BacktestRun{}, &model.TrainingRun{}, &model.ScaleOutcome{}} {
 			if err := tx.Where("module_id = ?", id).Delete(table).Error; err != nil {
 				return err
@@ -246,6 +246,49 @@ func (dao *ModuleDAO) SavePeriod(ctx context.Context, p *model.ModulePeriod) err
 
 func (dao *ModuleDAO) DeletePeriod(ctx context.Context, moduleID, id uint) error {
 	res := dao.db.WithContext(ctx).Where("module_id = ? AND id = ?", moduleID, id).Delete(&model.ModulePeriod{})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
+}
+
+// ---- metric triggers
+
+// Triggers returns a module's metric triggers, the highest priority first.
+func (dao *ModuleDAO) Triggers(ctx context.Context, moduleID uint) ([]*model.ModuleTrigger, error) {
+	var list []*model.ModuleTrigger
+	err := dao.db.WithContext(ctx).Where("module_id = ?", moduleID).Order("priority DESC, name ASC").Find(&list).Error
+	return list, err
+}
+
+func (dao *ModuleDAO) GetTrigger(ctx context.Context, id uint) (*model.ModuleTrigger, error) {
+	var t model.ModuleTrigger
+	if err := dao.db.WithContext(ctx).First(&t, id).Error; err != nil {
+		return nil, err
+	}
+	return &t, nil
+}
+
+func (dao *ModuleDAO) SaveTrigger(ctx context.Context, t *model.ModuleTrigger) error {
+	var count int64
+	q := dao.db.WithContext(ctx).Model(&model.ModuleTrigger{}).Where("module_id = ? AND name = ?", t.ModuleID, t.Name)
+	if t.ID != 0 {
+		q = q.Where("id <> ?", t.ID)
+	}
+	if err := q.Count(&count).Error; err != nil {
+		return err
+	}
+	if count > 0 {
+		return ErrNameTaken
+	}
+	return dao.db.WithContext(ctx).Save(t).Error
+}
+
+func (dao *ModuleDAO) DeleteTrigger(ctx context.Context, moduleID, id uint) error {
+	res := dao.db.WithContext(ctx).Where("module_id = ? AND id = ?", moduleID, id).Delete(&model.ModuleTrigger{})
 	if res.Error != nil {
 		return res.Error
 	}

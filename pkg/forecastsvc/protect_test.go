@@ -433,3 +433,82 @@ func TestTheFloorCoefficientKeepsTheRecommendationFromGoingBelowTheStatedRequest
 	assert.EqualValues(t, 500, floorOf(100, 1000, 0.5), "half of the stated request is more than the minimum")
 	assert.EqualValues(t, 600, floorOf(600, 1000, 0.5), "the minimum is more")
 }
+
+// A metric trigger is a strategy of the module: while the JVM heap stands above its threshold the replicas are set (or raised), and the answer says which trigger did it, with the
+// figure it saw. A trigger outside its hours, or switched off, does nothing.
+func TestAMetricTriggerSetsTheReplicasAndSaysWhy(t *testing.T) {
+	ctx := context.Background()
+	f := newFixture(t)
+	f.addAux(t, "jvm_heap_used")
+	f.addAux(t, "jvm_heap_max")
+	used := 0.5
+	f.values(map[string]func(time.Time) float64{
+		"jvm_heap_used": func(time.Time) float64 { return used * gib },
+		"jvm_heap_max":  func(time.Time) float64 { return gib },
+	})
+	f.bind(t, "rps", "naive", nil, 0)
+	_, err := f.collect(ctx)
+	require.NoError(t, err)
+	_, err = f.predict(ctx)
+	require.NoError(t, err)
+	f.dynamic(t, func(m *model.ForecastModule) { m.MaxReplicas = 30 })
+	trigger := &model.ModuleTrigger{ModuleID: f.module.ID, Name: "heap-hot", Enabled: true, Metric: model.TriggerJVMHeap, Stat: model.TriggerStatMax, WindowMinutes: 30,
+		Operator: model.TriggerGT, Threshold: 0.9, Action: model.TriggerSet, Unit: model.TriggerUnitReplicas, Amount: 27}
+	require.NoError(t, trigger.Validate())
+	require.NoError(t, f.svc.Modules.SaveTrigger(ctx, trigger))
+
+	calm, detail, err := f.svc.Recommend(ctx, f.module.ID)
+	require.NoError(t, err)
+	require.Len(t, detail.Triggers, 1)
+	assert.False(t, detail.Triggers[0].Fired, detail.Triggers[0].Reason)
+	assert.InDelta(t, 0.5, detail.Triggers[0].Value, 0.001)
+	assert.Nil(t, detail.TriggerOutcome)
+	assert.NotEqual(t, "trigger", calm.ReplicasSource)
+
+	used = 0.95
+	*f.clock = testNow.Add(time.Minute)
+	_, err = f.collect(ctx)
+	require.NoError(t, err)
+	_, err = f.predict(ctx)
+	require.NoError(t, err)
+	hot, detail, err := f.svc.Recommend(ctx, f.module.ID)
+	require.NoError(t, err)
+	assert.True(t, detail.Triggers[0].Fired, detail.Triggers[0].Reason)
+	assert.InDelta(t, 0.95, detail.Triggers[0].Value, 0.001)
+	require.NotNil(t, detail.TriggerOutcome)
+	assert.Equal(t, 27, detail.TriggerOutcome.Result)
+	assert.Equal(t, "trigger", hot.ReplicasSource)
+	assert.Equal(t, 27, hot.Replicas)
+	assert.Contains(t, detail.Replicas.Reason, "heap-hot")
+
+	// the module's maximum has the last word over a trigger
+	f.module.MaxReplicas = 20
+	require.NoError(t, f.svc.Modules.Update(ctx, f.module))
+	capped, _, err := f.svc.Recommend(ctx, f.module.ID)
+	require.NoError(t, err)
+	assert.LessOrEqual(t, capped.Replicas, 20)
+
+	// switched off, it is still listed with its reason and does nothing
+	trigger.Enabled = false
+	require.NoError(t, f.svc.Modules.SaveTrigger(ctx, trigger))
+	_, detail, err = f.svc.Recommend(ctx, f.module.ID)
+	require.NoError(t, err)
+	assert.False(t, detail.Triggers[0].Fired)
+	assert.Equal(t, "switched off", detail.Triggers[0].Reason)
+}
+
+// A module that is not predicted has no algorithm run, so what runs now is read from its own replicas metric (a trigger scales relative to it); a reading older than the
+// report of the operator may be is no reading.
+func TestTheRunningReplicasOfAModuleWithoutPredictionAreItsOwnMetric(t *testing.T) {
+	ctx := context.Background()
+	f := newFixture(t)
+	f.addAux(t, "replicas")
+	f.values(map[string]func(time.Time) float64{"replicas": func(time.Time) float64 { return 7 }})
+	f.bind(t, "cpu", "naive", nil, 0)
+	_, err := f.collect(ctx)
+	require.NoError(t, err)
+	mod, err := f.svc.Modules.Get(ctx, f.module.ID)
+	require.NoError(t, err)
+	assert.Equal(t, 7, f.svc.measuredReplicas(ctx, mod, testNow))
+	assert.Equal(t, 0, f.svc.measuredReplicas(ctx, mod, testNow.Add(3*time.Hour)), "an old reading is not what runs now")
+}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/cylonchau/kube-res-foresight/pkg/decision"
@@ -134,6 +135,10 @@ type RecommendDetail struct {
 	// OOM and Heap say what the OOM protection and the JVM heap rule saw, whether or not they acted.
 	OOM  *OOMFloor     `json:"oom,omitempty"`
 	Heap *HeapPressure `json:"heap,omitempty"`
+	// Triggers is every metric trigger of the module with what it saw (see TriggerState); TriggerOutcome how the ones that fired were combined with the count the
+	// forecast, the fallback or the fixed count gave (nil when none fired).
+	Triggers       []TriggerState           `json:"triggers,omitempty"`
+	TriggerOutcome *decision.TriggerOutcome `json:"trigger_outcome,omitempty"`
 }
 
 // ErrObserveOnly is returned when a recommendation is requested for a module in observe mode.
@@ -555,6 +560,10 @@ func (s *Service) decide(ctx context.Context, moduleID uint, failed map[string]s
 			}
 		}
 	}
+	if current == 0 {
+		// a module that is not predicted has no algorithm run to read its replicas through: its own replicas metric is read directly
+		current = s.measuredReplicas(ctx, m, now)
+	}
 	for _, c := range calcs {
 		algo := c.st.inst.Key()
 		if v, ok := c.res.Resources[multimetric.ResourceCPU]; ok {
@@ -687,6 +696,25 @@ func (s *Service) decide(ctx context.Context, moduleID uint, failed map[string]s
 				rec.Replicas.Source != decision.SourceFixedCount && m.MaxReplicas > 0 && rec.Replicas.Value > int64(m.MaxReplicas) {
 				rec.Replicas.Value, rec.Replicas.Clamped = int64(m.MaxReplicas), true
 			}
+		}
+	}
+	// ---- the metric triggers: the strategy of the module that reads a metric against a threshold. They come after the forecast and its ceiling and before the periods and
+	// the bounds, so a floor or a cap of a period, the module's minimum and maximum and the pace limits of the operator all hold over what a trigger asks for
+	if m.HasReplicas() {
+		states, fired, err := s.evaluateTriggers(ctx, m, bs, loc, now)
+		if err != nil {
+			return nil, nil, err
+		}
+		detail.Triggers = states
+		if len(fired) > 0 {
+			block := ""
+			switch {
+			case oom.Active:
+				block = "an OOM kill within the last " + strconv.Itoa(m.OOMLookbackDays) + " days"
+			case heap.Over:
+				block = "the JVM heap is over its threshold"
+			}
+			rec.Replicas, detail.TriggerOutcome = decision.ApplyTriggers(rec.Replicas, current, fired, block, m.MinReplicas, effectiveMax)
 		}
 	}
 	// the floors and caps of the periods keep the count, whoever decided it, within the bounds of the module

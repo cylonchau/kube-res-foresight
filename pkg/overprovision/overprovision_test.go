@@ -339,3 +339,23 @@ func TestTheSuggestionDoesNotNeedARequestAndComesWithALimit(t *testing.T) {
 	assert.InDelta(t, cpu.SuggestedLimit, with.SuggestedLimit, 1e-9)
 	assert.NotEqual(t, StatusUnknown, with.Status)
 }
+
+// The Requests margin and the Limits margin of a resource are the module's own for that resource: the CPU margin does not touch the memory, and the Limits margin falls
+// back on the system one where the module sets none.
+func TestTheMarginsOfTheRequestsAndOfTheLimitsAreEachResourcesOwn(t *testing.T) {
+	p := DefaultParams()
+	base := Analyze(input(CPU, 200, ramp(100, 1)), p)
+	p.CPURequestHeadroom = 0.1
+	cpu := Analyze(input(CPU, 200, ramp(100, 1)), p)
+	assert.InDelta(t, base.Needed*1.1, cpu.Needed, 1e-9, "the CPU need carries the CPU margin")
+	assert.Contains(t, cpu.Formula, "(1+10%)")
+	mem := Analyze(input(Memory, 200, ramp(100, 1)), p)
+	assert.InDelta(t, Analyze(input(Memory, 200, ramp(100, 1)), DefaultParams()).Needed, mem.Needed, 1e-9, "the memory has none")
+
+	p = DefaultParams()
+	p.MemoryLimitHeadroom = 0.5
+	assert.Equal(t, 0.2, p.LimitHeadroomOf(CPU), "no margin of its own: the system one")
+	assert.Equal(t, 0.5, p.LimitHeadroomOf(Memory))
+	limit := Analyze(input(Memory, 200, ramp(100, 1)), p)
+	assert.InDelta(t, 99*1.5, limit.SuggestedLimit, 1e-6)
+}
