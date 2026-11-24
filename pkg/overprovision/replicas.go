@@ -51,12 +51,27 @@ type ReplicaLimits struct {
 	ScaleDownStep int `json:"scale_down_step"`
 }
 
+// ReplicaPart is the replicas one percentile of the use asks of: the sum of the use of all the Pods at that percentile divided by the Requests of a Pod and the share of it
+// the percentile is wanted to take.
+type ReplicaPart struct {
+	Name   string  `json:"name"`
+	Total  float64 `json:"total"`
+	Target float64 `json:"target"`
+	Needed float64 `json:"needed"`
+}
+
 // ReplicaNeed is what one resource asks of the number of replicas when the Pod keeps the Requests it has.
 type ReplicaNeed struct {
 	Resource string `json:"resource"`
 	// Needed is the replicas that put the P90, P95 and P99 of the sum of the use at or under the share of the Requests their bands want, and (with a Limits) the P99
 	// under the share of the Limits the risk allows.
 	Needed int `json:"needed"`
+	// Request and Limit are those of one Pod it was worked out for (Limit 0 = not known), Parts the replicas each percentile asks, and LimitNeeded what the guard of the
+	// Limits asks (0 = no Limits).
+	Request     float64       `json:"request"`
+	Limit       float64       `json:"limit"`
+	Parts       []ReplicaPart `json:"parts"`
+	LimitNeeded float64       `json:"limit_needed"`
 	// Formula writes it out with the numbers put into it.
 	Formula string `json:"formula"`
 }
@@ -103,11 +118,11 @@ func PlanReplicas(current int, p Params, lim ReplicaLimits, results ...*Result) 
 		if !(r.Request > 0) || r.Total == nil || r.Total.Points == 0 || r.Suggested <= 0 {
 			continue
 		}
-		need, formula := replicasFor(r, p)
-		plan.Resources = append(plan.Resources, ReplicaNeed{Resource: r.Resource, Needed: need, Formula: formula})
-		parts = append(parts, formula)
-		if need > plan.Raw {
-			plan.Raw, plan.Binding = need, r.Resource
+		need := replicasFor(r, p)
+		plan.Resources = append(plan.Resources, need)
+		parts = append(parts, need.Formula)
+		if need.Needed > plan.Raw {
+			plan.Raw, plan.Binding = need.Needed, r.Resource
 		}
 	}
 	if plan.Raw == 0 {
@@ -147,7 +162,7 @@ func PlanReplicas(current int, p Params, lim ReplicaLimits, results ...*Result) 
 		}
 	}
 	for _, need := range plan.Resources {
-		if strings.Contains(need.Formula, "limit") && need.Needed == plan.Raw && plan.Raw > 0 && plan.Needed == plan.Raw && !containsReason(plan.Reasons, ReasonReplicasLimit) {
+		if need.LimitNeeded > 0 && int(math.Ceil(need.LimitNeeded-1e-9)) == plan.Raw && need.Needed == plan.Raw && plan.Raw > 0 && plan.Needed == plan.Raw && !containsReason(plan.Reasons, ReasonReplicasLimit) {
 			// the Limits is what asked for the most replicas
 			plan.Reasons = append(plan.Reasons, ReasonReplicasLimit)
 		}
@@ -174,7 +189,8 @@ func PlanReplicas(current int, p Params, lim ReplicaLimits, results ...*Result) 
 
 // replicasFor is how many replicas one resource asks of: the sum of the use of the Pods at each of P90, P95 and P99 divided by what the band wants of the Requests of
 // a Pod, and the P99 under the share of the Limits the peak guard allows.
-func replicasFor(r *Result, p Params) (int, string) {
+func replicasFor(r *Result, p Params) ReplicaNeed {
+	out := ReplicaNeed{Resource: r.Resource, Request: r.Request, Limit: r.Limit, Parts: []ReplicaPart{}}
 	var parts []string
 	need := 0.0
 	for _, c := range []struct {
@@ -187,15 +203,18 @@ func replicasFor(r *Result, p Params) (int, string) {
 		}
 		n := c.total / (r.Request * c.share)
 		need = math.Max(need, n)
+		out.Parts = append(out.Parts, ReplicaPart{Name: c.name, Total: c.total, Target: c.share, Needed: n})
 		parts = append(parts, fmt.Sprintf("%s %s / (%s x %.0f%%) = %.2f", c.name, num(r.Resource, c.total), num(r.Resource, r.Request), c.share*100, n))
 	}
-	formula := r.Resource + " replicas = max(" + strings.Join(parts, ", ") + ")"
+	out.Formula = r.Resource + " replicas = max(" + strings.Join(parts, ", ") + ")"
 	if r.Limit > 0 && p.PeakNearLimit > 0 {
 		n := r.Total.P99 / (r.Limit * p.PeakNearLimit)
+		out.LimitNeeded = n
 		if n > need {
-			formula += fmt.Sprintf(", limit guard: P99 %s / (limit %s x %.0f%%) = %.2f", num(r.Resource, r.Total.P99), num(r.Resource, r.Limit), p.PeakNearLimit*100, n)
+			out.Formula += fmt.Sprintf(", limit guard: P99 %s / (limit %s x %.0f%%) = %.2f", num(r.Resource, r.Total.P99), num(r.Resource, r.Limit), p.PeakNearLimit*100, n)
 		}
 		need = math.Max(need, n)
 	}
-	return max(int(math.Ceil(need-1e-9)), 1), formula
+	out.Needed = max(int(math.Ceil(need-1e-9)), 1)
+	return out
 }
