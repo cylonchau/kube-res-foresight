@@ -195,6 +195,25 @@ func (t *ClusterPrune) Execute(ctx context.Context, _ *model.Job) error {
 	return err
 }
 
+// ClusterUsageJobType asks Prometheus for the usage around the changes the operator reported (P12 E7).
+const ClusterUsageJobType = "cluster.fill_usage"
+
+// ClusterUsage is that job.
+type ClusterUsage struct {
+	Service *clustersvc.Service
+	Source  clustersvc.UsageSource
+}
+
+func (t *ClusterUsage) Type() string { return ClusterUsageJobType }
+
+func (t *ClusterUsage) Execute(ctx context.Context, _ *model.Job) error {
+	res, err := t.Service.FillUsage(ctx, t.Source)
+	if res.Filled+res.Unavailable+res.Waiting > 0 {
+		logger.Info("cluster change usage asked", logger.Int("filled", res.Filled), logger.Int("unavailable", res.Unavailable), logger.Int("waiting", res.Waiting))
+	}
+	return err
+}
+
 func joinFailures(failed []string) error {
 	if len(failed) == 0 {
 		return nil

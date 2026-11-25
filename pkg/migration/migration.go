@@ -214,7 +214,7 @@ func seedPlatformPermissions() error {
 		{permission: model.Permission{Name: "Login Logs", Code: "system_login-log", Type: "MENU", FeRoute: "/system/login-log", FeComponent: "view.system_login-log", Icon: "carbon:user-activity", Sort: 4, Visible: true, Status: true}, parentCode: "system"},
 		{permission: model.Permission{Name: "API Credentials", Code: "system_secret-keys", Type: "MENU", FeRoute: "/system/secret-keys", FeComponent: "view.system_secret-keys", Icon: "carbon:password", Sort: 3, Visible: true, Status: true}, parentCode: "system"},
 		{permission: model.Permission{Name: "Admission Recommendations (read)", Code: "forecast:admission:read", Type: "BUTTON", BeApis: `["GET /api/v1/admission/recommendations"]`, Status: true}},
-		{permission: model.Permission{Name: "Operator Decisions (read, report)", Code: "forecast:operator:use", Type: "BUTTON", BeApis: `["GET /api/v1/operator/modules","GET /api/v1/operator/settings","GET /api/v1/operator/decisions","POST /api/v1/operator/reports","GET /api/v1/operator/inventory-targets","POST /api/v1/operator/inventory","GET /api/v1/operator/cluster-settings","POST /api/v1/operator/events"]`, Status: true}},
+		{permission: model.Permission{Name: "Operator Decisions (read, report)", Code: "forecast:operator:use", Type: "BUTTON", BeApis: `["GET /api/v1/operator/modules","GET /api/v1/operator/settings","GET /api/v1/operator/decisions","POST /api/v1/operator/reports","GET /api/v1/operator/inventory-targets","POST /api/v1/operator/inventory","GET /api/v1/operator/cluster-settings","POST /api/v1/operator/events","POST /api/v1/operator/changes"]`, Status: true}},
 		{permission: model.Permission{Name: "Metric Query Test (read)", Code: "forecast:query:test", Type: "BUTTON", BeApis: `["POST /api/v1/metric-queries/test"]`, Status: true}},
 		{permission: model.Permission{Name: "Read APIs", Code: "sys:all:read", Type: "BUTTON", BeApis: `["GET /api/v1/*"]`, Status: true}},
 		{permission: model.Permission{Name: "Write APIs", Code: "sys:all:write", Type: "BUTTON", BeApis: `["POST /api/v1/*","PUT /api/v1/*","DELETE /api/v1/*"]`, Status: true}},
@@ -564,6 +564,7 @@ func ensureForecastTasks() error {
 		{TaskType: "forecast.evaluate", Description: "Score finished predictions against the actuals collected since", CronExpr: "@every 1h", Enabled: true},
 		{TaskType: "forecast.backtest", Description: "Backtest every enabled algorithm against the baselines", CronExpr: "@every 6h", Enabled: true},
 		{TaskType: "forecast.overprovision", Description: "Analyse what the Pods of every enabled module request against what they used, over seven windows", CronExpr: "@every 6h", Enabled: true},
+		{TaskType: "cluster.fill_usage", Description: "Ask Prometheus for the usage of a node, Pod, workload or HPA before, at and after each change the operator reported, once the time after it has passed", CronExpr: "@every 1m", Enabled: true},
 		{TaskType: "cluster.prune", Description: "Delete the cluster events that are past their retention (system parameter cluster.retention_days, 3 days unless changed)", CronExpr: "@every 1h", Enabled: true},
 		{TaskType: "inventory.prune", Description: "Delete the cluster snapshots and the workload configuration history that are past their retention", CronExpr: "@every 24h", Enabled: true},
 	}

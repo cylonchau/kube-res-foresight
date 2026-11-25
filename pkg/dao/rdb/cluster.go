@@ -66,6 +66,9 @@ func (dao *ClusterDAO) Delete(ctx context.Context, c *model.Cluster) error {
 		if err := tx.Where("cluster = ?", c.Name).Delete(&model.ClusterEvent{}).Error; err != nil {
 			return err
 		}
+		if err := tx.Where("cluster = ?", c.Name).Delete(&model.ClusterChange{}).Error; err != nil {
+			return err
+		}
 		return tx.Delete(&model.Cluster{}, c.ID).Error
 	})
 }
@@ -300,5 +303,146 @@ func (dao *ClusterDAO) EventCount(ctx context.Context, cluster string) (int64, *
 // PruneEvents deletes the events that last happened before the time, in every cluster, and says how many.
 func (dao *ClusterDAO) PruneEvents(ctx context.Context, before time.Time) (int64, error) {
 	res := dao.db.WithContext(ctx).Where("last_at < ?", before).Delete(&model.ClusterEvent{})
+	return res.RowsAffected, res.Error
+}
+
+// ---- changes
+
+// ChangeFilter narrows the changes of one cluster.
+type ChangeFilter struct {
+	Cluster   string
+	Kind      string
+	Type      string
+	Namespace string
+	Name      string
+	Node      string
+	Workload  string
+	Search    string
+	Since     *time.Time
+	Until     *time.Time
+}
+
+func (f ChangeFilter) apply(q *gorm.DB) *gorm.DB {
+	q = q.Where("cluster = ?", f.Cluster)
+	eq := func(col, v string) {
+		if v = strings.TrimSpace(v); v != "" {
+			q = q.Where(col+" = ?", v)
+		}
+	}
+	eq("kind", f.Kind)
+	eq("type", f.Type)
+	eq("namespace", f.Namespace)
+	eq("name", f.Name)
+	eq("node", f.Node)
+	eq("workload", f.Workload)
+	if s := strings.TrimSpace(f.Search); s != "" {
+		like := "%" + strings.ToLower(escapeLike(s)) + "%"
+		q = q.Where("LOWER(name) LIKE ? ESCAPE '\\' OR LOWER(from_state) LIKE ? ESCAPE '\\' OR LOWER(to_state) LIKE ? ESCAPE '\\' OR LOWER(reasons) LIKE ? ESCAPE '\\'", like, like, like, like)
+	}
+	if f.Since != nil {
+		q = q.Where("occurred_at >= ?", *f.Since)
+	}
+	if f.Until != nil {
+		q = q.Where("occurred_at <= ?", *f.Until)
+	}
+	return q
+}
+
+// AddChanges stores the changes of a batch; one that is already there (the same record id in the same cluster: a retry) is left as it is. It says how many were new.
+func (dao *ClusterDAO) AddChanges(ctx context.Context, cluster string, rows []model.ClusterChange) (int, error) {
+	if len(rows) == 0 {
+		return 0, nil
+	}
+	ids := make([]string, 0, len(rows))
+	for _, r := range rows {
+		ids = append(ids, r.RecordID)
+	}
+	have := map[string]bool{}
+	var known []string
+	if err := dao.db.WithContext(ctx).Model(&model.ClusterChange{}).Where("cluster = ? AND record_id IN ?", cluster, ids).Pluck("record_id", &known).Error; err != nil {
+		return 0, err
+	}
+	for _, id := range known {
+		have[id] = true
+	}
+	var fresh []model.ClusterChange
+	for _, r := range rows {
+		if have[r.RecordID] {
+			continue
+		}
+		have[r.RecordID] = true // the same id twice in a batch is one
+		r.Cluster = cluster
+		fresh = append(fresh, r)
+	}
+	if len(fresh) == 0 {
+		return 0, nil
+	}
+	return len(fresh), dao.db.WithContext(ctx).CreateInBatches(&fresh, 100).Error
+}
+
+// ListChanges is a page of the changes of a cluster, the latest first, and how many there are in all.
+func (dao *ClusterDAO) ListChanges(ctx context.Context, f ChangeFilter, page, size int) ([]model.ClusterChange, int64, error) {
+	if page < 1 {
+		page = 1
+	}
+	if size < 1 || size > 200 {
+		size = 20
+	}
+	var total int64
+	if err := f.apply(dao.db.WithContext(ctx).Model(&model.ClusterChange{})).Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var rows []model.ClusterChange
+	err := f.apply(dao.db.WithContext(ctx).Model(&model.ClusterChange{})).Order("occurred_at DESC, id DESC").Offset((page - 1) * size).Limit(size).Find(&rows).Error
+	return rows, total, err
+}
+
+// GetChange is one change of a cluster.
+func (dao *ClusterDAO) GetChange(ctx context.Context, cluster string, id uint) (*model.ClusterChange, error) {
+	var row model.ClusterChange
+	if err := dao.db.WithContext(ctx).Where("cluster = ? AND id = ?", cluster, id).First(&row).Error; err != nil {
+		return nil, err
+	}
+	return &row, nil
+}
+
+// ChangesAround are the changes of the cluster that happened between the two times, oldest first, narrowed by the filter (at most limit of them).
+func (dao *ClusterDAO) ChangesAround(ctx context.Context, f ChangeFilter, from, to time.Time, limit int) ([]model.ClusterChange, error) {
+	f.Since, f.Until = &from, &to
+	var rows []model.ClusterChange
+	err := f.apply(dao.db.WithContext(ctx).Model(&model.ClusterChange{})).Order("occurred_at ASC, id ASC").Limit(limit).Find(&rows).Error
+	return rows, err
+}
+
+// EventsAround are the events of the cluster about an object that last happened between the two times, oldest first. The object is told by its uid when it has one, else
+// by its kind, namespace and name.
+func (dao *ClusterDAO) EventsAround(ctx context.Context, cluster, objectUID, kind, namespace, name string, from, to time.Time, limit int) ([]model.ClusterEvent, error) {
+	q := dao.db.WithContext(ctx).Model(&model.ClusterEvent{}).Where("cluster = ? AND last_at >= ? AND last_at <= ?", cluster, from, to)
+	if objectUID != "" {
+		q = q.Where("(object_uid = ? OR (kind = ? AND namespace = ? AND name = ?))", objectUID, kind, namespace, name)
+	} else {
+		q = q.Where("kind = ? AND namespace = ? AND name = ?", kind, namespace, name)
+	}
+	var rows []model.ClusterEvent
+	err := q.Order("last_at ASC, id ASC").Limit(limit).Find(&rows).Error
+	return rows, err
+}
+
+// PendingUsage are the changes whose usage has not been asked yet and whose time after them has passed (they happened before the time), oldest first.
+func (dao *ClusterDAO) PendingUsage(ctx context.Context, happenedBefore time.Time, limit int) ([]model.ClusterChange, error) {
+	var rows []model.ClusterChange
+	err := dao.db.WithContext(ctx).Where("usage_status = ? AND occurred_at <= ?", model.UsagePending, happenedBefore).Order("occurred_at ASC, id ASC").Limit(limit).Find(&rows).Error
+	return rows, err
+}
+
+// SaveUsage stores what was asked of Prometheus for a change.
+func (dao *ClusterDAO) SaveUsage(ctx context.Context, id uint, status, usage, note string, tries int) error {
+	return dao.db.WithContext(ctx).Model(&model.ClusterChange{}).Where("id = ?", id).
+		Updates(map[string]any{"usage_status": status, "usage": usage, "usage_note": note, "usage_tries": tries}).Error
+}
+
+// PruneChanges deletes the changes that happened before the time, in every cluster, and says how many.
+func (dao *ClusterDAO) PruneChanges(ctx context.Context, before time.Time) (int64, error) {
+	res := dao.db.WithContext(ctx).Where("occurred_at < ?", before).Delete(&model.ClusterChange{})
 	return res.RowsAffected, res.Error
 }

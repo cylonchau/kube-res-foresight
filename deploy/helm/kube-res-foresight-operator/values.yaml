@@ -61,6 +61,9 @@ clusterAgent:
   # Read the events of the cluster (the role then gets get, list and watch on events). The namespaces they are read from are set on the platform. Off leaves
   # the operator doing nothing but scaling (and the inventory above).
   collectEvents: true
+  # Watch the nodes, Pods, Deployments, StatefulSets and HPAs and report their state changes (read-only; the role needs get, list and watch on them, which the inventory
+  # rule and the rules for scaling already give). Off leaves the operator doing nothing but scaling.
+  collectChanges: true
 
 rbac:
   # Create the ClusterRole and its binding. Turn it off only when you bind a role of your own.

@@ -64,6 +64,8 @@ type Options struct {
 	Cluster string
 	// CollectEvents turns the reading of the cluster's events off at this operator (the platform can switch it off for every operator too).
 	CollectEvents bool
+	// CollectChanges turns the reading of the state changes of nodes, Pods, workloads and HPAs off at this operator.
+	CollectChanges bool
 }
 
 // NewScheme returns a scheme with the built-in kinds.
@@ -103,6 +105,7 @@ func NewCommand() *cobra.Command {
 	f.DurationVar(&opts.InventoryInterval, "inventory-interval", controller.DefaultInventoryInterval, "How often the nodes, and the workloads of the platform modules with their Pods and the requests and limits of their containers, are read (read-only) for the resource pages of the platform. A report is made when something that is configuration changed, and at least once an hour. Needs read access to nodes and pods. 0 turns it off.")
 	f.StringVar(&opts.Cluster, "cluster", "", "The name of the cluster this operator is for, as registered on the platform (lower-case letters, digits and -). The access key must be bound to it on the clusters page. Empty is the platform's default cluster. The KUBE_RES_FORESIGHT_CLUSTER environment variable is used when the flag is not given.")
 	f.BoolVar(&opts.CollectEvents, "collect-events", true, "Read the events of the cluster, read-only, and report them to the platform (the platform can switch it off too). Turn it off here to leave the operator doing nothing but scaling.")
+	f.BoolVar(&opts.CollectChanges, "collect-changes", true, "Watch the nodes, Pods, Deployments, StatefulSets and HPAs of the cluster, read-only, and report their state changes to the platform (the platform can switch it off too). Turn it off here to leave the operator doing nothing but scaling.")
 	return cmd
 }
 
@@ -220,6 +223,15 @@ func Run(ctx context.Context, opts *Options) error {
 			Refresh: func() time.Duration { return timing.Seconds(settings.Get().SettingsRefreshSeconds) }}
 		if err := mgr.Add(collector); err != nil {
 			return fmt.Errorf("register the event collector: %w", err)
+		}
+	}
+	if opts.CollectChanges {
+		// the state changes of the objects, read-only: on the elected replica, in a cache of its own that exists only while the platform says to collect
+		host, _ := os.Hostname()
+		changes := &controller.ChangeCollector{Config: cfg, Scheme: scheme, Platform: platform, Operator: host,
+			Refresh: func() time.Duration { return timing.Seconds(settings.Get().SettingsRefreshSeconds) }}
+		if err := mgr.Add(changes); err != nil {
+			return fmt.Errorf("register the change collector: %w", err)
 		}
 	}
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {

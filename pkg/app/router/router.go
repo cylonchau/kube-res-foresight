@@ -237,12 +237,15 @@ func RegisteredRouter(e *gin.Engine) {
 	clusterHandler := &v1.ClusterRouter{Service: clusterService, Datasources: rdb.NewDatasourceDAO(model.DB), Gate: clusterGate}
 	v1Group.GET("/operator/cluster-settings", clusterHandler.OperatorSettings)
 	v1Group.POST("/operator/events", clusterHandler.OperatorEvents)
+	v1Group.POST("/operator/changes", clusterHandler.OperatorChanges)
 	v1Group.GET("/clusters", clusterHandler.List)
 	v1Group.POST("/clusters", clusterHandler.Create)
 	v1Group.GET("/cluster-keys", clusterHandler.Keys)
 	v1Group.PUT("/clusters/:id", clusterHandler.Update)
 	v1Group.DELETE("/clusters/:id", clusterHandler.Delete)
 	v1Group.GET("/clusters/:id/events", clusterHandler.Events)
+	v1Group.GET("/clusters/:id/changes", clusterHandler.Changes)
+	v1Group.GET("/clusters/:id/changes/:change", clusterHandler.Change)
 	runtimeHandler := &v1.RuntimeRouter{Modules: rdb.NewModuleDAO(model.DB), Predictions: rdb.NewPredictionDAO(model.DB), RunStates: rdb.NewRunStateDAO(model.DB), Config: rdb.NewSysConfigDAO(model.DB), Fresh: forecastService, Gate: clusterGate}
 	v1Group.GET("/operator/modules", runtimeHandler.OperatorModules)
 	v1Group.GET("/operator/settings", runtimeHandler.OperatorSettings)

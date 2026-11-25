@@ -18,7 +18,7 @@ func TestTheClusterAgentSettingsTheTaskAndThePageAreSeeded(t *testing.T) {
 	require.NoError(t, EnsureDefaultConfigs())
 	require.NoError(t, ensureForecastTasks())
 
-	for _, key := range []string{timing.ClusterRetentionDays.Key, clustersvc.KeyCollectEvents, clustersvc.KeySkipReasons, clustersvc.KeyEventRules} {
+	for _, key := range []string{clustersvc.KeyCollectChanges, timing.ClusterUsageBefore.Key, timing.ClusterUsageAfter.Key, timing.ClusterRetentionDays.Key, clustersvc.KeyCollectEvents, clustersvc.KeySkipReasons, clustersvc.KeyEventRules} {
 		var cfg model.SysConfig
 		require.NoError(t, db.Where("config_key = ?", key).First(&cfg).Error, key)
 	}
@@ -29,6 +29,9 @@ func TestTheClusterAgentSettingsTheTaskAndThePageAreSeeded(t *testing.T) {
 	var task model.TaskDefinition
 	require.NoError(t, db.Where("task_type = ?", "cluster.prune").First(&task).Error)
 	assert.True(t, task.Enabled, "expired events are cleaned up")
+	var fill model.TaskDefinition
+	require.NoError(t, db.Where("task_type = ?", "cluster.fill_usage").First(&fill).Error)
+	assert.True(t, fill.Enabled, "the usage around a change is asked of Prometheus")
 
 	assert.True(t, allowed(t, db, "ADMIN", "POST", "/api/v1/clusters"))
 	var menu model.Permission
@@ -44,6 +47,7 @@ func TestTheOperatorCredentialMayAskForItsSettingsAndSendEventsAndNothingMore(t 
 	require.NoError(t, db.Where("code = ?", "forecast:operator:use").First(&p).Error)
 	assert.Contains(t, p.BeApis, "GET /api/v1/operator/cluster-settings")
 	assert.Contains(t, p.BeApis, "POST /api/v1/operator/events")
+	assert.Contains(t, p.BeApis, "POST /api/v1/operator/changes")
 	assert.NotContains(t, p.BeApis, "/api/v1/clusters", "the credential of an operator does not manage clusters")
 }
 
@@ -51,7 +55,7 @@ func TestTheBusinessRoleReadsTheClustersAModuleCanBeInAndManagesNone(t *testing.
 	db := setupPlatformDB(t)
 	assert.True(t, allowed(t, db, BusinessRoleCode, "GET", "/api/v1/clusters"), "the module form lists the clusters")
 	for _, c := range [][2]string{{"POST", "/api/v1/clusters"}, {"PUT", "/api/v1/clusters/3"}, {"DELETE", "/api/v1/clusters/3"}, {"GET", "/api/v1/clusters/3/events"},
-		{"GET", "/api/v1/cluster-keys"}, {"POST", "/api/v1/operator/events"}, {"GET", "/api/v1/operator/cluster-settings"}} {
+		{"GET", "/api/v1/cluster-keys"}, {"POST", "/api/v1/operator/events"}, {"POST", "/api/v1/operator/changes"}, {"GET", "/api/v1/clusters/3/changes"}, {"GET", "/api/v1/operator/cluster-settings"}} {
 		assert.False(t, allowed(t, db, BusinessRoleCode, c[0], c[1]), "%s %s is not for the business role", c[0], c[1])
 	}
 }

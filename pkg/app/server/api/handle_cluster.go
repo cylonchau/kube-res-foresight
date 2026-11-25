@@ -352,3 +352,106 @@ func (r *ClusterRouter) OperatorEvents(c *gin.Context) {
 	r.Gate.Seen(c, cl)
 	query.SuccessResponse(c, nil, res)
 }
+
+// maxChangesBody is the biggest batch of changes the platform takes (a change carries a snapshot: the Pods of a node).
+const maxChangesBody = 8 << 20
+
+// OperatorChanges serves POST /operator/changes: a batch of the state changes of the objects of the operator's cluster.
+// @Summary Take a batch of the changes of a cluster
+// @Tags Cluster
+// @Router /api/v1/operator/changes [post]
+func (r *ClusterRouter) OperatorChanges(c *gin.Context) {
+	cl, ok := r.Gate.For(c)
+	if !ok {
+		return
+	}
+	if cl == nil {
+		query.ErrorResponse(c, http.StatusServiceUnavailable, errors.New("no cluster is registered on the platform"))
+		return
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxChangesBody)
+	var batch clusteragent.ChangeBatch
+	if err := c.ShouldBindJSON(&batch); err != nil {
+		var tooBig *http.MaxBytesError
+		if errors.As(err, &tooBig) {
+			query.ErrorResponse(c, http.StatusRequestEntityTooLarge, errors.New("the batch is bigger than the platform takes"))
+			return
+		}
+		query.BadRequest(c, err)
+		return
+	}
+	res, err := r.Service.IngestChanges(c.Request.Context(), cl, batch)
+	if err != nil {
+		if errors.Is(err, clusteragent.ErrInvalid) {
+			query.BadRequest(c, err)
+			return
+		}
+		query.InternalError(c, err)
+		return
+	}
+	r.Gate.Seen(c, cl)
+	query.SuccessResponse(c, nil, res)
+}
+
+// Changes serves GET /clusters/:id/changes: the changes of the objects of a cluster, latest first.
+// @Summary The changes of a cluster
+// @Tags Cluster
+// @Router /api/v1/clusters/{id}/changes [get]
+func (r *ClusterRouter) Changes(c *gin.Context) {
+	id, ok := clusterID(c)
+	if !ok {
+		return
+	}
+	cl, err := r.Service.DAO.Get(c.Request.Context(), id)
+	if err != nil {
+		query.HandleDBError(c, err)
+		return
+	}
+	page, size := pageParams(c)
+	f := rdb.ChangeFilter{Cluster: cl.Name, Kind: c.Query("kind"), Type: c.Query("type"), Namespace: c.Query("namespace"), Name: c.Query("name"), Node: c.Query("node"),
+		Workload: c.Query("workload"), Search: c.Query("search")}
+	if v, err := time.Parse(time.RFC3339, c.Query("since")); err == nil {
+		f.Since = &v
+	}
+	if v, err := time.Parse(time.RFC3339, c.Query("until")); err == nil {
+		f.Until = &v
+	}
+	rows, total, err := r.Service.DAO.ListChanges(c.Request.Context(), f, page, size)
+	if err != nil {
+		query.InternalError(c, err)
+		return
+	}
+	list := make([]clustersvc.ChangeDTO, 0, len(rows))
+	for _, row := range rows {
+		list = append(list, clustersvc.View(row))
+	}
+	query.SuccessResponse(c, nil, gin.H{"list": list, "total": total, "page": page, "pageSize": size, "retention_days": int(r.Service.Retention(c.Request.Context()).Hours() / 24)})
+}
+
+// Change serves GET /clusters/:id/changes/:change: one change with the events about its object around that time and the changes of other objects tied to it, each with
+// the evidence it rests on.
+// @Summary One change of a cluster, explained
+// @Tags Cluster
+// @Router /api/v1/clusters/{id}/changes/{change} [get]
+func (r *ClusterRouter) Change(c *gin.Context) {
+	id, ok := clusterID(c)
+	if !ok {
+		return
+	}
+	changeID, err := strconv.ParseUint(c.Param("change"), 10, 64)
+	if err != nil || changeID == 0 {
+		query.BadRequest(c, errors.New("invalid change id"))
+		return
+	}
+	cl, err := r.Service.DAO.Get(c.Request.Context(), id)
+	if err != nil {
+		query.HandleDBError(c, err)
+		return
+	}
+	out, err := r.Service.Explain(c.Request.Context(), cl, uint(changeID))
+	if err != nil {
+		query.HandleDBError(c, err)
+		return
+	}
+	query.SuccessResponse(c, nil, out)
+}

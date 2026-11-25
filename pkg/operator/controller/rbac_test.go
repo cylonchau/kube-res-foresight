@@ -167,3 +167,23 @@ func TestTheMarkersAndTheGeneratedRoleSayTheSame(t *testing.T) {
 	}
 	assert.Equal(t, flat(markerRules(t)), flat(generatedRole(t)), "deploy/operator/rbac/role.yaml is what the markers in rbac.go generate (run controller-gen after changing them)")
 }
+
+// Only the leader acts on the cluster (E6): what scales a workload and what reads the cluster for the platform runs on the elected replica, like every controller that
+// takes a lease; a replica that stands by holds no informer and sends nothing. The two that run on every replica do not touch the cluster: one sends what the leader queued,
+// the other asks the platform for its settings.
+func TestOnlyTheElectedReplicaActsOnOrReadsTheCluster(t *testing.T) {
+	for name, r := range map[string]interface{ NeedLeaderElection() bool }{
+		"the module sync (it scales)": &ModuleSync{},
+		"the inventory reader":        &InventoryRunner{},
+		"the event collector":         &EventCollector{},
+		"the change collector":        &ChangeCollector{},
+	} {
+		assert.True(t, r.NeedLeaderElection(), name)
+	}
+	for name, r := range map[string]interface{ NeedLeaderElection() bool }{
+		"the outbox (it sends what the leader queued)": &Outbox{},
+		"the settings refresh (it asks the platform)":  &SettingsRefresher{},
+	} {
+		assert.False(t, r.NeedLeaderElection(), name)
+	}
+}

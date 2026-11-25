@@ -1,6 +1,6 @@
 # P12 Cluster Agent 与集群大盘（2026-11-25 规划，E1～E8 已答复）
 
-状态：**E1～E4 已做（2026-11-25，见末尾“已做的第一部分”）；D2 只做了事件与 RBAC 的一部分，D5 只做了事件与解释器，其余未开始。** 来源：用户 2026-11-25 给的“Kubernetes Operator / Agent 权限与功能改造需求（增补版）”，新增：Controller 扩缩容过程上报、Node/Pod/工作负载/HPA 的状态变化与追因（**不特指 Karpenter**）、Pod 生命周期异常、集群资源大盘、节点标签日报（**暂缓**）；外加启动时绑定集群。**保留现有权限原则：除授权工作负载的 scale 子资源外，Kubernetes 的一切只读。**
+状态：**E1～E8 已做（2026-11-25，见末尾“已做的第一部分”“已做的第二部分”）：D1、D5 的核心（Node、Pod、工作负载、HPA 的状态变化、原因、因果、变化时的配置与用量）已做，D2 只做了事件与变化采集，D3、D4、D6、D8 未开始（D3 里非本 Operator 的副本变化已经包含在变化记录里）。** 来源：用户 2026-11-25 给的“Kubernetes Operator / Agent 权限与功能改造需求（增补版）”，新增：Controller 扩缩容过程上报、Node/Pod/工作负载/HPA 的状态变化与追因（**不特指 Karpenter**）、Pod 生命周期异常、集群资源大盘、节点标签日报（**暂缓**）；外加启动时绑定集群。**保留现有权限原则：除授权工作负载的 scale 子资源外，Kubernetes 的一切只读。**
 
 ## 目标与边界
 
@@ -150,3 +150,20 @@
 **没验证**：Operator 对着**真实的 Kubernetes**（informer 能不能读到 core/v1 Event、`events.k8s.io` 的新格式事件、RBAC 在真集群里够不够）；真实的 Karpenter、Cluster Autoscaler、各云的事件格式（内置规则里 karpenter、keda、云控制器是按名字片段匹配的，没对过真实事件）；PostgreSQL、MySQL 上的新表与索引重建；Helm 渲染（本机没有 helm，只读了文件）；多个副本选主切换时只有当选副本在发（靠 `NeedLeaderElection`，没起两个副本试）；`cluster.prune` 的定时运行（任务行在、清理逻辑有单测，没等它到点）；集群自己的 Prometheus 数据源（`datasource_id`）只接到了 `/inventory/nodes/usage`，没有单独的测试。
 
 **没做、和 E1～E4 有关的**：资源大盘、集群大盘的页面还没有集群选择，仍然看默认集群（接口已经能按 `?cluster=` 取）；准入（Kyverno）按工作负载找模块的 `ForWorkload` 不分集群，多集群时要等准入的集群标识（准入链路没有这个信息）；全集群的 Pod、Namespace、Metrics API 采集（D2）；Node、Pod、工作负载、HPA 的状态变化与因果（D5）；日报暂缓。官网的功能说明还没写这一页。
+
+## 已做的第二部分（2026-11-25：E6～E8）
+
+用户要求把 E6～E8 也做完。E6 大部分原来就有，E7、E8 是新建的状态变化记录（D5 的核心）：
+
+- **E6 选主**：沿用 Kubernetes 自己的 lease 与现有的 `--leader-elect`（默认开）；**只有当选的副本操作**：扩缩容（`ModuleSync`）、读取（`InventoryRunner`）、新增的事件采集（`EventCollector`）和变化采集（`ChangeCollector`）都是 `NeedLeaderElection` 为真；变化采集在**自己的 cache** 里建 informer，只在当选副本、只在平台说采集时才建，平台关掉采集就停掉 cache 让内存回收，备用副本什么都不占。不需要选主的只有两个，都不碰集群：`Outbox`（发当选副本排进去的报告）和 `SettingsRefresher`（向平台要设置）。`rbac_test.go` 的 `TestOnlyTheElectedReplicaActsOnOrReadsTheCluster` 把这条线钉住。leases 的权限没有改（仍是 ClusterRole，改它会影响已部署的 Operator）。
+- **E8 对象与变化**：Node、Pod、工作负载（Deployment、StatefulSet 的副本数）、HPA（Kubernetes 的 `autoscaling` 里的 HorizontalPodAutoscaler，不是平台自己的扩缩）。`pkg/operator/controller/changes.go` 是纯函数：**Node**：Ready 变化、四种压力、是否可调度、污点增减、创建、删除（带删除前最后的条件和污点作原因）；**Pod**：所在节点、阶段、PodScheduled（Unschedulable 的原因与消息在这里）、Ready、容器重启（带上次终止的原因、退出码，OOMKilled 在这里）、容器等待（CrashLoopBackOff 等）、`status.reason`（Evicted 等）、开始终止、创建、删除；**工作负载**：`spec.replicas` 变化，原因取对象 `managedFields` 里**拥有 spec.replicas 且最新**的那个管理者（`kube-controller-manager`、`kubectl`、某个 GitOps 工具、本 Operator 都是它记录的，没有条目拥有这个字段就不写）；**HPA**：上下限、它决定的副本数、三个条件的变化、创建、删除。对象给出的原因原样带上，不翻译。
+- **E7 变化时的配置与用量**：Operator 随每条变化带上**变化时的配置**（来自它的缓存：节点的容量、可分配、标签、污点、上面的 Pod 及各自的 Requests／Limits，最多 100 个；Pod 的 Requests、Limits、属主、容器状态；工作负载与 HPA 的副本与范围）；已删除的对象用缓存里最后一次的状态。**用量不在 Operator 里**：平台的任务 `cluster.fill_usage`（每分钟）在变化后的“后”这段时间（`cluster.usage_after_seconds`，默认 5 分钟）过去之后，向集群绑定的 Prometheus 数据源（没绑就用系统参数那个）按**变化前**（`cluster.usage_before_seconds`，默认 5 分钟）、**变化时**、**变化后**各查一次，用的是页面和大盘共用的那套查询（节点要在“指标模板”里声明了 `node_cpu_used`／`node_memory_used`，Pod 与工作负载用大盘的默认查询或系统参数），每个点标查询的时间；没有数据写“未取到”和原因，**不写 0**；Prometheus 连不上最多再试 5 次后写“没能取到”。
+- **因果（只在读的时候算，不存）**：`Explain` 取这条变化前后几分钟里**同一个对象的事件**，再找别的对象在 10 分钟内的变化，用 `linkOf` 判断：**caused_by 只有三种证据**——①节点变化之后同一节点上的 Pod，Pod 自己的原因文字或事件的消息里**写了这个节点的名字**；②工作负载副本调低之后，属主是同名 StatefulSet 的 Pod 开始终止；③HPA 决定了 N 个副本之后，它指向的工作负载的副本变成了同一个 N。**位置和时间相近但没有证据的只写 `related`**（页面上写“相关，不一定是原因”）：例如同一节点上另一个 Pod 的重启、Deployment 的 Pod 在副本调低后终止（ReplicaSet 属主没有跟踪）、HPA 决定的数与副本不一致。晚到的事件或变化也能被找到，因为是读时算的。
+- **页面**：集群页的“变化”抽屉（按对象类别、搜索筛选）和“详情”弹窗：这次变化、对象给出的原因、变化时的配置、前后用量、前后几分钟的事件、可能的原因与影响（带依据）；不用标签页。系统参数 `cluster.collect_changes` 平台一键关掉采集，Operator 另有 `--collect-changes`；变化与事件共用 `cluster.retention_days`（默认 3 天）与清理任务。
+- **权限**：没有新增 RBAC（nodes、pods、deployments、statefulsets、horizontalpodautoscalers 的 get／list／watch 原来就有）；Helm 里 `clusterAgent.collectChanges` 为真时节点与 Pod 的读规则也在。
+
+**验证了什么**：Go：检测函数（节点 Ready、压力、污点、删除、Pod 重启与 OOMKilled、等待、调度失败、被驱逐、终止、副本管理者、HPA 的上下限与决定与条件）；采集器（第一次列出不算变化、命名空间过滤、平台关掉后停 cache、失败保留与重发、缓冲上限、字段裁剪）；平台（入库与重试只存一次、过期与未来的时间、因果的三种证据与相关、事件、用量任务的各种结果与重试与不写 0、保留清理与随集群删除）；Prometheus 侧（节点、Pod、工作负载的取数，没模板、没序列、查询失败）；API 与迁移；`go test -p 1 ./pkg/...` 全部通过；前端 `vue-tsc`、110 个单元测试、中英文文案一致性。**真浏览器与真服务器**（临时库、真实的访问密钥与中间件、真实的用量任务、一个假的 Prometheus，用脚本模拟 Operator 发了 7 条变化）：任务到点后 5 条取到用量、2 条因为假 Prometheus 没有那两个 Pod 的序列写“没能取到”（没写 0）；节点的详情里 Evicted 的 Pod 是“由这次变化引起”并带依据，同一节点上的 OOM 重启 Pod 是“相关，不一定是原因”；StatefulSet 缩容与 Pod 终止是原因；中英文。
+
+**没验证**：Operator 对着**真实的 Kubernetes**（自己的 cache 与 informer、按节点的索引、`managedFields` 的真实格式、Pod 很多时的内存与 API 调用量，D8 才测）；真实 Prometheus 里 Pod 与工作负载的默认查询（cAdvisor 的指标名没对过真实环境）、节点删除后的序列；PostgreSQL、MySQL 上的新表和 `from_state`／`to_state` 列、`LIKE ... ESCAPE` 查询；多副本选主切换；Pod 到工作负载的名字是按“去掉 ReplicaSet 名最后一段”推的，推错了就查不到序列，写“未取到”，不会写错的数。
+
+**没做**：D3 里“非本 Operator 的副本变化”已经有了（工作负载的副本变化带管理者），但**本 Operator 自己的扩缩过程（耗时、执行后实际副本）还没有扩展**；D4 的 Pod 健康分类与大盘区块；D6 集群资源大盘；Metrics API 与全集群 Pod、Namespace 的**存量**采集（D2 的另一半）；D8 的大集群压测；日报暂缓。官网还没写这一页。

@@ -5,6 +5,7 @@ import "time"
 func init() {
 	RegisterModel(&Cluster{})
 	RegisterModel(&ClusterEvent{})
+	RegisterModel(&ClusterChange{})
 }
 
 // A Cluster is a Kubernetes cluster an operator (the Cluster Agent) reports from (P12 D1). The platform keeps one row for each: its name is what an operator is started
@@ -80,3 +81,51 @@ type ClusterEvent struct {
 }
 
 func (ClusterEvent) TableName() string { return "cluster_event" }
+
+// The state of the usage of a change: it is asked of Prometheus after the change, once the time after it has passed.
+const (
+	// UsagePending is a change whose usage has not been asked yet; UsageFilled has at least one figure; UsageUnavailable could not be had, and the note says why.
+	UsagePending     = "pending"
+	UsageFilled      = "filled"
+	UsageUnavailable = "unavailable"
+)
+
+// ClusterChange is a change of state of a Node, a Pod, a workload (its replicas) or an HPA, as the operator saw it (P12 E7, E8): what it went from and to, the reasons the
+// object itself gave, and its configuration at that moment. The usage before, at and after the change is not the operator's: the platform asks Prometheus once the time
+// after it has passed. The causes of a change are not stored: they are worked out when the change is read, from the events and the other changes around it, so a cause that
+// arrives later is still found. One row for each change of a cluster (the record id the operator made), kept for cluster.retention_days.
+type ClusterChange struct {
+	ID       uint   `gorm:"primaryKey" json:"id"`
+	Cluster  string `gorm:"type:varchar(64);not null;uniqueIndex:idx_cluster_change_record,priority:1;index:idx_cluster_change_at,priority:1" json:"cluster"`
+	RecordID string `gorm:"type:varchar(64);not null;uniqueIndex:idx_cluster_change_record,priority:2" json:"record_id"`
+
+	Kind      string `gorm:"type:varchar(16);not null;index:idx_cluster_change_object,priority:2" json:"kind"`
+	Namespace string `gorm:"type:varchar(253);not null;default:''" json:"namespace"`
+	Name      string `gorm:"type:varchar(253);not null;index:idx_cluster_change_object,priority:3" json:"name"`
+	ObjectUID string `gorm:"type:varchar(64)" json:"object_uid"`
+	Type      string `gorm:"type:varchar(32);not null;index" json:"type"`
+	From      string `gorm:"column:from_state;type:varchar(255)" json:"from"`
+	To        string `gorm:"column:to_state;type:varchar(255)" json:"to"`
+
+	// OccurredAt is the time the object gives for the change, or else when the operator saw it; ObservedAt is when the operator saw it, ReceivedAt when the platform did.
+	OccurredAt time.Time `gorm:"not null;index:idx_cluster_change_at,priority:2;index" json:"occurred_at"`
+	ObservedAt time.Time `gorm:"not null" json:"observed_at"`
+	ReceivedAt time.Time `gorm:"not null" json:"received_at"`
+	Operator   string    `gorm:"type:varchar(253)" json:"operator"`
+
+	// Node is the node a Pod was on (or the node itself), Workload the workload that owns a Pod or that an HPA targets: they place changes of different objects in the same
+	// place.
+	Node     string `gorm:"type:varchar(253);index" json:"node"`
+	Workload string `gorm:"type:varchar(253)" json:"workload"`
+
+	// Reasons, Snapshot and Usage are JSON: the reasons the object gave, its configuration then, and the usage around it (see clustersvc.UsageRecord).
+	Reasons  string `gorm:"type:text" json:"-"`
+	Snapshot string `gorm:"type:text" json:"-"`
+	Usage    string `gorm:"type:text" json:"-"`
+	// UsageStatus is pending, filled or unavailable; UsageTries how often it was asked; UsageNote why it could not be had.
+	UsageStatus string `gorm:"type:varchar(12);not null;default:'pending';index" json:"usage_status"`
+	UsageTries  int    `gorm:"not null;default:0" json:"usage_tries"`
+	UsageNote   string `gorm:"type:varchar(255)" json:"usage_note"`
+}
+
+func (ClusterChange) TableName() string { return "cluster_change" }

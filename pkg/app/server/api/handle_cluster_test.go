@@ -69,6 +69,9 @@ func newClusterRig(t *testing.T) *clusterRig {
 	r.GET("/clusters/:id/events", ch.Events)
 	r.GET("/operator/cluster-settings", ch.OperatorSettings)
 	r.POST("/operator/events", ch.OperatorEvents)
+	r.POST("/operator/changes", ch.OperatorChanges)
+	r.GET("/clusters/:id/changes", ch.Changes)
+	r.GET("/clusters/:id/changes/:change", ch.Change)
 	r.GET("/operator/modules", rt.OperatorModules)
 	r.GET("/operator/decisions", rt.Decision)
 	r.POST("/operator/reports", rt.Report)
@@ -414,4 +417,80 @@ func TestTheSameWorkloadCanBeAModuleInTwoClustersButNotTwiceInOne(t *testing.T) 
 	assert.ErrorIs(t, mk("api-east-2", "east"), rdb.ErrWorkloadTaken, "but not twice in one cluster")
 	assert.ErrorIs(t, mk("api-main-2", ""), rdb.ErrWorkloadTaken, "nor twice in the default cluster")
 	assert.ErrorIs(t, mk("api-main-3", "main"), rdb.ErrWorkloadTaken, "naming the default cluster is the same as naming none")
+}
+
+func TestChangesAreTakenFromTheBoundOperatorListedPerClusterAndExplained(t *testing.T) {
+	c := newClusterRig(t)
+	_, d := c.call(t, http.MethodPost, "/clusters", map[string]any{"name": "east"})
+	eastID := int(clusterID64(d))
+	var def model.Cluster
+	require.NoError(t, c.db.Where("is_default = ?", true).First(&def).Error)
+	east := []string{"X-Test-Bound", "east"}
+	at := time.Now().UTC().Add(-20 * time.Minute)
+
+	node := clusteragent.Change{RecordID: "n1-ready", Kind: "Node", Name: "ip-10-0-1-9", ObjectUID: "uid-n", Type: "ready", From: "True", To: "False", OccurredAt: at, ObservedAt: at,
+		Reasons:  []clusteragent.Reason{{Source: "node_condition", Reason: "KubeletNotReady", Message: "runtime down", Component: "Ready"}},
+		Snapshot: &clusteragent.Snapshot{PodCount: 1, Capacity: &clusteragent.Res{CPUMilli: 4000}}}
+	pod := clusteragent.Change{RecordID: "p-evicted", Kind: "Pod", Namespace: "shop", Name: "web-1", Type: "status", To: "Evicted", OccurredAt: at.Add(time.Minute), ObservedAt: at.Add(time.Minute),
+		Node: "ip-10-0-1-9", Workload: "web", Reasons: []clusteragent.Reason{{Source: "pod_status", Reason: "Evicted", Message: "The node ip-10-0-1-9 was low on resource: memory."}}}
+	code, res := c.call(t, http.MethodPost, "/operator/changes", clusteragent.ChangeBatch{Operator: "op-east-1", Changes: []clusteragent.Change{node, pod}}, east...)
+	require.Equal(t, http.StatusOK, code)
+	assert.EqualValues(t, 2, res["added"])
+	code, res = c.call(t, http.MethodPost, "/operator/changes", clusteragent.ChangeBatch{Changes: []clusteragent.Change{node}}, east...)
+	require.Equal(t, http.StatusOK, code)
+	assert.EqualValues(t, 0, res["added"], "a retry is the same change")
+
+	code, d = c.call(t, http.MethodGet, fmt.Sprintf("/clusters/%d/changes", eastID), nil)
+	require.Equal(t, http.StatusOK, code)
+	assert.EqualValues(t, 2, d["total"])
+	list := d["list"].([]any)
+	byName := map[string]map[string]any{}
+	for _, x := range list {
+		m := x.(map[string]any)
+		byName[m["name"].(string)] = m
+	}
+	assert.Equal(t, "False", byName["ip-10-0-1-9"]["to"])
+	assert.Equal(t, "KubeletNotReady", byName["ip-10-0-1-9"]["reasons"].([]any)[0].(map[string]any)["reason"])
+	assert.Equal(t, "pending", byName["ip-10-0-1-9"]["usage_status"])
+	assert.EqualValues(t, 3, d["retention_days"])
+
+	code, d = c.call(t, http.MethodGet, fmt.Sprintf("/clusters/%d/changes?kind=Pod", eastID), nil)
+	require.Equal(t, http.StatusOK, code)
+	assert.EqualValues(t, 1, d["total"])
+	code, d = c.call(t, http.MethodGet, fmt.Sprintf("/clusters/%d/changes?search=KubeletNotReady", eastID), nil)
+	require.Equal(t, http.StatusOK, code)
+	assert.EqualValues(t, 1, d["total"], "the reasons are searched")
+	code, d = c.call(t, http.MethodGet, fmt.Sprintf("/clusters/%d/changes", def.ID), nil)
+	require.Equal(t, http.StatusOK, code)
+	assert.EqualValues(t, 0, d["total"], "the default cluster does not see the changes of another")
+
+	// explained: the Pod's reason names the node, so the node change is its cause
+	podID := byName["web-1"]["id"].(float64)
+	code, d = c.call(t, http.MethodGet, fmt.Sprintf("/clusters/%d/changes/%d", eastID, int(podID)), nil)
+	require.Equal(t, http.StatusOK, code)
+	causes := d["causes"].([]any)
+	require.Len(t, causes, 1)
+	link := causes[0].(map[string]any)
+	assert.Equal(t, "caused_by", link["relation"])
+	assert.Equal(t, "cause", link["direction"])
+	assert.Contains(t, link["evidence"], "ip-10-0-1-9")
+	assert.Equal(t, "ip-10-0-1-9", link["change"].(map[string]any)["name"])
+
+	// another cluster's change is not found under this one
+	nodeID := byName["ip-10-0-1-9"]["id"].(float64)
+	code, _ = c.call(t, http.MethodGet, fmt.Sprintf("/clusters/%d/changes/%d", def.ID, int(nodeID)), nil)
+	assert.Equal(t, http.StatusNotFound, code)
+	code, _ = c.call(t, http.MethodGet, fmt.Sprintf("/clusters/%d/changes/abc", eastID), nil)
+	assert.Equal(t, http.StatusBadRequest, code)
+
+	// refused: a kind that is not watched; a key bound to another cluster
+	code, _ = c.call(t, http.MethodPost, "/operator/changes", clusteragent.ChangeBatch{Changes: []clusteragent.Change{{RecordID: "s", Kind: "Secret", Name: "s", Type: "t", OccurredAt: at}}}, east...)
+	assert.Equal(t, http.StatusBadRequest, code)
+	code, _ = c.call(t, http.MethodPost, "/operator/changes", clusteragent.ChangeBatch{Changes: []clusteragent.Change{node}}, "X-Test-Bound", "main", clusteragent.HeaderCluster, "east")
+	assert.Equal(t, http.StatusForbidden, code)
+
+	// the operator is told to collect changes unless the platform says otherwise
+	code, s := c.call(t, http.MethodGet, "/operator/cluster-settings", nil, east...)
+	require.Equal(t, http.StatusOK, code)
+	assert.Equal(t, true, s["collect_changes"])
 }

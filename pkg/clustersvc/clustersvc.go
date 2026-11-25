@@ -25,6 +25,7 @@ const (
 	KeyEventRules     = "cluster.event_rules"
 	KeySkipReasons    = "cluster.event_skip_reasons"
 	KeyCollectEvents  = "cluster.collect_events"
+	KeyCollectChanges = "cluster.collect_changes"
 	DefaultSkipReason = "Pulling,Pulled,Created,Started"
 )
 
@@ -32,6 +33,7 @@ const (
 func DefaultConfigs() []model.SysConfig {
 	return []model.SysConfig{
 		{ConfigKey: KeyCollectEvents, ConfigValue: "true", ConfigName: "Collect Cluster Events", Remark: "Whether the operators send the Kubernetes events of their clusters (true or false). The events are the reasons of what happens to nodes, Pods, workloads and autoscalers. Switching it off stops the sending at every operator within a minute; what was kept stays until it is past cluster.retention_days."},
+		{ConfigKey: KeyCollectChanges, ConfigValue: "true", ConfigName: "Collect Cluster Changes", Remark: "Whether the operators send the state changes of the nodes, Pods, workloads and HPAs of their clusters (true or false): a node that is not ready, a Pod that restarts or is evicted, a workload whose replicas changed, an HPA that decided. Switching it off stops the sending at every operator within a minute; what was kept stays until it is past cluster.retention_days."},
 		{ConfigKey: KeySkipReasons, ConfigValue: DefaultSkipReason, ConfigName: "Cluster Event Reasons Not Sent", Remark: "Comma separated reasons of events the operators do not send, because there are very many and they say nothing of the cause of a change (a container being pulled, created or started). Empty sends every event."},
 		{ConfigKey: KeyEventRules, ConfigValue: "", ConfigName: "Cluster Event Rules", Remark: "Rules that say who did what an event says, tried before the built-in ones: a JSON list such as [{\"name\":\"acme-cloud\",\"component\":\"acme-node-lifecycle\",\"origin\":\"auto\",\"category\":\"cloud\"}]. component, reason and kind match an event (a name, or a name with * at the start and/or end); origin is auto or manual; category is free text. Use it to teach the platform another cloud or autoscaler, or to say that an event is done by a person. A bad list is ignored and the built-in rules are used."},
 	}
@@ -138,7 +140,13 @@ func (s *Service) Settings(ctx context.Context, c *model.Cluster) clusteragent.S
 			skip = append(skip, r)
 		}
 	}
-	return clusteragent.Settings{Cluster: c.Name, Namespaces: Scope(c), CollectEvents: collect, SkipReasons: skip}
+	changes := true
+	if s.Config != nil {
+		if v, err := s.Config.GetBool(ctx, KeyCollectChanges, true); err == nil {
+			changes = v
+		}
+	}
+	return clusteragent.Settings{Cluster: c.Name, Namespaces: Scope(c), CollectEvents: collect, CollectChanges: changes, SkipReasons: skip}
 }
 
 // Rules are the custom rules of the system parameter; a list that cannot be read gives none and the reason.
@@ -294,7 +302,13 @@ func (s *Service) Touch(ctx context.Context, c *model.Cluster, operator string) 
 	}
 }
 
-// Prune deletes the events past the retention.
+// Prune deletes the events and the changes past the retention, and says how many rows went.
 func (s *Service) Prune(ctx context.Context) (int64, error) {
-	return s.DAO.PruneEvents(ctx, s.now().Add(-s.Retention(ctx)))
+	before := s.now().Add(-s.Retention(ctx))
+	events, err := s.DAO.PruneEvents(ctx, before)
+	if err != nil {
+		return events, err
+	}
+	changes, err := s.DAO.PruneChanges(ctx, before)
+	return events + changes, err
 }

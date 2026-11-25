@@ -114,10 +114,12 @@ func FormatNames(list []string) string {
 // Settings is what the platform tells an operator about the cluster it was started for (GET /operator/cluster-settings): which namespaces to collect from, whether to
 // collect events, and the reasons of events that are not worth sending. The operator keeps the last answer; a change on the platform reaches a running operator.
 type Settings struct {
-	Cluster       string   `json:"cluster"`
-	Namespaces    Scope    `json:"namespaces"`
-	CollectEvents bool     `json:"collect_events"`
-	SkipReasons   []string `json:"skip_reasons"`
+	Cluster       string `json:"cluster"`
+	Namespaces    Scope  `json:"namespaces"`
+	CollectEvents bool   `json:"collect_events"`
+	// CollectChanges says whether the operator reports the state changes of the nodes, Pods, workloads and HPAs it watches (see changes.go).
+	CollectChanges bool     `json:"collect_changes"`
+	SkipReasons    []string `json:"skip_reasons"`
 }
 
 // Event is a Kubernetes Event as the operator reports it: what was said, by whom, about what, and when. Nothing is translated or merged. It is both the wire format and

@@ -20,3 +20,13 @@ var ClusterDatasource = Param{Key: "cluster.datasource_id", Default: 0, Min: 0, 
 var ClusterRetentionDays = Param{Key: "cluster.retention_days", Default: 3, Min: 1, Max: 365,
 	Name:   "Cluster Events Kept (days)",
 	Remark: "How many days the Kubernetes events the operator reports (the reasons of what happened to nodes, Pods, workloads and autoscalers) are kept; older ones are deleted by the task cluster.prune (1-365). A longer time keeps more rows."}
+
+// ClusterUsageBefore and ClusterUsageAfter are how far before and after a change of an object its usage is asked of Prometheus (P12 E7): the usage then, a little before and a
+// little after the change, so what the change did to the usage can be seen.
+var ClusterUsageBefore = Param{Key: "cluster.usage_before_seconds", Default: 300, Min: 30, Max: 3600,
+	Name:   "Usage Asked Before A Change (seconds)",
+	Remark: "How long before a change of a node, a Pod, a workload or an HPA its usage is asked of Prometheus, besides the usage at the time of the change (30-3600)."}
+
+var ClusterUsageAfter = Param{Key: "cluster.usage_after_seconds", Default: 300, Min: 30, Max: 3600,
+	Name:   "Usage Asked After A Change (seconds)",
+	Remark: "How long after a change its usage is asked of Prometheus; the answer is filled in once that time has passed (30-3600)."}

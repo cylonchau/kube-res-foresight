@@ -30,7 +30,7 @@ description: 用于 kube-res-foresight 需求拆解、菜单权限、管理页�
 
 LDAP 须覆盖 LDAPS/StartTLS、CA、用户/组查询与角色映射、禁用同步、失败审计及本地应急管理员；JWT/Casbin 不代表 LDAP 已完成。
 
-**P12 Cluster Agent 与集群大盘（2026-11-25 规划，E1～E8 已答复，E1～E4 已做：集群登记与密钥绑定、Namespace 过滤、事件采集与解释器、3 天保留；其余未开始）**：把 Operator 扩展成只读的集群 Agent：启动绑定集群（多集群隔离，**现有的副本调整不受影响**）、全集群 Node/Pod/Metrics API 采集（连接后可配置过滤 Namespace，选主与其他 controller 一致，只有主 Operator 操作）、扩缩容过程上报（含非本 operator 的副本变化）、Node/Pod/工作负载/HPA 的状态变化追因（**原因取自 Event，支持多云扩展，不特指 Karpenter**；对象间有证据才连因果；变化当时的使用量从 Prometheus 取）、Pod 生命周期异常、集群 Requests/Limits/Used 大盘；保留默认 3 天、系统配置可改；**节点标签日报暂缓**；**除授权工作负载的 scale 外一切只读**。D0～D8 工作包与顺序、已确认的决定、目标 RBAC 与验收对照见 [cluster-agent-p12.md](references/cluster-agent-p12.md)。
+**P12 Cluster Agent 与集群大盘（2026-11-25 规划，E1～E8 已答复，E1～E8 已做：集群登记与密钥绑定、Namespace 过滤、事件采集与解释器、3 天保留、选主只由主 Operator 操作、Node／Pod／工作负载／HPA 的状态变化与因果、变化时的配置与 Prometheus 用量；D2 的存量采集、D4、D6、D8 未开始）**：把 Operator 扩展成只读的集群 Agent：启动绑定集群（多集群隔离，**现有的副本调整不受影响**）、全集群 Node/Pod/Metrics API 采集（连接后可配置过滤 Namespace，选主与其他 controller 一致，只有主 Operator 操作）、扩缩容过程上报（含非本 operator 的副本变化）、Node/Pod/工作负载/HPA 的状态变化追因（**原因取自 Event，支持多云扩展，不特指 Karpenter**；对象间有证据才连因果；变化当时的使用量从 Prometheus 取）、Pod 生命周期异常、集群 Requests/Limits/Used 大盘；保留默认 3 天、系统配置可改；**节点标签日报暂缓**；**除授权工作负载的 scale 外一切只读**。D0～D8 工作包与顺序、已确认的决定、目标 RBAC 与验收对照见 [cluster-agent-p12.md](references/cluster-agent-p12.md)。
 
 **P10 资源超配分析与可观测大盘（2026-11-19 规划，A0～A6 全部未开始）**：当前阶段。先建一个只依据真实历史指标、可解释、可追溯的资源超配分析系统，再考虑预测、自动优化和成本：Controller 只读上报集群与工作负载配置，Prometheus 提供使用量，平台存配置快照与分析结果；多周期（15 分钟到 30 天）CPU/内存/JVM 超配分析；系统内大盘、Grafana Dashboard 与深链；LLM 周期建议。本阶段超配判断**不用预测模型**，成本相关内容全部移出，以 Observe/Recommend 为主、不自动改资源。开工前先读 [overprovision-p10.md](references/overprovision-p10.md)，其中“待你确认”的 E1～E10 没答复的不进开发；页面遵守用户已定的规则（不用页签含分段切换、不拆成多页、字段带“?”说明）。
 

@@ -34,7 +34,7 @@ func newFixture(t *testing.T) *fixture {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:cl%d?mode=memory&cache=shared", atomic.AddInt32(&seq, 1))), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.Cluster{}, &model.ClusterEvent{}, &model.SecretKey{}, &model.ForecastModule{}, &model.SysConfig{}))
+	require.NoError(t, db.AutoMigrate(&model.Cluster{}, &model.ClusterEvent{}, &model.ClusterChange{}, &model.SecretKey{}, &model.ForecastModule{}, &model.SysConfig{}))
 	clock := t0
 	dao := rdb.NewClusterDAO(db)
 	def, err := dao.EnsureDefault(context.Background(), "main")

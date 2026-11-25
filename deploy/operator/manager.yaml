@@ -79,6 +79,8 @@ spec:
             # The events of the cluster, read-only (get, list, watch events in rbac/role.yaml), for the platform to say the reason of what happens to nodes and Pods.
             # The namespaces they are read from are set on the platform after the operator has connected. false leaves the operator doing nothing but scaling.
             - --collect-events=true
+            # The state changes of the nodes, Pods, Deployments, StatefulSets and HPAs (read-only, with the same get, list and watch the role already gives).
+            - --collect-changes=true
           ports:
             - name: metrics
               containerPort: 8080
