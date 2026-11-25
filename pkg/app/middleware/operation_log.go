@@ -178,12 +178,15 @@ func captureBody(c *gin.Context) string {
 	if strings.HasPrefix(contentType, "multipart/") {
 		return ""
 	}
-	raw, err := io.ReadAll(io.LimitReader(c.Request.Body, maxOperationLogBody+1))
-	if err != nil {
-		return ""
-	}
-	c.Request.Body = io.NopCloser(bytes.NewReader(raw))
-	if len(raw) == 0 {
+	original := c.Request.Body
+	raw, err := io.ReadAll(io.LimitReader(original, maxOperationLogBody+1))
+	// what was read for the log and then the rest of the body, so the handler gets the whole of it: a body of more than maxOperationLogBody (an operator's report of the
+	// cluster, a batch of events) must not arrive cut at the limit, which a JSON decoder reads as "unexpected EOF"
+	c.Request.Body = struct {
+		io.Reader
+		io.Closer
+	}{io.MultiReader(bytes.NewReader(raw), original), original}
+	if err != nil || len(raw) == 0 {
 		return ""
 	}
 

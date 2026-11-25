@@ -1,8 +1,10 @@
 package middleware
 
 import (
+	"bytes"
 	"encoding/json"
 	"github.com/gin-gonic/gin"
+	"io"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -131,5 +133,32 @@ func TestRequestIDIsTheCallersOrAGeneratedOneAndStaysTheSameForTheRequest(t *tes
 	c3.Request.Header.Set(RequestIDHeader, string(make([]byte, 80)))
 	if got := requestIDOf(c3); len(got) > 64 {
 		t.Fatalf("an over-long id is replaced, got %d bytes", len(got))
+	}
+}
+
+// The log keeps the first part of a body; the handler gets all of it. A report of the cluster or a batch of events is far bigger than the log keeps, and arrived cut at the
+// limit ("unexpected EOF") when the middleware gave the handler only what it had read for itself.
+func TestTheHandlerGetsTheWholeBodyWhateverTheLogKeepsOfIt(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, size := range []int{10, maxOperationLogBody, maxOperationLogBody + 1, 3*maxOperationLogBody + 7, 2 << 20} {
+		payload := append([]byte(`{"x":"`), bytes.Repeat([]byte("a"), size)...)
+		payload = append(payload, []byte(`"}`)...)
+		var got []byte
+		var logged string
+		probe := gin.New()
+		probe.POST("/x", func(c *gin.Context) {
+			logged = captureBody(c)
+			got, _ = io.ReadAll(c.Request.Body)
+			c.Status(200)
+		})
+		req := httptest.NewRequest("POST", "/x", bytes.NewReader(payload))
+		req.Header.Set("Content-Type", "application/json")
+		probe.ServeHTTP(httptest.NewRecorder(), req)
+		if !bytes.Equal(got, payload) {
+			t.Fatalf("a body of %d bytes reached the handler as %d bytes", len(payload), len(got))
+		}
+		if len(logged) > maxOperationLogBody+64 {
+			t.Fatalf("the log kept %d bytes of a body of %d: it keeps at most %d", len(logged), len(payload), maxOperationLogBody)
+		}
 	}
 }
