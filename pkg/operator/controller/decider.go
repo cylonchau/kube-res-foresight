@@ -147,15 +147,37 @@ func (d *PlatformDecider) request(ctx context.Context, method, path string, quer
 		return nil, unreachable(err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, unreachable(&statusError{Code: resp.StatusCode})
+		// the platform says why in the answer ({"msg": ...}): a 403 is a credential bound to another cluster, a cluster that is switched off, or a permission the credential lacks,
+		// and the log is where the person who deployed the operator looks for which
+		return nil, unreachable(&statusError{Code: resp.StatusCode, Msg: reasonOf(data)})
 	}
 	return data, nil
 }
 
 // statusError is the HTTP status of an answer that was not a 200.
-type statusError struct{ Code int }
+type statusError struct {
+	Code int
+	// Msg is the reason the platform gave in its answer, when it gave one.
+	Msg string
+}
 
-func (e *statusError) Error() string { return fmt.Sprintf("platform answered %d", e.Code) }
+func (e *statusError) Error() string {
+	if e.Msg != "" {
+		return fmt.Sprintf("platform answered %d: %s", e.Code, e.Msg)
+	}
+	return fmt.Sprintf("platform answered %d", e.Code)
+}
+
+// reasonOf reads the msg of an answer of the platform; empty when the body is not one.
+func reasonOf(body []byte) string {
+	var env struct {
+		Msg string `json:"msg"`
+	}
+	if json.Unmarshal(body, &env) != nil {
+		return ""
+	}
+	return clusteragent.Clip(strings.TrimSpace(env.Msg), 300)
+}
 
 // Decide implements Decider.
 func (d *PlatformDecider) Decide(ctx context.Context, s *Scaler) (*Decision, error) {

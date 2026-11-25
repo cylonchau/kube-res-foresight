@@ -286,3 +286,24 @@ func TestTheOperatorSendsTheChangesToThePlatformAndNamesItsCluster(t *testing.T)
 	assert.Equal(t, "POST /api/v1/operator/changes", path)
 	assert.Equal(t, "east", cluster)
 }
+
+func TestTheLogSaysWhyThePlatformRefusedNotOnlyThatItDid(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"code":10003,"msg":"the credential is not bound to this cluster: bind the credential to cluster \"east\" on the clusters page"}`))
+	}))
+	defer srv.Close()
+	d := &PlatformDecider{Cluster: "east", Endpoint: &PlatformEndpoint{URL: srv.URL, Credential: "ak:sk"}}
+	_, err := d.ClusterSettings(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "platform answered 403")
+	assert.Contains(t, err.Error(), "not bound to this cluster", "the reason the platform gave is in the error")
+	assert.Equal(t, http.StatusForbidden, statusOf(err))
+
+	// an answer that says nothing readable still reports the status
+	srv2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusBadGateway) }))
+	defer srv2.Close()
+	_, err = (&PlatformDecider{Endpoint: &PlatformEndpoint{URL: srv2.URL, Credential: "ak:sk"}}).ClusterSettings(context.Background())
+	require.Error(t, err)
+	assert.Equal(t, "platform answered 502", err.Error())
+}
