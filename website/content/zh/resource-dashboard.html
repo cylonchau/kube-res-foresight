@@ -1,6 +1,7 @@
 <h2 id="overview">两级页面：先选模块，再看分析</h2>
 <p>在“预测结果 &gt; 资源大盘”里按命名空间或关键词找到模块，进入“模块资源分析”。页面回答三件事：每个 Pod 的 CPU、内存现在用了多少；Requests 与 Limits 是否合适；副本数需要多少。集群级的节点、Pod 总量见<a href="cluster-inventory.html">集群大盘与 Operator 上报</a>。</p>
-<div data-architecture-diagram="dashboard-flow"></div>
+<p>本页的图片取自用模拟数据搭建的演示环境（三个模块、一个模拟的 Prometheus 和 Operator 上报），数字只用来说明界面，不代表任何真实负载。</p>
+<div data-screenshot="dashboard-list">资源大盘的模块列表：每个模块一行，显示单 Pod 的 CPU、内存 Requests 与 Limits，点“分析”进入模块资源分析。</div>
 <p>大盘是只读分析：不预测、不改配置，也不使用平台已存的样本。每个数字都由模块指标来源里写的 PromQL 当场向 Prometheus 查询，再由平台计算；某个指标超时或没有数据时，页面标出原因，其余部分照常显示。</p>
 <h2 id="sources">使用量、当前配置、推荐值：三者分开</h2>
 <table><thead><tr><th>内容</th><th>来源</th><th>说明</th></tr></thead><tbody>
@@ -17,14 +18,15 @@
 <h2 id="two-ways">两种调整办法，分开算、分开列</h2>
 <ul><li><strong>① 调整副本数（Pod 配置不变）：</strong>每个 Pod 的 Requests 不变，算需要几个副本。优先建议：它不改 Pod 配置，负载自己重新分摊。</li><li><strong>② 调整单 Pod 配置（副本数不变）：</strong>副本数保持现在的，推荐每个 Pod 的 CPU、内存 Requests 和 Limits。只有副本数调不动时才建议改它。</li></ul>
 <p>两张表各有一列“当前值”、三个百分位列（按 P90、P95、P99 推荐）和“综合”。列里的数字是按该百分位推荐的结果，不是实测使用量；实测的百分位在页面下方的使用量表和折线图里。方案①里的 CPU Requests、Memory Requests 都是单 Pod 口径，表头旁的“?”有说明。</p>
+<div data-screenshot="module-plans">模块资源分析：上面是“调整副本数”，下面是“调整单 Pod 配置”。每张表有当前值、按 P90、P95、P99 推荐的结果和“综合”，最右一列是调整建议；“决定”标出哪一列的结果决定了综合。</div>
 <h2 id="pod-config">方案②：单 Pod 的 Requests 与 Limits</h2>
-<div data-architecture-diagram="pod-calc"></div>
+<div data-screenshot="basis-config-formula">“调整单 Pod 配置”的计算依据：每个百分位的持续使用量除以目标占比，取最大，向上取整，再算 Limits。内存的 Requests 因为“合理”保持现在的 6 GiB，Limits 就按保持后的 Requests 与原始 P99 × 120% 取较大者，再向上取整。</div>
 <ol><li>三个百分位的持续使用量，各除以自己的<strong>目标占比</strong>（默认 P90 80%、P95 85%、P99 110%），取最大的一个。</li><li>如果模块设了 Requests 余量，再乘 (1 + 余量)。</li><li>按规格向上取整：CPU 1 核以上取 50 mCPU 的整数倍，内存 1 GiB 以上取 64 MiB 的整数倍。</li><li>推荐 Limits = max(推荐 Requests, 原始 P99 × Limits 系数)，系数默认 120%（即 P99 × 1.2）。</li></ol>
 <p>目标占比是推荐后这个百分位的使用量占 Requests 的比例，不是在使用量上再加百分之几：P95 为 5.11 GiB、目标 85%，推荐 Requests 是 5.11 ÷ 0.85 ≈ 6.01 GiB，取整后 6.06 GiB。表里和公式里的 Requests 都是取整后的数，取整前的数在公式的上一行。取整后与现在只差一个规格以内（CPU 50 mCPU、内存 64 MiB）时，按“没有调整”处理。</p>
 <p>状态按三个百分位占 Requests 的比例落在哪里判断：默认 P90 合理区间 70%–85%、P95 80%–90%、P99 80%–120%；低于下限为超配（占比超过 50% 严重，30% 以上中度，其余轻度），高于上限为欠配；平时很低、只有 P99 偶尔高的，判合理，不据此下调。区间和分级都是系统参数。</p>
 <p>Limits 与 Requests 的对应关系写在依据里：现在的 Limits 是 Requests 的几倍、推荐的是几倍；推荐 Limits 不会低于推荐 Requests。“可降低”的量就是现在的 Limits 减去推荐值。</p>
 <h2 id="replicas">方案①：推荐副本数</h2>
-<div data-architecture-diagram="replica-calc"></div>
+<div data-screenshot="basis-replicas-formula">“调整副本数”的计算依据：CPU、内存各自按三个百分位和 Limits 保护算副本数，再取较大的一个；下面几行写出现在每个 Pod 的使用占 Requests 的多少，说明每个资源为什么需要这么多副本。</div>
 <ol><li>每个百分位：全副本使用量 ÷ (单 Pod Requests × 目标占比)，CPU、内存分别算。</li><li>每个资源向上取整，取三个百分位里最大的；再取 CPU 与内存中较大的一个，至少 1 个。</li><li>Limits 保护：P99 全副本使用量 ÷ (单 Pod Limits × 峰值占比上限)，默认 90%，保证副本不会被减到让峰值顶到 Limits。</li><li>经过模块的最小、最大副本数。窗口内有 OOM 或 CPU 被限流时，使用量低估了需求，不减副本。</li></ol>
 <p><strong>推荐副本数</strong>就是上面的结果，不含调整节奏。模块设了“单次最多增减 N 个”时，另有一行<strong>本次动作到</strong>：例如推荐 9 个、现在 12 个、单次最多减 1 个，本次动作到 11 个，要 3 次到位。两行不混在一起，依据里有说明。</p>
 <h2 id="low-use">使用量不高，为什么还要这么多副本</h2>
@@ -33,14 +35,18 @@
 <h2 id="protections">OOM、限流与保护</h2>
 <ul><li><strong>OOM 评分</strong> = 100 × (1 − 次数 × 权重)，只用于预测算法的内存评分、影响平台跟随哪个算法，不改大盘的推荐值。</li><li><strong>OOM 保护下限</strong>才改推荐：窗口内有 OOM 时，内存 Requests 不低于 max(被杀时的工作集 × OOM 保护系数, 现在的 Requests)，并且不减副本。卡片和依据里写出次数、工作集、系数和是否抬高了推荐。</li><li><strong>CPU 限流</strong>超过界限（系统参数，默认 5% 的时间）时，使用量低估了需求，不判超配、不降配置、不减副本。</li></ul>
 <h2 id="hours">常态与高负载时段</h2>
-<div data-architecture-diagram="load-profile"></div>
+<div data-screenshot="module-profile-busy">常态与高负载时段（CPU 决定副本数的模块）：副本数时段分布里橙色柱是高于常态的小时（这里是上午和下午），下面是最近 24 小时 CPU 与内存的实际负载，高负载的格从橙到红。</div>
+<div data-screenshot="module-profile">同一块在内存决定副本数的模块里：各小时需要的副本数一样，页面直说没有按时段调整的空间；实际负载里 CPU 基本都在常态内，内存停在常态承载的上沿，个别格略高于它。</div>
 <p>只看 P95 容易把每天只有几个小时的高负载摊到全天。这一块把全副本的持续使用量按一天里的小时分开（用模块的时区）：每个小时取所有天的 P95，除以单 Pod Requests 和目标占比，向上取整，得到这个小时需要的副本数。24 个小时居中的那个是<strong>常态</strong>，最大的是<strong>最忙</strong>，高于常态的小时是高峰时段，并估算按时段调整比全天保持最忙的副本数少多少副本小时。各小时相近时，页面直说没有按时段调整的空间（例如内存常驻时，内存决定全天的副本数）。</p>
 <p>下方“实际资源负载时段分布”给出最近 24 小时：24 个大方块，每个按 5 或 10 分钟分格，CPU、内存各一行。格里是这段时间全副本使用量的平均值，颜色看它占“常态副本数能承载的量”的比例：蓝色是常态负载（越深越接近上限），橙到红是高负载，灰色是没有数据；大方块的底色是这个小时各格的平均，有高负载格的小时边框为橙色。鼠标放上去显示时间、使用量和占比。</p>
 <p>按时段调整是在模块里设“时间周期”（见<a href="strategies.html">模块策略与合并顺序</a>），大盘只估算，不自动生成。格的大小受指标查询步长限制：步长不粗于 10 分钟时是 5 或 10 分钟，更粗时就是该步长。窗口不足 2 天、没有全副本使用量时不显示这一块。</p>
+<div data-screenshot="module-oom">发生过 OOM 的模块：OOM 数量和时间点、OOM 保护下限（被杀时的工作集 1.95 GiB × 1.2，已抬高推荐值）、期望与就绪副本数、CPU 与内存的使用率等卡片。</div>
 <h2 id="basis">计算依据窗口</h2>
 <p>每个方案的“计算依据”给出：输入数据表（单 Pod 与全副本两个口径的 P90、P95、P99 使用量、Requests、Limits、副本数及来源）、参数来源表（每个符号的指标名、单位、窗口、是否持续处理）、取整规则、取最大的规则、调整节奏、Limits 与 Requests 的倍数、超过推荐值的时间占比，以及 OOM 保护。所有系数都来自模块管理（模块没设的跟随系统设置），见<a href="module-settings.html">模块配置说明</a>。</p>
+<div data-screenshot="basis-replicas">计算依据的上半部分：输入数据（单 Pod 与全副本两个口径的 P90、P95、P99 使用量，小字是原始值）、单位，以及每个数的来源。</div>
 <h2 id="charts">折线图怎么读</h2>
 <p>CPU、内存各一张，可切换单 Pod 与全副本：蓝色是使用量，红色 Requests、橙色 Limits（两者同样粗细），绿色是推荐 Requests、浅绿是推荐 Limits，虚线是 P90、P95、P99。两条线重合时（比如推荐值等于现在的 Requests）按条纹叠画，各露出一边。</p>
+<div data-screenshot="module-charts">CPU、内存的折线图，上面是单 Pod，下面是全副本：蓝色使用量，红色 Requests，橙色 Limits，绿色推荐 Requests，浅绿推荐 Limits。</div>
 <h2 id="ai">AI 分析与邮件</h2>
 <p>右下角的 AI 助手只在点“AI 分析”后才开始：用平台的语言模型，基于这些实测数据独立分析，写出自己的推荐配置和副本数，并说明与平台推荐的差异；打开页面或助手窗口不会触发，也不会保留上一次的结果，更不会改任何配置。</p>
 <p>结果可以邮件发给当前登录用户。邮件主题是“集群 · 命名空间/模块 · 分析周期”，正文最前面是三张表：模块与工作负载（集群、命名空间、模块、工作负载、Pod 数、数据源）、Pod 明细（名称、节点、阶段、就绪、重启）、模块近期运行情况（副本数、CPU 与内存使用及判断、OOM、限流），然后才是副本方案与配置对比，保证邮件对应到具体模块。集群名与 Pod 名来自 Operator 上报；没有上报时，集群写数据源名并注明，Pod 写“没有 Pod 信息”。发信需要先配置<a href="smtp.html">邮件（SMTP）</a>。</p>

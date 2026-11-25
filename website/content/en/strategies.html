@@ -13,6 +13,7 @@
 <p>Set the replicas for a time: weekly repeating (for example 20:00-03:00 every day; an end before the start crosses midnight) or one-off with a start and an end, in the module's time zone. The replicas of a period can be set in three ways:</p>
 <ul><li><strong>Fixed:</strong> that number for the period; the algorithm takes no part.</li><li><strong>At least:</strong> the algorithm works as usual but not below the number.</li><li><strong>At most:</strong> the algorithm works as usual but not above the number.</li></ul>
 <p>CPU and memory are fixed when filled in. When periods overlap: of the fixed ones, the higher priority wins; the largest at-least and the smallest at-most apply, and an at-least above an at-most wins. The result is still held to the module's bounds, and a bypass switches periods off.</p>
+<div data-screenshot="form-periods">Period strategies: each period has a name, a state, a type (weekly or one-off), the time it is in force, how the replicas act (fixed, at least, at most), the replicas, CPU, memory and a priority. This one is "at least 14 replicas every day 20:00-23:00".</div>
 <h2 id="triggers">Metric triggers</h2>
 <p>A trigger has the parts below, and a module can have several:</p>
 <table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody>
@@ -23,11 +24,12 @@
 <tr><td>Action, amount</td><td>Scale out or in (by N replicas or by N% of the running replicas), or set to N replicas.</td></tr>
 <tr><td>In force</td><td>Weekdays and the start and end of the day, in the module's zone; empty is all day.</td></tr>
 </tbody></table>
-<p>Example: "when the mean CPU over the last 15 minutes is above 2.4 cores, add 2 replicas, on weekdays 09:00-18:00."</p>
+<p>Example: "when the mean CPU of all replicas over the last 15 minutes is above 36 cores, add 2 replicas, every day 09:00-18:00." The threshold is in the unit of the metric: a metric that is the sum of all replicas takes a sum, one of a single Pod takes a figure of one Pod.</p>
+<div data-screenshot="form-triggers">A metric trigger: "when metric, statistic, over the last N minutes, comparison, threshold, then action, amount, replicas, in force", with a name, a state and a priority.</div>
 <p>When several triggers fire: a set takes the highest priority (the larger on a tie); a scale-out takes the largest increase and is not lowered by a set, the forecast or a scale-in; a scale-in acts only with no scale-out or set, no OOM or JVM pressure and no forecast asking for more, and of several scale-ins the one that removes the least wins.</p>
 <h2 id="order">When strategies give different counts</h2>
-<div data-architecture-diagram="strategy-order"></div>
 <ol><li>What the administrator fixed comes first: the bypass, a fixed count in a period, the fixed replicas. Later strategies do not change them.</li><li>The rest start from the forecast; with the prediction mode "none" or no forecast, the fallback defaults.</li><li>Metric triggers act on that base as described above.</li><li>A period's "at least" raises and "at most" caps; several periods go by priority.</li><li>The bounds (least and most replicas) apply to the final result and are always last.</li><li>The pace limits once more how many replicas an action moves and how often.</li></ol>
 <p>"This action reaches" on the recommendation pages and the dashboard is the number after the last step. The pace and the bounds are not strategies, so every strategy is held to them.</p>
+<div data-screenshot="form-fixed">Fixed replicas and the order strategies combine in: above 0 the replicas are that number; the box below writes the order.</div>
 <h2 id="tips">Suggestions</h2>
 <ul><li>Start with the prediction mode and the bounds, and add metric triggers once the effect is seen, so it stays clear which source of scale-out is acting; when a trigger fires, the decision records the count each one asked for, whether it was used and why.</li><li>The at-least of a period can follow the busy hours and the busiest count of "The normal and the busy hours" on the resource dashboard.</li><li>One controller only for the replicas of a target: do not run it together with HPA or KEDA; see <a href="scaling.html#one-controller">One controller for one target</a>.</li></ul>

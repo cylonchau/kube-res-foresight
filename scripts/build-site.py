@@ -5,6 +5,7 @@ from html.parser import HTMLParser
 import json
 import posixpath
 import re
+import shutil
 from site_diagrams import DIAGRAMS, figure as diagram_figure, svg as diagram_svg
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -153,7 +154,14 @@ def sidebar(current, lang, page_id):
     return f'<aside id="docs-sidebar" class="docs-sidebar" aria-label="{label(lang, "文档导航", "Documentation navigation")}"><a class="sidebar-title" href="{page_link(current, lang, "docs/index.html")}">{icon("book")}{label(lang, "项目文档", "Documentation")}</a>{"".join(groups)}</aside>'
 
 
+def screenshot_figure(name, caption, source):
+    """A picture of the program: the page or window itself, opened full size by a click, with what it shows written under it."""
+    text = plain(caption)
+    return f'<figure class="screenshot"><a href="{source}" target="_blank" rel="noopener"><img src="{source}" alt="{escape(text)}" loading="lazy" decoding="async"></a><figcaption>{caption}</figcaption></figure>'
+
+
 def format_content(body, lang, current):
+    body = re.sub(r'<div data-screenshot="([a-z0-9-]+)">(.*?)</div>', lambda match: screenshot_figure(match[1], match[2], relative(current, f"assets/screens/{lang}/{match[1]}.png")), body, flags=re.S)
     body = re.sub(r'<div data-architecture-diagram="([a-z-]+)"></div>', lambda match: diagram_figure(match[1], lang, relative(current, f"assets/diagrams/{match[1]}-{lang}.svg")), body)
     def code_block(match):
         number = code_block.number
@@ -222,6 +230,11 @@ def main():
     for kind in DIAGRAMS:
         for lang in ("zh", "en"):
             write(f"assets/diagrams/{kind}-{lang}.svg", diagram_svg(kind, lang))
+    for lang in ("zh", "en"):
+        for picture in sorted((ROOT / f"website/screens/{lang}").glob("*.png")):
+            destination = OUTPUT / f"assets/screens/{lang}/{picture.name}"
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(picture, destination)
     for asset in (ROOT / "website/assets").iterdir():
         if asset.is_file():
             write("assets/" + asset.name, asset.read_text(encoding="utf-8"))

@@ -396,8 +396,8 @@
 
 **这一节取代上一节里 `purpose` 的三个值（dashboard／history／both）和“Requests／Limits 不进历史采集”的做法**：用户这次明确要的是展示指标（Requests、Limits）也在历史数据和图表里，只是不进算法。
 
-用户这次给了真实环境的截图（数据源 demo-prometheus，模块 demo-shop-web），从截图里看到的原因：
-- 用户建的“demo-cpu-requests / demo-cpu-limits / demo-memory-requests / demo-memory-limits”四个指标模板，指标种类选的是 **CPU / 内存**，不是 `k8s_*`；绑到模块上就成了同一种类（cpu、memory）的第二、第三个来源。大盘每种类只读第一条（`FirstOfKind`），所以查询区永远是原来的四条，Requests／Limits 读不到，使用率和可用量跟着为空。
+用户这次给了真实环境的截图（数据源与模块名从略），从截图里看到的原因：
+- 用户建的“xx-cpu-requests / xx-cpu-limits / xx-memory-requests / xx-memory-limits”四个指标模板，指标种类选的是 **CPU / 内存**，不是 `k8s_*`；绑到模块上就成了同一种类（cpu、memory）的第二、第三个来源。大盘每种类只读第一条（`FirstOfKind`），所以查询区永远是原来的四条，Requests／Limits 读不到，使用率和可用量跟着为空。
 - 这些来源还带着权重 1 混进了 CPU／内存的算法指标里。
 - Limits 模板的 PromQL 是从 Grafana 贴来的：`cluster="$cluster"`、`namespace="$namespace"` 没有被替换，又同时有 `namespace="{{namespace}}"`，Prometheus 里什么也匹配不到。**这条需要用户自己改查询**（删掉 `$cluster`、`$namespace` 的匹配，用 `{{namespace}}`、`{{workload}}`）；平台现在在“没有数据”的错误里点出残留的 Grafana 变量。
 

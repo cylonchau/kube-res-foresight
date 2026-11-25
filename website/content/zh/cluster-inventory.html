@@ -11,7 +11,7 @@
 <p>Operator 以只读方式读取集群，并上报给平台：</p>
 <ul><li><strong>节点：</strong>是否就绪、能否调度、容量与可分配量，以及这个模块的 Pod 在节点上的 Requests、Limits 之和（只统计模块的 Pod，不读其他 Pod）。</li><li><strong>模块的工作负载：</strong>期望、就绪、可用、已更新的副本数；每个容器的 Requests 与 Limits；Pod 列表（名称、节点、阶段、是否就绪、重启次数）；以及是否有 HPA 或 KEDA 在控制它。</li></ul>
 <p>Operator 约每 5 分钟读取一次；平台保存最新一次，并记录配置的变化（保留得比快照更久）。资源大盘把它当作单 Pod 的 Requests、Limits、当前副本数、集群名和 Pod 名的来源；超过 15 分钟的上报不再当作“现在”。没有上报时，大盘退回 Prometheus 推算，并标明“推算”。</p>
-<p>集群名是系统参数 <code>cluster.name</code>（默认 <code>default</code>），出现在节点与工作负载的数据、资源页面、邮件和 Grafana 看板的集群变量里。平台管理一个集群：生产里请把它改成有意义的名字，例如 demo。</p>
+<p>集群名是系统参数 <code>cluster.name</code>（默认 <code>default</code>），出现在节点与工作负载的数据、资源页面、邮件和 Grafana 看板的集群变量里。平台管理一个集群：生产里请把它改成有意义的名字，例如 prod-east。</p>
 <h2 id="grafana">Grafana 看板</h2>
 <p>仓库的 <code>deploy/grafana</code> 提供资源看板，系统设置里可以填写 Grafana 的地址，资源大盘各处的“在 Grafana 打开”链接按模块与窗口带上变量。</p>
 <h2 id="limits">使用边界</h2>

@@ -1060,3 +1060,10 @@ all ten management pages and the shared product title. Screenshots were inspecte
 - **查到的**（仓库公开，用 GitHub REST 读了运行记录，没有登录）：失败的运行里 `upload-pages-artifact` 步骤成功，运行的产物接口列出一个 `github-pages` 产物（495 KB，未过期）；`deploy-pages` 通过产物服务（Twirp `ListArtifacts`）列这次运行的产物却是 0 个。2026-11-06 的运行用同样的工作流成功，GitHub 状态页没有相关故障。根因（为什么产物服务列不到）没有查到。
 - **做了什么**：`.github/workflows/pages.yml`：①`configure-pages`、`upload-pages-artifact`、`deploy-pages` 升到 v6、v5、v5（Node 24 动作）；②上传后打印 `artifact_id` 与归档大小；③`deploy-pages` 设为 `continue-on-error`，它失败时用上传步骤返回的 `artifact_id` 调用 Pages 接口（`POST /repos/{owner}/{repo}/pages/deployments`，带 OIDC 令牌和 `GITHUB_SHA`）创建部署，每 5 秒轮询到 `succeed`，最长 10 分钟；环境地址取两者之一的 `page_url`。
 - **没验证**：回退路径只做了脚本语法检查，没有在 GitHub 上运行。
+
+2026-11-25（第七次）：官网换成功能页面截图
+- **做了什么**：上一次官网新增的六张架构风格示意图不要了（`scripts/site_diagrams.py` 和 `site/assets/diagrams/` 回到加图之前），换成程序真实页面的截图：官网正文用 `<div data-screenshot="名称">说明</div>` 引用 `website/screens/{zh,en}/名称.png`，生成时复制到 `site/assets/screens/`，点图打开原图。中英文各 19～20 张：资源大盘的模块列表、模块资源分析（方案表、折线图、常态与高负载时段两种情形、OOM 卡片）、两个计算依据窗口、模块列表与“参数”窗口、模块编辑页的各组配置（指标来源、容量、计算系数、OOM 保护、副本边界与节奏、时间周期、指标触发、固定副本数与合并顺序）。
+- **怎么拍的**：新建一个临时库，三个模块加一个（共四个）、一个按模块出数据的模拟 Prometheus 和模拟的 Operator 上报（Pod 模板、Pod 列表、集群名 demo），浏览器宽 1200，中英文各拍一遍；页面里写明图片取自模拟数据，数字只用来说明界面。
+- **顺手改的程序**：拍图时看到计算依据里两处写的和算的不一致：①单 Pod 配置的 Limits 一行写的是“max(候选 Requests, 持续 P99 × 系数)”，实际是“max(最终 Requests, 原始 P99 × 系数)，向上取整”，Requests 被“合理”保持时差一截（6.31 对 6.25）：现在写最终 Requests、原始 P99 并标上取整；②副本数的 Limits 保护一行用的是持续 P99 总量，实际用原始 P99 总量：现在显示原始值。（web 仓库，含单元测试。）
+- **发现没修**：英文界面的模块列表，操作列比六个按钮窄，“编辑”被“启用”列盖住、“旁路”被截；中文界面没有这个问题。所以英文页面没有放模块列表的图。
+- **没验证**：截图是模拟数据下的界面，没有在真实集群和真实 Prometheus 上拍；英文模块列表的问题没有找到原因；没有推送或发布 Pages。

@@ -1,6 +1,7 @@
 <h2 id="where">Where to configure, and how to read what is in force</h2>
 <p>Create or edit a module under "Module management &gt; Module list". The form has four groups: <strong>Base settings</strong>, <strong>Calculation</strong>, <strong>Safety bounds</strong> and <strong>Module strategies</strong>; the mode is chosen in the basic information. The operate column of the module list has a "Parameters" button: without opening the form it shows, by group, the value in force of every parameter with its unit, its source (this module, a system setting or not set) and its meaning.</p>
-<div data-architecture-diagram="module-map"></div>
+<p>The pictures on this page come from a demonstration environment built with simulated data (three modules, a simulated Prometheus and Operator report); the figures only explain the screens and are not any real load.</p>
+<div data-screenshot="module-params">The "Parameters" window: the value in force of every parameter by group, with its source (this module, a system setting or not set) and its meaning; read only.</div>
 <p>Most calculation coefficients take 0 to mean "follow the system setting" (System management &gt; System settings &gt; Resource analysis and recommendation). Change the system setting to move everything; set a coefficient in a module only when that module needs different treatment.</p>
 <h2 id="quick-start">The order of one configuration</h2>
 <ol><li><strong>Workload and metrics.</strong> Fill in the namespace, kind and name; pick CPU, memory and other metric templates under "Algorithm metrics" and Requests, Limits and other display-only metrics under "Monitoring display metrics". Templates come from the data sources and metric templates of <a href="metrics.html">Metrics and data quality</a>.</li><li><strong>Mode.</strong> Start with Observe or Recommend, check that the resource dashboard can be trusted, and only then consider Admission or Auto.</li><li><strong>Calculation.</strong> Most modules keep the defaults; change a coefficient when there is a definite margin to keep.</li><li><strong>Safety bounds.</strong> At least the least and most replicas; the pace when the speed of actions must be limited.</li><li><strong>Strategies.</strong> Add periods, metric triggers or fixed replicas when needed.</li><li><strong>Back on the resource dashboard</strong>, confirm in the basis that every figure uses the coefficient you set.</li></ol>
@@ -13,6 +14,7 @@
 <tr><td>Most missing data (30%), least history (80%)</td><td>The floor of data quality: with too much missing or too little history the run degrades.</td><td>Relax them for a flaky source rather than switching the check off.</td></tr>
 <tr><td>Time zone</td><td>The periods, the effective time of triggers and the analysis by the hour on the dashboard follow it; Asia/Shanghai by default.</td><td>An IANA zone name.</td></tr>
 </tbody></table>
+<div data-screenshot="form-sources">"Algorithm metrics" in the base settings: CPU, memory and replicas picked from the metric templates, which come from the mappings of the data source.</div>
 <h2 id="metrics">Binding metrics: what the dashboard reads</h2>
 <p>The resource dashboard reads every metric source of the module from Prometheus on the spot. When binding:</p>
 <ul><li>A use metric returns either <strong>one Pod</strong> or <strong>the sum of all replicas</strong>; say which in the source ("the query returns one Pod / all replicas"). When a query returns a series for each Pod, the platform says how to join them: <code>sum(...)</code> for all replicas, <code>avg(...)</code> or <code>max(...)</code> for one Pod.</li><li>Requests and Limits are display metrics and do not take part in algorithms. With an Operator report the dashboard uses the Pod template and the metric is only a cross-check.</li><li>OOM, throttling and JVM need their own metrics (OOM count, working set before the kill, CPU throttling, JVM heap); a rule with no metric does not act and the page says what is missing.</li></ul>
@@ -24,6 +26,7 @@
 <tr><td>Capacity reserve coefficient</td><td>How much of the capacity of a Pod may be used; the recommendation = the need / the coefficient.</td><td>0 reserves nothing; 0.8 keeps 20% free.</td></tr>
 <tr><td>Recommendation coefficient</td><td>The predicted peak is multiplied by it.</td><td>1 by default.</td></tr>
 </tbody></table>
+<div data-screenshot="form-capacity">"Capacity and replicas" under Calculation.</div>
 <h2 id="coefficients">Calculation: the recommendation coefficients of the dashboard</h2>
 <p>These are all the coefficients the dashboard recommends Requests, Limits and replicas with. A module takes 0 to follow the system setting; the system default is in brackets.</p>
 <table><thead><tr><th>Setting</th><th>Meaning</th><th>How to set it</th></tr></thead><tbody>
@@ -35,6 +38,7 @@
 <tr><td>Recommendation floor</td><td>Above 0, the recommendation is not below the Pod Requests the module states x it.</td><td>0 is off.</td></tr>
 </tbody></table>
 <p>The reasonable ranges of the three percentiles, the over-provision grades, the CPU throttle limit and the analysis period are changed in the system settings only; the Parameters window of the module list shows them marked "System setting".</p>
+<div data-screenshot="form-coefficients">"Coefficients" under Calculation: the P90, P95 and P99 target shares of the resource dashboard, the sustain window, the Requests margins, the Limits coefficients and the peak share of the Limits; 0 follows the system setting. The formulas below follow what is filled in, and "System" marks where the system setting is still used.</div>
 <div class="callout"><strong>The two "Limits coefficients" are not the same thing</strong><p>"CPU and memory Limits coefficient" affects only the <em>recommended</em> Limits of the resource dashboard. The "CPU limit ratio and memory limit ratio" in the basic information are what admission sets as the Limits of a new Pod = recommended Requests x ratio; see <a href="scaling.html#limit-ratios">Request and Limit ratios and the OOM floor</a>.</p></div>
 <h2 id="oom-jvm">Calculation: OOM and JVM</h2>
 <table><thead><tr><th>Setting</th><th>Meaning</th><th>Default and how to set it</th></tr></thead><tbody>
@@ -44,6 +48,7 @@
 <tr><td>OOM floor: working set, Limits, history multiples</td><td>In the OOM floor the three bases are each multiplied by their own coefficient and the largest is taken.</td><td>All 1 by default.</td></tr>
 <tr><td>JVM heap pressure threshold</td><td>A P99 heap use above this share of the heap maximum is heap pressure: no scale-in.</td><td>0.85 by default; 0 is off; needs the JVM heap metrics.</td></tr>
 </tbody></table>
+<div data-screenshot="form-oom">"OOM protection" under Calculation: the OOM protection coefficient, the look-back days, whether OOM lowers the score of an algorithm, and the OOM calculation coefficients.</div>
 <h2 id="bounds">Safety bounds</h2>
 <table><thead><tr><th>Setting</th><th>Meaning</th><th>How to set it</th></tr></thead><tbody>
 <tr><td>Least and most replicas</td><td>Whatever the strategies give ends inside this range; it is always the last step.</td><td>Set at least one; an unset side has no limit.</td></tr>
@@ -55,6 +60,8 @@
 <tr><td>Recovery cycles (2)</td><td>After a degraded run, this many healthy cycles in a row end it.</td><td>Avoids flapping at the edge of a fault.</td></tr>
 <tr><td>Bypass</td><td>When on, the module takes no part in automatic decisions and nothing is changed.</td><td>Switch it on, with a reason, for a manual takeover.</td></tr>
 </tbody></table>
+<div data-screenshot="form-bounds">"Replica bounds" under Safety bounds: the least and most replicas and the mode of the most; the line below says what the setting comes to.</div>
+<div data-screenshot="form-pace">"Replica pace": the most replicas one action adds or removes in each direction, and the cooldowns.</div>
 <h2 id="strategies">Strategies</h2>
 <p>The prediction mode, periods, metric triggers and fixed replicas, and how they combine when they give different replica counts, are in <a href="strategies.html">Strategies and how they combine</a>.</p>
 <h2 id="example">Example: a Deployment of 12 replicas</h2>
