@@ -153,10 +153,10 @@ func TestTheClusterPageRegistersChangesAndDeletesClusters(t *testing.T) {
 	assert.Equal(t, "main", list[0].(map[string]any)["name"], "the default cluster is first")
 	assert.Equal(t, true, list[0].(map[string]any)["is_default"])
 
-	// the namespaces and the keys are changed after the operator has connected; the name is not
-	code, d = c.call(t, http.MethodPut, fmt.Sprintf("/clusters/%d", int(id)), map[string]any{"name": "renamed", "enabled": true, "namespace_exclude": []string{"kube-system"}, "key_ids": []int64{}})
+	// the namespaces and the keys are changed after the operator has connected
+	code, d = c.call(t, http.MethodPut, fmt.Sprintf("/clusters/%d", int(id)), map[string]any{"name": "east", "enabled": true, "namespace_exclude": []string{"kube-system"}, "key_ids": []int64{}})
 	require.Equal(t, http.StatusOK, code)
-	assert.Equal(t, "east", d["name"], "the name cannot be changed")
+	assert.Equal(t, "east", d["name"])
 	assert.Equal(t, []any{"kube-system"}, d["namespace_exclude"])
 	assert.Empty(t, d["namespace_include"])
 	assert.Empty(t, d["key_ids"])
@@ -493,4 +493,60 @@ func TestChangesAreTakenFromTheBoundOperatorListedPerClusterAndExplained(t *test
 	code, s := c.call(t, http.MethodGet, "/operator/cluster-settings", nil, east...)
 	require.Equal(t, http.StatusOK, code)
 	assert.Equal(t, true, s["collect_changes"])
+}
+
+func TestAClusterCanBeRenamedTheDefaultOneToo(t *testing.T) {
+	c := newClusterRig(t)
+	k := c.key(t, "east-key")
+	_, d := c.call(t, http.MethodPost, "/clusters", map[string]any{"name": "east", "key_ids": []int64{k.ID}})
+	id := int(clusterID64(d))
+	c.autoModule(t, "east-module", "east")
+	code, _ := c.call(t, http.MethodPost, "/operator/events", clusteragent.Batch{Events: []clusteragent.Event{{UID: "e1", Reason: "R", Component: "kubelet", Kind: "Node", Name: "n", LastAt: time.Now().UTC().Add(-time.Minute), Count: 1}}}, "X-Test-Bound", "east")
+	require.Equal(t, http.StatusOK, code)
+
+	code, d = c.call(t, http.MethodPut, fmt.Sprintf("/clusters/%d", id), map[string]any{"name": "prod-east", "enabled": true})
+	require.Equal(t, http.StatusOK, code)
+	assert.Equal(t, "prod-east", d["name"])
+	assert.Equal(t, []any{float64(k.ID)}, d["key_ids"], "the key follows the cluster")
+	assert.EqualValues(t, 1, d["modules"], "so does the module")
+	assert.EqualValues(t, 1, d["events"], "and the events")
+
+	// an operator started with the new name works with the key; one started with the old name is told the cluster is not there
+	code, s := c.call(t, http.MethodGet, "/operator/cluster-settings", nil, "X-Test-Bound", "prod-east", clusteragent.HeaderCluster, "prod-east")
+	require.Equal(t, http.StatusOK, code)
+	assert.Equal(t, "prod-east", s["cluster"])
+	code, _ = c.call(t, http.MethodGet, "/operator/cluster-settings", nil, "X-Test-Bound", "prod-east", clusteragent.HeaderCluster, "east")
+	assert.Equal(t, http.StatusForbidden, code, "the key is bound to the new name")
+	code, _ = c.call(t, http.MethodGet, "/operator/modules", nil, "X-Test-Bound", "prod-east")
+	require.Equal(t, http.StatusOK, code)
+
+	// the default cluster: renamed, and what names none is still its
+	c.autoModule(t, "old-module", "")
+	var def model.Cluster
+	require.NoError(t, c.db.Where("is_default = ?", true).First(&def).Error)
+	code, d = c.call(t, http.MethodPut, fmt.Sprintf("/clusters/%d", def.ID), map[string]any{"name": "prod-main", "enabled": true})
+	require.Equal(t, http.StatusOK, code)
+	assert.Equal(t, "prod-main", d["name"])
+	assert.Equal(t, true, d["is_default"])
+	code, s = c.call(t, http.MethodGet, "/operator/cluster-settings", nil)
+	require.Equal(t, http.StatusOK, code)
+	assert.Equal(t, "prod-main", s["cluster"], "an operator that names no cluster is the default one, whatever it is called")
+	code, _ = c.call(t, http.MethodGet, "/operator/cluster-settings", nil, clusteragent.HeaderCluster, "main")
+	assert.Equal(t, http.StatusForbidden, code, "the old name is not it any more")
+	code, _ = c.call(t, http.MethodGet, "/operator/cluster-settings", nil, clusteragent.HeaderCluster, "prod-main")
+	assert.Equal(t, http.StatusOK, code)
+	code, d = c.call(t, http.MethodGet, "/operator/modules", nil)
+	require.Equal(t, http.StatusOK, code)
+	assert.Len(t, d["modules"], 1, "the module that names no cluster is still the default cluster's")
+
+	// refused: a name in use, a name that is not one
+	code, _ = c.call(t, http.MethodPut, fmt.Sprintf("/clusters/%d", id), map[string]any{"name": "prod-main", "enabled": true})
+	assert.Equal(t, http.StatusBadRequest, code)
+	code, _ = c.call(t, http.MethodPut, fmt.Sprintf("/clusters/%d", id), map[string]any{"name": "Bad Name", "enabled": true})
+	assert.Equal(t, http.StatusBadRequest, code)
+	// the platform's own name for its cluster follows the default one
+	var cfg model.SysConfig
+	if err := c.db.Where("config_key = ?", "cluster.name").First(&cfg).Error; err == nil {
+		assert.Equal(t, "prod-main", cfg.ConfigValue)
+	}
 }

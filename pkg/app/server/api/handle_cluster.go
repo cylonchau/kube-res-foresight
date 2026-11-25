@@ -199,7 +199,7 @@ func clusterID(c *gin.Context) (uint, bool) {
 	return uint(id), true
 }
 
-// Update serves PUT /clusters/:id: the description, the switch, the data source, the namespaces and the keys bound; never the name.
+// Update serves PUT /clusters/:id: the name, the description, the switch, the data source, the namespaces and the keys bound. A new name carries everything that refers to the cluster.
 // @Summary Change a cluster
 // @Tags Cluster
 // @Router /api/v1/clusters/{id} [put]

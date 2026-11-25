@@ -51,7 +51,7 @@ func (dao *ClusterDAO) Create(ctx context.Context, c *model.Cluster) error {
 	return dao.db.WithContext(ctx).Create(c).Error
 }
 
-// Update saves what an administrator may change of a cluster: never the name or the default flag.
+// Update saves what an administrator may change of a cluster: never the default flag; the name is changed by Rename.
 func (dao *ClusterDAO) Update(ctx context.Context, c *model.Cluster) error {
 	return dao.db.WithContext(ctx).Model(&model.Cluster{}).Where("id = ?", c.ID).
 		Select("description", "enabled", "datasource_id", "namespace_include", "namespace_exclude").Updates(c).Error
@@ -70,6 +70,21 @@ func (dao *ClusterDAO) Delete(ctx context.Context, c *model.Cluster) error {
 			return err
 		}
 		return tx.Delete(&model.Cluster{}, c.ID).Error
+	})
+}
+
+// Rename gives a cluster another name, and every row that refers to the cluster by its name goes with it: the modules and the access keys that name it, the events and
+// the changes, the nodes and the workloads that were reported. The rows of the default cluster that name none (written before clusters were registered) stay as they are:
+// they belong to the default cluster whatever it is called. All in one transaction: a half-renamed cluster would lose its modules.
+func (dao *ClusterDAO) Rename(ctx context.Context, c *model.Cluster, name string) error {
+	old := c.Name
+	return dao.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		for _, table := range []any{&model.ForecastModule{}, &model.SecretKey{}, &model.ClusterEvent{}, &model.ClusterChange{}, &model.ClusterNodeSnapshot{}, &model.WorkloadConfig{}, &model.WorkloadConfigChange{}} {
+			if err := tx.Model(table).Where("cluster = ?", old).Update("cluster", name).Error; err != nil {
+				return err
+			}
+		}
+		return tx.Model(&model.Cluster{}).Where("id = ?", c.ID).Update("name", name).Error
 	})
 }
 

@@ -34,7 +34,7 @@ func newFixture(t *testing.T) *fixture {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:cl%d?mode=memory&cache=shared", atomic.AddInt32(&seq, 1))), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.Cluster{}, &model.ClusterEvent{}, &model.ClusterChange{}, &model.SecretKey{}, &model.ForecastModule{}, &model.SysConfig{}))
+	require.NoError(t, db.AutoMigrate(&model.Cluster{}, &model.ClusterEvent{}, &model.ClusterChange{}, &model.ClusterNodeSnapshot{}, &model.WorkloadConfig{}, &model.WorkloadConfigChange{}, &model.SecretKey{}, &model.ForecastModule{}, &model.SysConfig{}))
 	clock := t0
 	dao := rdb.NewClusterDAO(db)
 	def, err := dao.EnsureDefault(context.Background(), "main")
@@ -325,4 +325,68 @@ func TestKeysAreBoundToOneClusterAndMoveWhenBoundAgain(t *testing.T) {
 	var got model.SecretKey
 	require.NoError(t, f.db.First(&got, k1.ID).Error)
 	assert.Equal(t, "", got.Cluster, "deleting a cluster sets its keys free")
+}
+
+func TestRenamingAClusterCarriesEverythingThatNamesIt(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	east, err := f.svc.Create(ctx, Input{Name: "east", Enabled: true})
+	require.NoError(t, err)
+	other, err := f.svc.Create(ctx, Input{Name: "west", Enabled: true})
+	require.NoError(t, err)
+
+	key := &model.SecretKey{Name: "k", KeyType: model.SecretKeyTypeDeveloperAccess, EncryptedValue: "x", MaskedValue: "m", Cluster: "east"}
+	require.NoError(t, f.db.Create(key).Error)
+	require.NoError(t, f.db.Create(&model.ForecastModule{Name: "m1", Cluster: "east", Namespace: "a", WorkloadKind: "Deployment", Workload: "w", Mode: "observe", Timezone: "UTC"}).Error)
+	require.NoError(t, f.db.Create(&model.ForecastModule{Name: "m2", Cluster: "west", Namespace: "a", WorkloadKind: "Deployment", Workload: "w", Mode: "observe", Timezone: "UTC"}).Error)
+	require.NoError(t, f.db.Create(&model.ClusterNodeSnapshot{Cluster: "east", Node: "n1", ObservedAt: t0}).Error)
+	require.NoError(t, f.db.Create(&model.WorkloadConfig{ModuleID: 1, Cluster: "east", Namespace: "a", Kind: "Deployment", Name: "w", ObservedAt: t0}).Error)
+	require.NoError(t, f.db.Create(&model.WorkloadConfigChange{ModuleID: 1, Cluster: "east", Kind: "Deployment", Name: "w", ObservedAt: t0}).Error)
+	f.ingest(t, east, change("c1", clusteragent.KindNode, "", "n1", "ready", "True", "False", t0.Add(-time.Hour)))
+	_, err = f.svc.IngestEvents(ctx, east, clusteragent.Batch{Events: []clusteragent.Event{event("e1", "ScaleDown", "cluster-autoscaler", t0.Add(-time.Hour), 1)}})
+	require.NoError(t, err)
+
+	got, err := f.svc.Update(ctx, east.ID, Input{Name: "prod-east", Description: "d", Enabled: true})
+	require.NoError(t, err)
+	assert.Equal(t, "prod-east", got.Name)
+	assert.Equal(t, "d", got.Description, "the rest of the change is made too")
+
+	count := func(table any, cluster string) int64 {
+		var n int64
+		require.NoError(t, f.db.Model(table).Where("cluster = ?", cluster).Count(&n).Error)
+		return n
+	}
+	for name, table := range map[string]any{"module": &model.ForecastModule{}, "key": &model.SecretKey{}, "node": &model.ClusterNodeSnapshot{}, "workload": &model.WorkloadConfig{},
+		"change of a workload": &model.WorkloadConfigChange{}, "event": &model.ClusterEvent{}, "change": &model.ClusterChange{}} {
+		assert.EqualValues(t, 0, count(table, "east"), "no %s keeps the old name", name)
+		assert.EqualValues(t, 1, count(table, "prod-east"), "the %s follows the cluster", name)
+	}
+	assert.EqualValues(t, 1, count(&model.ForecastModule{}, "west"), "another cluster is not touched")
+
+	// refused: a name that is taken, one that is not a name; the same name is no rename
+	_, err = f.svc.Update(ctx, other.ID, Input{Name: "prod-east", Enabled: true})
+	assert.ErrorIs(t, err, ErrInvalid)
+	_, err = f.svc.Update(ctx, other.ID, Input{Name: "Bad Name", Enabled: true})
+	assert.ErrorIs(t, err, ErrInvalid)
+	got, err = f.svc.Update(ctx, other.ID, Input{Name: "west", Enabled: true})
+	require.NoError(t, err)
+	assert.Equal(t, "west", got.Name)
+
+	// the default cluster: renamed, the platform's own name for its cluster with it, and what names none is still its
+	f.setConfig(t, keyClusterName, "main")
+	require.NoError(t, f.db.Create(&model.ForecastModule{Name: "old", Cluster: "", Namespace: "a", WorkloadKind: "Deployment", Workload: "w3", Mode: "observe", Timezone: "UTC"}).Error)
+	got, err = f.svc.Update(ctx, f.def.ID, Input{Name: "prod-main", Enabled: true})
+	require.NoError(t, err)
+	assert.Equal(t, "prod-main", got.Name)
+	assert.True(t, got.IsDefault)
+	v, _ := f.svc.Config.GetValueOrDefault(ctx, keyClusterName, "")
+	assert.Equal(t, "prod-main", v)
+	n, err := f.svc.DAO.ModuleCount(ctx, got)
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, n, "the module that names no cluster is the default cluster's under its new name")
+	c, err := f.svc.Resolve(ctx, "", "")
+	require.NoError(t, err)
+	assert.Equal(t, "prod-main", c.Name, "an operator that names no cluster is the default one, whatever it is called")
+	_, err = f.svc.Resolve(ctx, "main", "")
+	assert.ErrorIs(t, err, ErrForbidden, "the old name is not it any more")
 }

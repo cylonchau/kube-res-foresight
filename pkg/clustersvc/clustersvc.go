@@ -179,12 +179,11 @@ func (in Input) check() ([]string, []string, error) {
 	return inc, exc, nil
 }
 
-// Create registers a cluster. The name is what an operator is started with; it is lower-case letters, digits and -, and it cannot be changed afterwards (modules,
-// credentials and events refer to it).
+// Create registers a cluster. The name is what an operator is started with; it is lower-case letters, digits and -, and it can be changed afterwards (see Update).
 func (s *Service) Create(ctx context.Context, in Input) (*model.Cluster, error) {
 	name := strings.TrimSpace(in.Name)
-	if !nameRe.MatchString(name) || len(name) > 63 {
-		return nil, fmt.Errorf("%w: the name is lower-case letters, digits and -, starting and ending with a letter or digit (63 characters at most)", ErrInvalid)
+	if err := validName(name); err != nil {
+		return nil, err
 	}
 	inc, exc, err := in.check()
 	if err != nil {
@@ -198,11 +197,43 @@ func (s *Service) Create(ctx context.Context, in Input) (*model.Cluster, error) 
 	return c, s.DAO.Create(ctx, c)
 }
 
-// Update changes what can be changed of a cluster: never its name. The default cluster cannot be switched off (the operators that name no cluster belong to it).
+// keyClusterName is the system parameter that names the cluster of a platform that has one: the default cluster's name is kept in it too, so what reads it (the nodes
+// page, the Grafana dashboard, the mail) says the same name.
+const keyClusterName = "cluster.name"
+
+// validName checks a name a cluster is given.
+func validName(name string) error {
+	if !nameRe.MatchString(name) || len(name) > 63 {
+		return fmt.Errorf("%w: the name is lower-case letters, digits and -, starting and ending with a letter or digit (63 characters at most)", ErrInvalid)
+	}
+	return nil
+}
+
+// Update changes a cluster: what it is for, its switch, its data source and its namespaces, and its name. A name that is changed (in.Name, when it is given and is not the
+// name it has) carries every row that refers to it, the modules and the access keys that name the cluster, its events, changes and nodes; an operator that was started with
+// the old name has to be started with the new one (the platform answers it as a cluster that is not registered). The default cluster can be renamed too, and cannot be switched
+// off (the operators that name no cluster belong to it).
 func (s *Service) Update(ctx context.Context, id uint, in Input) (*model.Cluster, error) {
 	c, err := s.DAO.Get(ctx, id)
 	if err != nil {
 		return nil, err
+	}
+	newName := strings.TrimSpace(in.Name)
+	if newName != "" && newName != c.Name {
+		if err := validName(newName); err != nil {
+			return nil, err
+		}
+		if _, err := s.DAO.ByName(ctx, newName); err == nil {
+			return nil, fmt.Errorf("%w: a cluster named %q exists", ErrInvalid, newName)
+		}
+		if err := s.DAO.Rename(ctx, c, newName); err != nil {
+			return nil, err
+		}
+		if c.IsDefault && s.Config != nil {
+			// the name of the cluster of the platform is the name of the default one
+			_ = s.Config.UpdateValue(ctx, keyClusterName, newName)
+		}
+		c.Name = newName
 	}
 	if c.IsDefault && !in.Enabled {
 		return nil, fmt.Errorf("%w: the default cluster cannot be switched off", ErrInvalid)
