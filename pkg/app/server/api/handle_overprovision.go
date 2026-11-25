@@ -72,6 +72,21 @@ func (r *ForecastRouter) OverprovisionRun(c *gin.Context) {
 	query.SuccessResponse(c, nil, out)
 }
 
+// OverprovisionAdvice serves GET /overprovision/advice?module_id=&limit=: the analysis of the resource dashboard of one module, or of the modules that most need a look
+// (a module that is short or limited first, then the one with the most to give back), in the short form the AI reads. Every figure is the dashboard's; nothing is changed.
+// @Summary Advice of the resource dashboard
+// @Tags Forecast
+// @Router /api/v1/overprovision/advice [get]
+func (r *ForecastRouter) OverprovisionAdvice(c *gin.Context) {
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	out, err := r.Service.ResourceAdvice(c.Request.Context(), uintQuery(c, "module_id"), limit)
+	if err != nil {
+		r.writeError(c, err)
+		return
+	}
+	query.SuccessResponse(c, nil, out)
+}
+
 // ModuleOverprovision serves GET /modules/:id/overprovision?window=&from=&to=: one module analysed live over a window of the list or a custom range
 // (RFC 3339), read from Prometheus: the series of its chart, its JVM metrics and the query of each metric. Nothing stored is read.
 // @Summary Over-provisioning of a module

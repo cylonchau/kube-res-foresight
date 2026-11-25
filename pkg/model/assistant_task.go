@@ -11,6 +11,8 @@ func init() {
 const (
 	AITaskFromChat = "chat"
 	AITaskFromPage = "page"
+	// AITaskFromAdvice is the one task that writes the periodic resource advice shown on the resource dashboard.
+	AITaskFromAdvice = "advice"
 )
 
 // Statuses of a run of an AI task.

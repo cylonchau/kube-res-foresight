@@ -68,8 +68,8 @@ var toolMetas = map[string]toolMeta{
 		api: "GET /api/v1/modules", pages: []string{"forecast-modules_modules"}},
 	"get_module_effect_report": {summary: "How good the forecasts of one module were: accuracy, scale-ups in time, capacity wasted or missing, stability",
 		api: "GET /api/v1/modules/:id/effect-report", pages: []string{"forecast-results_effect", "forecast-results_history"}},
-	"analyze_resources": {summary: "Is a module over-provisioned: the Pod request against the measured use (P50, P95, P99), a verdict, and the values it could be lowered to",
-		api: "GET /api/v1/resource-analysis", pages: []string{"forecast-modules_modules", "forecast-results_effect"}},
+	"analyze_resources": {summary: "Is a module over-provisioned or short: the analysis of the resource dashboard (use against the Pod's Requests and Limits, verdict, recommended Requests, Limits and replicas)",
+		api: "GET /api/v1/overprovision/advice", pages: []string{"forecast-results_overprovision", "forecast-results_overprovision-detail", "forecast-modules_modules"}},
 	"list_module_metrics": {summary: "The metrics stored for one module, with units and how far back the data goes",
 		api: "GET /api/v1/modules/:id/metric-catalog", pages: []string{"forecast-modules_modules"}},
 	"get_module_recommendation": {summary: "The newest recommendation of one module: CPU, memory, replicas, who decided it, whether it fell back",
@@ -242,12 +242,11 @@ func (s *Service) registryTools() []tool {
 			},
 		},
 		{
-			spec: ToolSpec{Name: "analyze_resources", Description: "Is a module over-provisioned? For each module: the CPU and memory a Pod requests against the P50, P95, P99 and highest use of the window, the utilization, a verdict (idle, overprovisioned, ok, tight, unknown) with the reason, how much of the request is above what the platform recommends, and the values the request could be lowered to. Modules with the most to give back come first. It reads what the platform stored (no cluster query) and only modules that are set up. Never say a module can be lowered when the verdict is unknown. These are measurements and the recommendation of the platform, not a promise: the limits of the verdicts are system parameters that no real data has tested.",
-				Parameters: object(map[string]any{"module": moduleProp, "days": map[string]any{"type": "integer", "description": "Look-back in days (1-30, default 7)."}, "limit": map[string]any{"type": "integer", "description": "How many modules (1-20, default 10)."}})},
+			spec: ToolSpec{Name: "analyze_resources", Description: "Is a module over-provisioned, under-provisioned or right? The analysis of the resource dashboard, read from Prometheus now, for one module or for the modules that most need a look (a module that is short or limited first, then the one with the most to give back). For each module and for CPU and memory: the Requests and Limits of one Pod now (from Kubernetes when the Operator reports, else estimated: pod_spec_from), the P50, P95, P99 and highest use over the period, the verdict (over, ok, under, limited, unknown) with its grade, confidence and risk, the recommended Requests and Limits of one Pod; and the replicas now, the replicas the use asks for and what one action reaches. Every figure is the engine's: quote them, never work out a figure of your own. Say a result is not certain when its confidence is low, its verdict is unknown or the module is partial, and never say a module can be lowered then. These are measurements and the recommendation of the platform, not a promise: nothing was forecast and nothing is changed.",
+				Parameters: object(map[string]any{"module": moduleProp, "limit": map[string]any{"type": "integer", "description": "How many modules (1-20, default 10)."}})},
 			run: func(ctx context.Context, args json.RawMessage) (toolResult, error) {
 				var a struct {
 					Module string
-					Days   int
 					Limit  int
 				}
 				if err := parse(args, &a); err != nil {
@@ -260,16 +259,9 @@ func (s *Service) registryTools() []tool {
 						return toolResult{}, err
 					}
 				}
-				out, err := s.Forecast.ResourceAnalysis(ctx, id, a.Days)
+				out, err := s.Forecast.ResourceAdvice(ctx, id, a.Limit)
 				if err != nil {
 					return toolResult{}, err
-				}
-				limit := a.Limit
-				if limit < 1 || limit > 20 {
-					limit = 10
-				}
-				if len(out.Modules) > limit {
-					out.Modules = out.Modules[:limit]
 				}
 				return toolResult{Data: out}, nil
 			},

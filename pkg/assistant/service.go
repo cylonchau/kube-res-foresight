@@ -17,10 +17,12 @@ import (
 // Limits of one question. They keep a single message, or a client that sends a forged history, from becoming a large request to a paid
 // service.
 const (
-	maxHistory       = 40
-	maxMessageRunes  = 4000
-	maxToolOutput    = 16 << 10
-	toolTimeout      = 20 * time.Second
+	maxHistory      = 40
+	maxMessageRunes = 4000
+	maxToolOutput   = 16 << 10
+	toolTimeout     = 20 * time.Second
+	// analyzeTimeout is what the analysis of the resource dashboard may take: it reads Prometheus for each module it looks at (a few at a time), which a quick read of stored data does not.
+	analyzeTimeout   = 100 * time.Second
 	maxParallelChats = 4
 )
 
@@ -448,7 +450,11 @@ func (s *Service) runToolCore(ctx context.Context, byName map[string]tool, call 
 		}
 		return fail(fmt.Errorf("there is no tool named %q", call.Name))
 	}
-	tctx, cancel := context.WithTimeout(ctx, toolTimeout)
+	timeout := toolTimeout
+	if call.Name == "analyze_resources" {
+		timeout = analyzeTimeout
+	}
+	tctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	res, err := t.run(tctx, json.RawMessage(call.Arguments))
 	if err != nil {

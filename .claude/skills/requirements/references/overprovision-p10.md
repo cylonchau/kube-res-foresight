@@ -1,6 +1,6 @@
 # P10 资源超配分析与可观测大盘（2026-11-19 规划）
 
-状态：**A1（数据采集与持久化）、A2（超配分析引擎）、A3（资源大盘）、A4（Grafana 看板与深链）、A6（成本从产品面移出）已做（A2、A3 的第一部分 2026-11-19，A1、A3、A4 的其余 2026-11-20，见末尾“A1、A3、A4 实际做了什么”）；A5 并入 P11 的 C6；本文其余是计划，不是实现。** 用户已答复三项：E2（operator 只读：节点；Pod 只统计已配置的模块）、E3（工作负载只统计已配置的模块，不自动发现全部）、E10（成本代码从产品面拿掉，代码保留）；其余 E 项还没答复。来源：用户给出的“资源超配分析与可观测性系统升级”需求和一组参考大盘截图（KubeCostOptimizer）。截图里的金额、成本列不在本阶段范围（见 [成本模块需求表](cost-module-requirements.md)）。动手前先读本文的“待你确认”表，没确认的项不进开发；页面规则见用户记忆：不用页签（含分段切换）、不拆成多页、字段带“?”说明。
+状态：**A1（数据采集与持久化）、A2（超配分析引擎）、A3（资源大盘）、A4（Grafana 看板与深链）、A6（成本从产品面移出）已做（A2、A3 的第一部分 2026-11-19，A1、A3、A4 的其余 2026-11-20，见末尾“A1、A3、A4 实际做了什么”）；A5 已做（2026-11-25，和 P11 的 C6 一起，见 ai-and-performance-p11.md 第十二部分）；本文其余是计划，不是实现。** 用户已答复三项：E2（operator 只读：节点；Pod 只统计已配置的模块）、E3（工作负载只统计已配置的模块，不自动发现全部）、E10（成本代码从产品面拿掉，代码保留）；其余 E 项还没答复。来源：用户给出的“资源超配分析与可观测性系统升级”需求和一组参考大盘截图（KubeCostOptimizer）。截图里的金额、成本列不在本阶段范围（见 [成本模块需求表](cost-module-requirements.md)）。动手前先读本文的“待你确认”表，没确认的项不进开发；页面规则见用户记忆：不用页签（含分段切换）、不拆成多页、字段带“?”说明。
 
 ## 阶段目标与边界
 
@@ -108,7 +108,7 @@
 | 交付 | 一个 JSON 文件，放 `deploy/grafana`，Helm chart 里同步一份 |
 | 限制 | 我无法在真实 Grafana 里加载它；只能校验 JSON 结构，**不能保证在你的 Grafana 版本里能导入** |
 
-## A5 LLM 周期建议（已并入 P11 的 C6，2026-11-19）
+## A5 LLM 周期建议（已并入 P11 的 C6，2026-11-19；已做，2026-11-25）
 
 下面的内容保留作为 C6 的起点；AI 的会话、权限与审计、工具注册表、异步任务见 [ai-and-performance-p11.md](ai-and-performance-p11.md)。
 
@@ -164,7 +164,7 @@
 | A2 超配分析引擎 | **已做**（2026-11-19，只用合成数据验证；公式和默认值没有真实数据验证） | `pkg/overprovision`（纯函数）、`pkg/forecastsvc/overprovision.go`、表 `overprovision_analysis`、系统参数 12 个、定时任务 `forecast.overprovision`（每 6 小时） |
 | A3 系统内大盘与详情 | **已做**（在真浏览器里看过，临时库、假 Prometheus）：汇总卡、排行图、模块页，加上集群卡片、节点表、Ready 节点趋势、HPA 与副本趋势、配置变更历史、“在 Grafana 打开”、BIZ 账号走查（2026-11-20） | `web/src/views/forecast-results/overprovision`、`components/business/overprovision-module-panel.vue`、`inventory-{cluster,workload}-panel.vue` |
 | A4 Grafana Dashboard 与深链 | **已做**（2026-11-20）：看板由 `pkg/grafana` 用与页面同一套查询生成，JSON 在 `deploy/grafana` 和 Helm；**没在真实 Grafana 里加载过** | `pkg/grafana`、`deploy/grafana/kube-res-foresight-resources.json`、`pkg/app/server/api/handle_grafana.go` |
-| A5 LLM 周期建议 | 未开始；**并入 P11 的 C6**（见 ai-and-performance-p11.md） | |
+| A5 LLM 周期建议 | **已做（2026-11-25，和 P11 的 C6 一起）**：每日 AI 建议，见 ai-and-performance-p11.md 第十二部分 | |
 | A6 移出成本 | **已完成**（2026-11-19） | 见下面“A6 实际做了什么” |
 | 独立成本需求表 | 已出（[cost-module-requirements.md](cost-module-requirements.md)） | |
 

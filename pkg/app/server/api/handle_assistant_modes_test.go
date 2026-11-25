@@ -430,11 +430,11 @@ func TestWithRedactionOnTheModelNeverSeesAModuleNameAndTheUserStillReadsIt(t *te
 	assert.Contains(t, a.llm.calls[0][len(a.llm.calls[0])-1].Content, "shop")
 }
 
-func TestTheAnalysisToolsAnswerFromWhatThePlatformStoredAndSayWhenTheyKnowNothing(t *testing.T) {
+func TestTheAnalysisToolsAnswerFromTheAnalysisOfTheDashboardAndSayWhenTheyKnowNothing(t *testing.T) {
 	a := newAssistantRig(t, true)
 	var analysis, metrics string
 	a.llm.steps = []step{
-		ask(assistant.ToolCall{ID: "a", Name: "analyze_resources", Arguments: `{"module":"shop","days":7}`},
+		ask(assistant.ToolCall{ID: "a", Name: "analyze_resources", Arguments: `{"module":"shop","limit":5}`},
 			assistant.ToolCall{ID: "b", Name: "list_module_metrics", Arguments: `{"module":"shop"}`},
 			assistant.ToolCall{ID: "c", Name: "analyze_resources", Arguments: `{"module":"ghost"}`}),
 		func(messages []assistant.Message, _ []assistant.ToolSpec) (*assistant.Completion, error) {
@@ -448,13 +448,19 @@ func TestTheAnalysisToolsAnswerFromWhatThePlatformStoredAndSayWhenTheyKnowNothin
 
 	var got map[string]any
 	require.NoError(t, json.Unmarshal([]byte(analysis), &got))
-	assert.EqualValues(t, 7, got["window_days"])
-	assert.Contains(t, got["basis"], "nothing was read from the cluster", "the answer carries what it rests on")
-	mods := got["modules"].([]any)
-	require.Len(t, mods, 1)
-	cpu := mods[0].(map[string]any)["cpu"].(map[string]any)
-	assert.Equal(t, "unknown", cpu["verdict"], "a module with no request and no samples is not called over-provisioned")
-	assert.NotEmpty(t, cpu["why"])
+	assert.Contains(t, got["basis"], "the analysis of the resource dashboard", "the answer carries what it rests on")
+	assert.Contains(t, got["basis"], "Nothing is forecast and nothing is changed")
+	// a module the platform has no reading of is listed as one that could not be read, with why, or as unknown: never called over-provisioned
+	mods, skipped := got["modules"].([]any), got["skipped"].([]any)
+	require.Equal(t, 1, len(mods)+len(skipped), "the module is either read or said not to have been")
+	for _, m := range mods {
+		if cpu, ok := m.(map[string]any)["cpu"].(map[string]any); ok {
+			assert.NotEqual(t, "over", cpu["status"])
+		}
+	}
+	for _, m := range skipped {
+		assert.NotEmpty(t, m.(map[string]any)["reason"])
+	}
 	assert.Contains(t, metrics, `"metrics"`)
 }
 

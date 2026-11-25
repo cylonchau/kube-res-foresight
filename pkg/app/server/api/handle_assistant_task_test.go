@@ -398,3 +398,42 @@ func toolNames(specs []assistant.ToolSpec) []string {
 }
 
 func rdbFilter(owner uint) rdb.TaskFilter { return rdb.TaskFilter{OwnerID: owner} }
+
+// The advice of the resource dashboard is one task: nothing until it is switched on, then a task for the whole platform with the question of the advice and a daily schedule,
+// the newest report that was made, and the newest run beside it when that one failed.
+func TestTheAdviceOfTheDashboardIsOneTaskWhoseNewestReportAndFailureAreShown(t *testing.T) {
+	a, _ := taskRig(t)
+	rec := a.as(t, 1, http.MethodGet, "/overprovision/ai-advice", nil)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	got := decodeData(t, rec.Body.Bytes())
+	assert.Nil(t, got["task"], "nothing is made before it is switched on")
+	assert.Nil(t, got["report"])
+
+	assert.Equal(t, http.StatusUnauthorized, a.as(t, 0, http.MethodPost, "/overprovision/ai-advice/enable", map[string]any{"lang": "en"}).Code, "a task has an owner")
+	rec = a.as(t, 1, http.MethodPost, "/overprovision/ai-advice/enable", map[string]any{"lang": "en"})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	task := decodeData(t, rec.Body.Bytes())["task"].(map[string]any)
+	assert.Equal(t, "advice", task["source"])
+	assert.Equal(t, "0 8 * * *", task["schedule"])
+	assert.Equal(t, "en", task["lang"])
+	assert.Contains(t, task["prompt"], "analyze_resources")
+	assert.Equal(t, true, task["enabled"])
+	id := uint(task["id"].(float64))
+
+	// a second switch-on does not make a second task
+	require.Equal(t, http.StatusOK, a.as(t, 2, http.MethodPost, "/overprovision/ai-advice/enable", map[string]any{"lang": "zh"}).Code)
+	var n int64
+	require.NoError(t, model.DB.Model(&model.AssistantTask{}).Where("source = ?", "advice").Count(&n).Error)
+	assert.EqualValues(t, 1, n)
+
+	now := time.Now()
+	require.NoError(t, model.DB.Create(&model.AssistantTaskRun{TaskID: id, Status: model.AIRunSuccess, StartedAt: now.Add(-48 * time.Hour), Output: "# The advice of the day before", Tools: "analyze_resources"}).Error)
+	require.NoError(t, model.DB.Create(&model.AssistantTaskRun{TaskID: id, Status: model.AIRunFailed, StartedAt: now.Add(-time.Hour), Error: "the language model did not answer"}).Error)
+	got = decodeData(t, a.as(t, 1, http.MethodGet, "/overprovision/ai-advice", nil).Body.Bytes())
+	report := got["report"].(map[string]any)
+	assert.Equal(t, "# The advice of the day before", report["output"], "the newest report that was made")
+	last := got["last"].(map[string]any)
+	assert.Equal(t, "failed", last["status"], "the run that failed is seen beside it")
+	assert.Equal(t, "the language model did not answer", last["error"])
+	assert.Nil(t, last["output"], "the last run carries no text")
+}

@@ -109,6 +109,9 @@ func newAssistantRig(t *testing.T, ready bool) *assistantRig {
 			}
 		}
 	})
+	rig.r.GET("/overprovision/ai-advice", h.AdviceState)
+	rig.r.POST("/overprovision/ai-advice/enable", h.AdviceEnable)
+	rig.r.POST("/overprovision/ai-advice/run", h.AdviceRun)
 	rig.r.GET("/assistant/tasks", h.ListTasks)
 	rig.r.GET("/assistant/tasks/preview", h.PreviewSchedule)
 	rig.r.POST("/assistant/tasks", h.CreateTask)
