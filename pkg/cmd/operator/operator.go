@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -58,6 +59,11 @@ type Options struct {
 	// InventoryInterval is how often the nodes and the workloads of the modules are read (read-only) and reported to the platform when something that is
 	// configuration changed, or once an hour; 0 turns the inventory off.
 	InventoryInterval time.Duration
+	// Cluster is the cluster this operator is for (P12): the name it is registered under on the platform, which must match the cluster the access key is bound to. Empty is
+	// the default cluster, which is what an operator that was started before clusters were registered is for.
+	Cluster string
+	// CollectEvents turns the reading of the cluster's events off at this operator (the platform can switch it off for every operator too).
+	CollectEvents bool
 }
 
 // NewScheme returns a scheme with the built-in kinds.
@@ -95,8 +101,13 @@ func NewCommand() *cobra.Command {
 	f.IntVar(&opts.RecoverSuccesses, "decision-recover-answers", controller.DefaultRecoverSuccesses, "Starting value (the platform's setting operator.recover_answers takes over once it answers). How many answers in a row a platform that is back after an outage must give before the workload may be scaled down again (scaling up follows at once).")
 	f.StringVar(&opts.ReportSpoolFile, "report-spool-file", "", "File that keeps the reports of scaling actions the platform has not acknowledged yet (put it in a volume that outlives the container, an emptyDir for instance). They are sent again, oldest first, when the platform answers; without a file they are kept in memory only.")
 	f.DurationVar(&opts.InventoryInterval, "inventory-interval", controller.DefaultInventoryInterval, "How often the nodes, and the workloads of the platform modules with their Pods and the requests and limits of their containers, are read (read-only) for the resource pages of the platform. A report is made when something that is configuration changed, and at least once an hour. Needs read access to nodes and pods. 0 turns it off.")
+	f.StringVar(&opts.Cluster, "cluster", "", "The name of the cluster this operator is for, as registered on the platform (lower-case letters, digits and -). The access key must be bound to it on the clusters page. Empty is the platform's default cluster. The KUBE_RES_FORESIGHT_CLUSTER environment variable is used when the flag is not given.")
+	f.BoolVar(&opts.CollectEvents, "collect-events", true, "Read the events of the cluster, read-only, and report them to the platform (the platform can switch it off too). Turn it off here to leave the operator doing nothing but scaling.")
 	return cmd
 }
+
+// clusterNameOK is what a cluster name may be: the same lower-case letters, digits and - the platform registers it with.
+var clusterNameOK = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
 
 // platformEndpoint reads the credential (and the CA bundle) the module sync uses to talk to the platform.
 func platformEndpoint(opts *Options) (*controller.PlatformEndpoint, error) {
@@ -164,7 +175,14 @@ func Run(ctx context.Context, opts *Options) error {
 	initial.ModuleCacheTTLSeconds = int(opts.ConfigCacheTTL / time.Second)
 	initial.RecoverAnswers = opts.RecoverSuccesses
 	settings := controller.NewSettingsStore(initial)
-	platform := &controller.PlatformDecider{Metrics: opMetrics, Settings: settings}
+	cluster := strings.TrimSpace(opts.Cluster)
+	if cluster == "" {
+		cluster = strings.TrimSpace(utils.ProjectEnv("KUBE_RES_FORESIGHT_CLUSTER"))
+	}
+	if cluster != "" && (len(cluster) > 63 || !clusterNameOK.MatchString(cluster)) {
+		return fmt.Errorf("--cluster %q is not a cluster name: lower-case letters, digits and -, starting and ending with a letter or digit", cluster)
+	}
+	platform := &controller.PlatformDecider{Metrics: opMetrics, Settings: settings, Cluster: cluster}
 	cachePolicy := settings.CachePolicy()
 	cachedPlatform := &controller.CachingDecider{Inner: platform, Policy: cachePolicy, Source: settings.CachePolicy, Metrics: opMetrics}
 	// what the operator does is reported through an outbox: a report the platform cannot take now is kept and sent when it can
@@ -193,6 +211,15 @@ func Run(ctx context.Context, opts *Options) error {
 		runner := &controller.InventoryRunner{Reader: &controller.InventoryReader{Reader: mgr.GetAPIReader()}, Targets: platform, Queue: outbox, Interval: opts.InventoryInterval}
 		if err := mgr.Add(runner); err != nil {
 			return fmt.Errorf("register the inventory reader: %w", err)
+		}
+	}
+	if opts.CollectEvents {
+		// the events of the cluster, read-only: on the elected replica, on its own, so nothing that scales a workload waits for it
+		host, _ := os.Hostname()
+		collector := &controller.EventCollector{Cache: mgr.GetCache(), Platform: platform, Operator: host,
+			Refresh: func() time.Duration { return timing.Seconds(settings.Get().SettingsRefreshSeconds) }}
+		if err := mgr.Add(collector); err != nil {
+			return fmt.Errorf("register the event collector: %w", err)
 		}
 	}
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {

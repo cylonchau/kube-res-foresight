@@ -18,6 +18,7 @@ import (
 	"github.com/cylonchau/kube-res-foresight/pkg/job/tasks/asyncrun"
 	"github.com/cylonchau/kube-res-foresight/pkg/model"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // ForecastRouter serves modules (Kubernetes workloads) with their metric sources and fixed periods, the platform-wide
@@ -29,6 +30,8 @@ type ForecastRouter struct {
 	Predictions *rdb.PredictionDAO
 	Service     *forecastsvc.Service
 	Config      *rdb.SysConfigDAO
+	// Clusters checks the cluster a module is said to be in; nil in a process that does not register clusters.
+	Clusters *rdb.ClusterDAO
 	// Async queues the long steps of a module as background tasks; nil in a process that has no job table to write.
 	Async *asyncrun.Queue
 }
@@ -132,8 +135,14 @@ func (r *ForecastRouter) CreateModule(c *gin.Context) {
 		query.BadRequest(c, err)
 		return
 	}
+	cluster, err := r.checkCluster(c.Request.Context(), req.Cluster)
+	if err != nil {
+		query.BadRequest(c, err)
+		return
+	}
 	m := &model.ForecastModule{
-		Name: req.Name, Description: req.Description, Enabled: req.Enabled == nil || *req.Enabled, Mode: req.Mode,
+		Cluster: cluster,
+		Name:    req.Name, Description: req.Description, Enabled: req.Enabled == nil || *req.Enabled, Mode: req.Mode,
 		PredictEnabled: req.PredictEnabled != nil && *req.PredictEnabled, PredictMode: req.PredictMode, PredictAlgorithm: req.PredictAlgorithm,
 		OOMWeightEnabled: req.OOMWeightEnabled != nil && *req.OOMWeightEnabled,
 		Namespace:        strings.TrimSpace(req.Namespace), WorkloadKind: req.WorkloadKind, Workload: strings.TrimSpace(req.Workload), Service: req.Service, Container: req.Container,
@@ -220,6 +229,7 @@ func applyModuleUpdate(m *model.ForecastModule, req *apis.ModuleUpdateReq) {
 		}
 	}
 	set(&m.Name, req.Name)
+	set(&m.Cluster, req.Cluster)
 	set(&m.Namespace, req.Namespace)
 	set(&m.WorkloadKind, req.WorkloadKind)
 	set(&m.Workload, req.Workload)
@@ -303,6 +313,14 @@ func (r *ForecastRouter) UpdateModule(c *gin.Context) {
 			return
 		}
 	}
+	if req.Cluster != nil {
+		cluster, err := r.checkCluster(c.Request.Context(), *req.Cluster)
+		if err != nil {
+			query.BadRequest(c, err)
+			return
+		}
+		req.Cluster = &cluster
+	}
 	applyModuleUpdate(m, &req)
 	if err := m.Validate(); err != nil {
 		query.BadRequest(c, err)
@@ -323,6 +341,26 @@ func (r *ForecastRouter) UpdateModule(c *gin.Context) {
 		return
 	}
 	query.SuccessResponse(c, nil, m)
+}
+
+// checkCluster refuses a module that says it is in a cluster the platform has not registered, and says the cluster as the module stores it: empty for the default
+// cluster (whether it was left empty or named), else the name.
+func (r *ForecastRouter) checkCluster(ctx context.Context, name string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" || r.Clusters == nil {
+		return name, nil
+	}
+	row, err := r.Clusters.ByName(ctx, name)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", fmt.Errorf("cluster %q is not registered: add it on the clusters page first", name)
+		}
+		return "", err
+	}
+	if row.IsDefault {
+		return "", nil
+	}
+	return row.Name, nil
 }
 
 // checkPredictAlgorithm refuses a fixed prediction mode that names an algorithm the platform does not have.

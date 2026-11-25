@@ -15,3 +15,8 @@ var InventoryChangeDays = Param{Key: "inventory.change_retention_days", Default:
 var ClusterDatasource = Param{Key: "cluster.datasource_id", Default: 0, Min: 0, Max: 1 << 30,
 	Name:   "Cluster Figures Data Source (id)",
 	Remark: "The id of the Prometheus data source the cluster and node figures of the resource dashboard are asked of. 0 takes the data source of the first enabled module that has a metric source."}
+
+// ClusterRetentionDays is how long what the Cluster Agent reports of the events of a cluster is kept (P12 E4). Rows older than this are deleted by the clean-up task.
+var ClusterRetentionDays = Param{Key: "cluster.retention_days", Default: 3, Min: 1, Max: 365,
+	Name:   "Cluster Events Kept (days)",
+	Remark: "How many days the Kubernetes events the operator reports (the reasons of what happened to nodes, Pods, workloads and autoscalers) are kept; older ones are deleted by the task cluster.prune (1-365). A longer time keeps more rows."}

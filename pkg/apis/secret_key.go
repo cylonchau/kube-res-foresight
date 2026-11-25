@@ -56,4 +56,6 @@ type DeveloperAccessCredential struct {
 	ServerEnabled    bool       `json:"server_enabled"`
 	PermissionIDs    []uint     `json:"permission_ids,omitempty"`
 	ExpiresAt        *time.Time `json:"expires_at,omitempty"`
+	// Cluster is the cluster the key is bound to (a column of the key, not part of the stored credential).
+	Cluster string `json:"-"`
 }

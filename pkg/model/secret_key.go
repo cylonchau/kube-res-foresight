@@ -18,7 +18,9 @@ type SecretKey struct {
 	EncryptedValue string         `gorm:"type:text;not null" json:"-" column_setting:"false"`
 	MaskedValue    string         `gorm:"type:varchar(128);not null" json:"masked_value" column_setting:"true"`
 	Status         bool           `gorm:"default:true" json:"status" column_setting:"true"`
-	Remark         string         `gorm:"type:text" json:"remark" column_setting:"true"`
+	// Cluster is the cluster an operator that uses this key acts for (P12 E1); empty = the key is not bound and acts for the default cluster only.
+	Cluster string `gorm:"type:varchar(64);not null;default:'';index" json:"cluster" column_setting:"true"`
+	Remark  string `gorm:"type:text" json:"remark" column_setting:"true"`
 
 	AccessKey     string     `gorm:"-" json:"access_key,omitempty" column_setting:"false"`
 	AccessSecret  string     `gorm:"-" json:"access_secret,omitempty" column_setting:"false"`

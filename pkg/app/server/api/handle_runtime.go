@@ -14,6 +14,7 @@ import (
 	"github.com/cylonchau/kube-res-foresight/pkg/assistant"
 	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
 	"github.com/cylonchau/kube-res-foresight/pkg/forecastsvc"
+	"github.com/cylonchau/kube-res-foresight/pkg/inventorysvc"
 	"github.com/cylonchau/kube-res-foresight/pkg/logger"
 	"github.com/cylonchau/kube-res-foresight/pkg/model"
 	"github.com/cylonchau/kube-res-foresight/pkg/timing"
@@ -39,7 +40,20 @@ type RuntimeRouter struct {
 		DecisionMaxAge(ctx context.Context) time.Duration
 		RefreshWait(ctx context.Context) time.Duration
 	}
-	Now func() time.Time
+	// Gate says which cluster an operator's request is for (P12 E1): an operator only reads, decides for and reports the modules of its own cluster. Nil is a platform
+	// with no cluster registered, where every module is the operator's.
+	Gate *ClusterGate
+	Now  func() time.Time
+}
+
+// moduleOfCaller is true when the module is one the calling operator may act on: a module of another cluster is answered as forbidden. cl is nil when no cluster is
+// registered.
+func (r *RuntimeRouter) moduleOfCaller(c *gin.Context, m *model.ForecastModule, cl *model.Cluster) bool {
+	if inventorysvc.InCluster(m, cl) {
+		return true
+	}
+	query.Forbidden(c, fmt.Errorf("module %q belongs to another cluster than the one this operator is for", m.Name))
+	return false
 }
 
 func (r *RuntimeRouter) now() time.Time {
@@ -160,9 +174,16 @@ func (r *RuntimeRouter) Decision(c *gin.Context) {
 		query.BadRequest(c, fmt.Errorf("module is required"))
 		return
 	}
+	cl, ok := r.Gate.For(c)
+	if !ok {
+		return
+	}
 	m, err := r.Modules.ByName(c.Request.Context(), name)
 	if err != nil {
 		query.HandleDBError(c, err)
+		return
+	}
+	if !r.moduleOfCaller(c, m, cl) {
 		return
 	}
 	out := OperatorDecision{Module: m.Name}
@@ -245,6 +266,10 @@ type OperatorModule struct {
 // mode that are not in bypass, while an administrator allows auto mode. An empty list is a valid answer.
 func (r *RuntimeRouter) OperatorModules(c *gin.Context) {
 	assistant.MarkOperatorSeen(r.now())
+	cl, ok := r.Gate.For(c)
+	if !ok {
+		return
+	}
 	out := struct {
 		AutoAllowed bool             `json:"auto_allowed"`
 		Modules     []OperatorModule `json:"modules"`
@@ -260,6 +285,9 @@ func (r *RuntimeRouter) OperatorModules(c *gin.Context) {
 		return
 	}
 	for _, m := range modules {
+		if !inventorysvc.InCluster(m, cl) {
+			continue
+		}
 		if m.Mode != model.ModeAuto || m.Bypass || !m.HasReplicas() || (m.WorkloadKind != model.KindDeployment && m.WorkloadKind != model.KindStatefulSet) {
 			continue
 		}
@@ -327,9 +355,16 @@ func (r *RuntimeRouter) Report(c *gin.Context) {
 		query.BadRequest(c, fmt.Errorf("replica counts must not be negative"))
 		return
 	}
+	cl, ok := r.Gate.For(c)
+	if !ok {
+		return
+	}
 	m, err := r.Modules.ByName(c.Request.Context(), req.Module)
 	if err != nil {
 		query.HandleDBError(c, err)
+		return
+	}
+	if !r.moduleOfCaller(c, m, cl) {
 		return
 	}
 	row := &model.ScalingExecution{

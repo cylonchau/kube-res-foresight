@@ -73,6 +73,12 @@ spec:
             # The inventory, read-only: the nodes, and the workloads of the modules with their Pods and the requests and limits of their containers, for the
             # resource pages of the platform. 0 turns it off (and the read access to nodes and pods in rbac/role.yaml is then not needed).
             - --inventory-interval=5m
+            # The cluster this operator is for (P12): the name it is registered under on the platform's clusters page, to which the access key is bound. Leave it out
+            # for the platform's default cluster, which is what every operator was for before clusters were registered.
+            # - --cluster=prod-east
+            # The events of the cluster, read-only (get, list, watch events in rbac/role.yaml), for the platform to say the reason of what happens to nodes and Pods.
+            # The namespaces they are read from are set on the platform after the operator has connected. false leaves the operator doing nothing but scaling.
+            - --collect-events=true
           ports:
             - name: metrics
               containerPort: 8080

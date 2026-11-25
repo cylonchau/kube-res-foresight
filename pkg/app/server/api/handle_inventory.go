@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/cylonchau/kube-res-foresight/pkg/app/query"
@@ -11,6 +12,7 @@ import (
 	"github.com/cylonchau/kube-res-foresight/pkg/forecastsvc"
 	"github.com/cylonchau/kube-res-foresight/pkg/inventory"
 	"github.com/cylonchau/kube-res-foresight/pkg/inventorysvc"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
 	"github.com/gin-gonic/gin"
 )
 
@@ -19,6 +21,28 @@ import (
 type InventoryRouter struct {
 	Service  *inventorysvc.Service
 	Forecast *forecastsvc.Service
+	// Gate says which cluster an operator's request is for; nil is a platform with no cluster registered.
+	Gate *ClusterGate
+}
+
+// viewCluster is the cluster a page asks about: the one named in ?cluster=, else the default one; nil (and no filter) when no cluster is registered. It answers the
+// request itself when the cluster is not there.
+func (r *InventoryRouter) viewCluster(c *gin.Context) (*model.Cluster, bool) {
+	if r.Gate == nil || r.Gate.Service == nil {
+		return nil, true
+	}
+	var cl *model.Cluster
+	var err error
+	if name := strings.TrimSpace(c.Query("cluster")); name != "" {
+		cl, err = r.Gate.Service.DAO.ByName(c.Request.Context(), name)
+	} else {
+		cl, err = r.Gate.Service.DAO.Default(c.Request.Context())
+	}
+	if err != nil {
+		query.HandleDBError(c, err)
+		return nil, false
+	}
+	return cl, true
 }
 
 // maxInventoryBody is the biggest report the platform takes: a report is a few hundred KiB for a cluster of hundreds of nodes and modules.
@@ -30,7 +54,12 @@ const maxInventoryBody = 8 << 20
 // @Router /api/v1/operator/inventory-targets [get]
 func (r *InventoryRouter) Targets(c *gin.Context) {
 	assistant.MarkOperatorSeen(time.Now())
-	targets, err := r.Service.Targets(c.Request.Context())
+	cl, ok := r.Gate.For(c)
+	if !ok {
+		return
+	}
+	r.Gate.Seen(c, cl)
+	targets, err := r.Service.TargetsFor(c.Request.Context(), cl)
 	if err != nil {
 		query.InternalError(c, err)
 		return
@@ -54,7 +83,11 @@ func (r *InventoryRouter) Ingest(c *gin.Context) {
 		query.BadRequest(c, err)
 		return
 	}
-	res, err := r.Service.Ingest(c.Request.Context(), snap)
+	cl, ok := r.Gate.For(c)
+	if !ok {
+		return
+	}
+	res, err := r.Service.IngestFor(c.Request.Context(), cl, snap)
 	if err != nil {
 		if errors.Is(err, inventorysvc.ErrTooOld) || isInventoryInvalid(err) {
 			query.BadRequest(c, err)
@@ -79,7 +112,11 @@ func isInventoryInvalid(err error) bool {
 // @Tags Inventory
 // @Router /api/v1/inventory/nodes [get]
 func (r *InventoryRouter) Nodes(c *gin.Context) {
-	out, err := r.Service.Nodes(c.Request.Context())
+	cl, ok := r.viewCluster(c)
+	if !ok {
+		return
+	}
+	out, err := r.Service.NodesFor(c.Request.Context(), cl)
 	if err != nil {
 		query.InternalError(c, err)
 		return
@@ -93,7 +130,11 @@ func (r *InventoryRouter) Nodes(c *gin.Context) {
 // @Router /api/v1/inventory/nodes/trend [get]
 func (r *InventoryRouter) NodeTrend(c *gin.Context) {
 	hours, _ := strconv.Atoi(c.Query("hours"))
-	out, err := r.Service.NodeTrend(c.Request.Context(), hours)
+	cl, ok := r.viewCluster(c)
+	if !ok {
+		return
+	}
+	out, err := r.Service.NodeTrendFor(c.Request.Context(), cl, hours)
 	if err != nil {
 		query.InternalError(c, err)
 		return
@@ -107,7 +148,16 @@ func (r *InventoryRouter) NodeTrend(c *gin.Context) {
 // @Tags Inventory
 // @Router /api/v1/inventory/nodes/usage [get]
 func (r *InventoryRouter) NodeUsage(c *gin.Context) {
-	out, err := r.Forecast.NodeUsageOf(c.Request.Context(), uintQuery(c, "datasource_id"))
+	datasourceID := uintQuery(c, "datasource_id")
+	cl, ok := r.viewCluster(c)
+	if !ok {
+		return
+	}
+	if datasourceID == 0 && cl != nil && cl.DatasourceID > 0 {
+		// the data source the cluster was registered with; none set takes the one of the system parameter, as before
+		datasourceID = cl.DatasourceID
+	}
+	out, err := r.Forecast.NodeUsageOf(c.Request.Context(), datasourceID)
 	if err != nil {
 		query.ErrorResponse(c, http.StatusBadGateway, err)
 		return

@@ -3,6 +3,7 @@ package router
 import (
 	"github.com/cylonchau/kube-res-foresight/pkg/app/middleware"
 	"github.com/cylonchau/kube-res-foresight/pkg/assistant"
+	"github.com/cylonchau/kube-res-foresight/pkg/clustersvc"
 	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
 	"github.com/cylonchau/kube-res-foresight/pkg/forecastsvc"
 	"github.com/cylonchau/kube-res-foresight/pkg/inventorysvc"
@@ -137,7 +138,7 @@ func RegisteredRouter(e *gin.Engine) {
 
 	forecastService := forecastsvc.New(rdb.NewModuleDAO(model.DB), rdb.NewMetricMappingDAO(model.DB), rdb.NewDatasourceDAO(model.DB),
 		rdb.NewSampleDAO(model.DB), rdb.NewPredictionDAO(model.DB))
-	forecastHandler := &v1.ForecastRouter{Modules: rdb.NewModuleDAO(model.DB), Configs: rdb.NewAlgorithmDAO(model.DB), Mappings: rdb.NewMetricMappingDAO(model.DB),
+	forecastHandler := &v1.ForecastRouter{Clusters: rdb.NewClusterDAO(model.DB), Modules: rdb.NewModuleDAO(model.DB), Configs: rdb.NewAlgorithmDAO(model.DB), Mappings: rdb.NewMetricMappingDAO(model.DB),
 		Predictions: rdb.NewPredictionDAO(model.DB), Service: forecastService, Config: rdb.NewSysConfigDAO(model.DB),
 		Async: &asyncrun.Queue{Tasks: rdb.NewAsyncTaskDAO(model.DB), Jobs: rdb.NewJobDAO(model.DB)}}
 	centerHandler := &v1.AlgorithmCenterRouter{Modules: rdb.NewModuleDAO(model.DB), Algorithms: rdb.NewAlgorithmDAO(model.DB), Predictions: rdb.NewPredictionDAO(model.DB),
@@ -230,11 +231,23 @@ func RegisteredRouter(e *gin.Engine) {
 	v1Group.GET("/training-runs/:id/data", forecastHandler.TrainingData)
 	v1Group.POST("/controls/:id/bypass", forecastHandler.Bypass)
 	v1Group.POST("/controls/:id/resume", forecastHandler.Resume)
-	runtimeHandler := &v1.RuntimeRouter{Modules: rdb.NewModuleDAO(model.DB), Predictions: rdb.NewPredictionDAO(model.DB), RunStates: rdb.NewRunStateDAO(model.DB), Config: rdb.NewSysConfigDAO(model.DB), Fresh: forecastService}
+	// the clusters operators report from (P12): an operator is for one cluster, named by --cluster and by the access key it uses
+	clusterService := &clustersvc.Service{DAO: rdb.NewClusterDAO(model.DB), Config: rdb.NewSysConfigDAO(model.DB)}
+	clusterGate := &v1.ClusterGate{Service: clusterService}
+	clusterHandler := &v1.ClusterRouter{Service: clusterService, Datasources: rdb.NewDatasourceDAO(model.DB), Gate: clusterGate}
+	v1Group.GET("/operator/cluster-settings", clusterHandler.OperatorSettings)
+	v1Group.POST("/operator/events", clusterHandler.OperatorEvents)
+	v1Group.GET("/clusters", clusterHandler.List)
+	v1Group.POST("/clusters", clusterHandler.Create)
+	v1Group.GET("/cluster-keys", clusterHandler.Keys)
+	v1Group.PUT("/clusters/:id", clusterHandler.Update)
+	v1Group.DELETE("/clusters/:id", clusterHandler.Delete)
+	v1Group.GET("/clusters/:id/events", clusterHandler.Events)
+	runtimeHandler := &v1.RuntimeRouter{Modules: rdb.NewModuleDAO(model.DB), Predictions: rdb.NewPredictionDAO(model.DB), RunStates: rdb.NewRunStateDAO(model.DB), Config: rdb.NewSysConfigDAO(model.DB), Fresh: forecastService, Gate: clusterGate}
 	v1Group.GET("/operator/modules", runtimeHandler.OperatorModules)
 	v1Group.GET("/operator/settings", runtimeHandler.OperatorSettings)
 	v1Group.GET("/dashboard", forecastHandler.Dashboard)
-	inventoryHandler := &v1.InventoryRouter{Service: &inventorysvc.Service{DAO: rdb.NewInventoryDAO(model.DB), Modules: rdb.NewModuleDAO(model.DB), Config: rdb.NewSysConfigDAO(model.DB)}, Forecast: forecastService}
+	inventoryHandler := &v1.InventoryRouter{Service: &inventorysvc.Service{DAO: rdb.NewInventoryDAO(model.DB), Modules: rdb.NewModuleDAO(model.DB), Config: rdb.NewSysConfigDAO(model.DB)}, Forecast: forecastService, Gate: clusterGate}
 	v1Group.GET("/operator/inventory-targets", inventoryHandler.Targets)
 	v1Group.POST("/operator/inventory", inventoryHandler.Ingest)
 	v1Group.GET("/inventory/nodes", inventoryHandler.Nodes)

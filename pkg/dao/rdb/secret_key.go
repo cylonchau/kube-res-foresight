@@ -334,6 +334,7 @@ func (dao *SecretKeyDAO) AuthenticateServerCredential(ctx context.Context, acces
 	if subtle.ConstantTimeCompare(expected[:], provided[:]) != 1 {
 		return nil, ErrDeveloperCredentialInvalid
 	}
+	credential.Cluster = row.Cluster
 	return &credential, nil
 }
 

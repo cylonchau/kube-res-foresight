@@ -14,8 +14,10 @@ type ModuleListReq struct {
 type ModuleCreateReq struct {
 	Name        string `json:"name" binding:"required"`
 	Description string `json:"description"`
-	Enabled     *bool  `json:"enabled"`
-	Mode        string `json:"mode"`
+	// Cluster is the registered cluster the workload is in; empty is the default cluster.
+	Cluster string `json:"cluster"`
+	Enabled *bool  `json:"enabled"`
+	Mode    string `json:"mode"`
 	// The prediction of the module: off unless PredictEnabled is true; PredictMode is none, fixed (with PredictAlgorithm) or dynamic.
 	PredictEnabled   *bool  `json:"predict_enabled"`
 	PredictMode      string `json:"predict_mode"`
@@ -111,6 +113,7 @@ type ModuleCreateReq struct {
 type ModuleUpdateReq struct {
 	Name        *string `json:"name"`
 	Description *string `json:"description"`
+	Cluster     *string `json:"cluster"`
 	Enabled     *bool   `json:"enabled"`
 	Mode        *string `json:"mode"`
 	// See ModuleCreateReq.

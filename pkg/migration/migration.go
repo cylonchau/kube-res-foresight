@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/cylonchau/kube-res-foresight/pkg/app/utils"
 	"github.com/cylonchau/kube-res-foresight/pkg/assistant"
+	"github.com/cylonchau/kube-res-foresight/pkg/clustersvc"
 	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
 	"github.com/cylonchau/kube-res-foresight/pkg/inventorysvc"
 	"github.com/cylonchau/kube-res-foresight/pkg/ldapauth"
@@ -105,6 +106,11 @@ func Migrate(driver string) error {
 	if err := cleanupRetiredModules(model.DB); err != nil {
 		return err
 	}
+	// a module is unique by cluster, namespace, kind and workload now: the same workload name can be in two clusters. This changes an index, so it is part of the
+	// migration and not of the defaults that a running platform reads again
+	if err := upgradeModuleWorkloadIndex(); err != nil {
+		return err
+	}
 	if err := seedPlatformPermissions(); err != nil {
 		return err
 	}
@@ -171,6 +177,7 @@ func seedPlatformPermissions() error {
 		{permission: model.Permission{Name: "Menus", Code: "authorization_menu", Type: "MENU", FeRoute: "/authorization/menu", FeComponent: "view.authorization_menu", Icon: "carbon:menu", Sort: 3, Visible: true, Status: true}, parentCode: "authorization"},
 		{permission: model.Permission{Name: "Data Access", Code: "datasource", Type: "DIRECTORY", FeRoute: "/datasource", FeComponent: "layout.base", Icon: "carbon:data-base", Sort: 20, Visible: true, Status: true}},
 		{permission: model.Permission{Name: "Data Source Connections", Code: "datasource_connections", Type: "MENU", FeRoute: "/datasource/connections", FeComponent: "view.datasource_connections", Icon: "carbon:connect", Sort: 1, Visible: true, Status: true}, parentCode: "datasource"},
+		{permission: model.Permission{Name: "Clusters", Code: "datasource_clusters", Type: "MENU", FeRoute: "/datasource/clusters", FeComponent: "view.datasource_clusters", Icon: "carbon:kubernetes", Sort: 3, Visible: true, Status: true}, parentCode: "datasource"},
 		{permission: model.Permission{Name: "Metric Templates", Code: "datasource_metric-mappings", Type: "MENU", FeRoute: "/datasource/metric-mappings", FeComponent: "view.datasource_metric-mappings", Icon: "carbon:data-structured", Sort: 2, Visible: true, Status: true}, parentCode: "datasource"},
 		{permission: model.Permission{Name: "Module Management", Code: "forecast-modules", Type: "DIRECTORY", FeRoute: "/forecast-modules", FeComponent: "layout.base", Icon: "carbon:cube", Sort: 24, Visible: true, Status: true}},
 		{permission: model.Permission{Name: "Module List", Code: "forecast-modules_modules", Type: "MENU", FeRoute: "/forecast-modules/modules", FeComponent: "view.forecast-modules_modules", Icon: "carbon:cube", Sort: 1, Visible: true, Status: true}, parentCode: "forecast-modules"},
@@ -207,7 +214,7 @@ func seedPlatformPermissions() error {
 		{permission: model.Permission{Name: "Login Logs", Code: "system_login-log", Type: "MENU", FeRoute: "/system/login-log", FeComponent: "view.system_login-log", Icon: "carbon:user-activity", Sort: 4, Visible: true, Status: true}, parentCode: "system"},
 		{permission: model.Permission{Name: "API Credentials", Code: "system_secret-keys", Type: "MENU", FeRoute: "/system/secret-keys", FeComponent: "view.system_secret-keys", Icon: "carbon:password", Sort: 3, Visible: true, Status: true}, parentCode: "system"},
 		{permission: model.Permission{Name: "Admission Recommendations (read)", Code: "forecast:admission:read", Type: "BUTTON", BeApis: `["GET /api/v1/admission/recommendations"]`, Status: true}},
-		{permission: model.Permission{Name: "Operator Decisions (read, report)", Code: "forecast:operator:use", Type: "BUTTON", BeApis: `["GET /api/v1/operator/modules","GET /api/v1/operator/settings","GET /api/v1/operator/decisions","POST /api/v1/operator/reports","GET /api/v1/operator/inventory-targets","POST /api/v1/operator/inventory"]`, Status: true}},
+		{permission: model.Permission{Name: "Operator Decisions (read, report)", Code: "forecast:operator:use", Type: "BUTTON", BeApis: `["GET /api/v1/operator/modules","GET /api/v1/operator/settings","GET /api/v1/operator/decisions","POST /api/v1/operator/reports","GET /api/v1/operator/inventory-targets","POST /api/v1/operator/inventory","GET /api/v1/operator/cluster-settings","POST /api/v1/operator/events"]`, Status: true}},
 		{permission: model.Permission{Name: "Metric Query Test (read)", Code: "forecast:query:test", Type: "BUTTON", BeApis: `["POST /api/v1/metric-queries/test"]`, Status: true}},
 		{permission: model.Permission{Name: "Read APIs", Code: "sys:all:read", Type: "BUTTON", BeApis: `["GET /api/v1/*"]`, Status: true}},
 		{permission: model.Permission{Name: "Write APIs", Code: "sys:all:write", Type: "BUTTON", BeApis: `["POST /api/v1/*","PUT /api/v1/*","DELETE /api/v1/*"]`, Status: true}},
@@ -323,11 +330,17 @@ func EnsureDefaultConfigs() error {
 	configs = append(configs, email.DefaultConfigs()...)        // the e-mail channel of the notifications: empty until an administrator sets the SMTP server
 	configs = append(configs, assistant.DefaultConfigs()...)    // the switch of the AI assistant: off until an administrator turns it on
 	configs = append(configs, inventorysvc.DefaultConfigs()...) // the cluster name and the addresses of Grafana and of the platform
+	configs = append(configs, clustersvc.DefaultConfigs()...)   // the Cluster Agent: whether events are collected, which are not sent, the rules that read them
 	configs = append(configs, resourcequery.Configs()...)       // the PromQL the resource pages and the Grafana dashboard share, at its defaults
 	for i := range configs {
 		if err := model.DB.Where("config_key = ?", configs[i].ConfigKey).FirstOrCreate(&configs[i]).Error; err != nil {
 			return err
 		}
+	}
+	// the cluster that existed before clusters were registered: the default one, named as the system parameter says; the modules, the keys and the data written before
+	// name none and belong to it
+	if err := ensureDefaultCluster(); err != nil {
+		return err
 	}
 	// the margins and the mildest grade of the first rules of the recommendation are replaced by the bands of the second (one rule, one place to set it)
 	if err := model.DB.Unscoped().Where("config_key IN ?", retiredAnalysisKeys).Delete(&model.SysConfig{}).Error; err != nil {
@@ -551,6 +564,7 @@ func ensureForecastTasks() error {
 		{TaskType: "forecast.evaluate", Description: "Score finished predictions against the actuals collected since", CronExpr: "@every 1h", Enabled: true},
 		{TaskType: "forecast.backtest", Description: "Backtest every enabled algorithm against the baselines", CronExpr: "@every 6h", Enabled: true},
 		{TaskType: "forecast.overprovision", Description: "Analyse what the Pods of every enabled module request against what they used, over seven windows", CronExpr: "@every 6h", Enabled: true},
+		{TaskType: "cluster.prune", Description: "Delete the cluster events that are past their retention (system parameter cluster.retention_days, 3 days unless changed)", CronExpr: "@every 1h", Enabled: true},
 		{TaskType: "inventory.prune", Description: "Delete the cluster snapshots and the workload configuration history that are past their retention", CronExpr: "@every 24h", Enabled: true},
 	}
 	for i := range defaults {
@@ -559,4 +573,47 @@ func ensureForecastTasks() error {
 		}
 	}
 	return nil
+}
+
+// ensureDefaultCluster makes the default cluster the first time (named by the system parameter cluster.name, which is what the operator of a platform with one cluster
+// always reported under) and leaves one that exists as it is. The rows written before clusters were registered name none, and belong to it.
+func ensureDefaultCluster() error {
+	if model.DB == nil || !model.DB.Migrator().HasTable(&model.Cluster{}) {
+		return nil
+	}
+	name := inventorysvc.DefaultCluster
+	var cfg model.SysConfig
+	if err := model.DB.Where("config_key = ?", inventorysvc.KeyClusterName).First(&cfg).Error; err == nil && strings.TrimSpace(cfg.ConfigValue) != "" {
+		name = strings.TrimSpace(cfg.ConfigValue)
+	}
+	_, err := rdb.NewClusterDAO(model.DB).EnsureDefault(context.Background(), name)
+	return err
+}
+
+// moduleClusterIndexMarker says the unique index of the modules was made again with the cluster in it.
+const moduleClusterIndexMarker = "upgrade.module_cluster_index"
+
+// upgradeModuleWorkloadIndex makes the unique index of the workload of a module again, with the cluster as its first column, once: AutoMigrate does not change an index that
+// exists under the same name, so a database made before clusters were registered would go on refusing the same workload name in a second cluster. The marker is written
+// after the work, so an interrupted upgrade does it again.
+func upgradeModuleWorkloadIndex() error {
+	if model.DB == nil || !model.DB.Migrator().HasTable(&model.ForecastModule{}) {
+		return nil
+	}
+	var done int64
+	if err := model.DB.Model(&model.SysConfig{}).Where("config_key = ?", moduleClusterIndexMarker).Count(&done).Error; err != nil || done > 0 {
+		return err
+	}
+	m := model.DB.Migrator()
+	if m.HasIndex(&model.ForecastModule{}, "idx_module_workload") {
+		if err := m.DropIndex(&model.ForecastModule{}, "idx_module_workload"); err != nil {
+			return err
+		}
+	}
+	if err := m.CreateIndex(&model.ForecastModule{}, "idx_module_workload"); err != nil {
+		return err
+	}
+	marker := model.SysConfig{ConfigKey: moduleClusterIndexMarker, ConfigValue: "done", ConfigName: "Upgrade Marker: Module Workload Index With Cluster",
+		Remark: "Written when the unique index of the workload of a module was made again with the cluster in it, so the same workload can be a module in two clusters. Do not delete it."}
+	return model.DB.Create(&marker).Error
 }

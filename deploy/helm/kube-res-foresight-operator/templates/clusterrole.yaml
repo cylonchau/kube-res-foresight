@@ -19,6 +19,12 @@ rules:
     resources: ["nodes", "pods"]
     verbs: ["get", "list", "watch"]
   {{- end }}
+  {{- if .Values.clusterAgent.collectEvents }}
+  # read only: the events of the cluster, which the platform reads the reason of what happens to nodes, Pods and workloads from
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list", "watch"]
+  {{- end }}
   - apiGroups: ["apps"]
     resources: ["deployments/scale", "statefulsets/scale"]
     verbs: ["get", "patch", "update"]

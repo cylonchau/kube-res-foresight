@@ -57,6 +57,10 @@ spec:
             - --platform-ca-file=/etc/kube-res-foresight/platform-ca/{{ .Values.platform.caSecret.key }}
             {{- end }}
             - --report-spool-file=/var/spool/kube-res-foresight-operator/reports.jsonl
+            {{- with .Values.clusterAgent.cluster }}
+            - --cluster={{ . }}
+            {{- end }}
+            - --collect-events={{ .Values.clusterAgent.collectEvents }}
             {{- if .Values.inventory.enabled }}
             - --inventory-interval={{ .Values.inventory.interval }}
             {{- else }}

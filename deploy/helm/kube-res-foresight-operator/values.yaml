@@ -53,6 +53,15 @@ inventory:
   # how often the cluster is read; a report is made when something that is configuration changed, and at least once an hour
   interval: 5m
 
+# The Cluster Agent (P12): which cluster this operator is for, and whether it reads the events of the cluster (read-only) for the platform.
+clusterAgent:
+  # The name of the cluster as registered on the platform's clusters page; the access key (platform.credentialSecret) must be bound to it there. Empty is
+  # the platform's default cluster, which is what an operator was for before clusters were registered.
+  cluster: ""
+  # Read the events of the cluster (the role then gets get, list and watch on events). The namespaces they are read from are set on the platform. Off leaves
+  # the operator doing nothing but scaling (and the inventory above).
+  collectEvents: true
+
 rbac:
   # Create the ClusterRole and its binding. Turn it off only when you bind a role of your own.
   create: true

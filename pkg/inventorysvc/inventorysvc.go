@@ -77,15 +77,44 @@ func (s *Service) ClusterName(ctx context.Context) string {
 	return s.text(ctx, KeyClusterName, DefaultCluster)
 }
 
+// InCluster says whether a module belongs to the cluster: a module that names none belongs to the default one. A nil cluster is every cluster (a platform that has not
+// registered any, and the tests of one).
+func InCluster(m *model.ForecastModule, c *model.Cluster) bool {
+	if c == nil {
+		return true
+	}
+	return m.Cluster == c.Name || (c.IsDefault && m.Cluster == "")
+}
+
+// ClusterNames are the names the rows of a cluster may carry: the default cluster also owns the rows written before clusters were registered, which name none. nil
+// (no cluster given) is every cluster.
+func ClusterNames(c *model.Cluster) []string {
+	switch {
+	case c == nil:
+		return nil
+	case c.IsDefault:
+		return []string{c.Name, ""}
+	}
+	return []string{c.Name}
+}
+
 // Targets are the modules the operator reads the workload of: every enabled module, whatever its mode (a module that is only observed has a workload to
 // show as much as one that is scaled).
 func (s *Service) Targets(ctx context.Context) ([]inventory.Target, error) {
+	return s.TargetsFor(ctx, nil)
+}
+
+// TargetsFor are the targets of the modules of one cluster: an operator reads no workload of another.
+func (s *Service) TargetsFor(ctx context.Context, c *model.Cluster) ([]inventory.Target, error) {
 	modules, err := s.Modules.ListEnabled(ctx)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]inventory.Target, 0, len(modules))
 	for _, m := range modules {
+		if !InCluster(m, c) {
+			continue
+		}
 		out = append(out, inventory.Target{Name: m.Name, Namespace: m.Namespace, Kind: m.WorkloadKind, Workload: m.Workload})
 	}
 	return out, nil
@@ -109,6 +138,12 @@ var ErrTooOld = errors.New("the report is older than the snapshots are kept")
 // this time). A report with a record id that was taken is a repeat and changes nothing. A report that is older than the one the platform holds for a workload
 // is kept as a snapshot but does not replace its current configuration or write a change: it arrives late, after an outage, and the newer one is the truth.
 func (s *Service) Ingest(ctx context.Context, snap inventory.Snapshot) (*IngestResult, error) {
+	return s.IngestFor(ctx, nil, snap)
+}
+
+// IngestFor takes a report of the operator of one cluster: its nodes are that cluster's, and a workload of a module that belongs to another cluster is not taken (it is
+// listed as unknown, as one the platform does not have). A nil cluster is the one of the system parameter, as before clusters were registered.
+func (s *Service) IngestFor(ctx context.Context, c *model.Cluster, snap inventory.Snapshot) (*IngestResult, error) {
 	if err := snap.Validate(); err != nil {
 		return nil, err
 	}
@@ -131,6 +166,9 @@ func (s *Service) Ingest(ctx context.Context, snap inventory.Snapshot) (*IngestR
 		return out, nil
 	}
 	cluster := s.ClusterName(ctx)
+	if c != nil {
+		cluster = c.Name
+	}
 
 	nodes := make([]model.ClusterNodeSnapshot, 0, len(snap.Nodes))
 	for _, n := range snap.Nodes {
@@ -154,6 +192,10 @@ func (s *Service) Ingest(ctx context.Context, snap inventory.Snapshot) (*IngestR
 				continue
 			}
 			return nil, err
+		}
+		if !InCluster(m, c) {
+			out.Unknown = append(out.Unknown, w.Module)
+			continue
 		}
 		changed, err := s.saveWorkload(ctx, m.ID, cluster, at, w)
 		if err != nil {
@@ -303,12 +345,19 @@ type NodesView struct {
 }
 
 // Nodes is the nodes of the newest report with their sums.
-func (s *Service) Nodes(ctx context.Context) (*NodesView, error) {
-	rows, at, err := s.DAO.LatestNodes(ctx)
+func (s *Service) Nodes(ctx context.Context) (*NodesView, error) { return s.NodesFor(ctx, nil) }
+
+// NodesFor is the nodes of one cluster; nil is the cluster of the system parameter and every row, as before clusters were registered.
+func (s *Service) NodesFor(ctx context.Context, c *model.Cluster) (*NodesView, error) {
+	rows, at, err := s.DAO.LatestNodes(ctx, ClusterNames(c))
 	if err != nil {
 		return nil, err
 	}
-	out := &NodesView{Cluster: s.ClusterName(ctx), Nodes: []NodeRow{}, Providers: map[string]int{}, Regions: map[string]int{}, Zones: map[string]int{}, InstanceTypes: map[string]int{}}
+	name := s.ClusterName(ctx)
+	if c != nil {
+		name = c.Name
+	}
+	out := &NodesView{Cluster: name, Nodes: []NodeRow{}, Providers: map[string]int{}, Regions: map[string]int{}, Zones: map[string]int{}, InstanceTypes: map[string]int{}}
 	if len(rows) == 0 {
 		return out, nil
 	}
@@ -352,10 +401,15 @@ func (s *Service) Nodes(ctx context.Context) (*NodesView, error) {
 
 // NodeTrend is the number of nodes, and of those ready, at every report of the last hours.
 func (s *Service) NodeTrend(ctx context.Context, hours int) ([]rdb.NodeTrendPoint, error) {
+	return s.NodeTrendFor(ctx, nil, hours)
+}
+
+// NodeTrendFor is NodeTrend of one cluster.
+func (s *Service) NodeTrendFor(ctx context.Context, c *model.Cluster, hours int) ([]rdb.NodeTrendPoint, error) {
 	if hours < 1 || hours > 24*365 {
 		hours = 24
 	}
-	return s.DAO.NodeTrend(ctx, s.now().Add(-time.Duration(hours)*time.Hour))
+	return s.DAO.NodeTrend(ctx, s.now().Add(-time.Duration(hours)*time.Hour), ClusterNames(c))
 }
 
 // ChangeView is a change of the configuration of a workload.

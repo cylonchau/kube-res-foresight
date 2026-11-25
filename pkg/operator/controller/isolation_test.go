@@ -22,7 +22,7 @@ func TestTheOperatorHasNoPathToTheDatabase(t *testing.T) {
 	require.NoError(t, err)
 
 	const own = "github.com/cylonchau/kube-res-foresight/pkg/"
-	allowed := map[string]bool{"cmd/operator": true, "operator/controller": true, "timezone": true, "timing": true, "utils": true, "inventory": true}
+	allowed := map[string]bool{"cmd/operator": true, "operator/controller": true, "timezone": true, "timing": true, "utils": true, "inventory": true, "clusteragent": true}
 	forbidden := []string{"gorm.io/", "modernc.org/sqlite", "github.com/glebarez/", "github.com/go-sql-driver/", "github.com/jackc/", "github.com/lib/pq", "github.com/mattn/go-sqlite3"}
 
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {

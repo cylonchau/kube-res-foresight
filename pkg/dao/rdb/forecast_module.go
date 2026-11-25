@@ -74,13 +74,30 @@ func (dao *ModuleDAO) nameTaken(ctx context.Context, name string, exceptID uint)
 // would fight over its requests and replicas.
 func (dao *ModuleDAO) workloadTaken(ctx context.Context, m *model.ForecastModule) (bool, error) {
 	var count int64
+	// the same workload name in another cluster is another workload; a module that names no cluster, or names the default one, is in the default cluster
 	q := dao.db.WithContext(ctx).Model(&model.ForecastModule{}).
-		Where("namespace = ? AND workload_kind = ? AND workload = ?", m.Namespace, m.WorkloadKind, m.Workload)
+		Where("cluster IN ? AND namespace = ? AND workload_kind = ? AND workload = ?", dao.clusterNames(ctx, m.Cluster), m.Namespace, m.WorkloadKind, m.Workload)
 	if m.ID != 0 {
 		q = q.Where("id <> ?", m.ID)
 	}
 	err := q.Count(&count).Error
 	return count > 0, err
+}
+
+// clusterNames are the names a module of the cluster may carry in its cluster column: the default cluster is "" as well as its own name (a module written before
+// clusters were registered names none); another cluster is its name only. Before the table of clusters exists (a database not migrated yet) the name stands alone.
+func (dao *ModuleDAO) clusterNames(ctx context.Context, name string) []string {
+	var def []string
+	if dao.db.Migrator().HasTable(&model.Cluster{}) {
+		_ = dao.db.WithContext(ctx).Model(&model.Cluster{}).Where("is_default = ?", true).Limit(1).Pluck("name", &def).Error
+	}
+	if name == "" || (len(def) > 0 && name == def[0]) {
+		if len(def) > 0 {
+			return []string{"", def[0]}
+		}
+		return []string{""}
+	}
+	return []string{name}
 }
 
 func (dao *ModuleDAO) Create(ctx context.Context, m *model.ForecastModule) error {

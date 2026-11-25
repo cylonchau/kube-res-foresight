@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cylonchau/kube-res-foresight/pkg/clusteragent"
 	"github.com/cylonchau/kube-res-foresight/pkg/timing"
 )
 
@@ -61,6 +62,8 @@ type PlatformEndpoint struct {
 
 // PlatformDecider asks the kube-res-foresight platform for the replicas of a module. It also implements Reporter.
 type PlatformDecider struct {
+	// Cluster is the cluster the operator was started for (--cluster); empty is the default cluster, as every operator was before clusters were registered.
+	Cluster string
 	Metrics *Metrics
 	// Endpoint is the platform every module is read from.
 	Endpoint *PlatformEndpoint
@@ -127,6 +130,10 @@ func (d *PlatformDecider) request(ctx context.Context, method, path string, quer
 		req.Header.Set("X-kube-res-foresight-Client-Name", host)
 	}
 	req.Header.Set("Accept", "application/json")
+	if d.Cluster != "" {
+		// the cluster this operator was started for (--cluster): the platform checks it against the cluster the access key is bound to
+		req.Header.Set(clusteragent.HeaderCluster, d.Cluster)
+	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}

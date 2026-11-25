@@ -71,9 +71,11 @@ func moduleReads() []string { return both("/api/v1/modules", readMethods...) }
 
 // menuAPIs are the APIs of each menu of the forecasting pages and of the chat: a role that holds the menu can use the page.
 var menuAPIs = map[string][]string{
+	// the clusters page: the clusters, the access keys that can be bound to one, and the data sources it can read the usage of a cluster from
+	"datasource_clusters": apiList2(both("/api/v1/clusters", writeMethods...), get("/api/v1/cluster-keys", "/api/v1/datasources/options")),
 	"forecast-modules_modules": apiList2(
 		both("/api/v1/modules", writeMethods...),
-		get("/api/v1/datasources/options", "/api/v1/metrics/catalog", "/api/v1/dataset/catalog", "/api/v1/metric-presets"),
+		get("/api/v1/datasources/options", "/api/v1/metrics/catalog", "/api/v1/dataset/catalog", "/api/v1/metric-presets", "/api/v1/clusters"),
 		both("/api/v1/metric-mappings", readMethods...),
 		both("/api/v1/forecast-metrics", readMethods...),
 		both("/api/v1/algorithms", readMethods...),

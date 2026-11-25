@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cylonchau/kube-res-foresight/pkg/clustersvc"
 	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
 	"github.com/cylonchau/kube-res-foresight/pkg/forecastsvc"
 	"github.com/cylonchau/kube-res-foresight/pkg/inventorysvc"
@@ -172,6 +173,24 @@ func (t *InventoryPrune) Execute(ctx context.Context, _ *model.Job) error {
 	pruned, err := t.Service.Prune(ctx)
 	if pruned.Nodes+pruned.Snapshots+pruned.Changes+pruned.Reports > 0 {
 		logger.Info("cluster inventory pruned", logger.Int64("nodes", pruned.Nodes), logger.Int64("snapshots", pruned.Snapshots), logger.Int64("changes", pruned.Changes))
+	}
+	return err
+}
+
+// ClusterPruneJobType deletes the events of the clusters that are past their retention (P12 E4, system parameter cluster.retention_days).
+const ClusterPruneJobType = "cluster.prune"
+
+// ClusterPrune is that clean-up job.
+type ClusterPrune struct {
+	Service *clustersvc.Service
+}
+
+func (t *ClusterPrune) Type() string { return ClusterPruneJobType }
+
+func (t *ClusterPrune) Execute(ctx context.Context, _ *model.Job) error {
+	removed, err := t.Service.Prune(ctx)
+	if removed > 0 {
+		logger.Info("cluster events pruned", logger.Int64("events", removed))
 	}
 	return err
 }

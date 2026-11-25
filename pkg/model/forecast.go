@@ -129,12 +129,14 @@ type ForecastModule struct {
 	Name        string `gorm:"type:varchar(100);uniqueIndex;not null" json:"name" column_setting:"true"`
 	Description string `gorm:"type:varchar(255)" json:"description" column_setting:"true"`
 	Enabled     bool   `gorm:"not null" json:"enabled" column_setting:"true"`
-	Mode        string `gorm:"type:varchar(16);not null;default:'observe'" json:"mode" column_setting:"true"`
+	// Cluster is the cluster the workload is in (P12 E1); empty = the default cluster. An operator only reads and scales the modules of its own cluster.
+	Cluster string `gorm:"type:varchar(64);not null;default:'';uniqueIndex:idx_module_workload,priority:1" json:"cluster" column_setting:"true"`
+	Mode    string `gorm:"type:varchar(16);not null;default:'observe'" json:"mode" column_setting:"true"`
 
 	// The workload: namespace, kind and name. Nothing else identifies it (a container or a Service plays no part).
-	Namespace    string `gorm:"type:varchar(253);not null;uniqueIndex:idx_module_workload,priority:1" json:"namespace" column_setting:"true"`
-	WorkloadKind string `gorm:"type:varchar(16);not null;default:'Deployment';uniqueIndex:idx_module_workload,priority:2" json:"workload_kind" column_setting:"true"`
-	Workload     string `gorm:"type:varchar(253);not null;uniqueIndex:idx_module_workload,priority:3" json:"workload" column_setting:"true"`
+	Namespace    string `gorm:"type:varchar(253);not null;uniqueIndex:idx_module_workload,priority:2" json:"namespace" column_setting:"true"`
+	WorkloadKind string `gorm:"type:varchar(16);not null;default:'Deployment';uniqueIndex:idx_module_workload,priority:3" json:"workload_kind" column_setting:"true"`
+	Workload     string `gorm:"type:varchar(253);not null;uniqueIndex:idx_module_workload,priority:4" json:"workload" column_setting:"true"`
 
 	// Service and Container are optional values for the {{service}} and {{container}} variables of the PromQL templates
 	// of the metric sources (a request-rate mapping reads the Service, a per-container mapping the container). They

@@ -72,6 +72,7 @@ func JWTAuthMiddleware(refreshDAO *rdb.RefreshTokenSessionDAO, secretKeyDAO *rdb
 			c.Set("roles", []string{"DEVELOPER_CREDENTIAL"})
 			c.Set("permissions", []string{})
 			c.Set("developerCredential", true)
+			c.Set("developerCluster", credential.Cluster)
 			c.Set("developerPermissionIDs", credential.PermissionIDs)
 			c.Next()
 			return

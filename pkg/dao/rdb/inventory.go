@@ -31,13 +31,20 @@ func (dao *InventoryDAO) AddNodes(ctx context.Context, rows []model.ClusterNodeS
 }
 
 // LatestNodes is the nodes of the newest report that had any, and when it was made: the cluster as it is.
-func (dao *InventoryDAO) LatestNodes(ctx context.Context) ([]model.ClusterNodeSnapshot, time.Time, error) {
+// clusters limits it to the rows of those cluster names (P12: a platform holds several clusters); nil is every cluster.
+func (dao *InventoryDAO) LatestNodes(ctx context.Context, clusters []string) ([]model.ClusterNodeSnapshot, time.Time, error) {
+	scope := func(q *gorm.DB) *gorm.DB {
+		if clusters != nil {
+			return q.Where("cluster IN ?", clusters)
+		}
+		return q
+	}
 	var at []time.Time
-	if err := dao.db.WithContext(ctx).Model(&model.ClusterNodeSnapshot{}).Order("observed_at DESC").Limit(1).Pluck("observed_at", &at).Error; err != nil || len(at) == 0 {
+	if err := scope(dao.db.WithContext(ctx).Model(&model.ClusterNodeSnapshot{})).Order("observed_at DESC").Limit(1).Pluck("observed_at", &at).Error; err != nil || len(at) == 0 {
 		return nil, time.Time{}, err
 	}
 	var rows []model.ClusterNodeSnapshot
-	err := dao.db.WithContext(ctx).Where("observed_at = ?", at[0]).Order("node").Find(&rows).Error
+	err := scope(dao.db.WithContext(ctx).Where("observed_at = ?", at[0])).Order("node").Find(&rows).Error
 	return rows, at[0], err
 }
 
@@ -51,7 +58,7 @@ type NodeTrendPoint struct {
 }
 
 // NodeTrend is the count of nodes over the reports since the time, oldest first.
-func (dao *InventoryDAO) NodeTrend(ctx context.Context, since time.Time) ([]NodeTrendPoint, error) {
+func (dao *InventoryDAO) NodeTrend(ctx context.Context, since time.Time, clusters []string) ([]NodeTrendPoint, error) {
 	var rows []struct {
 		ObservedAt time.Time
 		Total      int
@@ -59,7 +66,11 @@ func (dao *InventoryDAO) NodeTrend(ctx context.Context, since time.Time) ([]Node
 		AllocCPU   int64
 		AllocMem   int64
 	}
-	err := dao.db.WithContext(ctx).Model(&model.ClusterNodeSnapshot{}).
+	q := dao.db.WithContext(ctx).Model(&model.ClusterNodeSnapshot{})
+	if clusters != nil {
+		q = q.Where("cluster IN ?", clusters)
+	}
+	err := q.
 		Select("observed_at, COUNT(*) AS total, SUM(CASE WHEN ready THEN 1 ELSE 0 END) AS ready, SUM(alloc_cpu_milli) AS alloc_cpu, SUM(alloc_memory_bytes) AS alloc_mem").
 		Where("observed_at >= ?", since.UTC()).Group("observed_at").Order("observed_at ASC").Scan(&rows).Error
 	out := make([]NodeTrendPoint, 0, len(rows))
