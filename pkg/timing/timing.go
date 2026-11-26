@@ -116,7 +116,7 @@ func All() []Param {
 	return []Param{DecisionRefreshWait, DecisionForecastMaxAge, CapacitySLOTarget, RefreshBudget, PipelineTimeout, PreviewBudget, FineTuneBudget, TrainBudget,
 		OperatorRequestTimeout, OperatorSyncInterval, OperatorDecisionCacheTTL, OperatorModuleCacheTTL, OperatorRecoverAnswers, OperatorSettingsRefresh,
 		OperatorDegradeHold, OperatorDegradeCooldown, OperatorRecoverStable, NotifyEmailTimeout, LeadPercentile, JudgePercentile, UncertaintyPercentile, MinSeasons,
-		HTTPGatewayTimeout, HTTPSlowRequest, UIRequestTimeout, UIRequestRetries, ListQuery, ListSearchDays, SummaryWindowHours, PrometheusTotalConcurrency, PruneBudget, ConversationRetentionDays, AuditRetentionDays, AsyncRetentionHours, OverprovisionUtilization, TightUtilization,
+		HTTPGatewayTimeout, HTTPSlowRequest, UIRequestTimeout, UIRequestRetries, ListQuery, ListSearchDays, SummaryWindowHours, PrometheusTotalConcurrency, PrometheusSubqueryPoints, PruneBudget, ConversationRetentionDays, AuditRetentionDays, AsyncRetentionHours, OverprovisionUtilization, TightUtilization,
 		OPP90Target, OPP90Low, OPP90High, OPP95Target, OPP95Low, OPP95High, OPP99Target, OPP99Low, OPP99High, OPLimitFactor, OPLimitGuard, OPSustain, OPOOMUplift, OPThrottle, OPBaselineDays, OPGradeSevere, OPGradeModerate, OPCoverageHigh, OPCoverageMid, OPRetentionDays, PredictionThinAfter, ForecastReuse, ResultCache, InventorySnapshotDays, InventoryChangeDays, ClusterDatasource, ClusterRetentionDays, ClusterUsageBefore, ClusterUsageAfter}
 }
 

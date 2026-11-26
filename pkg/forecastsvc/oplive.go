@@ -12,6 +12,7 @@ import (
 	"github.com/cylonchau/kube-res-foresight/pkg/collector"
 	"github.com/cylonchau/kube-res-foresight/pkg/model"
 	"github.com/cylonchau/kube-res-foresight/pkg/overprovision"
+	"github.com/cylonchau/kube-res-foresight/pkg/timing"
 )
 
 // The resource dashboard reads the use of a module from Prometheus itself, as it is now: one query_range of the PromQL the user wrote in the metric mapping of
@@ -132,7 +133,7 @@ func (l *opLoader) readLive() {
 		if q.Error != "" {
 			continue
 		}
-		step := subqueryStep(time.Duration(setup.mapping.StepSeconds)*time.Second, window)
+		step := subqueryStep(time.Duration(setup.mapping.StepSeconds)*time.Second, window, l.s.targetPercent(l.ctx, timing.PrometheusSubqueryPoints))
 		// {{range}} is the step of this query, so each point looks back over the stretch up to the one before it and no stretch is counted twice
 		expr, err := collectorRender(setup.mapping, target(l.run), step)
 		if err != nil {

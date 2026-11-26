@@ -21,9 +21,8 @@ import (
 // quantile_over_time (and max_over_time) over a subquery of the PromQL the user wrote in the metric mapping of the source. Nothing in it is taken from the
 // samples the platform stored, and the PromQL that was sent is returned with the figures, so any of them can be checked in Grafana.
 
-// promSubqueryPoints is how many steps a subquery over the window is asked to evaluate at most: a window of 30 days at the step of a minute is 43200 points
-// for each query, which a Prometheus answers slowly; the step is made coarser so that the window is at most this many steps.
-const promSubqueryPoints = 1500
+// How many steps a subquery over the window is asked to evaluate at most is the system parameter timing.PrometheusSubqueryPoints: a window of 30 days at the
+// step of a minute is 43200 points for each query, which a Prometheus answers slowly; the step is made coarser so that the window is at most this many steps.
 
 // PromQuantiles are the figures of one query set.
 type PromQuantiles struct {
@@ -109,13 +108,16 @@ func promDuration(d time.Duration) string {
 }
 
 // subqueryStep is the step of the subquery: the step of the mapping, made a whole multiple of itself coarse enough for the window to be at most
-// promSubqueryPoints steps.
-func subqueryStep(mapping time.Duration, window time.Duration) time.Duration {
+// points steps (the system parameter timing.PrometheusSubqueryPoints). It is never finer than the step of the mapping.
+func subqueryStep(mapping time.Duration, window time.Duration, points int) time.Duration {
 	if mapping <= 0 {
 		mapping = time.Minute
 	}
+	if points < 1 {
+		points = timing.PrometheusSubqueryPoints.Default
+	}
 	step := mapping
-	if want := window / promSubqueryPoints; want > step {
+	if want := window / time.Duration(points); want > step {
 		step = ((want + mapping - 1) / mapping) * mapping
 	}
 	return step
@@ -320,7 +322,7 @@ func (s *Service) PrometheusStatsScoped(ctx context.Context, moduleID uint, wind
 			continue
 		}
 		expr = strings.TrimSpace(expr)
-		step := subqueryStep(time.Duration(setup.mapping.StepSeconds)*time.Second, window)
+		step := subqueryStep(time.Duration(setup.mapping.StepSeconds)*time.Second, window, s.targetPercent(ctx, timing.PrometheusSubqueryPoints))
 		out.Step = promDuration(step)
 		pm.Query = expr
 		jobs = append(jobs, job{index: i, expr: expr, step: step, scale: src.Scale, container: setup.mapping.Level == "container",

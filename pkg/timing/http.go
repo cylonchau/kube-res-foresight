@@ -67,6 +67,11 @@ var SummaryWindowHours = Param{Key: "http.summary_window_hours", Default: 24, Mi
 	Name:   "Summary Window (hours)",
 	Remark: "The counts of a summary page (the algorithm run status, for example) read this many hours back when the request gives no time range: the totals of a table that grows are the slowest read of a page. The page says so; give a time range to read further back (1-720)."}
 
+// PrometheusSubqueryPoints is the most points one percentile query over a window is asked to evaluate (see forecastsvc subqueryStep).
+var PrometheusSubqueryPoints = Param{Key: "forecast.prometheus_subquery_points", Default: 1500, Min: 100, Max: 11000,
+	Name:   "Prometheus Points Per Percentile Query",
+	Remark: "The most points the percentiles of a resource (P50, P90, P95, P99, Max) are worked out from for one metric over the analysis window. The step is the window divided by this, rounded up to a whole multiple of the step of the metric mapping, and never finer than that step: 7 days at 1500 points is 403 s, so 420 s with a mapping step of 60 s; a window short enough to need less than the mapping step (1 hour) keeps the mapping step. More points find shorter peaks and are slower for Prometheus; fewer are faster and smooth more (100-11000)."}
+
 // PrometheusTotalConcurrency is how many queries to one data source may be in flight at once in the whole platform process.
 var PrometheusTotalConcurrency = Param{Key: "forecast.prometheus_total_concurrency", Default: 8, Min: 1, Max: 64,
 	Name:   "Prometheus Queries In Flight Per Data Source",
