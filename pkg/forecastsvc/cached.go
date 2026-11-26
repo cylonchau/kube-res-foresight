@@ -37,6 +37,29 @@ func (s *Service) cacheTTL(ctx context.Context) time.Duration {
 	return time.Duration(s.Count(ctx, timing.ResultCache)) * time.Minute
 }
 
+// ErrPending is what a heavy read answers when it was not done within the request: it goes on by itself and the next ask gets it (see resultcache.Within).
+var ErrPending = resultcache.ErrPending
+
+// partialKept is how long an answer that the time limit cut short is kept: the queries it did not reach are asked again after this.
+const partialKept = time.Minute
+
+// waitFor is how long a request waits for a heavy read: what is left of its time limit less a little to answer with.
+func (s *Service) waitFor(ctx context.Context) time.Duration {
+	room := timing.Under(s.gatewayTimeout(ctx), time.Duration(s.Count(ctx, timing.ListQuery))*time.Second)
+	if deadline, ok := ctx.Deadline(); ok {
+		room = time.Until(deadline)
+	}
+	return max(room-2*time.Second, time.Second)
+}
+
+// backgroundBudget is how long a heavy read that did not finish within its request goes on by itself (http.background_read_seconds).
+func (s *Service) backgroundBudget(ctx context.Context) time.Duration {
+	if s.BackgroundBudget > 0 {
+		return s.BackgroundBudget
+	}
+	return time.Duration(s.Count(ctx, timing.BackgroundRead)) * time.Second
+}
+
 // DataVersion is one text that changes whenever anything a report of the module is made from does.
 func (s *Service) DataVersion(ctx context.Context, m *model.ForecastModule) (string, error) {
 	sample, err := s.Samples.LatestForModule(ctx, m.ID)
@@ -174,13 +197,15 @@ func (s *Service) PrometheusStatsScopedCached(ctx context.Context, moduleID uint
 	ttl := min(s.cacheTTL(ctx), statsBucket)
 	key := fmt.Sprintf("promstats|%d|%d|%d|%d|%s", moduleID, windowMinutes, from.Unix()/60, to.Unix()/60, scope)
 	version := fmt.Sprintf("b%d", s.now().Unix()/int64(statsBucket/time.Second))
-	out, kept, err := resultcache.Do(ctx, s.cache(), key, version, ttl, func(ctx context.Context) (*PromStats, error) {
+	partial := func(out *PromStats) time.Duration {
+		if out != nil && out.Partial {
+			return partialKept
+		}
+		return ttl
+	}
+	return resultcache.Within(ctx, s.cache(), key, version, ttl, s.waitFor(ctx), s.backgroundBudget(ctx), partial, func(ctx context.Context) (*PromStats, error) {
 		return s.PrometheusStatsScoped(ctx, moduleID, windowMinutes, from, to, scope)
 	})
-	if err == nil && out != nil && out.Partial {
-		s.cache().Forget(key)
-	}
-	return out, kept, err
 }
 
 // OverprovisionDetailCached is OverprovisionDetail with its answer kept for a few minutes (the data is read from Prometheus and changes all the time: the answer is
@@ -194,13 +219,15 @@ func (s *Service) OverprovisionDetailCached(ctx context.Context, moduleID uint, 
 	key := fmt.Sprintf("opdetail|%d|%d|%d|%d", moduleID, windowMinutes, from.Unix()/60, to.Unix()/60)
 	// the rules of the recommendation (the bands and the period) are in the version: a changed system parameter is not answered from the old figures
 	version := fmt.Sprintf("m%d@%d|b%d|%v|%d", m.ID, m.UpdatedAt.UnixNano(), s.now().Unix()/int64(statsBucket/time.Second), moduleParams(s.OverprovisionParams(ctx), m), s.OverprovisionBaseline(ctx))
-	out, kept, err := resultcache.Do(ctx, s.cache(), key, version, ttl, func(ctx context.Context) (*DetailOverprovision, error) {
+	partial := func(out *DetailOverprovision) time.Duration {
+		if out != nil && out.Partial {
+			return partialKept
+		}
+		return ttl
+	}
+	return resultcache.Within(ctx, s.cache(), key, version, ttl, s.waitFor(ctx), s.backgroundBudget(ctx), partial, func(ctx context.Context) (*DetailOverprovision, error) {
 		return s.OverprovisionDetail(ctx, moduleID, windowMinutes, from, to)
 	})
-	if err == nil && out != nil && out.Partial {
-		s.cache().Forget(key)
-	}
-	return out, kept, err
 }
 
 // OverprovisionResourcesCached is OverprovisionResources with its answer kept for a few minutes (it is read from Prometheus and changes with the cluster). An
@@ -222,11 +249,24 @@ func (s *Service) OverprovisionResourcesCached(ctx context.Context) (*ResourceLi
 		}
 	}
 	version := fmt.Sprintf("b%d|m%d", s.now().Unix()/int64(statsBucket/time.Second), stamp)
-	out, kept, err := resultcache.Do(ctx, s.cache(), key, version, ttl, func(ctx context.Context) (*ResourceList, error) {
+	partial := func(out *ResourceList) time.Duration {
+		if out != nil && out.Partial {
+			return partialKept
+		}
+		return ttl
+	}
+	return resultcache.Within(ctx, s.cache(), key, version, ttl, s.waitFor(ctx), s.backgroundBudget(ctx), partial, func(ctx context.Context) (*ResourceList, error) {
 		return s.OverprovisionResources(ctx)
 	})
-	if err == nil && out != nil && out.Partial {
-		s.cache().Forget(key)
-	}
-	return out, kept, err
+}
+
+// ClusterCapacityCached is ClusterCapacityOf with its answer kept for a few minutes and worked out on its own when it takes longer than a request may (the cluster is
+// asked of Prometheus, whose data changes all the time).
+func (s *Service) ClusterCapacityCached(ctx context.Context, moduleID, datasourceID uint) (*ClusterCapacity, resultcache.Result, error) {
+	ttl := min(s.cacheTTL(ctx), statsBucket)
+	key := fmt.Sprintf("cluster|%d|%d", moduleID, datasourceID)
+	version := fmt.Sprintf("b%d", s.now().Unix()/int64(statsBucket/time.Second))
+	return resultcache.Within(ctx, s.cache(), key, version, ttl, s.waitFor(ctx), s.backgroundBudget(ctx), nil, func(ctx context.Context) (*ClusterCapacity, error) {
+		return s.ClusterCapacityOf(ctx, moduleID, datasourceID)
+	})
 }

@@ -110,6 +110,9 @@ func (r *ForecastRouter) ModuleOverprovision(c *gin.Context) {
 	}
 	out, kept, err := r.Service.OverprovisionDetailCached(c.Request.Context(), id, minutes, from, to)
 	if err != nil {
+		if answerPending(c, err) {
+			return
+		}
 		r.writeError(c, err)
 		return
 	}
@@ -123,8 +126,11 @@ func (r *ForecastRouter) ModuleOverprovision(c *gin.Context) {
 // @Tags Forecast
 // @Router /api/v1/overprovision/cluster [get]
 func (r *ForecastRouter) OverprovisionCluster(c *gin.Context) {
-	out, err := r.Service.ClusterCapacityOf(c.Request.Context(), uintQuery(c, "module_id"), uintQuery(c, "datasource_id"))
+	out, kept, err := r.Service.ClusterCapacityCached(c.Request.Context(), uintQuery(c, "module_id"), uintQuery(c, "datasource_id"))
 	if err != nil {
+		if answerPending(c, err) {
+			return
+		}
 		if errors.Is(err, forecastsvc.ErrCostNoDatasource) || errors.Is(err, forecastsvc.ErrCostCluster) {
 			query.BadRequest(c, err)
 			return
@@ -132,6 +138,7 @@ func (r *ForecastRouter) OverprovisionCluster(c *gin.Context) {
 		r.writeError(c, err)
 		return
 	}
+	cacheHeaders(c, kept)
 	query.SuccessResponse(c, nil, out)
 }
 
@@ -159,6 +166,9 @@ func (r *ForecastRouter) ModulePrometheusStats(c *gin.Context) {
 	}
 	out, kept, err := r.Service.PrometheusStatsScopedCached(c.Request.Context(), id, minutes, from, to, c.Query("scope"))
 	if err != nil {
+		if answerPending(c, err) {
+			return
+		}
 		r.writeError(c, err)
 		return
 	}
@@ -189,6 +199,9 @@ func (r *ForecastRouter) OverprovisionClusters(c *gin.Context) {
 func (r *ForecastRouter) OverprovisionResources(c *gin.Context) {
 	out, kept, err := r.Service.OverprovisionResourcesCached(c.Request.Context())
 	if err != nil {
+		if answerPending(c, err) {
+			return
+		}
 		r.writeError(c, err)
 		return
 	}

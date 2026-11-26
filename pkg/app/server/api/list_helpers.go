@@ -1,8 +1,11 @@
 package api
 
 import (
+	"errors"
+	"github.com/cylonchau/kube-res-foresight/pkg/app/query"
 	"github.com/cylonchau/kube-res-foresight/pkg/resultcache"
 	"github.com/gin-gonic/gin"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -65,6 +68,21 @@ func paginate[T any](items []T, page, pageSize int) ([]T, int) {
 
 // cacheHeaders says how a cached report was got: X-Cache is hit (a kept answer), shared (the answer of a request that was working it out), miss (worked out for
 // this request) or off, and X-Cache-Age how old a kept answer is, in seconds.
+// PendingRetrySeconds is how soon the page is told to ask again for a heavy read that is being worked out.
+const PendingRetrySeconds = 3
+
+// answerPending answers a heavy read that did not finish within the request: 202 with the sign that it is being worked out, which the page reads as "ask again in a
+// few seconds". The work goes on by itself and its answer is kept (see resultcache.Within), so the next ask gets it instead of starting it again. It returns true when it
+// answered.
+func answerPending(c *gin.Context, err error) bool {
+	if !errors.Is(err, resultcache.ErrPending) {
+		return false
+	}
+	c.Header("Retry-After", strconv.Itoa(PendingRetrySeconds))
+	c.JSON(http.StatusAccepted, query.Response{Code: query.OK.Code, Msg: "being worked out", Data: gin.H{"pending": true, "retry_after_seconds": PendingRetrySeconds}})
+	return true
+}
+
 func cacheHeaders(c *gin.Context, r resultcache.Result) {
 	c.Header("X-Cache", string(r.Source))
 	if r.Source == resultcache.Cached {

@@ -10,6 +10,7 @@ import (
 	"github.com/cylonchau/kube-res-foresight/pkg/cost"
 	"github.com/cylonchau/kube-res-foresight/pkg/model"
 	"github.com/cylonchau/kube-res-foresight/pkg/promclient"
+	"github.com/cylonchau/kube-res-foresight/pkg/resultcache"
 	"github.com/cylonchau/kube-res-foresight/pkg/timing"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -196,18 +197,38 @@ func TestWhenTheTimeLimitIsOverTheMetricsThatCameAreGivenAndTheOthersAreToldNotR
 	assert.Equal(t, got.Skipped, skipped)
 }
 
-func TestAPartialAnswerIsNotKeptSoTheNextAskWorksOnWhatWasNotReached(t *testing.T) {
+// A read the request cannot wait for is worked out on its own: the request is told it is being worked out, the work ends with what the data source gave within its
+// budget, and that answer is kept for a short time (so the page that asks again gets it) and then worked out again.
+func TestASlowReadIsWorkedOutOnItsOwnAndAPartialAnswerIsKeptOnlyBriefly(t *testing.T) {
 	f := opFixture(t)
 	fake := &slowFake{fast: "cpu"}
 	f.svc.NewCostQuerier = func(*model.Datasource) (cost.Querier, error) { return fake, nil }
-	ctx, cancel := context.WithTimeout(context.Background(), 1200*time.Millisecond)
-	first, _, err := f.svc.PrometheusStatsCached(ctx, f.module.ID, 24*60, time.Time{}, time.Time{})
+	f.svc.BackgroundBudget = 6 * time.Second // the slow metrics are given up at 4 seconds: the budget less the two kept for the answer
+	clock := time.Now()
+	f.svc.Cache = resultcache.New(1<<20, 16)
+	f.svc.Cache.SetClock(func() time.Time { return clock })
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	_, _, err := f.svc.PrometheusStatsCached(ctx, f.module.ID, 24*60, time.Time{}, time.Time{})
 	cancel()
+	require.ErrorIs(t, err, ErrPending, "the request could not wait: it is told the answer is being worked out, not 504")
+
+	var first *PromStats
+	require.Eventually(t, func() bool {
+		got, _, err := f.svc.PrometheusStatsCached(context.Background(), f.module.ID, 24*60, time.Time{}, time.Time{})
+		first = got
+		return err == nil
+	}, 15*time.Second, 200*time.Millisecond, "the work went on after the request was gone and its answer is there to ask for")
+	require.True(t, first.Partial, "the slow metrics were not reached within the budget of the work")
+
+	_, kept, err := f.svc.PrometheusStatsCached(context.Background(), f.module.ID, 24*60, time.Time{}, time.Time{})
 	require.NoError(t, err)
-	require.True(t, first.Partial)
+	assert.Equal(t, resultcache.Cached, kept.Source, "the page that asks again gets what the work made")
+
 	fake.fast = "" // the data source is quick now: every query contains the empty text
+	clock = clock.Add(2 * time.Minute)
 	second, kept, err := f.svc.PrometheusStatsCached(context.Background(), f.module.ID, 24*60, time.Time{}, time.Time{})
 	require.NoError(t, err)
-	assert.False(t, second.Partial, "asked again, it is complete")
-	assert.NotEqual(t, "hit", string(kept.Source), "the partial answer was not served from the cache")
+	assert.False(t, second.Partial, "the partial answer was kept for a minute only: asked after that it is complete")
+	assert.NotEqual(t, resultcache.Cached, kept.Source)
 }

@@ -25,6 +25,11 @@ var (
 		Remark: "How many times the web console asks again for a read (GET) that failed with a network error, 502 or 503, which is what a restart or a rollout of the platform looks like for a moment. A timeout or a 504 is never asked again: that would only repeat the slow work. 0 turns it off (0-3)."}
 )
 
+// BackgroundRead is how long a heavy read that did not finish within its request goes on working by itself (see resultcache.Within).
+var BackgroundRead = Param{Key: "http.background_read_seconds", Default: 300, Min: 30, Max: 3600,
+	Name:   "Heavy Read Background Time (seconds)",
+	Remark: "A read that asks Prometheus for a long window (the resource analysis of a module, the table of the resource dashboard, the cluster figures) is answered within the read request time limit when it can be. When it cannot, the request is answered as 'being worked out' and the read goes on by itself for at most this long; the page asks again and gets the answer when it is ready, instead of a 504 that throws the work away. Asks that come meanwhile join the same work. It is bounded by the number of queries one data source takes at once (3600 at the most; 30-3600)."}
+
 // GatewayMargin is how much earlier than the gateway the platform stops a request it answers in one go.
 const GatewayMargin = 5 * time.Second
 

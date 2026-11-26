@@ -8,6 +8,7 @@ import (
 	"container/list"
 	"context"
 	"encoding/json"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -245,4 +246,109 @@ func Peek[T any](c *Cache, key, version string, ttl time.Duration) (T, bool) {
 	c.order.MoveToFront(e.elem)
 	c.hits.Add(1)
 	return v, true
+}
+
+// failure is what Within keeps of work that failed, for a few seconds: an ask that comes after the work ended (the request that was waiting for it has gone, or is
+// asking again) gets the reason and does not start the same work again.
+type failure struct{ err error }
+
+const failureTTL = 5 * time.Second
+
+// ErrPending is what Within answers when the work was not done within the time the request could wait. It is not a failure: the work goes on by itself and its
+// answer is kept, so asking again soon gets it.
+var ErrPending = errors.New("the answer is being worked out")
+
+// Within is Do for an answer that can take longer than a request may: the work runs on a context of its own (it keeps the values of the request, not its end), with
+// its own budget, and the request waits for it at most `wait`. Within the wait the answer is returned as Do returns it. When the wait runs out the request is answered
+// with ErrPending and the work goes on; the answer is kept for the next ask, and an ask that comes while it is working joins it. So a slow data source costs one
+// piece of work and not one for every ask that was cut off before it finished: the gateway cutting a request no longer stops the work and no longer wastes it.
+//
+// ttlOf is how long the answer is kept (nil: ttl for every answer); a partial answer can be given a short one. ttl of 0 or less switches the cache off for the call: the
+// work is done in the request, as Do does. The answer is shared between the requests that get it: it must not be changed.
+func Within[T any](ctx context.Context, c *Cache, key, version string, ttl, wait, budget time.Duration, ttlOf func(T) time.Duration, compute func(context.Context) (T, error)) (T, Result, error) {
+	var zero T
+	if c == nil || ttl <= 0 {
+		v, err := compute(ctx)
+		return v, Result{Source: Bypassed}, err
+	}
+	c.mu.Lock()
+	if e, ok := c.items[key]; ok {
+		age := c.now().Sub(e.at)
+		switch {
+		case e.version != version:
+			c.changed.Add(1)
+			c.removeLocked(e)
+		case age >= e.ttl || age >= ttl:
+			c.expired.Add(1)
+			c.removeLocked(e)
+		default:
+			c.order.MoveToFront(e.elem)
+			if fail, ok := e.value.(failure); ok {
+				c.mu.Unlock()
+				return zero, Result{Source: Cached, Age: age}, fail.err
+			}
+			v, ok := e.value.(T)
+			c.mu.Unlock()
+			if ok {
+				c.hits.Add(1)
+				return v, Result{Source: Cached, Age: age}, nil
+			}
+			c.Forget(key)
+			c.mu.Lock()
+		}
+	}
+	f, working := c.flights[key]
+	if !working || f.version != version {
+		f = &flight{done: make(chan struct{}), version: version}
+		c.flights[key] = f
+		working = false
+		c.misses.Add(1)
+		// the work has the values of the request (what it reads of the context) and none of its end
+		bg, cancel := context.WithTimeout(context.WithoutCancel(ctx), budget)
+		go func() {
+			defer cancel()
+			value, err := compute(bg)
+			f.value, f.err = value, err
+			c.mu.Lock()
+			if c.flights[key] == f {
+				delete(c.flights, key)
+			}
+			if err == nil {
+				keep := ttl
+				if ttlOf != nil {
+					keep = min(ttl, ttlOf(value))
+				}
+				if raw, merr := json.Marshal(value); merr == nil && keep > 0 {
+					c.storeLocked(key, version, value, int64(len(raw)), keep)
+				}
+			} else {
+				c.storeLocked(key, version, failure{err: err}, 1, min(ttl, failureTTL))
+			}
+			c.mu.Unlock()
+			close(f.done)
+		}()
+	}
+	c.mu.Unlock()
+
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	select {
+	case <-f.done:
+	case <-timer.C:
+		return zero, Result{Source: Shared}, ErrPending
+	case <-ctx.Done():
+		return zero, Result{Source: Shared}, ErrPending
+	}
+	if f.err != nil {
+		return zero, Result{Source: Computed}, f.err
+	}
+	v, ok := f.value.(T)
+	if !ok {
+		return zero, Result{Source: Bypassed}, errors.New("resultcache: a key used for two kinds of answer")
+	}
+	if working {
+		c.shared.Add(1)
+		return v, Result{Source: Shared}, nil
+	}
+	return v, Result{Source: Computed}, nil
 }

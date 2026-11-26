@@ -54,6 +54,8 @@ type Service struct {
 	Telemetry *Telemetry
 	// Cache keeps the answers of the heavy reports (P11 B3); nil is the cache of the process.
 	Cache *resultcache.Cache
+	// BackgroundBudget overrides how long a heavy read goes on working by itself after its request stopped waiting (http.background_read_seconds); 0 reads the parameter.
+	BackgroundBudget time.Duration
 
 	NewQuerier QuerierFactory
 	// Prices holds the price rules of the cost and NewCostQuerier builds the instant querier of its data source (nil: Prometheus).
