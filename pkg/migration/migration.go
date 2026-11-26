@@ -363,7 +363,32 @@ func EnsureDefaultConfigs() error {
 			return err
 		}
 	}
-	return splitLimitHeadroom()
+	if err := splitLimitHeadroom(); err != nil {
+		return err
+	}
+	return switchOnExistingFixedReplicas()
+}
+
+// fixedSwitchMarker is the system parameter row that says the fixed replicas of the modules that had one were switched on.
+const fixedSwitchMarker = "migration.fixed_replicas_switch"
+
+// switchOnExistingFixedReplicas gives the fixed replicas a switch of their own. A module that had a fixed count before the switch existed kept its replicas at it, so the
+// switch of such a module is turned on, once: the marker row says it was done, and a switch an administrator turns off afterwards stays off.
+func switchOnExistingFixedReplicas() error {
+	db := model.DB
+	if !db.Migrator().HasTable(&model.ForecastModule{}) {
+		return nil
+	}
+	marker := model.SysConfig{ConfigKey: fixedSwitchMarker, ConfigValue: "done", ConfigName: "Upgrade Marker: Fixed Replicas Switch",
+		Remark: "Written when the fixed replicas of the modules that had a fixed count were switched on, when the fixed replicas got a switch of their own. It keeps that from running again, so a switch turned off on purpose stays off. Do not delete it."}
+	res := db.Where("config_key = ?", fixedSwitchMarker).FirstOrCreate(&marker)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return nil
+	}
+	return db.Model(&model.ForecastModule{}).Where("fixed_replicas > ?", 0).Update("fixed_replicas_enabled", true).Error
 }
 
 // capacityReserveMarker is the system parameter row that says the hidden capacity reserve was cleared.

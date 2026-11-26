@@ -148,7 +148,9 @@ func (r *ForecastRouter) CreateModule(c *gin.Context) {
 		Name:    req.Name, Description: req.Description, Enabled: req.Enabled == nil || *req.Enabled, Mode: req.Mode,
 		PredictEnabled: req.PredictEnabled != nil && *req.PredictEnabled, PredictMode: req.PredictMode, PredictAlgorithm: req.PredictAlgorithm,
 		OOMWeightEnabled: req.OOMWeightEnabled != nil && *req.OOMWeightEnabled,
-		Namespace:        strings.TrimSpace(req.Namespace), WorkloadKind: req.WorkloadKind, Workload: strings.TrimSpace(req.Workload), Service: req.Service, Container: req.Container,
+		// a fixed count given without saying whether it counts is on, as it was before the switch existed
+		FixedReplicasEnabled: req.FixedReplicasEnabled == nil && req.FixedReplicas > 0 || req.FixedReplicasEnabled != nil && *req.FixedReplicasEnabled,
+		Namespace:            strings.TrimSpace(req.Namespace), WorkloadKind: req.WorkloadKind, Workload: strings.TrimSpace(req.Workload), Service: req.Service, Container: req.Container,
 		LookbackHours: req.LookbackHours, HorizonMinutes: req.HorizonMinutes, MaxFillSteps: req.MaxFillSteps,
 		StepSeconds: req.StepSeconds, MinPoints: req.MinPoints, WindowSteps: req.WindowSteps, RunIntervalMinutes: req.RunIntervalMinutes,
 		LimitCPURatio: req.LimitCPURatio, LimitMemoryRatio: req.LimitMemoryRatio,
@@ -262,6 +264,9 @@ func applyModuleUpdate(m *model.ForecastModule, req *apis.ModuleUpdateReq) {
 	}
 	if req.OOMWeightEnabled != nil {
 		m.OOMWeightEnabled = *req.OOMWeightEnabled
+	}
+	if req.FixedReplicasEnabled != nil {
+		m.FixedReplicasEnabled = *req.FixedReplicasEnabled
 	}
 	for dst, src := range map[*int]*int{
 		&m.LookbackHours: req.LookbackHours, &m.HorizonMinutes: req.HorizonMinutes, &m.MaxFillSteps: req.MaxFillSteps,

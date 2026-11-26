@@ -229,9 +229,11 @@ type ForecastModule struct {
 	FallbackReplicas    int   `gorm:"not null;default:0" json:"fallback_replicas" column_setting:"false"`
 	// FixedReplicas, when positive, keeps the module at that many replicas whatever the forecast says (periods can still fix, raise or cap it).
 	FixedReplicas int `gorm:"not null;default:0" json:"fixed_replicas" column_setting:"false"`
-	MinGPU        int `gorm:"not null;default:0" json:"min_gpu" column_setting:"false"`
-	MaxGPU        int `gorm:"not null;default:0" json:"max_gpu" column_setting:"false"`
-	FallbackGPU   int `gorm:"not null;default:0" json:"fallback_gpu" column_setting:"false"`
+	// FixedReplicasEnabled is the switch of FixedReplicas: off, the count stays stored and takes no part in the replicas (see ActiveFixedReplicas).
+	FixedReplicasEnabled bool `gorm:"not null;default:false" json:"fixed_replicas_enabled" column_setting:"false"`
+	MinGPU               int  `gorm:"not null;default:0" json:"min_gpu" column_setting:"false"`
+	MaxGPU               int  `gorm:"not null;default:0" json:"max_gpu" column_setting:"false"`
+	FallbackGPU          int  `gorm:"not null;default:0" json:"fallback_gpu" column_setting:"false"`
 
 	// HeadroomRatio >= 1 multiplies the predicted peak (the recommendation coefficient); PodCapacityRPS is the verified safe load of one pod, in requests per second.
 	HeadroomRatio  float64 `gorm:"not null;default:1" json:"headroom_ratio" column_setting:"false"`
@@ -344,6 +346,15 @@ func (ForecastModule) TableName() string { return "forecast_module" }
 // Predicts reports whether the module forecasts at all: the prediction is switched on and its mode is not "none".
 func (m *ForecastModule) Predicts() bool {
 	return m.PredictEnabled && m.PredictMode != PredictNone
+}
+
+// ActiveFixedReplicas is the replica count the module keeps whatever the forecast says: the fixed count when the switch is on and a count is set, else 0 (the fixed count
+// takes no part, and every other source of the replicas works as it does for a module that has none).
+func (m *ForecastModule) ActiveFixedReplicas() int {
+	if m.FixedReplicasEnabled && m.FixedReplicas > 0 {
+		return m.FixedReplicas
+	}
+	return 0
 }
 
 // CapacityReserve is the capacity reserve coefficient: the share of the capacity (of a Pod, of a request) the load may take, in (0, 1]; a recommendation is the need divided
@@ -652,6 +663,9 @@ func (m *ForecastModule) Validate() error {
 	}
 	if m.MaxReplicas > 0 && m.MinReplicas > m.MaxReplicas {
 		return fmt.Errorf("min_replicas exceeds max_replicas")
+	}
+	if m.FixedReplicasEnabled && m.FixedReplicas <= 0 {
+		return fmt.Errorf("fixed_replicas must be set when the fixed replicas are switched on")
 	}
 	return nil
 }

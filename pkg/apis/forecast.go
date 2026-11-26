@@ -104,6 +104,8 @@ type ModuleCreateReq struct {
 	// OOMWeightEnabled lets the OOM kills lower the memory score of an algorithm by OOMWeight each; off, they enter no score.
 	OOMWeightEnabled *bool    `json:"oom_weight_enabled"`
 	OOMWeight        *float64 `json:"oom_weight"`
+	// FixedReplicasEnabled switches FixedReplicas on: off, the fixed count is kept in the form but takes no part in the replicas.
+	FixedReplicasEnabled *bool `json:"fixed_replicas_enabled"`
 
 	// Optional metric sources created together with the module.
 	Sources []SourceReq `json:"sources"`
@@ -195,6 +197,8 @@ type ModuleUpdateReq struct {
 
 	OOMWeightEnabled *bool    `json:"oom_weight_enabled"`
 	OOMWeight        *float64 `json:"oom_weight"`
+
+	FixedReplicasEnabled *bool `json:"fixed_replicas_enabled"`
 }
 
 // AlgorithmListReq filters the algorithm list (the catalog with each algorithm's platform-wide setting).

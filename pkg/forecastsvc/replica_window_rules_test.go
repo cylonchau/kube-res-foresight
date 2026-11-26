@@ -59,7 +59,7 @@ func TestTimeWindowsAlgorithmAndAFixedCountWorkTogether(t *testing.T) {
 
 	// the module keeps a fixed count: no algorithm decides, and a floor window still raises it
 	require.NoError(t, f.db.Where("module_id = ?", f.module.ID).Delete(&model.ModulePeriod{}, &model.ModuleTrigger{}).Error)
-	f.dynamic(t, func(m *model.ForecastModule) { m.FixedReplicas = 3 })
+	f.dynamic(t, func(m *model.ForecastModule) { m.FixedReplicas, m.FixedReplicasEnabled = 3, true })
 	rec, _, err = f.svc.Recommend(ctx, f.module.ID)
 	require.NoError(t, err)
 	assert.Equal(t, 3, rec.Replicas)
@@ -68,5 +68,12 @@ func TestTimeWindowsAlgorithmAndAFixedCountWorkTogether(t *testing.T) {
 	rec, _, err = f.svc.Recommend(ctx, f.module.ID)
 	require.NoError(t, err)
 	assert.Equal(t, 8, rec.Replicas, "3 normally, at least 8 in the window")
+
+	// the switch is off: the count stays stored and takes no part, the replicas are what the other sources say
+	require.NoError(t, f.db.Where("module_id = ?", f.module.ID).Delete(&model.ModulePeriod{}, &model.ModuleTrigger{}).Error)
+	f.dynamic(t, func(m *model.ForecastModule) { m.FixedReplicas, m.FixedReplicasEnabled = 3, false })
+	rec, _, err = f.svc.Recommend(ctx, f.module.ID)
+	require.NoError(t, err)
+	assert.NotEqual(t, "fixed_count", rec.ReplicasSource, "a fixed count that is switched off does not hold the replicas")
 
 }

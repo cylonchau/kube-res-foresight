@@ -699,8 +699,8 @@ func (l *opLoader) loadProfile(from, to int64, p overprovision.Params, cpu, mem 
 // that is kept at a fixed number of replicas has no room to move. The replica plan keeps to them and has no numbers of its own.
 func replicaLimits(m *model.ForecastModule) overprovision.ReplicaLimits {
 	lim := overprovision.ReplicaLimits{Min: m.MinReplicas, Max: m.MaxReplicas, ScaleUpStep: m.ScaleUpMaxStep, ScaleDownStep: m.ScaleDownMaxStep}
-	if m.FixedReplicas > 0 {
-		lim.Min, lim.Max = m.FixedReplicas, m.FixedReplicas
+	if n := m.ActiveFixedReplicas(); n > 0 {
+		lim.Min, lim.Max = n, n
 	}
 	return lim
 }

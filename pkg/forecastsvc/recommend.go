@@ -410,7 +410,7 @@ func (s *Service) decide(ctx context.Context, moduleID uint, failed map[string]s
 				MaxMemoryBytes: m.MaxMemoryBytes, MinReplicas: m.MinReplicas, MaxReplicas: ceiling, MinGPU: m.MinGPU, MaxGPU: m.MaxGPU},
 			Fallback:      decision.Fallback{CPUMilli: m.FallbackCPUMilli, MemoryBytes: m.FallbackMemoryBytes, Replicas: m.FallbackReplicas, GPU: m.FallbackGPU},
 			HeadroomRatio: m.HeadroomRatio, CapacityReserve: m.CapacityReserve(), PodCapacityRPS: m.PodCapacityRPS, Location: loc, TTL: ttl,
-			FixedReplicas: m.FixedReplicas,
+			FixedReplicas: m.ActiveFixedReplicas(),
 		},
 	}
 	periods, err := s.Modules.Periods(ctx, m.ID)
