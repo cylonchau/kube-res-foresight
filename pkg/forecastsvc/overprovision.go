@@ -680,6 +680,18 @@ func (l *opLoader) loadProfile(from, to int64, p overprovision.Params, cpu, mem 
 	}
 	prof := overprovision.BuildLoadProfile(ins, p.P95.Target, 95, loc)
 	prof.AddRecent(ins, p.P95.Target, time.Unix(to, 0), loc)
+	// the replicas the workload really had, hour by hour: the module's replicas metric as it was measured, not what the use asks for
+	var reps []overprovision.Point
+	for _, sm := range l.reps {
+		if sm.TS >= from && sm.TS <= to {
+			reps = append(reps, overprovision.Point{TS: sm.TS, V: sm.Value})
+		}
+	}
+	source := ""
+	if src := l.run.FirstOfKind("replicas"); src != nil {
+		source = src.Name
+	}
+	prof.AddActual(reps, time.Unix(to, 0), loc, source)
 	return prof
 }
 

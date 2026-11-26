@@ -12,6 +12,7 @@ import (
 
 	"github.com/cylonchau/kube-res-foresight/pkg/app/query"
 	"github.com/cylonchau/kube-res-foresight/pkg/assistant"
+	"github.com/cylonchau/kube-res-foresight/pkg/clustersvc"
 	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
 	"github.com/cylonchau/kube-res-foresight/pkg/forecastsvc"
 	"github.com/cylonchau/kube-res-foresight/pkg/job/tasks/aitask"
@@ -29,6 +30,8 @@ type AssistantRouter struct {
 	Queue *aitask.Queue
 	// Async queues the questions of the chat that are answered in the background; nil in a process that has no job table to write.
 	Async *asyncrun.Queue
+	// Clusters reads the registered clusters and what was reported about them (the one-click diagnosis of a change); nil when there are none.
+	Clusters *clustersvc.Service
 }
 
 // withOwner puts the signed-in user in the context of a question: with one, the assistant may make and manage that user's scheduled tasks.
@@ -581,4 +584,46 @@ func (r *AssistantRouter) BatchDeleteSkills(c *gin.Context) {
 		return
 	}
 	query.SuccessResponse(c, nil, "ok")
+}
+
+// ClusterDiagnoseReq is the language of the console the diagnosis is written in.
+type ClusterDiagnoseReq struct {
+	Lang string `json:"lang"`
+}
+
+// DiagnoseChange serves POST /clusters/:id/changes/:change/diagnose: the one-click AI diagnosis of a change of state in a cluster. The facts are the platform's own (the change,
+// its reasons, the events about the object around that time, the usage, the changes tied to it); the model says what the cause is and how to fix it, and changes nothing.
+// @Summary Diagnose a change of a cluster with the language model
+// @Tags Cluster
+// @Router /api/v1/clusters/{id}/changes/{change}/diagnose [post]
+func (r *AssistantRouter) DiagnoseChange(c *gin.Context) {
+	if r.Clusters == nil {
+		query.InternalError(c, errors.New("clusters are not set up"))
+		return
+	}
+	id, ok := clusterID(c)
+	if !ok {
+		return
+	}
+	changeID, err := strconv.ParseUint(c.Param("change"), 10, 64)
+	if err != nil || changeID == 0 {
+		query.BadRequest(c, errors.New("invalid change id"))
+		return
+	}
+	var req ClusterDiagnoseReq
+	_ = c.ShouldBindJSON(&req) // the language is the only field and is optional
+	cl, err := r.Clusters.DAO.Get(c.Request.Context(), id)
+	if err != nil {
+		query.HandleDBError(c, err)
+		return
+	}
+	explained, err := r.Clusters.Explain(c.Request.Context(), cl, uint(changeID))
+	if err != nil {
+		query.HandleDBError(c, err)
+		return
+	}
+	ctx, cancel := r.questionContext(c)
+	defer cancel()
+	reply, err := r.Service.Diagnose(ctx, clustersvc.DiagnoseFacts(explained), assistantLang(req.Lang))
+	r.reply(c, reply, err)
 }

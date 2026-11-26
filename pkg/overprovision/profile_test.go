@@ -77,3 +77,49 @@ func TestTheLastDayIsCutIntoHoursAndCells(t *testing.T) {
 	assert.Equal(t, 600, cellSecondsFor(600))
 	assert.Equal(t, 900, cellSecondsFor(900))
 }
+
+// the replicas of the profile are the ones measured: a median of the samples of each hour, never the estimate; an hour with no sample has none
+func TestTheMeasuredReplicasAreKeptApartFromTheEstimate(t *testing.T) {
+	start := time.Date(2026, 11, 10, 0, 0, 0, 0, time.UTC)
+	end := start.Add(7 * 24 * time.Hour)
+	var total, reps []Point
+	for ts := start; ts.Before(end); ts = ts.Add(5 * time.Minute) {
+		v := 5.0
+		if h := ts.Hour(); h == 9 || h == 10 {
+			v = 20
+		}
+		total = append(total, Point{TS: ts.Unix(), V: v})
+		// the workload really ran 3 replicas, and 4 in the hours 9 and 10; nothing was measured from 02:00 to 04:00
+		if h := ts.Hour(); h == 2 || h == 3 {
+			continue
+		}
+		n := 3.0
+		if h := ts.Hour(); h == 9 || h == 10 {
+			n = 4
+		}
+		reps = append(reps, Point{TS: ts.Unix(), V: n})
+	}
+	prof := BuildLoadProfile([]LoadInput{{Resource: CPU, Total: total, Raw: total, Request: 4, StepSeconds: 300}}, 0.85, 95, time.UTC)
+	require.NotNil(t, prof)
+	prof.AddRecent([]LoadInput{{Resource: CPU, Total: total, Raw: total, Request: 4, StepSeconds: 300}}, 0.85, end, time.UTC)
+	prof.AddActual(reps, end, time.UTC, "ready-replicas")
+
+	assert.Equal(t, 6, prof.Peak, "the estimate is untouched: what the use asks for")
+	assert.Equal(t, 4, prof.ActualPeak, "the measured peak is what the workload had")
+	assert.Equal(t, 3, prof.ActualNormal)
+	assert.Equal(t, 22, prof.ActualHours, "two hours had no sample")
+	assert.Equal(t, "ready-replicas", prof.ActualSource)
+	assert.Equal(t, 4, prof.Hours[9].Actual)
+	assert.Equal(t, 6, prof.Hours[9].Need)
+	assert.Zero(t, prof.Hours[2].Actual, "no sample, no figure: the estimate does not fill it")
+	assert.Equal(t, 3, prof.Hours[20].Actual)
+	assert.Equal(t, 3, prof.Hours[20].ActualMin)
+	assert.Equal(t, 3, prof.Hours[20].ActualMax)
+	require.Len(t, prof.RecentReplicas, 24)
+
+	// no replicas metric: nothing is measured and nothing is made up
+	bare := BuildLoadProfile([]LoadInput{{Resource: CPU, Total: total, Request: 4, StepSeconds: 300}}, 0.85, 95, time.UTC)
+	bare.AddActual(nil, end, time.UTC, "")
+	assert.Zero(t, bare.ActualPeak)
+	assert.Zero(t, bare.ActualHours)
+}

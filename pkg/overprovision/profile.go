@@ -19,6 +19,12 @@ type HourNeed struct {
 	Need   int `json:"need"`
 	CPU    int `json:"cpu"`
 	Memory int `json:"memory"`
+	// Actual is the replicas the workload really had in this hour of the day: the median of the samples of the module's replicas metric in that hour over the period (ActualMin and
+	// ActualMax the fewest and the most seen, ActualSamples how many). 0 when the metric has no sample in the hour. It is measured, never worked out of Need.
+	Actual        int `json:"actual"`
+	ActualMin     int `json:"actual_min"`
+	ActualMax     int `json:"actual_max"`
+	ActualSamples int `json:"actual_samples"`
 }
 
 // LoadProfile is the replicas the hours of the day ask for.
@@ -42,6 +48,15 @@ type LoadProfile struct {
 	Saved float64 `json:"saved"`
 	// Recent is the use itself over the last 24 hours (see AddRecent): for each resource the use of all the Pods in small cells, and the use the normal count carries.
 	Recent []RecentLoad `json:"recent"`
+	// ActualNormal and ActualPeak are the middle one and the largest of the measured replicas of the hours (ActualHours of them have a figure, made of ActualSamples samples of
+	// the metric called ActualSource); all 0 when the module has no replicas metric or it returned nothing. RecentReplicas are the measured replicas of each of the last 24 hours
+	// (0 = none measured).
+	ActualNormal   int    `json:"actual_normal"`
+	ActualPeak     int    `json:"actual_peak"`
+	ActualHours    int    `json:"actual_hours"`
+	ActualSamples  int    `json:"actual_samples"`
+	ActualSource   string `json:"actual_source,omitempty"`
+	RecentReplicas []int  `json:"recent_replicas"`
 	// RecentStart is the first moment of the first of the 24 hours (unix seconds), RecentHours the hour of the day of each of them, and CellSeconds the length of a cell.
 	RecentStart int64 `json:"recent_start"`
 	RecentHours []int `json:"recent_hours"`
