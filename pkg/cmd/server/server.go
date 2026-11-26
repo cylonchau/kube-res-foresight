@@ -23,8 +23,10 @@ type Options struct {
 	h          bool
 	migration  bool
 	upgrade    bool
-	sqlDriver  string
-	errCh      chan error
+	// partitionPredictions converts the forecast table to one partitioned by day (PostgreSQL), without stopping the platform, then exits.
+	partitionPredictions bool
+	sqlDriver            string
+	errCh                chan error
 }
 
 func NewOptions() *Options {
@@ -85,6 +87,7 @@ func (o *Options) AddFlags(fs *pflag.FlagSet) {
 	fs.StringVarP(&o.ConfigFile, "config", "c", "./config.yaml", "The path to the configuration file.")
 	fs.BoolVar(&o.migration, "migration", false, "Initial database and tables.")
 	fs.BoolVar(&o.upgrade, "upgrade", false, "If true, update the database schema to the latest version.")
+	fs.BoolVar(&o.partitionPredictions, "partition-predictions", false, "PostgreSQL only: convert the forecast table to one partitioned by day, copying it while the platform goes on writing it, then exit.")
 	fs.StringVar(&o.sqlDriver, "sql-driver", "sqlite", "enable which sql backend.")
 }
 
@@ -200,6 +203,10 @@ func (o *Options) Run(ctx context.Context) error {
 
 	if o.upgrade {
 		return migration.Upgrade(o.sqlDriver)
+	}
+
+	if o.partitionPredictions {
+		return migration.PartitionPredictionsNow()
 	}
 
 	return RunPlatform(ctx)

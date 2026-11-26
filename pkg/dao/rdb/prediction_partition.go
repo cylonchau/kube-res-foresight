@@ -47,11 +47,15 @@ func PartitionDay(name string) (time.Time, bool) {
 }
 
 // PartitionDDL creates the partition of the day of t when it is not there.
-func PartitionDDL(t time.Time) string {
+func PartitionDDL(t time.Time) string { return PartitionDDLOf(PredictionTable, t) }
+
+// PartitionDDLOf creates the partition of the day of t of the partitioned table `parent` (the migration builds the new table under another name before it takes the place of
+// the old one).
+func PartitionDDLOf(parent string, t time.Time) string {
 	from := DayStart(t)
 	to := from.AddDate(0, 0, 1)
 	const layout = "2006-01-02 15:04:05+00"
-	return fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s PARTITION OF %s FOR VALUES FROM ('%s') TO ('%s')", PartitionName(from), PredictionTable, from.Format(layout), to.Format(layout))
+	return fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s PARTITION OF %s FOR VALUES FROM ('%s') TO ('%s')", PartitionName(from), parent, from.Format(layout), to.Format(layout))
 }
 
 // partitionState is what this process knows of the table. A table found partitioned stays so; one found ordinary is looked at again after a while, because the migration
