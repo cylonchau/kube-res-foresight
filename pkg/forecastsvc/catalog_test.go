@@ -50,7 +50,7 @@ func TestCatalogDefinitionsAreComplete(t *testing.T) {
 	// the retention stated by the catalog is the one the pruning job applies
 	pred, ok := LookupMetric("prediction_value")
 	require.True(t, ok)
-	assert.Equal(t, 7, pred.RetentionDays)
+	assert.Equal(t, 30, pred.RetentionDays)
 	evalDef, _ := LookupMetric("evaluation_wape")
 	assert.Equal(t, 180, evalDef.RetentionDays)
 	_, ok = LookupMetric("nope")

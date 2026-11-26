@@ -546,9 +546,9 @@ const DefaultScoresPerModule = 300
 // DefaultSnapshotsPerModule is how many snapshots a module keeps unless the system parameter says otherwise.
 const DefaultSnapshotsPerModule = 200
 
-// DefaultRetention keeps predictions for 7 days (every step for the last day, then one in fifteen minutes) and the audit-relevant summaries for 180.
+// DefaultRetention keeps predictions for 30 days (every step for the last day, then one in fifteen minutes) and the audit-relevant summaries for 180.
 var DefaultRetention = Retention{
-	Predictions:     7 * 24 * time.Hour,
+	Predictions:     30 * 24 * time.Hour,
 	Backtests:       180 * 24 * time.Hour,
 	Recommendations: 180 * 24 * time.Hour,
 	Evaluations:     180 * 24 * time.Hour,

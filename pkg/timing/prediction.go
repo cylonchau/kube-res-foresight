@@ -11,9 +11,9 @@ var PredictionThinAfter = Param{Key: "forecast.prediction_thin_after_hours", Def
 // PredictionRetentionDays is how long a stored forecast is kept. The forecast table is the biggest of the platform: a module writes a forecast of every algorithm for every
 // metric for every step of the horizon, so what is kept is (targets a day) x (algorithms) x (metrics) x (days kept) rows for each module, and a month of it is millions of
 // rows for one module. What reads it is the chart of forecast against what happened, which a week shows well, and the evaluation, which scores a run within hours.
-var PredictionRetentionDays = Param{Key: "forecast.prediction_retention_days", Default: 7, Min: 1, Max: 365,
+var PredictionRetentionDays = Param{Key: "forecast.prediction_retention_days", Default: 30, Min: 1, Max: 365,
 	Name:   "Forecast Retention (days)",
-	Remark: "How many days the stored forecasts are kept (1-365). They are the biggest table of the platform: every algorithm forecasts every metric of every module, so the rows kept are (steps a day) x (algorithms) x (metrics) x (days) for each module. The chart of forecast against actual reaches back this far, the evaluation scores a run within hours. When forecast.history_retention_days is set and smaller, that one holds."}
+	Remark: "How many days the stored forecasts are kept (1-365). They are the biggest table of the platform: every algorithm forecasts every metric of every module, so the rows kept are (steps a day) x (algorithms) x (metrics) x (days) for each module. The chart of forecast against actual reaches back this far, the evaluation scores a run within hours. Only the last day is kept for every step (forecast.prediction_coarsen_after_hours), so at the default 15 minutes 30 days hold about as many rows as 3.6 days kept for every step. When forecast.history_retention_days is set and smaller, that one holds."}
 
 // PredictionCoarsenAfter and PredictionCoarsenMinutes thin the forecasts that are no longer looked at step by step: past PredictionCoarsenAfter hours only one forecast in every
 // PredictionCoarsenMinutes minutes of target time is kept for each algorithm and metric, which is as fine as a chart of days can be read.

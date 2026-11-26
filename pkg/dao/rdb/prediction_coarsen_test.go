@@ -71,15 +71,15 @@ func TestPruneCoarsensAndKeepsOnlyTheRetentionOfForecasts(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&model.BacktestRun{}, &model.PredictionEvaluation{}, &model.Recommendation{}, &model.TrainingRun{}, &model.AlgorithmScore{}))
 	ctx := context.Background()
 	now := time.Date(2026, 3, 20, 12, 0, 0, 0, time.UTC)
-	// a run 10 days ago (past the retention), one 4 days ago (coarsened), one an hour ago (kept as it is)
-	run(t, db, "naive", now.Add(-10*24*time.Hour), 15)
+	// a run 40 days ago (past the retention), one 4 days ago (coarsened), one an hour ago (kept as it is)
+	run(t, db, "naive", now.Add(-40*24*time.Hour), 15)
 	run(t, db, "naive", now.Add(-4*24*time.Hour), 15)
 	run(t, db, "naive", now.Add(-time.Hour), 15)
 	r := DefaultRetention
 	r.PredictionThinAfter = 24 * time.Hour
 	removed, err := dao.Prune(ctx, now, r)
 	require.NoError(t, err)
-	assert.EqualValues(t, 15, removed["predictions"], "the run of 10 days ago is past the 7 days")
+	assert.EqualValues(t, 15, removed["predictions"], "the run of 40 days ago is past the 30 days")
 	assert.Positive(t, removed["predictions_coarsened"], "the run of 4 days ago is reduced")
 	assert.EqualValues(t, 15, countRows(t, db, "created_at > ?", now.Add(-2*time.Hour)), "the newest run keeps every step")
 }

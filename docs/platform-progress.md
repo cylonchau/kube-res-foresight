@@ -1282,3 +1282,8 @@ all ten management pages and the shared product title. Screenshots were inspecte
 - **改法**：模块摘要取两者里较新的一个，并带上来源（`actual_from`：`execution` 或 `inventory`）和时间；operator 没找到工作负载、读不了，或还没读到时仍然是空。表头的说明改成了这个意思。
 - **仍然会空的情况**：没有部署 operator、模块的集群和 operator 对不上、工作负载不存在或读不了、operator 还没来得及读（刚添加的模块要等 operator 的下一轮，默认几十秒）。
 - **验证**：单测覆盖工作负载报告较新、只有工作负载报告、工作负载不存在、读取出错、扩缩容上报较新、两者都没有六种情况；Go 全部测试通过。没有在浏览器里看。
+
+2026-11-26（第二十四次）：预测保留回到 30 天
+
+- 需求是预测要保留 30 天，所以 `forecast.prediction_retention_days` 的默认值回到 30（上一次改成了 7）。体量靠“超过一天只留每 15 分钟一行”降下来：30 天约等于每步都留的 3.6 天，不是原来的 30 天。
+- 不想改默认值的库不用动：系统参数里 `forecast.prediction_retention_days` 随时可以改，`forecast.prediction_coarsen_after_hours`（默认 24）和 `forecast.prediction_coarsen_minutes`（默认 15）决定细到什么程度。
