@@ -591,7 +591,7 @@ type ClusterDiagnoseReq struct {
 	Lang string `json:"lang"`
 }
 
-// DiagnoseChange serves POST /clusters/:id/changes/:change/diagnose: the one-click AI diagnosis of a change of state in a cluster. The facts are the platform's own (the change,
+// DiagnoseChange serves POST /clusters/:id/changes/:change/diagnose: the one-click AI diagnosis of a change of state in a cluster, queued as a task that the page reads (the answer takes longer than a gateway waits). The facts are the platform's own (the change,
 // its reasons, the events about the object around that time, the usage, the changes tied to it); the model says what the cause is and how to fix it, and changes nothing.
 // @Summary Diagnose a change of a cluster with the language model
 // @Tags Cluster
@@ -622,8 +622,29 @@ func (r *AssistantRouter) DiagnoseChange(c *gin.Context) {
 		query.HandleDBError(c, err)
 		return
 	}
-	ctx, cancel := r.questionContext(c)
-	defer cancel()
-	reply, err := r.Service.Diagnose(ctx, clustersvc.DiagnoseFacts(explained), assistantLang(req.Lang))
-	r.reply(c, reply, err)
+	if r.Async == nil {
+		query.InternalError(c, errors.New("async tasks are not set up"))
+		return
+	}
+	owner, ok := asyncOwner(c)
+	if !ok {
+		return
+	}
+	ctx := withOwner(c)
+	// a diagnosis that cannot be asked (the assistant is off, no model) is refused now, not after a wait
+	if err := r.Service.Ready(ctx); err != nil {
+		r.asyncFailure(c, err)
+		return
+	}
+	principal, _ := principalOfRequest(c)
+	lang := assistantLang(req.Lang)
+	in := aitask.DiagnoseInput{Facts: clustersvc.DiagnoseFacts(explained), Lang: lang, OwnerID: owner.ID, OwnerName: owner.Name, Principal: principal}
+	title := fmt.Sprintf("%s %s/%s", explained.Change.Kind, explained.Change.Namespace, explained.Change.Name)
+	task, err := r.Async.SubmitSpec(ctx, asyncrun.Spec{Owner: owner.ID, OwnerName: owner.Name, Kind: aitask.DiagnoseKind, Title: title,
+		Dedup: fmt.Sprintf("diagnose-%d-%d-%s", id, changeID, lang), TraceID: c.GetString("requestId"), MaxAttempts: 1, Input: in})
+	if err != nil {
+		r.asyncFailure(c, err)
+		return
+	}
+	query.SuccessResponse(c, nil, asyncDTO(task))
 }

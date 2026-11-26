@@ -39,7 +39,7 @@ func registerAI(config *rdb.SysConfigDAO) {
 		raw, _ := config.GetValueOrDefault(ctx, timing.AsyncRetentionHours.Key, "")
 		return time.Duration(timing.AsyncRetentionHours.Parse(raw)) * time.Hour
 	}
-	job.Register(&asyncrun.Runner{Tasks: asyncTasks, Retention: retention, Handlers: map[string]asyncrun.Handler{aitask.ChatKind: aitask.ChatHandler(service),
+	job.Register(&asyncrun.Runner{Tasks: asyncTasks, Retention: retention, Handlers: map[string]asyncrun.Handler{aitask.ChatKind: aitask.ChatHandler(service), aitask.DiagnoseKind: aitask.DiagnoseHandler(service),
 		steprun.Kind: steprun.Handler(forecast), steprun.PreviewKind: steprun.PreviewHandler(forecast)}})
 	asyncSweeper = &asyncrun.Sweeper{Tasks: asyncTasks, Queue: &asyncrun.Queue{Tasks: asyncTasks, Jobs: rdb.NewJobDAO(model.DB), Retention: retention}}
 }

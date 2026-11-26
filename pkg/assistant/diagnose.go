@@ -46,6 +46,12 @@ Facts:
 	return b.String()
 }
 
+// Ready says whether a question can be asked now (the assistant is on and a model is set up), and what is missing when it cannot.
+func (s *Service) Ready(ctx context.Context) error {
+	_, err := s.ready(ctx)
+	return err
+}
+
 // Diagnose asks the language model to diagnose one change of a cluster from the facts the platform holds. It needs the assistant to be on and a model set up (the default one); it
 // is read-only like every question, and is recorded in the audit as a skill.
 func (s *Service) Diagnose(ctx context.Context, facts, lang string) (*Reply, error) {
