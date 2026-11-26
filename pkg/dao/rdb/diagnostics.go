@@ -130,10 +130,17 @@ func (dao *DiagnosticsDAO) postgresTables(out *DatabaseReport) func(context.Cont
 			LastVacuum *time.Time
 		}
 		var rows []row
-		err := dao.db.WithContext(ctx).Raw(`SELECT c.relname AS name, c.reltuples::bigint AS rows, pg_table_size(c.oid) AS size_bytes, pg_indexes_size(c.oid) AS index_bytes,
-			COALESCE(s.n_dead_tup, 0) AS dead_rows, COALESCE(s.last_autovacuum, s.last_vacuum) AS last_vacuum
-			FROM pg_class c LEFT JOIN pg_stat_user_tables s ON s.relid = c.oid
-			WHERE c.relkind = 'r' AND c.relname IN ? ORDER BY pg_total_relation_size(c.oid) DESC`, diagnosedTables).Scan(&rows).Error
+		// the partitions of the forecast table are one table here: their sizes and rows are added up under its name; the table the migration left behind when it converted
+		// the forecast table (see package migration) is listed so that its space can be seen until it is dropped
+		tables := append(append([]string{}, diagnosedTables...), PredictionTable+"_legacy")
+		err := dao.db.WithContext(ctx).Raw(`SELECT t.name, SUM(t.rows)::bigint AS rows, SUM(t.size_bytes)::bigint AS size_bytes, SUM(t.index_bytes)::bigint AS index_bytes,
+			SUM(t.dead_rows)::bigint AS dead_rows, MAX(t.last_vacuum) AS last_vacuum
+			FROM (SELECT CASE WHEN c.relname ~ '^forecast_prediction_p[0-9]{8}$' THEN 'forecast_prediction' ELSE c.relname END AS name,
+				GREATEST(c.reltuples, 0)::bigint AS rows, pg_table_size(c.oid) AS size_bytes, pg_indexes_size(c.oid) AS index_bytes,
+				COALESCE(s.n_dead_tup, 0) AS dead_rows, COALESCE(s.last_autovacuum, s.last_vacuum) AS last_vacuum
+				FROM pg_class c LEFT JOIN pg_stat_user_tables s ON s.relid = c.oid
+				WHERE c.relkind = 'r' AND (c.relname IN ? OR c.relname ~ '^forecast_prediction_p[0-9]{8}$')) t
+			GROUP BY t.name ORDER BY SUM(t.size_bytes + t.index_bytes) DESC`, tables).Scan(&rows).Error
 		for _, r := range rows {
 			out.Tables = append(out.Tables, TableStat{Name: r.Name, Rows: max(r.Rows, 0), SizeBytes: r.SizeBytes, IndexBytes: r.IndexBytes, DeadRows: r.DeadRows, LastVacuum: r.LastVacuum})
 		}

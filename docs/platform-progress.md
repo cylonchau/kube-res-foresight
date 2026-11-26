@@ -1287,3 +1287,17 @@ all ten management pages and the shared product title. Screenshots were inspecte
 
 - 需求是预测要保留 30 天，所以 `forecast.prediction_retention_days` 的默认值回到 30（上一次改成了 7）。体量靠“超过一天只留每 15 分钟一行”降下来：30 天约等于每步都留的 3.6 天，不是原来的 30 天。
 - 不想改默认值的库不用动：系统参数里 `forecast.prediction_retention_days` 随时可以改，`forecast.prediction_coarsen_after_hours`（默认 24）和 `forecast.prediction_coarsen_minutes`（默认 15）决定细到什么程度。
+
+2026-11-27（第二十五次）：预测表在 PostgreSQL 上按天分区
+
+- **分区是谁做的**：分区由 PostgreSQL 自己路由和裁剪（插入落到当天的分区，按时间读只读到涉及的天）；代码做的只有三件事：建好今天和之后 3 天的分区（每次写入前确认当天分区在，清理任务里也会补），到期整天 `DROP TABLE`（先等锁 10 秒，拿不到下一轮再来，不阻塞写入），以及升级时把旧表转成分区表。只有 PostgreSQL 分区；MySQL、SQLite 仍然是普通表，行为和以前一样。
+- **分区方式**：按 `prediction_time` 的 UTC 日期，表名 `forecast_prediction_pYYYYMMDD`。分区键必须在主键和唯一索引里：主键改为 `(id, prediction_time)`，唯一索引 `idx_prediction` 本来就含 `prediction_time`。
+- **升级怎么转**（`server --migration` 的最后一步，一个事务，失败就整体回滚、保持原表继续用）：
+  1. 锁住旧表，改名 `forecast_prediction_legacy`（索引一起改名）。
+  2. 建同样列的分区表，id 仍用同一个序列；建主键和三个索引。
+  3. 建从最早一天到之后 3 天的分区。
+  4. 逐天把保留期内的行复制进来；超过一天的只复制每 15 分钟目标时间的那一行（同上一次的粗化）；超过保留期的不复制。
+  5. 旧表不删，留着让你确认；新装的库里它是空的，会直接删掉。
+- **保留**：到期按整天丢分区，比原来按行删除精确到天（保留 30 天时，最多多留不到 1 天）；每小时的清理里粗化和被新一轮取代的清理仍然在做，只是读写都限制在相关几天的分区里。
+- **诊断页**：“会增长的表”把分区加起来显示成 forecast_prediction，旧表另列为 forecast_prediction_legacy，能看到还没释放的空间。
+- **验证**：命名、分区语句、SQLite 路径的单测通过，Go 全部测试通过。**没有在真实的 PostgreSQL 上跑过。**本机没有 PostgreSQL，Docker 没有启动，下载的便携版 PostgreSQL 被安全策略拦下没有运行。写了一个需要 `TEST_POSTGRES_DSN` 才运行的集成测试（`pkg/migration/prediction_partition_test.go`，在一个临时 schema 里转换、插入、重复插入、按需建分区、清理、丢分区、再次迁移），在一个临时库里跑过它再升级生产库。

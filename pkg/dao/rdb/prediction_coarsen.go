@@ -77,7 +77,7 @@ func (dao *PredictionDAO) coarsenSliceIDs(ctx context.Context, from, to time.Tim
 	for {
 		var page []coarsenRow
 		err := dao.db.WithContext(ctx).Model(&model.Prediction{}).Select("id", "module_id", "metric", "algorithm_id", "quantile_permille", "target_time").
-			Where("created_at > ? AND created_at <= ? AND id > ?", from, to, last).Order("id ASC").Limit(coarsenRead).Find(&page).Error
+			Where("created_at > ? AND created_at <= ? AND prediction_time >= ? AND prediction_time <= ? AND id > ?", from, to, from.Add(-rowDayMargin), to.Add(rowDayMargin), last).Order("id ASC").Limit(coarsenRead).Find(&page).Error
 		if err != nil {
 			return nil, err
 		}
@@ -135,7 +135,7 @@ func (dao *PredictionDAO) CoarsenPredictions(ctx context.Context, cutoff time.Ti
 		}
 		for start := 0; start < len(ids); start += thinBatch {
 			stop := min(start+thinBatch, len(ids))
-			res := dao.db.WithContext(ctx).Where("id IN ?", ids[start:stop]).Delete(&model.Prediction{})
+			res := dao.db.WithContext(ctx).Where("id IN ? AND prediction_time >= ? AND prediction_time <= ?", ids[start:stop], mark.Add(-rowDayMargin), end.Add(rowDayMargin)).Delete(&model.Prediction{})
 			total += res.RowsAffected
 			if res.Error != nil {
 				return total, res.Error

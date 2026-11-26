@@ -131,6 +131,21 @@ func NewPredictionDAO(db *gorm.DB) *PredictionDAO { return &PredictionDAO{db: db
 
 // SavePredictions appends predictions; a repeated key (same run replayed) is ignored, never overwritten.
 func (dao *PredictionDAO) SavePredictions(ctx context.Context, rows []model.Prediction) error {
+	if len(rows) > 0 && dao.postgres() {
+		// on the partitioned table the partition of each day has to be there before a row of it goes in
+		first, last := rows[0].PredictionTime, rows[0].PredictionTime
+		for _, r := range rows {
+			if r.PredictionTime.Before(first) {
+				first = r.PredictionTime
+			}
+			if r.PredictionTime.After(last) {
+				last = r.PredictionTime
+			}
+		}
+		if err := dao.ensureRowPartitions(ctx, first, last); err != nil {
+			return err
+		}
+	}
 	for start := 0; start < len(rows); start += sampleBatch {
 		end := start + sampleBatch
 		if end > len(rows) {
@@ -575,7 +590,19 @@ func (dao *PredictionDAO) Prune(ctx context.Context, now time.Time, r Retention)
 		removed[name] = q.RowsAffected
 		return q.Error
 	}
-	if r.Predictions > 0 {
+	if dao.IsPartitioned(ctx) {
+		// the table is partitioned by day: the days ahead get their partition, and a day past the retention goes as a whole (a DROP, not a delete of its rows)
+		if err := dao.EnsurePartitions(ctx, now, now.AddDate(0, 0, PartitionsAhead)); err != nil {
+			return removed, err
+		}
+		if r.Predictions > 0 {
+			n, err := dao.DropExpiredPartitions(ctx, now.Add(-r.Predictions))
+			removed["prediction_partitions"] = int64(n)
+			if err != nil {
+				return removed, err
+			}
+		}
+	} else if r.Predictions > 0 {
 		n, err := deleteInBatches(ctx, dao.db, &model.Prediction{}, "created_at < ?", []interface{}{now.Add(-r.Predictions)}, 10000, r.PredictionPruneBudget)
 		removed["predictions"] = n
 		if err != nil {

@@ -120,7 +120,14 @@ func Migrate(driver string) error {
 	if err := seedDefaultUsers(); err != nil {
 		return err
 	}
-	return EnsureDefaultConfigs()
+	if err := EnsureDefaultConfigs(); err != nil {
+		return err
+	}
+	// the forecast table, the biggest, is partitioned by day on PostgreSQL; a conversion that fails leaves it as it was and the platform works on it
+	if err := partitionPredictions(model.DB); err != nil {
+		fmt.Printf("upgrade: %v\n  the forecast table stays an ordinary table\n", err)
+	}
+	return nil
 }
 func Upgrade(driver string) error { return Migrate(driver) }
 

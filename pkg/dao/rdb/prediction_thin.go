@@ -46,10 +46,10 @@ func (dao *PredictionDAO) saveThinWatermark(ctx context.Context, at time.Time) e
 // A forecast made after its target (hindsight) is never replaced by this, and replaces nothing.
 func (dao *PredictionDAO) supersededIDs(ctx context.Context, from, to time.Time, limit int) ([]uint, error) {
 	var ids []uint
-	err := dao.db.WithContext(ctx).Raw(`SELECT p.id FROM forecast_prediction p WHERE p.created_at > ? AND p.created_at <= ? AND EXISTS (
+	err := dao.db.WithContext(ctx).Raw(`SELECT p.id FROM forecast_prediction p WHERE p.created_at > ? AND p.created_at <= ? AND p.prediction_time >= ? AND p.prediction_time <= ? AND EXISTS (
 		SELECT 1 FROM forecast_prediction n WHERE n.module_id = p.module_id AND n.metric = p.metric AND n.target_time = p.target_time
 		AND n.algorithm_id = p.algorithm_id AND n.quantile_permille = p.quantile_permille
-		AND n.prediction_time > p.prediction_time AND n.prediction_time <= p.target_time) LIMIT ?`, from, to, limit).Scan(&ids).Error
+		AND n.prediction_time > p.prediction_time AND n.prediction_time <= p.target_time) LIMIT ?`, from, to, from.Add(-rowDayMargin), to.Add(rowDayMargin), limit).Scan(&ids).Error
 	return ids, err
 }
 
@@ -82,7 +82,7 @@ func (dao *PredictionDAO) ThinPredictions(ctx context.Context, cutoff time.Time,
 				return total, err
 			}
 			if len(ids) > 0 {
-				res := dao.db.WithContext(ctx).Where("id IN ?", ids).Delete(&model.Prediction{})
+				res := dao.db.WithContext(ctx).Where("id IN ? AND prediction_time >= ? AND prediction_time <= ?", ids, mark.Add(-rowDayMargin), end.Add(rowDayMargin)).Delete(&model.Prediction{})
 				total += res.RowsAffected
 				if res.Error != nil {
 					return total, res.Error
