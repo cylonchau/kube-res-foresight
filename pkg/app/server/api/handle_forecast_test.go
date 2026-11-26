@@ -79,6 +79,7 @@ func forecastTestRouter(t *testing.T) (*gin.Engine, *model.MetricMapping) {
 	r.POST("/modules", h.CreateModule)
 	r.GET("/modules/:id", h.GetModule)
 	r.PUT("/modules/:id", h.UpdateModule)
+	r.POST("/modules/:id/copy-config", h.CopyConfig)
 	r.DELETE("/modules/:id", h.DeleteModule)
 	r.GET("/modules/:id/sources", h.ListSources)
 	r.GET("/modules/:id/requirements", h.ModuleRequirements)

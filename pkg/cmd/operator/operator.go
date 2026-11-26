@@ -66,6 +66,8 @@ type Options struct {
 	CollectEvents bool
 	// CollectChanges turns the reading of the state changes of nodes, Pods, workloads and HPAs off at this operator.
 	CollectChanges bool
+	// RegisterWorkloads lets the operator look for workloads that carry the label kube-res-foresight.io/register=true and report them; it lists nothing until the platform's switch for the cluster is on.
+	RegisterWorkloads bool
 }
 
 // NewScheme returns a scheme with the built-in kinds.
@@ -106,6 +108,7 @@ func NewCommand() *cobra.Command {
 	f.StringVar(&opts.Cluster, "cluster", "", "The name of the cluster this operator is for, as registered on the platform (lower-case letters, digits and -). The access key must be bound to it on the clusters page. Empty is the platform's default cluster. The KUBE_RES_FORESIGHT_CLUSTER environment variable is used when the flag is not given.")
 	f.BoolVar(&opts.CollectEvents, "collect-events", true, "Read the events of the cluster, read-only, and report them to the platform (the platform can switch it off too). Turn it off here to leave the operator doing nothing but scaling.")
 	f.BoolVar(&opts.CollectChanges, "collect-changes", true, "Watch the nodes, Pods, Deployments, StatefulSets and HPAs of the cluster, read-only, and report their state changes to the platform (the platform can switch it off too). Turn it off here to leave the operator doing nothing but scaling.")
+	f.BoolVar(&opts.RegisterWorkloads, "register-workloads", true, "Look for the Deployments, StatefulSets and DaemonSets that carry the label kube-res-foresight.io/register=true and report them to the platform, which makes them modules (switched off) when the switch of the cluster is on. It lists nothing while that switch is off. Turn it off here to leave the operator doing nothing but scaling.")
 	return cmd
 }
 
@@ -232,6 +235,14 @@ func Run(ctx context.Context, opts *Options) error {
 			Refresh: func() time.Duration { return timing.Seconds(settings.Get().SettingsRefreshSeconds) }}
 		if err := mgr.Add(changes); err != nil {
 			return fmt.Errorf("register the change collector: %w", err)
+		}
+	}
+	if opts.RegisterWorkloads {
+		// the workloads that ask to be registered as modules, read-only, on the elected replica and on its own; it lists nothing until the platform's switch for the cluster is on
+		host, _ := os.Hostname()
+		registrar := &controller.WorkloadRegistrar{Reader: mgr.GetAPIReader(), Platform: platform, Operator: host, Namespace: opts.Namespace}
+		if err := mgr.Add(registrar); err != nil {
+			return fmt.Errorf("register the workload registrar: %w", err)
 		}
 	}
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {

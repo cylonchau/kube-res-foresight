@@ -54,7 +54,7 @@ func (dao *ClusterDAO) Create(ctx context.Context, c *model.Cluster) error {
 // Update saves what an administrator may change of a cluster: never the default flag; the name is changed by Rename.
 func (dao *ClusterDAO) Update(ctx context.Context, c *model.Cluster) error {
 	return dao.db.WithContext(ctx).Model(&model.Cluster{}).Where("id = ?", c.ID).
-		Select("description", "enabled", "datasource_id", "namespace_include", "namespace_exclude").Updates(c).Error
+		Select("description", "enabled", "datasource_id", "namespace_include", "namespace_exclude", "auto_register").Updates(c).Error
 }
 
 // Delete removes a cluster that nothing belongs to: no module, and its keys are set free; its events go with it.

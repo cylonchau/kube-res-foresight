@@ -64,6 +64,10 @@ clusterAgent:
   # Watch the nodes, Pods, Deployments, StatefulSets and HPAs and report their state changes (read-only; the role needs get, list and watch on them, which the inventory
   # rule and the rules for scaling already give). Off leaves the operator doing nothing but scaling.
   collectChanges: true
+  # Look for the Deployments, StatefulSets and DaemonSets that carry the label kube-res-foresight.io/register=true and report them to the platform, which makes them modules
+  # (switched off) when the switch of the cluster is on (the clusters page). It lists nothing while that switch is off; the label is selected on by the API server, so only
+  # labelled workloads are read. The role needs get, list and watch on the three kinds of workload.
+  registerWorkloads: true
 
 rbac:
   # Create the ClusterRole and its binding. Turn it off only when you bind a role of your own.

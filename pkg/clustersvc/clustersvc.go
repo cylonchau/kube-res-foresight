@@ -16,6 +16,7 @@ import (
 	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
 	"github.com/cylonchau/kube-res-foresight/pkg/logger"
 	"github.com/cylonchau/kube-res-foresight/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/modulecopy"
 	"github.com/cylonchau/kube-res-foresight/pkg/timing"
 	"gorm.io/gorm"
 )
@@ -59,6 +60,9 @@ type Service struct {
 	DAO    *rdb.ClusterDAO
 	Config *rdb.SysConfigDAO
 	Now    func() time.Time
+	// Modules and Copier register the workloads that ask for it (see Register); nil in a service that only reads.
+	Modules *rdb.ModuleDAO
+	Copier  *modulecopy.Copier
 }
 
 func (s *Service) now() time.Time {
@@ -146,7 +150,7 @@ func (s *Service) Settings(ctx context.Context, c *model.Cluster) clusteragent.S
 			changes = v
 		}
 	}
-	return clusteragent.Settings{Cluster: c.Name, Namespaces: Scope(c), CollectEvents: collect, CollectChanges: changes, SkipReasons: skip}
+	return clusteragent.Settings{Cluster: c.Name, Namespaces: Scope(c), CollectEvents: collect, CollectChanges: changes, AutoRegister: c.AutoRegister, SkipReasons: skip}
 }
 
 // Rules are the custom rules of the system parameter; a list that cannot be read gives none and the reason.
@@ -162,6 +166,7 @@ type Input struct {
 	DatasourceID     uint
 	NamespaceInclude []string
 	NamespaceExclude []string
+	AutoRegister     bool
 }
 
 func (in Input) check() ([]string, []string, error) {
@@ -192,7 +197,7 @@ func (s *Service) Create(ctx context.Context, in Input) (*model.Cluster, error) 
 	if _, err := s.DAO.ByName(ctx, name); err == nil {
 		return nil, fmt.Errorf("%w: a cluster named %q exists", ErrInvalid, name)
 	}
-	c := &model.Cluster{Name: name, Description: in.Description, Enabled: in.Enabled, DatasourceID: in.DatasourceID,
+	c := &model.Cluster{Name: name, Description: in.Description, Enabled: in.Enabled, DatasourceID: in.DatasourceID, AutoRegister: in.AutoRegister,
 		NamespaceInclude: clusteragent.FormatNames(inc), NamespaceExclude: clusteragent.FormatNames(exc)}
 	return c, s.DAO.Create(ctx, c)
 }
@@ -242,7 +247,7 @@ func (s *Service) Update(ctx context.Context, id uint, in Input) (*model.Cluster
 	if err != nil {
 		return nil, err
 	}
-	c.Description, c.Enabled, c.DatasourceID = in.Description, in.Enabled, in.DatasourceID
+	c.Description, c.Enabled, c.DatasourceID, c.AutoRegister = in.Description, in.Enabled, in.DatasourceID, in.AutoRegister
 	c.NamespaceInclude, c.NamespaceExclude = clusteragent.FormatNames(inc), clusteragent.FormatNames(exc)
 	return c, s.DAO.Update(ctx, c)
 }

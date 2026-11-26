@@ -9,7 +9,7 @@ rules:
   - apiGroups: ["apps"]
     resources: ["deployments", "statefulsets"]
     verbs: ["get", "list", "watch"]
-  {{- if or .Values.inventory.enabled .Values.clusterAgent.collectChanges }}
+  {{- if or .Values.inventory.enabled .Values.clusterAgent.collectChanges .Values.clusterAgent.registerWorkloads }}
   # read only, for the resource pages of the platform (the inventory) and the state changes the operator reports: the nodes, and the Pods and the DaemonSets of the modules. Kubernetes cannot
   # limit a read of Pods to some workloads, only to namespaces: the operator reads the Pods the selector of a module names, and no other.
   - apiGroups: ["apps"]

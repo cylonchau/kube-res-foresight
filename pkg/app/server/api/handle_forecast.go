@@ -17,6 +17,7 @@ import (
 	"github.com/cylonchau/kube-res-foresight/pkg/forecastsvc"
 	"github.com/cylonchau/kube-res-foresight/pkg/job/tasks/asyncrun"
 	"github.com/cylonchau/kube-res-foresight/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/modulecopy"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -108,6 +109,7 @@ func (r *ForecastRouter) ListModules(c *gin.Context) {
 	}
 	out := make([]moduleDTO, len(list))
 	for i, m := range list {
+		m.EnableBlockers = m.MissingToEnable()
 		out[i] = moduleDTO{ForecastModule: m, Summary: summaries[m.ID]}
 	}
 	query.SuccessResponse(c, nil, gin.H{"list": out, "total": total, "page": req.Page, "pageSize": req.PageSize})
@@ -121,6 +123,7 @@ type moduleDTO struct {
 
 func (r *ForecastRouter) GetModule(c *gin.Context) {
 	if m, ok := r.module(c); ok {
+		m.EnableBlockers = m.MissingToEnable()
 		query.SuccessResponse(c, nil, m)
 	}
 }
@@ -321,10 +324,19 @@ func (r *ForecastRouter) UpdateModule(c *gin.Context) {
 		}
 		req.Cluster = &cluster
 	}
+	wasEnabled := m.Enabled
 	applyModuleUpdate(m, &req)
 	if err := m.Validate(); err != nil {
 		query.BadRequest(c, err)
 		return
+	}
+	// a module the platform registered by itself is switched on only once what it needs is there: the maximum of its replicas and a metric source. What is missing is told in
+	// full, so it is completed in one go; the update as a whole is refused, nothing of it is kept.
+	if m.Enabled && !wasEnabled {
+		if missing := m.MissingToEnable(); len(missing) > 0 {
+			query.BadRequest(c, fmt.Errorf("the module was registered by itself and cannot be switched on yet: %s", model.JoinBlockers(missing)))
+			return
+		}
 	}
 	if err := r.checkPredictAlgorithm(c.Request.Context(), m); err != nil {
 		query.BadRequest(c, err)
@@ -340,7 +352,42 @@ func (r *ForecastRouter) UpdateModule(c *gin.Context) {
 		r.writeError(c, err)
 		return
 	}
+	m.EnableBlockers = m.MissingToEnable()
 	query.SuccessResponse(c, nil, m)
+}
+
+// CopyConfigReq says which module the parameters come from and which groups are taken (none named = all of them).
+type CopyConfigReq struct {
+	FromID uint     `json:"from_id" binding:"required"`
+	Groups []string `json:"groups"`
+}
+
+// CopyConfig serves POST /modules/:id/copy-config: the parameters of another module onto this one, which has to be switched off (see package modulecopy for what is and is not taken).
+// The module is changed in one step and its form is then edited as usual.
+// @Summary Copy the parameters of another module onto this one
+// @Tags Module
+// @Router /api/v1/modules/{id}/copy-config [post]
+func (r *ForecastRouter) CopyConfig(c *gin.Context) {
+	m, ok := r.module(c)
+	if !ok {
+		return
+	}
+	var req CopyConfigReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		query.BadRequest(c, err)
+		return
+	}
+	res, err := (&modulecopy.Copier{Modules: r.Modules, Mappings: r.Mappings}).Copy(c.Request.Context(), req.FromID, m.ID, req.Groups)
+	switch {
+	case err == nil:
+		query.SuccessResponse(c, nil, res)
+	case errors.Is(err, modulecopy.ErrSame), errors.Is(err, modulecopy.ErrTargetEnabled), errors.Is(err, modulecopy.ErrNoGroup):
+		query.BadRequest(c, err)
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		query.ErrorResponse(c, http.StatusNotFound, errors.New("the module to copy from does not exist"))
+	default:
+		r.writeError(c, err)
+	}
 }
 
 // checkCluster refuses a module that says it is in a cluster the platform has not registered, and says the cluster as the module stores it: empty for the default

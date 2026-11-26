@@ -122,6 +122,7 @@ type clusterReq struct {
 	NamespaceInclude []string `json:"namespace_include"`
 	NamespaceExclude []string `json:"namespace_exclude"`
 	KeyIDs           *[]int64 `json:"key_ids"`
+	AutoRegister     bool     `json:"auto_register"`
 }
 
 func (q clusterReq) input() clustersvc.Input {
@@ -130,7 +131,7 @@ func (q clusterReq) input() clustersvc.Input {
 		enabled = *q.Enabled
 	}
 	return clustersvc.Input{Name: q.Name, Description: strings.TrimSpace(q.Description), Enabled: enabled, DatasourceID: q.DatasourceID,
-		NamespaceInclude: q.NamespaceInclude, NamespaceExclude: q.NamespaceExclude}
+		NamespaceInclude: q.NamespaceInclude, NamespaceExclude: q.NamespaceExclude, AutoRegister: q.AutoRegister}
 }
 
 func (r *ClusterRouter) clusterError(c *gin.Context, err error) {
@@ -341,6 +342,42 @@ func (r *ClusterRouter) OperatorEvents(c *gin.Context) {
 		return
 	}
 	res, err := r.Service.IngestEvents(c.Request.Context(), cl, batch)
+	if err != nil {
+		if errors.Is(err, clusteragent.ErrInvalid) {
+			query.BadRequest(c, err)
+			return
+		}
+		query.InternalError(c, err)
+		return
+	}
+	r.Gate.Seen(c, cl)
+	query.SuccessResponse(c, nil, res)
+}
+
+// maxRegistrationBody is the biggest report of workloads that ask to be registered.
+const maxRegistrationBody = 2 << 20
+
+// OperatorRegistrations serves POST /operator/registrations: the workloads of the operator's cluster that carry the registration label. With the switch of the cluster off the
+// answer says so and nothing is made; with it on, each workload that is not a module yet becomes one that is switched off.
+// @Summary Take the workloads that ask to be registered as modules
+// @Tags Cluster
+// @Router /api/v1/operator/registrations [post]
+func (r *ClusterRouter) OperatorRegistrations(c *gin.Context) {
+	cl, ok := r.Gate.For(c)
+	if !ok {
+		return
+	}
+	if cl == nil {
+		query.ErrorResponse(c, http.StatusServiceUnavailable, errors.New("no cluster is registered on the platform"))
+		return
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxRegistrationBody)
+	var batch clusteragent.RegistrationBatch
+	if err := c.ShouldBindJSON(&batch); err != nil {
+		query.BadRequest(c, err)
+		return
+	}
+	res, err := r.Service.Register(c.Request.Context(), cl, batch)
 	if err != nil {
 		if errors.Is(err, clusteragent.ErrInvalid) {
 			query.BadRequest(c, err)

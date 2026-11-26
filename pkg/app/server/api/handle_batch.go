@@ -12,6 +12,7 @@ import (
 	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
 	"github.com/cylonchau/kube-res-foresight/pkg/forecast"
 	"github.com/cylonchau/kube-res-foresight/pkg/forecastsvc"
+	"github.com/cylonchau/kube-res-foresight/pkg/model"
 )
 
 // batchFailure is the reason one item of a batch was left alone; the others are done.
@@ -68,6 +69,13 @@ func (r *ForecastRouter) BatchModules(c *gin.Context) {
 			if err := m.Validate(); err != nil {
 				out.fail(id, err)
 				continue
+			}
+			// a module registered by itself is not switched on until what it needs is there (the same rule as the module form)
+			if m.Enabled {
+				if missing := m.MissingToEnable(); len(missing) > 0 {
+					out.fail(id, fmt.Errorf("the module was registered by itself and cannot be switched on yet: %s", model.JoinBlockers(missing)))
+					continue
+				}
 			}
 			if err := r.Modules.Update(ctx, m); err != nil {
 				out.fail(id, err)

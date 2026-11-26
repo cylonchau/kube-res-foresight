@@ -272,8 +272,71 @@ type ForecastModule struct {
 
 	Timezone string `gorm:"type:varchar(64);not null;default:'Asia/Shanghai'" json:"timezone" column_setting:"false"` // IANA zone of weekly fixed periods; UTC+8 unless set
 
+	// AutoRegistered is set on a module the platform made from a workload that carried the registration label. Such a module is made switched off, and cannot be switched on
+	// until what it needs is there (see EnableBlockers); a module somebody made by hand is not held to that.
+	AutoRegistered bool `gorm:"not null;default:false" json:"auto_registered" column_setting:"true"`
+	// EnableBlockers is what an auto-registered module still lacks before it may be switched on (not stored: filled when the module is read).
+	EnableBlockers []string `gorm:"-" json:"enable_blockers"`
+
 	// Sources are the metric sources of the module (loaded with it, not a column).
 	Sources []*MetricSource `gorm:"-" json:"sources"`
+}
+
+// The things an auto-registered module has to have before it is switched on.
+const (
+	BlockerMaxReplicas = "max_replicas"
+	BlockerReplicaSpan = "replica_bounds"
+	BlockerSources     = "metric_sources"
+)
+
+// BlockerText says a blocker in words (the codes are for the page, which says them in its own language).
+func BlockerText(code string) string {
+	switch code {
+	case BlockerMaxReplicas:
+		return "the maximum of replicas is not set"
+	case BlockerReplicaSpan:
+		return "the minimum of replicas is above the maximum"
+	case BlockerSources:
+		return "no CPU or memory metric source is on"
+	}
+	return code
+}
+
+// JoinBlockers is the blockers as one sentence.
+func JoinBlockers(codes []string) string {
+	words := make([]string, len(codes))
+	for i, c := range codes {
+		words[i] = BlockerText(c)
+	}
+	return strings.Join(words, "; ")
+}
+
+// MissingToEnable is what an auto-registered module lacks before it may be switched on, as the codes above; empty when it may be, and always empty for a module made by hand.
+// A new module has none of it: nobody can know the largest replica count a workload may have, or which metrics of it are read, so the platform does not guess them. The
+// maximum of replicas must be given (a workload with 0 would be clamped to nothing) and must not be below the minimum; and at least one source of CPU or memory has to be on,
+// or nothing can be collected or forecast. The sources have to be loaded on the module.
+func (m *ForecastModule) MissingToEnable() []string {
+	out := []string{}
+	if !m.AutoRegistered {
+		return out
+	}
+	if m.HasReplicas() {
+		if m.MaxReplicas < 1 {
+			out = append(out, BlockerMaxReplicas)
+		} else if m.MinReplicas > m.MaxReplicas {
+			out = append(out, BlockerReplicaSpan)
+		}
+	}
+	has := false
+	for _, s := range m.Sources {
+		if s != nil && s.Enabled && (s.Kind == "cpu" || s.Kind == "memory") {
+			has = true
+		}
+	}
+	if !has {
+		out = append(out, BlockerSources)
+	}
+	return out
 }
 
 func (ForecastModule) TableName() string { return "forecast_module" }

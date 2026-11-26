@@ -11,6 +11,7 @@ import (
 	"github.com/cylonchau/kube-res-foresight/pkg/job/tasks/asyncrun"
 	"github.com/cylonchau/kube-res-foresight/pkg/ldapauth"
 	"github.com/cylonchau/kube-res-foresight/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/modulecopy"
 	"github.com/gin-gonic/gin"
 
 	v1 "github.com/cylonchau/kube-res-foresight/pkg/app/server/api"
@@ -169,6 +170,7 @@ func RegisteredRouter(e *gin.Engine) {
 	moduleGroup.POST("/batch", forecastHandler.BatchModules)
 	moduleGroup.GET("/:id", forecastHandler.GetModule)
 	moduleGroup.PUT("/:id", forecastHandler.UpdateModule)
+	moduleGroup.POST("/:id/copy-config", forecastHandler.CopyConfig)
 	moduleGroup.DELETE("/:id", forecastHandler.DeleteModule)
 	moduleGroup.GET("/:id/sources", forecastHandler.ListSources)
 	moduleGroup.GET("/:id/requirements", forecastHandler.ModuleRequirements)
@@ -232,12 +234,14 @@ func RegisteredRouter(e *gin.Engine) {
 	v1Group.POST("/controls/:id/bypass", forecastHandler.Bypass)
 	v1Group.POST("/controls/:id/resume", forecastHandler.Resume)
 	// the clusters operators report from (P12): an operator is for one cluster, named by --cluster and by the access key it uses
-	clusterService := &clustersvc.Service{DAO: rdb.NewClusterDAO(model.DB), Config: rdb.NewSysConfigDAO(model.DB)}
+	clusterService := &clustersvc.Service{DAO: rdb.NewClusterDAO(model.DB), Config: rdb.NewSysConfigDAO(model.DB), Modules: rdb.NewModuleDAO(model.DB),
+		Copier: &modulecopy.Copier{Modules: rdb.NewModuleDAO(model.DB), Mappings: rdb.NewMetricMappingDAO(model.DB)}}
 	clusterGate := &v1.ClusterGate{Service: clusterService}
 	clusterHandler := &v1.ClusterRouter{Service: clusterService, Datasources: rdb.NewDatasourceDAO(model.DB), Gate: clusterGate}
 	v1Group.GET("/operator/cluster-settings", clusterHandler.OperatorSettings)
 	v1Group.POST("/operator/events", clusterHandler.OperatorEvents)
 	v1Group.POST("/operator/changes", clusterHandler.OperatorChanges)
+	v1Group.POST("/operator/registrations", clusterHandler.OperatorRegistrations)
 	v1Group.GET("/clusters", clusterHandler.List)
 	v1Group.POST("/clusters", clusterHandler.Create)
 	v1Group.GET("/cluster-keys", clusterHandler.Keys)

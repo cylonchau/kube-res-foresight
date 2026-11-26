@@ -81,6 +81,8 @@ spec:
             - --collect-events=true
             # The state changes of the nodes, Pods, Deployments, StatefulSets and HPAs (read-only, with the same get, list and watch the role already gives).
             - --collect-changes=true
+            # Looks for workloads that carry the label kube-res-foresight.io/register=true and reports them; lists nothing until the switch of the cluster is on (the clusters page).
+            - --register-workloads=true
           ports:
             - name: metrics
               containerPort: 8080

@@ -27,6 +27,9 @@ type Cluster struct {
 	// operator is connected and reach it through its settings; the replicas of a module are never limited by them.
 	NamespaceInclude string `gorm:"type:text" json:"-"`
 	NamespaceExclude string `gorm:"type:text" json:"-"`
+	// AutoRegister makes the platform register the workloads of the cluster that carry the label kube-res-foresight.io/register=true as modules (switched off, observe mode). Off by
+	// default: a cluster registers nothing by itself until someone says so.
+	AutoRegister bool `gorm:"not null;default:false" json:"auto_register" column_setting:"true"`
 
 	// Last contact of an operator of this cluster: when, and which Pod.
 	LastSeenAt *time.Time `json:"last_seen_at" column_setting:"true"`

@@ -118,8 +118,10 @@ type Settings struct {
 	Namespaces    Scope  `json:"namespaces"`
 	CollectEvents bool   `json:"collect_events"`
 	// CollectChanges says whether the operator reports the state changes of the nodes, Pods, workloads and HPAs it watches (see changes.go).
-	CollectChanges bool     `json:"collect_changes"`
-	SkipReasons    []string `json:"skip_reasons"`
+	CollectChanges bool `json:"collect_changes"`
+	// AutoRegister is the switch of the cluster for the registration of workloads (see registration.go): the operator looks for the workloads that carry the label only while it is on.
+	AutoRegister bool     `json:"auto_register"`
+	SkipReasons  []string `json:"skip_reasons"`
 }
 
 // Event is a Kubernetes Event as the operator reports it: what was said, by whom, about what, and when. Nothing is translated or merged. It is both the wire format and

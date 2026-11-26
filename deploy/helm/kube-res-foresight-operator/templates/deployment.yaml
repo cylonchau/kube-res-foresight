@@ -62,6 +62,7 @@ spec:
             {{- end }}
             - --collect-events={{ .Values.clusterAgent.collectEvents }}
             - --collect-changes={{ .Values.clusterAgent.collectChanges }}
+            - --register-workloads={{ .Values.clusterAgent.registerWorkloads }}
             {{- if .Values.inventory.enabled }}
             - --inventory-interval={{ .Values.inventory.interval }}
             {{- else }}
