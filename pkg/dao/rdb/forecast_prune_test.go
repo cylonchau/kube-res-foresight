@@ -17,7 +17,7 @@ import (
 func TestPruneDropsOldRecordsButKeepsTheLatestRecommendationOfEveryModule(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:prune?mode=memory&cache=shared"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.Prediction{}, &model.BacktestRun{}, &model.PredictionEvaluation{}, &model.Recommendation{}, &model.TrainingRun{}, &model.AlgorithmScore{}))
+	require.NoError(t, db.AutoMigrate(&model.Prediction{}, &model.BacktestRun{}, &model.PredictionEvaluation{}, &model.Recommendation{}, &model.TrainingRun{}, &model.AlgorithmScore{}, &model.SysConfig{}))
 	now := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
 	old, recent := now.AddDate(0, 0, -40), now.AddDate(0, 0, -2)
 	create := func(v any) { require.NoError(t, db.Create(v).Error) }

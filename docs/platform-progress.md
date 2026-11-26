@@ -1264,3 +1264,14 @@ all ten management pages and the shared product title. Screenshots were inspecte
   - 集群大盘里有集群时的页面没有在浏览器里重看（演示库没有集群），只改了顶部和说明的位置。
   - 预测推荐里 CPU 与内存共用一个推荐值系数（副本数也用它），没有拆成 CPU、内存各一个；拆开要改模型、决策和迁移，这次没做。资源大盘里 CPU、内存本来就各有自己的余量和 Limits 系数。
   - 降级与恢复的整个过程在 fake client 和假平台上测过，没有在真实集群里验证。
+
+2026-11-26（第二十二次）：预测表（forecast_prediction）的体量
+
+- **问题**：一个模块不到一个月，预测表估计 1190 万行、表 17.5 GiB、索引 31.1 GiB。每个算法对每个指标的每一步都存一行，保留 30 天；留下的行数约等于 每天的步数 × 算法数 × 指标数 × 保留天数，每个模块一个月就是千万行，100 个模块就是十亿行。表和索引的体积比行数该有的大得多（约 1.5 KB 一行，索引 2.7 KB 一行），是以前行数更多时删除留下的空间：删除只把空间留给新行，不还给磁盘，索引更不会缩。
+- **改了什么**：
+  - 预测保留 7 天（原来 30 天），系统参数 `forecast.prediction_retention_days`（1-365）；`forecast.history_retention_days` 设了而且更短时，预测也按它。
+  - 超过一天（`forecast.prediction_coarsen_after_hours`，默认 24）的预测，每个模块的每个算法、每个指标只留每 15 分钟目标时间里的一行（`forecast.prediction_coarsen_minutes`，默认 15，0 关闭）。按创建时间一小时一片，用水位（`forecast.prediction_coarsened_until`）记着做到哪，每次清理限时 `forecast.prune_budget_seconds`，重启不从头开始，和原来的“被新一轮取代的预测”清理（`forecast.prediction_thin_after_hours`）接在一起。评估在一小时内就给整轮打分，图表看一天以前的预测用不到每一步。
+  - 估计：一个模块从 30 天每步一行，变成 1 天每步加 6 天每 15 分钟一行，行数约为原来的二十分之一到十分之一（步长 1 分钟时）。
+- **没有做、需要你在库上做**：已经占着的磁盘不会自己缩。PostgreSQL 里要用 `VACUUM FULL forecast_prediction`（会锁表）或 pg_repack 缩表，用 `REINDEX TABLE CONCURRENTLY forecast_prediction` 重建索引，要在清理跑过几轮、行数降下来以后做。预测是可以重算的派生数据，但评估和图表依赖它，所以没有自动清空。
+- **没有做**：按时间分区（删分区代替删行，没有膨胀）改动大，没有做；每个模块仍然是全部算法 × 全部指标都预测并存储，行数随模块数线性增长，100 个模块在新默认下约为千万到亿的量级。
+- **验证**：新增的单测覆盖按 15 分钟目标时间只留一行、不动一天内的行、算法之间不互相吃掉、水位让第二次不再删、关闭和空表不做事、整个清理一起走；Go 全部测试通过。没有在 PostgreSQL 上跑真实大表（只有 SQLite 单测），清理一次要多久要看你的库。

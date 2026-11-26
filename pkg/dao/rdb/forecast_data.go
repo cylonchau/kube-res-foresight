@@ -531,6 +531,10 @@ type Retention struct {
 	// PredictionThinAfter is the age from which a forecast that a newer run replaced is deleted (see timing.PredictionThinAfter); 0 = never. The clean-up
 	// spends PredictionPruneBudget on it as well, after the deletion of the expired forecasts.
 	PredictionThinAfter time.Duration
+	// PredictionCoarsenAfter is the age from which the forecasts are reduced to one in every PredictionCoarsenEvery of target time for each algorithm and metric of a module
+	// (see timing.PredictionCoarsenAfter); either 0 = never.
+	PredictionCoarsenAfter time.Duration
+	PredictionCoarsenEvery time.Duration
 }
 
 // DefaultEvaluationsPerModule is how many measured evaluations a module keeps unless the system parameter says otherwise.
@@ -542,9 +546,9 @@ const DefaultScoresPerModule = 300
 // DefaultSnapshotsPerModule is how many snapshots a module keeps unless the system parameter says otherwise.
 const DefaultSnapshotsPerModule = 200
 
-// DefaultRetention keeps predictions for 30 days and the audit-relevant summaries for 180.
+// DefaultRetention keeps predictions for 7 days (every step for the last day, then one in fifteen minutes) and the audit-relevant summaries for 180.
 var DefaultRetention = Retention{
-	Predictions:     30 * 24 * time.Hour,
+	Predictions:     7 * 24 * time.Hour,
 	Backtests:       180 * 24 * time.Hour,
 	Recommendations: 180 * 24 * time.Hour,
 	Evaluations:     180 * 24 * time.Hour,
@@ -555,6 +559,8 @@ var DefaultRetention = Retention{
 	Scores:                 DefaultScoresPerModule,
 	EvaluationsPerModule:   DefaultEvaluationsPerModule,
 	PredictionPruneBudget:  2 * time.Minute,
+	PredictionCoarsenAfter: 24 * time.Hour,
+	PredictionCoarsenEvery: 15 * time.Minute,
 }
 
 // Prune deletes records older than their retention and reports how many of each were removed. The latest
@@ -579,6 +585,13 @@ func (dao *PredictionDAO) Prune(ctx context.Context, now time.Time, r Retention)
 	if r.PredictionThinAfter > 0 {
 		n, err := dao.ThinPredictions(ctx, now.Add(-r.PredictionThinAfter), r.PredictionPruneBudget)
 		removed["predictions_thinned"] = n
+		if err != nil {
+			return removed, err
+		}
+	}
+	if r.PredictionCoarsenAfter > 0 && r.PredictionCoarsenEvery > 0 {
+		n, err := dao.CoarsenPredictions(ctx, now.Add(-r.PredictionCoarsenAfter), r.PredictionCoarsenEvery, r.PredictionPruneBudget)
+		removed["predictions_coarsened"] = n
 		if err != nil {
 			return removed, err
 		}

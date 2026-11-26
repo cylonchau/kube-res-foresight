@@ -146,9 +146,14 @@ func (s *Service) RetentionPolicy(ctx context.Context) rdb.Retention {
 		}
 		r.PredictionPruneBudget = s.Timing(ctx, timing.PruneBudget)
 		r.PredictionThinAfter = time.Duration(s.Count(ctx, timing.PredictionThinAfter)) * time.Hour
+		r.Predictions = time.Duration(s.Count(ctx, timing.PredictionRetentionDays)) * 24 * time.Hour
+		r.PredictionCoarsenAfter = time.Duration(s.Count(ctx, timing.PredictionCoarsenAfter)) * time.Hour
+		r.PredictionCoarsenEvery = time.Duration(s.Count(ctx, timing.PredictionCoarsenMinutes)) * time.Minute
 		if days := s.HistoryDays(ctx, 0); days > 0 {
 			d := time.Duration(days) * 24 * time.Hour
-			r.Predictions, r.Backtests, r.Recommendations, r.Evaluations, r.Trainings = d, d, d, d, d
+			r.Backtests, r.Recommendations, r.Evaluations, r.Trainings = d, d, d, d
+			// the history period holds for the forecasts too when it is the shorter
+			r.Predictions = min(r.Predictions, d)
 		}
 		if v, err := s.Config.GetValueOrDefault(ctx, ConfigEvaluationMax, ""); err == nil {
 			if n, err := strconv.Atoi(v); err == nil && n >= 100 && n <= 10000000 {

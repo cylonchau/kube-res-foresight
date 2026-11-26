@@ -117,7 +117,7 @@ func All() []Param {
 		OperatorRequestTimeout, OperatorSyncInterval, OperatorDecisionCacheTTL, OperatorModuleCacheTTL, OperatorRecoverAnswers, OperatorSettingsRefresh,
 		OperatorDegradeHold, OperatorDegradeCooldown, OperatorRecoverStable, NotifyEmailTimeout, LeadPercentile, JudgePercentile, UncertaintyPercentile, MinSeasons,
 		HTTPGatewayTimeout, HTTPSlowRequest, UIRequestTimeout, UIRequestRetries, ListQuery, ListSearchDays, SummaryWindowHours, PrometheusTotalConcurrency, PrometheusSubqueryPoints, PruneBudget, ConversationRetentionDays, AuditRetentionDays, AsyncRetentionHours, OverprovisionUtilization, TightUtilization,
-		OPP90Target, OPP90Low, OPP90High, OPP95Target, OPP95Low, OPP95High, OPP99Target, OPP99Low, OPP99High, OPLimitFactor, OPLimitGuard, OPSustain, OPOOMUplift, OPThrottle, OPBaselineDays, OPGradeSevere, OPGradeModerate, OPCoverageHigh, OPCoverageMid, OPRetentionDays, PredictionThinAfter, ForecastReuse, ResultCache, InventorySnapshotDays, InventoryChangeDays, ClusterDatasource, ClusterRetentionDays, ClusterUsageBefore, ClusterUsageAfter}
+		OPP90Target, OPP90Low, OPP90High, OPP95Target, OPP95Low, OPP95High, OPP99Target, OPP99Low, OPP99High, OPLimitFactor, OPLimitGuard, OPSustain, OPOOMUplift, OPThrottle, OPBaselineDays, OPGradeSevere, OPGradeModerate, OPCoverageHigh, OPCoverageMid, OPRetentionDays, PredictionThinAfter, PredictionRetentionDays, PredictionCoarsenAfter, PredictionCoarsenMinutes, ForecastReuse, ResultCache, InventorySnapshotDays, InventoryChangeDays, ClusterDatasource, ClusterRetentionDays, ClusterUsageBefore, ClusterUsageAfter}
 }
 
 // Clamp brings a number into the range of the limit.
