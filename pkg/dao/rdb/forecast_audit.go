@@ -264,6 +264,10 @@ type ModuleSummary struct {
 	GPU            *int   `json:"gpu"`
 	ActualReplicas *int   `json:"actual_replicas"`
 	ReadyReplicas  *int   `json:"ready_replicas"`
+	// ActualFrom says where the replicas now come from: "execution" (the operator's last report of a scaling action) or "inventory" (what the operator last read from the
+	// Kubernetes API); ActualAt is when. The newer of the two is shown, so a module that is only recommended and never scaled has its replicas too.
+	ActualFrom string     `json:"actual_from,omitempty"`
+	ActualAt   *time.Time `json:"actual_at,omitempty"`
 }
 
 // ModuleSummaries builds the summaries of the given modules with one query per table.
@@ -311,16 +315,35 @@ func (dao *PredictionDAO) ModuleSummaries(ctx context.Context, modules []*model.
 	// the replica count the operator reported last, per module
 	var executions []model.ScalingExecution
 	if err := dao.db.WithContext(ctx).Table("scaling_execution AS e").
-		Select("e.module_id, e.current, e.ready").
+		Select("e.module_id, e.current, e.ready, e.created_at").
 		Joins("JOIN (SELECT module_id, MAX(id) AS id FROM scaling_execution WHERE module_id IN ? GROUP BY module_id) AS m ON m.id = e.id", ids).
 		Scan(&executions).Error; err != nil {
 		return nil, err
 	}
 	for _, e := range executions {
 		s := out[e.ModuleID]
-		current, ready := e.Current, e.Ready
-		s.ActualReplicas, s.ReadyReplicas = &current, &ready
+		current, ready, at := e.Current, e.Ready, e.CreatedAt
+		s.ActualReplicas, s.ReadyReplicas, s.ActualFrom, s.ActualAt = &current, &ready, "execution", &at
 		out[e.ModuleID] = s
+	}
+
+	// what the operator last read of the workload from the Kubernetes API: a module that is only recommended is never scaled, so it has no scaling report, and the replicas it
+	// runs with are these. The newer of the two reports is the one shown.
+	if dao.db.Migrator().HasTable(&model.WorkloadConfig{}) {
+		var workloads []model.WorkloadConfig
+		if err := dao.db.WithContext(ctx).Select("module_id, desired, ready, observed_at").
+			Where("module_id IN ? AND missing = ? AND error = ?", ids, false, "").Find(&workloads).Error; err != nil {
+			return nil, err
+		}
+		for _, w := range workloads {
+			s := out[w.ModuleID]
+			if s.ActualAt != nil && !w.ObservedAt.After(*s.ActualAt) {
+				continue
+			}
+			desired, ready, at := w.Desired, w.Ready, w.ObservedAt
+			s.ActualReplicas, s.ReadyReplicas, s.ActualFrom, s.ActualAt = &desired, &ready, "inventory", &at
+			out[w.ModuleID] = s
+		}
 	}
 
 	var states []model.ModuleRunState
