@@ -105,6 +105,8 @@ type ModuleCreateReq struct {
 	// recommendation mode are then off).
 	PeriodsEnabled  *bool `json:"periods_enabled"`
 	TriggersEnabled *bool `json:"triggers_enabled"`
+	// NodePoolEnabled makes the platform recommend a node pool for the Pod of the module (see model.NodePool).
+	NodePoolEnabled *bool `json:"node_pool_enabled"`
 	// DecisionSource is what the module follows: "algorithm" (the forecasts, the default) or "rule" (the fixed formula of the resource analysis).
 	DecisionSource string `json:"decision_source"`
 
@@ -198,6 +200,7 @@ type ModuleUpdateReq struct {
 	FixedReplicasEnabled *bool   `json:"fixed_replicas_enabled"`
 	PeriodsEnabled       *bool   `json:"periods_enabled"`
 	TriggersEnabled      *bool   `json:"triggers_enabled"`
+	NodePoolEnabled      *bool   `json:"node_pool_enabled"`
 	DecisionSource       *string `json:"decision_source"`
 }
 

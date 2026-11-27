@@ -75,19 +75,20 @@ type platformEnvelope struct {
 	Code int    `json:"code"`
 	Msg  string `json:"msg"`
 	Data struct {
-		Available   bool       `json:"available"`
-		Module      string     `json:"module"`
-		Version     int64      `json:"version"`
-		Replicas    int32      `json:"replicas"`
-		ValidUntil  *time.Time `json:"valid_until"`
-		CreatedAt   *time.Time `json:"created_at"`
-		Source      string     `json:"source"`
-		Reason      string     `json:"reason"`
-		Algorithm   string     `json:"algorithm"`
-		Score       float64    `json:"score"`
-		MinReplicas int32      `json:"min_replicas"`
-		MaxReplicas int32      `json:"max_replicas"`
-		Urgent      bool       `json:"urgent"`
+		Available   bool           `json:"available"`
+		Module      string         `json:"module"`
+		Version     int64          `json:"version"`
+		Replicas    int32          `json:"replicas"`
+		ValidUntil  *time.Time     `json:"valid_until"`
+		CreatedAt   *time.Time     `json:"created_at"`
+		Source      string         `json:"source"`
+		Reason      string         `json:"reason"`
+		Algorithm   string         `json:"algorithm"`
+		Score       float64        `json:"score"`
+		MinReplicas int32          `json:"min_replicas"`
+		MaxReplicas int32          `json:"max_replicas"`
+		Urgent      bool           `json:"urgent"`
+		PodSpec     *PodSpecChange `json:"pod_spec"`
 	} `json:"data"`
 }
 
@@ -199,7 +200,7 @@ func (d *PlatformDecider) Decide(ctx context.Context, s *Scaler) (*Decision, err
 		return nil, errors.New("platform returned a negative replica count")
 	}
 	return &Decision{Replicas: env.Data.Replicas, Source: "platform:" + env.Data.Source, Version: env.Data.Version, ValidUntil: env.Data.ValidUntil, CreatedAt: env.Data.CreatedAt, Reason: env.Data.Reason,
-		Algorithm: env.Data.Algorithm, Score: env.Data.Score, MinReplicas: env.Data.MinReplicas, MaxReplicas: env.Data.MaxReplicas, Urgent: env.Data.Urgent}, nil
+		Algorithm: env.Data.Algorithm, Score: env.Data.Score, MinReplicas: env.Data.MinReplicas, MaxReplicas: env.Data.MaxReplicas, Urgent: env.Data.Urgent, PodSpec: env.Data.PodSpec}, nil
 }
 
 // Report implements Reporter.

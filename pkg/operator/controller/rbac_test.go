@@ -57,8 +57,11 @@ func writesOf(rules []rbacRule) map[string][]string {
 
 // allowedWrites is every write the operator may have, and why.
 var allowedWrites = map[string]string{
-	"apps/deployments/scale":     "the replicas of a module's workload (the only business write)",
-	"apps/statefulsets/scale":    "the replicas of a module's workload (the only business write)",
+	"apps/deployments/scale":  "the replicas of a module's workload (the only business write)",
+	"apps/statefulsets/scale": "the replicas of a module's workload (the only business write)",
+	// only when the operator is started to adjust the Pod spec (--adjust-pod-spec): the Helm chart gives it with adjustPodSpec.enabled and deploy/operator/rbac/role-pod-spec.yaml is the role to add
+	"apps/deployments":           "the Pod template of a module's workload in auto mode (Requests, Limits, Node Selector), opt-in",
+	"apps/statefulsets":          "the Pod template of a module's workload in auto mode (Requests, Limits, Node Selector), opt-in",
 	"coordination.k8s.io/leases": "the leader election lease",
 	"/events":                    "the events the election records about itself (the Helm role only)",
 }
@@ -134,6 +137,15 @@ func TestTheOperatorWritesNothingButTheScaleOfItsWorkloadsAndItsLease(t *testing
 	assert.Contains(t, writesOf(helmRole(t)), "/events", "the test reads the Helm role (an empty read would hold nothing)")
 	assert.NotContains(t, writesOf(markerRules(t)), "/events")
 	assert.NotContains(t, writesOf(generatedRole(t)), "/events")
+}
+
+// The write on the workloads themselves is opt-in: the markers and the role generated from them (what a plain install uses) have none of it.
+func TestTheDefaultRoleHasNoWriteOnTheWorkloadsThemselves(t *testing.T) {
+	for name, rules := range map[string][]rbacRule{"the markers": markerRules(t), "the generated role": generatedRole(t)} {
+		writes := writesOf(rules)
+		assert.NotContains(t, writes, "apps/deployments", name)
+		assert.NotContains(t, writes, "apps/statefulsets", name)
+	}
 }
 
 func TestTheEventsAndTheClusterAreReadOnly(t *testing.T) {

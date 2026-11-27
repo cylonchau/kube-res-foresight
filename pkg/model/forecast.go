@@ -227,6 +227,9 @@ type ForecastModule struct {
 	FixedReplicasEnabled bool `gorm:"not null;default:false" json:"fixed_replicas_enabled" column_setting:"false"`
 	// PeriodsEnabled and TriggersEnabled are the switches of the time period strategy and of the metric trigger strategy (the third is FixedReplicasEnabled). At most one of the three is on, and
 	// while one is on the forecast and the recommendation mode are off: a strategy decides the replicas itself (see ActiveStrategy).
+	// NodePoolEnabled makes the platform recommend the node pool whose nodes the Pod of the module fills best (see NodePool), with the CPU, the memory and the replicas. The run mode decides
+	// whether the module is moved to it: admission sets the Node Selector of a new Pod, auto adjusts the workload; the other modes only show it.
+	NodePoolEnabled bool `gorm:"not null;default:false" json:"node_pool_enabled" column_setting:"false"`
 	PeriodsEnabled  bool `gorm:"not null;default:false" json:"periods_enabled" column_setting:"false"`
 	TriggersEnabled bool `gorm:"not null;default:false" json:"triggers_enabled" column_setting:"false"`
 	MinGPU          int  `gorm:"not null;default:0" json:"min_gpu" column_setting:"false"`
@@ -883,6 +886,9 @@ type Recommendation struct {
 	Urgent bool `gorm:"not null;default:false" json:"urgent" column_setting:"false"`
 	// RuleDecisionID is the calculation of the fixed formula this recommendation took its replicas or Pod spec from (0 = none): the way from a calculation to what the operator did with it.
 	RuleDecisionID uint `gorm:"not null;default:0;index" json:"rule_decision_id" column_setting:"false"`
+	// NodePoolID and NodePool are the node pool recommended for the Pod of this recommendation (0 and empty = none: the module does not use pools, or no pool fits).
+	NodePoolID uint   `gorm:"not null;default:0" json:"node_pool_id" column_setting:"false"`
+	NodePool   string `gorm:"type:varchar(100);not null;default:''" json:"node_pool" column_setting:"true"`
 }
 
 func (Recommendation) TableName() string { return "recommendation" }

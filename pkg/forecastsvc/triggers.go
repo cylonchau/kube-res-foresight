@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"sort"
 	"time"
 
 	"github.com/cylonchau/kube-res-foresight/pkg/decision"
@@ -64,12 +65,31 @@ func reduceTrigger(stat string, values []float64) float64 {
 			low = math.Min(low, v)
 		}
 		return low
+	case model.TriggerStatP90:
+		return percentileOf(values, 0.90)
+	case model.TriggerStatP95:
+		return percentileOf(values, 0.95)
+	case model.TriggerStatP99:
+		return percentileOf(values, 0.99)
 	}
 	sum := 0.0
 	for _, v := range values {
 		sum += v
 	}
 	return sum / float64(len(values))
+}
+
+// percentileOf is the q-quantile of the values (linear between the two nearest ranks), the same figure the resource dashboard's P90, P95 and P99 are.
+func percentileOf(values []float64, q float64) float64 {
+	sorted := append([]float64(nil), values...)
+	sort.Float64s(sorted)
+	if len(sorted) == 1 {
+		return sorted[0]
+	}
+	pos := q * float64(len(sorted)-1)
+	lo := int(math.Floor(pos))
+	hi := int(math.Ceil(pos))
+	return sorted[lo] + (sorted[hi]-sorted[lo])*(pos-float64(lo))
 }
 
 // triggerSamples reads the samples a trigger compares: the stored series of a source of the module, or the heap used over the heap maximum for the JVM heap pressure.

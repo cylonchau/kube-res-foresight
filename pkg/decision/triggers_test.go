@@ -156,3 +156,27 @@ func TestScaleUpsAndScaleDownsFiringTogetherAreWeighed(t *testing.T) {
 	got, _ = ApplyTriggers(algorithmField(10), 10, []FiredTrigger{hot, idle}, "the JVM heap is over its threshold", 0, 0)
 	assert.EqualValues(t, 11, got.Value)
 }
+
+// A proportional trigger works the count out of the metric: the running replicas times the value over the threshold, at most Amount away from what runs; the same metric that is
+// still over the threshold at the next decision (the count has not caught up, or the operator is held by its cooldown) is worked out again from the replicas that run then.
+func TestAProportionalTriggerSizesTheStepFromTheMetric(t *testing.T) {
+	hot := FiredTrigger{Name: "cpu", Action: TriggerScaleUp, Unit: TriggerProportional, Amount: 4, Value: 120, Threshold: 100}
+	got, out := ApplyTriggers(Field{}, 10, []FiredTrigger{hot}, "", 0, 0)
+	assert.EqualValues(t, 12, got.Value, "10 x 120 / 100")
+	assert.Equal(t, SourceTrigger, got.Source)
+	assert.Equal(t, 12, out.Result)
+
+	hot.Value = 300
+	got, _ = ApplyTriggers(Field{}, 10, []FiredTrigger{hot}, "", 0, 0)
+	assert.EqualValues(t, 14, got.Value, "10 x 300 / 100 is 30, but one decision moves at most 4 replicas")
+
+	// still over the threshold next time: the next step is worked out from the 14 that run then
+	got, _ = ApplyTriggers(Field{}, 14, []FiredTrigger{hot}, "", 0, 0)
+	assert.EqualValues(t, 18, got.Value)
+	got, _ = ApplyTriggers(Field{}, 18, []FiredTrigger{hot}, "", 0, 20)
+	assert.EqualValues(t, 20, got.Value, "and never beyond the maximum of the module")
+
+	cold := FiredTrigger{Name: "cpu-low", Action: TriggerScaleDown, Unit: TriggerProportional, Amount: 3, Value: 40, Threshold: 80}
+	got, _ = ApplyTriggers(Field{}, 10, []FiredTrigger{cold}, "", 0, 0)
+	assert.EqualValues(t, 7, got.Value, "10 x 40 / 80 is 5, but at most 3 replicas are taken away")
+}

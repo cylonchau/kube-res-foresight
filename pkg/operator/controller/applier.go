@@ -34,6 +34,9 @@ type Applier struct {
 	Reporter Reporter
 	// Metrics is optional.
 	Metrics *Metrics
+	// AdjustPodSpec lets the operator write the CPU and memory Requests, the Limits the module manages and the Node Selector of the recommended node pool on the Pod template of a
+	// module in auto mode, besides the replicas. Off (the default) it writes the replicas and nothing else, and the role of the operator has no write on the workloads.
+	AdjustPodSpec bool
 
 	reportMu   sync.Mutex
 	lastReport map[string]string
@@ -161,6 +164,23 @@ func (a *Applier) Evaluate(ctx context.Context, s *Scaler, key string) {
 		outcome = "applied"
 		a.Metrics.recordScale(plan.Action, "applied")
 		log.Info("scaled target", "target", s.Target.Name, "from", current, "to", plan.Desired, "reason", plan.Reason)
+	}
+	// the Pod spec is written after the replicas: only from the platform's own, fresh answer, never from one the operator remembered or one it has just got back
+	if a.AdjustPodSpec && in.Conflict == "" && in.Decision != nil && in.Decision.PodSpec != nil && !in.Decision.Cached && !in.Decision.Recovering {
+		note, err := a.applyPodSpec(ctx, tgt, in.Decision.PodSpec)
+		switch {
+		case err != nil:
+			rep.Reason += "; " + err.Error()
+			if outcome == "observed" {
+				outcome = "error"
+			}
+		case note != "":
+			rep.Reason += "; " + note
+			if outcome == "observed" || outcome == "held" {
+				outcome = "applied"
+			}
+			log.Info("adjusted the Pod spec of the target", "target", s.Target.Name, "change", note)
+		}
 	}
 	finish(outcome, rep)
 }

@@ -1,0 +1,15 @@
+---
+# Add this role (and bind it to the operator's ServiceAccount like role.yaml) only when the operator is started with --adjust-pod-spec: it is the one write on the workloads
+# themselves. The default role (role.yaml) writes the replicas through the scale subresource and nothing else.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kube-res-foresight-operator-pod-spec
+rules:
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  - statefulsets
+  verbs:
+  - patch

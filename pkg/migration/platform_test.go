@@ -37,7 +37,7 @@ func TestPlatformCleanupPreservesGenericTasksAndAuthorization(t *testing.T) {
 	require.False(t, db.Migrator().HasTable("market_kline"))
 	var roots []model.Permission
 	require.NoError(t, db.Where("parent_id = 0 AND visible = ? AND type <> ?", true, "BUTTON").Find(&roots).Error)
-	require.Len(t, roots, 12, "the ten directories of the platform (Resource Analysis among them), the dashboard (the page after login) and the assistant")
+	require.Len(t, roots, 13, "the ten directories of the platform (Resource Analysis among them), the dashboard (the page after login), the node pools and the assistant")
 	var dir, llm, skill model.Permission
 	require.NoError(t, db.Where("code = ?", "ai-config").First(&dir).Error)
 	require.Equal(t, "DIRECTORY", dir.Type)

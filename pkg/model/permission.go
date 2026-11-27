@@ -25,6 +25,8 @@ var retiredMenuCodes = map[string]bool{
 	"forecast-results_cost": true,
 	// the resource dashboard, its detail and the cluster dashboard moved from the forecast results to the directory Resource Analysis (2026-11-27)
 	"forecast-results_overprovision": true, "forecast-results_overprovision-detail": true, "forecast-results_cluster-dashboard": true,
+	// the Resource Assessment page is gone: the fixed formula is the recommendation mode of a module, and what it calculated is read with the module's recommendations and on its resource dashboard
+	"resource-analysis_rules": true,
 }
 
 // retiredButtonCodes are API permissions of removed features; the upgrade deletes them with their grants.
@@ -35,7 +37,7 @@ func IsRetiredPermission(code string) bool { return retiredMenuCodes[code] || re
 
 // IsPlatformRoute limits navigation to the supported modules and the hidden profile page.
 func IsPlatformRoute(code string) bool {
-	if code == "user-center" || code == "dashboard" {
+	if code == "user-center" || code == "dashboard" || code == "node-pool" {
 		return true
 	}
 	if code == "system_coins" || retiredMenuCodes[code] {

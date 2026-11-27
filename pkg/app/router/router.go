@@ -127,6 +127,15 @@ func RegisteredRouter(e *gin.Engine) {
 	datasourceGroup.DELETE("/:id", datasourceHandler.Delete)
 	datasourceGroup.POST("/:id/test", datasourceHandler.Test)
 
+	nodePoolHandler := &v1.NodePoolRouter{DAO: rdb.NewNodePoolDAO(model.DB)}
+	nodePoolGroup := v1Group.Group("/node-pools")
+	nodePoolGroup.GET("", nodePoolHandler.List)
+	nodePoolGroup.POST("", nodePoolHandler.Create)
+	nodePoolGroup.POST("/batch-delete", nodePoolHandler.BatchDelete)
+	nodePoolGroup.GET("/:id", nodePoolHandler.Get)
+	nodePoolGroup.PUT("/:id", nodePoolHandler.Update)
+	nodePoolGroup.DELETE("/:id", nodePoolHandler.Delete)
+
 	metricMappingHandler := &v1.MetricMappingRouter{DAO: rdb.NewMetricMappingDAO(model.DB)}
 	v1Group.GET("/metrics/catalog", metricMappingHandler.Catalog)
 	mappingGroup := v1Group.Group("/metric-mappings")
@@ -254,7 +263,7 @@ func RegisteredRouter(e *gin.Engine) {
 	v1Group.GET("/clusters/:id/events", clusterHandler.Events)
 	v1Group.GET("/clusters/:id/changes", clusterHandler.Changes)
 	v1Group.GET("/clusters/:id/changes/:change", clusterHandler.Change)
-	runtimeHandler := &v1.RuntimeRouter{Modules: rdb.NewModuleDAO(model.DB), Predictions: rdb.NewPredictionDAO(model.DB), Config: rdb.NewSysConfigDAO(model.DB), Fresh: forecastService, Gate: clusterGate}
+	runtimeHandler := &v1.RuntimeRouter{Modules: rdb.NewModuleDAO(model.DB), Predictions: rdb.NewPredictionDAO(model.DB), NodePools: rdb.NewNodePoolDAO(model.DB), Config: rdb.NewSysConfigDAO(model.DB), Fresh: forecastService, Gate: clusterGate}
 	v1Group.GET("/operator/modules", runtimeHandler.OperatorModules)
 	v1Group.GET("/operator/settings", runtimeHandler.OperatorSettings)
 	v1Group.GET("/dashboard", forecastHandler.Dashboard)

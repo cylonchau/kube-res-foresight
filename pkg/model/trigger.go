@@ -25,6 +25,9 @@ var TriggerActions = []string{TriggerScaleUp, TriggerScaleDown, TriggerSet}
 const (
 	TriggerUnitReplicas = "replicas"
 	TriggerUnitPercent  = "percent"
+	// TriggerUnitProportional works the count out of the metric: the replicas that run times the value over the threshold (a metric at 120 against a threshold of 100 with 10 replicas
+	// needs 12), at most Amount replicas away from what runs in one decision. It is the unit to use when "one more replica" is not the right size of a step.
+	TriggerUnitProportional = "proportional"
 )
 
 // Comparisons of a trigger: the value of the metric against the threshold.
@@ -41,6 +44,10 @@ const (
 	TriggerStatAvg  = "avg"
 	TriggerStatMax  = "max"
 	TriggerStatMin  = "min"
+	// The percentiles of the samples of the window: the figure that is exceeded by the rest, so one spike does not decide (P95 over 15 minutes is the level the load stood above for 95% of them).
+	TriggerStatP90 = "p90"
+	TriggerStatP95 = "p95"
+	TriggerStatP99 = "p99"
 )
 
 // TriggerJVMHeap is the metric of a trigger that is no source of the module but a figure the platform works out: the heap used over the heap maximum (see
@@ -78,7 +85,7 @@ type ModuleTrigger struct {
 	Operator      string  `gorm:"type:varchar(4);not null;default:'gt'" json:"operator" column_setting:"true"`
 	Threshold     float64 `gorm:"not null;default:0" json:"threshold" column_setting:"true"`
 	// Action is what the trigger does; Unit and Amount say how much: scale_up and scale_down add or remove Amount replicas (Unit replicas) or Amount percent of the
-	// replicas that run (Unit percent), set takes Amount as the replica count.
+	// replicas that run (Unit percent), or work the count out of the metric and move at most Amount replicas (Unit proportional); set takes Amount as the replica count.
 	Action string  `gorm:"type:varchar(12);not null;default:'scale_up'" json:"action" column_setting:"true"`
 	Unit   string  `gorm:"type:varchar(8);not null;default:'replicas'" json:"unit" column_setting:"true"`
 	Amount float64 `gorm:"not null;default:1" json:"amount" column_setting:"true"`
@@ -110,8 +117,8 @@ func (t *ModuleTrigger) Validate() error {
 	if t.Stat == "" {
 		t.Stat = TriggerStatAvg
 	}
-	if !oneOf(t.Stat, []string{TriggerStatLast, TriggerStatAvg, TriggerStatMax, TriggerStatMin}) {
-		return fmt.Errorf("stat must be last, avg, max or min")
+	if !oneOf(t.Stat, []string{TriggerStatLast, TriggerStatAvg, TriggerStatMax, TriggerStatMin, TriggerStatP90, TriggerStatP95, TriggerStatP99}) {
+		return fmt.Errorf("stat must be last, avg, max, min, p90, p95 or p99")
 	}
 	if t.WindowMinutes == 0 {
 		t.WindowMinutes = DefaultTriggerWindowMinutes
@@ -134,11 +141,19 @@ func (t *ModuleTrigger) Validate() error {
 	if t.Unit == "" {
 		t.Unit = TriggerUnitReplicas
 	}
-	if !oneOf(t.Unit, []string{TriggerUnitReplicas, TriggerUnitPercent}) {
-		return fmt.Errorf("unit must be replicas or percent")
+	if !oneOf(t.Unit, []string{TriggerUnitReplicas, TriggerUnitPercent, TriggerUnitProportional}) {
+		return fmt.Errorf("unit must be replicas, percent or proportional")
 	}
 	if t.Action == TriggerSet {
 		t.Unit = TriggerUnitReplicas
+	}
+	if t.Unit == TriggerUnitProportional {
+		if t.Threshold <= 0 {
+			return fmt.Errorf("a proportional trigger works the count out of the value over the threshold, so the threshold must be above 0")
+		}
+		if t.Amount != float64(int(t.Amount)) {
+			return fmt.Errorf("the most replicas a proportional trigger changes in one decision must be a whole number")
+		}
 	}
 	if t.Amount <= 0 || t.Amount > 100000 {
 		return fmt.Errorf("amount must be positive")

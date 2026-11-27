@@ -28,6 +28,12 @@ rules:
   - apiGroups: ["apps"]
     resources: ["deployments/scale", "statefulsets/scale"]
     verbs: ["get", "patch", "update"]
+  {{- if .Values.adjustPodSpec.enabled }}
+  # write: the Pod template of the workloads of the modules in auto mode (the CPU and memory Requests, the Limits the module manages and the Node Selector of its node pool)
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets"]
+    verbs: ["patch"]
+  {{- end }}
   # read only: to refuse a workload that an HPA or a KEDA ScaledObject already controls
   - apiGroups: ["autoscaling"]
     resources: ["horizontalpodautoscalers"]

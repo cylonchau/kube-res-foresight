@@ -39,6 +39,8 @@ var menuSuccessors = map[string][]string{
 	"forecast-results_overprovision":        {"resource-analysis_overprovision"},
 	"forecast-results_overprovision-detail": {"resource-analysis_overprovision-detail"},
 	"forecast-results_cluster-dashboard":    {"resource-analysis_cluster-dashboard"},
+	// the Resource Assessment page: what it showed is read with the recommendations
+	"resource-analysis_rules": {"forecast-actions_recommendations"},
 }
 
 // migrateMenuGrants copies the grants of retired menus to their successors (and to the successors' parent

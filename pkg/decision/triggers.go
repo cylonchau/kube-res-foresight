@@ -17,6 +17,9 @@ const (
 	TriggerPercent   = "percent"
 )
 
+// TriggerProportional is the unit of a trigger that works the replica count out of the metric: the running replicas times the value over the threshold (see FiredTrigger.Unit).
+const TriggerProportional = "proportional"
+
 // FiredTrigger is a trigger whose metric stands on the wrong side of its threshold now and that is in force at this time: what it saw, and what it asks for.
 type FiredTrigger struct {
 	Name     string  `json:"name"`
@@ -132,8 +135,22 @@ func ApplyTriggers(f Field, current int, fired []FiredTrigger, blockDown string,
 			return 0, "the replicas that run are not known, so a change relative to them cannot be worked out"
 		}
 		delta := int(math.Ceil(t.Amount))
-		if t.Unit == TriggerPercent {
+		switch t.Unit {
+		case TriggerPercent:
 			delta = int(math.Ceil(float64(current) * t.Amount / 100))
+		case TriggerProportional:
+			// the count the metric calls for: running x value / threshold, rounded up for a scale-up and for a scale-down alike (a scale-down then removes the fewer replicas); at most Amount away
+			if t.Threshold <= 0 {
+				return 0, "the threshold of a proportional trigger must be above 0"
+			}
+			need := int(math.Ceil(float64(current) * t.Value / t.Threshold))
+			delta = need - current
+			if t.Action == TriggerScaleDown {
+				delta = current - need
+			}
+			if limit := int(math.Ceil(t.Amount)); limit > 0 && delta > limit {
+				delta = limit
+			}
 		}
 		if delta < 1 {
 			delta = 1

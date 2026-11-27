@@ -33,7 +33,7 @@ func forecastTestRouter(t *testing.T) (*gin.Engine, *model.MetricMapping) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	db := apiTestDB(t)
-	require.NoError(t, db.AutoMigrate(&model.Datasource{}, &model.MetricMapping{}, &model.ForecastModule{PredictEnabled: true}, &model.AlgorithmConfig{},
+	require.NoError(t, db.AutoMigrate(&model.NodePool{}, &model.Datasource{}, &model.MetricMapping{}, &model.ForecastModule{PredictEnabled: true}, &model.AlgorithmConfig{},
 		&model.ModulePeriod{}, &model.ModuleTrigger{}, &model.MetricSeries{}, &model.MetricSample{}, &model.Prediction{}, &model.BacktestRun{}, &model.Recommendation{}, &model.PredictionEvaluation{}, &model.ScalingExecution{}, &model.MetricSource{}, &model.AlgorithmScore{}, &model.AdmissionDecision{}, &model.TrainingRun{}, &model.ScaleOutcome{}, &model.RuleDecision{}, &model.ModuleRunState{}, &model.SysConfig{}, &model.TaskDefinition{}, &model.Job{}, &model.OverprovisionAnalysis{}, &model.RegistrationTombstone{}))
 	previous := model.DB
 	model.DB = db

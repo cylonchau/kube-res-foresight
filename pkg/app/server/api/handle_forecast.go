@@ -151,8 +151,9 @@ func (r *ForecastRouter) CreateModule(c *gin.Context) {
 		// a fixed count given without saying whether it counts is on, as it was before the switch existed
 		FixedReplicasEnabled: req.FixedReplicasEnabled == nil && req.FixedReplicas > 0 || req.FixedReplicasEnabled != nil && *req.FixedReplicasEnabled,
 		PeriodsEnabled:       req.PeriodsEnabled != nil && *req.PeriodsEnabled, TriggersEnabled: req.TriggersEnabled != nil && *req.TriggersEnabled,
-		DecisionSource: decisionSourceOf(req.DecisionSource),
-		Namespace:      strings.TrimSpace(req.Namespace), WorkloadKind: req.WorkloadKind, Workload: strings.TrimSpace(req.Workload), Service: req.Service, Container: req.Container,
+		NodePoolEnabled: req.NodePoolEnabled != nil && *req.NodePoolEnabled,
+		DecisionSource:  decisionSourceOf(req.DecisionSource),
+		Namespace:       strings.TrimSpace(req.Namespace), WorkloadKind: req.WorkloadKind, Workload: strings.TrimSpace(req.Workload), Service: req.Service, Container: req.Container,
 		LookbackHours: req.LookbackHours, HorizonMinutes: req.HorizonMinutes, MaxFillSteps: req.MaxFillSteps,
 		StepSeconds: req.StepSeconds, MinPoints: req.MinPoints, WindowSteps: req.WindowSteps, RunIntervalMinutes: req.RunIntervalMinutes,
 		LimitCPURatio: req.LimitCPURatio, LimitMemoryRatio: req.LimitMemoryRatio,
@@ -270,6 +271,9 @@ func applyModuleUpdate(m *model.ForecastModule, req *apis.ModuleUpdateReq) {
 	}
 	if req.PeriodsEnabled != nil {
 		m.PeriodsEnabled = *req.PeriodsEnabled
+	}
+	if req.NodePoolEnabled != nil {
+		m.NodePoolEnabled = *req.NodePoolEnabled
 	}
 	if req.TriggersEnabled != nil {
 		m.TriggersEnabled = *req.TriggersEnabled

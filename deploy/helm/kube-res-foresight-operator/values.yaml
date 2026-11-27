@@ -45,6 +45,11 @@ serviceAccount:
   name: ""
   annotations: {}
 
+# Besides the replicas, let the operator write the CPU and memory Requests, the Limits a module manages and the Node Selector of the node pool the platform recommends on the Pod template
+# of a module in auto mode. A change of the template rolls the Pods of the workload. Off, the operator writes the replicas and nothing else, and its role has no write on the workloads.
+adjustPodSpec:
+  enabled: false
+
 # The inventory (read-only): the operator reads the nodes, and the workloads of the platform modules with their Pods and the requests and limits of their
 # containers, and reports them to the platform for its resource pages. It needs read access to nodes and pods (see the ClusterRole). Turn it off to give
 # the operator no read access beyond what scaling needs.

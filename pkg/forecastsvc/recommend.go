@@ -13,6 +13,7 @@ import (
 	"github.com/cylonchau/kube-res-foresight/pkg/forecast"
 	"github.com/cylonchau/kube-res-foresight/pkg/model"
 	"github.com/cylonchau/kube-res-foresight/pkg/multimetric"
+	"github.com/cylonchau/kube-res-foresight/pkg/nodepool"
 	"github.com/cylonchau/kube-res-foresight/pkg/timing"
 )
 
@@ -85,6 +86,8 @@ type SourceDetail struct {
 
 // RecommendDetail is stored with every recommendation so it can be explained and replayed.
 type RecommendDetail struct {
+	// NodePool is the node pool recommended for the Pod (nil when the module does not use pools): the pool, why, and the pools that fitted less well.
+	NodePool *nodepool.Choice `json:"node_pool,omitempty"`
 	// DecisionMode is what decided the module: "strategy:<name>", "algorithm", "recommend" or "none" (see model.ForecastModule.DecisionMode).
 	DecisionMode  string         `json:"decision_mode"`
 	Bypass        bool           `json:"bypass"`
@@ -854,6 +857,9 @@ func (s *Service) decide(ctx context.Context, moduleID uint, failed map[string]s
 	}
 	detail.ResourceSpec = spec
 
+	// the node pool the Pod of this decision fits best, worked out from the CPU and memory that were decided
+	detail.NodePool = s.chooseNodePool(ctx, m, rec)
+
 	// a field that came from the fallback chain although a forecast was expected is a degradation, with the reason
 	fields := map[string]decision.Field{"cpu": rec.CPUMilli, "memory": rec.MemoryBytes, "replicas": rec.Replicas, "gpu": rec.GPU}
 	for field, f := range fields {
@@ -893,6 +899,9 @@ func (s *Service) decide(ctx context.Context, moduleID uint, failed map[string]s
 	}
 	// the recommendation says which calculation it considered, taken or outranked (the detail says which fields it took)
 	row.RuleDecisionID = ruleDetail.DecisionID
+	if np := detail.NodePool; np != nil && np.Pool != nil {
+		row.NodePoolID, row.NodePool = np.Pool.PoolID, np.Pool.Name
+	}
 	if len(detail.Degraded) > 0 {
 		row.DegradeReasons = marshal(detail.Degraded)
 	}

@@ -31,6 +31,21 @@ type Decision struct {
 	Cached     bool
 	CacheAge   time.Duration
 	Recovering bool
+	// PodSpec is what the module asks the operator to write on the Pod template besides the replicas (auto mode); nil = nothing. The operator writes it only when it was started
+	// to adjust the Pod spec (see Applier.AdjustPodSpec), and never from a cached or a recovering answer.
+	PodSpec *PodSpecChange
+}
+
+// PodSpecChange is the Pod spec the platform asks for. A figure that is 0 is left as the workload has it.
+type PodSpecChange struct {
+	Version          int64             `json:"version"`
+	CPUMilli         int64             `json:"cpu_milli"`
+	MemoryBytes      int64             `json:"memory_bytes"`
+	LimitCPUMilli    int64             `json:"limit_cpu_milli"`
+	LimitMemoryBytes int64             `json:"limit_memory_bytes"`
+	NodePool         string            `json:"node_pool"`
+	NodeSelector     map[string]string `json:"node_selector"`
+	DropSelectorKeys []string          `json:"drop_selector_keys"`
 }
 
 // Action is what a reconcile does to the target.

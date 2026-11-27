@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -27,6 +28,8 @@ import (
 type RuntimeRouter struct {
 	Modules     *rdb.ModuleDAO
 	Predictions *rdb.PredictionDAO
+	// NodePools gives the Node Selector of the pool recommended for a new Pod; nil answers admission without one.
+	NodePools *rdb.NodePoolDAO
 	// Config holds the switches that open the modes writing to the cluster. Without it every mode is closed.
 	Config *rdb.SysConfigDAO
 	// admissionMu serialises the decision about an admission request and its record (see recordAdmission).
@@ -121,6 +124,64 @@ type OperatorDecision struct {
 	// MinReplicas is the floor and MaxReplicas the most the module may be scaled out to: the two bounds of the module, nothing else. The operator refuses a decision outside them.
 	MinReplicas int `json:"min_replicas,omitempty"`
 	MaxReplicas int `json:"max_replicas,omitempty"`
+	// PodSpec is what the module asks the operator to put on the Pod template of the workload besides the replicas: the CPU and memory Requests (and the Limits the module
+	// manages) and the Node Selector of the recommended node pool. It is there only for a module in auto mode; an operator that is not set to adjust the Pod spec ignores it.
+	PodSpec *OperatorPodSpec `json:"pod_spec,omitempty"`
+}
+
+// OperatorPodSpec is the Pod spec of the recommendation as the operator is to write it. A figure that is 0 is left as the workload has it.
+type OperatorPodSpec struct {
+	Version          int    `json:"version"`
+	CPUMilli         int64  `json:"cpu_milli,omitempty"`
+	MemoryBytes      int64  `json:"memory_bytes,omitempty"`
+	LimitCPUMilli    int64  `json:"limit_cpu_milli,omitempty"`
+	LimitMemoryBytes int64  `json:"limit_memory_bytes,omitempty"`
+	NodePool         string `json:"node_pool,omitempty"`
+	// NodeSelector is put on the Pod template; DropSelectorKeys are the labels of the other pools that the template must not keep (a workload that moves from one pool to
+	// another leaves the labels of the first behind otherwise, and no node has both).
+	NodeSelector     map[string]string `json:"node_selector,omitempty"`
+	DropSelectorKeys []string          `json:"drop_selector_keys,omitempty"`
+}
+
+// podSpecOf is the Pod spec the operator is asked to write for a module: the Requests of the recommendation within the bounds of the module (the same checks admission makes), the Limits
+// the module manages, and the Node Selector of the pool. nil when there is nothing to write.
+func (r *RuntimeRouter) podSpecOf(ctx context.Context, m *model.ForecastModule, rec *model.Recommendation) *OperatorPodSpec {
+	spec := &OperatorPodSpec{Version: rec.Version}
+	if rec.CPUSet && rec.CPUMilli >= 1 && (m.MinCPUMilli == 0 || rec.CPUMilli >= m.MinCPUMilli) && (m.MaxCPUMilli == 0 || rec.CPUMilli <= m.MaxCPUMilli) {
+		spec.CPUMilli = rec.CPUMilli
+		if m.LimitCPURatio > 0 {
+			spec.LimitCPUMilli = int64(math.Ceil(float64(rec.CPUMilli) * m.LimitCPURatio))
+		}
+	}
+	if rec.MemorySet && rec.MemoryBytes >= 1 && (m.MinMemoryBytes == 0 || rec.MemoryBytes >= m.MinMemoryBytes) && (m.MaxMemoryBytes == 0 || rec.MemoryBytes <= m.MaxMemoryBytes) {
+		spec.MemoryBytes = rec.MemoryBytes
+		if m.LimitMemoryRatio > 0 {
+			spec.LimitMemoryBytes = int64(math.Ceil(float64(rec.MemoryBytes) * m.LimitMemoryRatio))
+		}
+	}
+	if m.NodePoolEnabled && rec.NodePoolID > 0 && r.NodePools != nil {
+		if pool, err := r.NodePools.Get(ctx, rec.NodePoolID); err == nil && pool.Enabled && len(pool.NodeSelector) > 0 {
+			spec.NodePool, spec.NodeSelector = pool.Name, pool.NodeSelector
+			if all, _, err := r.NodePools.List(ctx, rdb.NodePoolFilter{Size: 500}); err == nil {
+				drop := map[string]bool{}
+				for _, p := range all {
+					for k := range p.NodeSelector {
+						if _, keep := pool.NodeSelector[k]; !keep {
+							drop[k] = true
+						}
+					}
+				}
+				for k := range drop {
+					spec.DropSelectorKeys = append(spec.DropSelectorKeys, k)
+				}
+				sort.Strings(spec.DropSelectorKeys)
+			}
+		}
+	}
+	if spec.CPUMilli == 0 && spec.MemoryBytes == 0 && len(spec.NodeSelector) == 0 {
+		return nil
+	}
+	return spec
 }
 
 // latestRecommendation is the recommendation the operator should act on: the stored one when it is recent enough, else one the platform
@@ -215,6 +276,7 @@ func (r *RuntimeRouter) Decision(c *gin.Context) {
 	out.Algorithm, out.Score = rec.Algorithm, rec.Score
 	out.Urgent = rec.Urgent
 	out.MinReplicas, out.MaxReplicas = m.MinReplicas, m.MaxReplicas
+	out.PodSpec = r.podSpecOf(c.Request.Context(), m, rec)
 	query.SuccessResponse(c, nil, out)
 }
 
@@ -411,6 +473,10 @@ type AdmissionAnswer struct {
 		CPUMilli    int64 `json:"cpu_milli,omitempty"`
 		MemoryBytes int64 `json:"memory_bytes,omitempty"`
 	} `json:"limits"`
+	// NodePool and NodeSelector are the node pool recommended for a new Pod and the labels that select its nodes (the Node Selector to put on the Pod); present only for a module
+	// that uses node pools.
+	NodePool     string            `json:"node_pool,omitempty"`
+	NodeSelector map[string]string `json:"node_selector,omitempty"`
 	// Algorithm and Score say which algorithm instance produced the values and how it scored.
 	Algorithm string  `json:"algorithm,omitempty"`
 	Score     float64 `json:"score,omitempty"`
@@ -566,7 +632,13 @@ func (r *RuntimeRouter) Admission(c *gin.Context) {
 		out.Limits.MemoryBytes = int64(math.Ceil(float64(out.Resources.MemoryBytes) * m.LimitMemoryRatio))
 	}
 	out.Algorithm, out.Score = rec.Algorithm, rec.Score
-	if out.Resources.CPUMilli == 0 && out.Resources.MemoryBytes == 0 && out.Resources.GPU == 0 {
+	if m.NodePoolEnabled && rec.NodePoolID > 0 && r.NodePools != nil {
+		// the pool is read now, so a change of its labels reaches the next Pod
+		if pool, err := r.NodePools.Get(c.Request.Context(), rec.NodePoolID); err == nil && pool.Enabled && len(pool.NodeSelector) > 0 {
+			out.NodePool, out.NodeSelector = pool.Name, pool.NodeSelector
+		}
+	}
+	if out.Resources.CPUMilli == 0 && out.Resources.MemoryBytes == 0 && out.Resources.GPU == 0 && len(out.NodeSelector) == 0 {
 		reason := "the recommendation keeps the original requests"
 		if len(notes) > 0 {
 			reason = strings.Join(notes, "; ")
@@ -576,6 +648,9 @@ func (r *RuntimeRouter) Admission(c *gin.Context) {
 	}
 	out.Apply = true
 	out.Reason = "recommendation " + strconv.Itoa(rec.Version) + " applies"
+	if out.NodePool != "" {
+		out.Reason += ", on the node pool " + out.NodePool
+	}
 	if len(notes) > 0 {
 		out.Reason += " (" + strings.Join(notes, "; ") + ")"
 	}

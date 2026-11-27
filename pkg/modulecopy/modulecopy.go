@@ -112,7 +112,7 @@ func Apply(dst, src *model.ForecastModule, groups []string) {
 			dst.MinCPUMilli, dst.MaxCPUMilli, dst.MinMemoryBytes, dst.MaxMemoryBytes = src.MinCPUMilli, src.MaxCPUMilli, src.MinMemoryBytes, src.MaxMemoryBytes
 			dst.FallbackCPUMilli, dst.FallbackMemoryBytes = src.FallbackCPUMilli, src.FallbackMemoryBytes
 			dst.MinGPU, dst.MaxGPU, dst.FallbackGPU = src.MinGPU, src.MaxGPU, src.FallbackGPU
-			dst.LimitCPURatio, dst.LimitMemoryRatio = src.LimitCPURatio, src.LimitMemoryRatio
+			dst.LimitCPURatio, dst.LimitMemoryRatio, dst.NodePoolEnabled = src.LimitCPURatio, src.LimitMemoryRatio, src.NodePoolEnabled
 			dst.HeadroomRatio, dst.PodCapacityRPS, dst.TargetUtilization = src.HeadroomRatio, src.PodCapacityRPS, src.TargetUtilization
 			dst.ReplicaMode, dst.CapacityMode = src.ReplicaMode, src.CapacityMode
 			dst.OOMLookbackDays, dst.OOMMemoryUplift, dst.OOMWeightEnabled, dst.OOMWeight = src.OOMLookbackDays, src.OOMMemoryUplift, src.OOMWeightEnabled, src.OOMWeight

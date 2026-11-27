@@ -59,6 +59,9 @@ type Options struct {
 	// InventoryInterval is how often the nodes and the workloads of the modules are read (read-only) and reported to the platform when something that is
 	// configuration changed, or once an hour; 0 turns the inventory off.
 	InventoryInterval time.Duration
+	// AdjustPodSpec lets the operator write the CPU and memory Requests, the Limits the module manages and the Node Selector of the recommended node pool on the Pod template of a
+	// module in auto mode, besides the replicas. Off, the operator writes the replicas only. It needs the write on Deployments and StatefulSets that the default role does not give.
+	AdjustPodSpec bool
 	// Cluster is the cluster this operator is for (P12): the name it is registered under on the platform, which must match the cluster the access key is bound to. Empty is
 	// the default cluster, which is what an operator that was started before clusters were registered is for.
 	Cluster string
@@ -105,6 +108,7 @@ func NewCommand() *cobra.Command {
 	f.IntVar(&opts.RecoverSuccesses, "decision-recover-answers", controller.DefaultRecoverSuccesses, "Starting value (the platform's setting operator.recover_answers takes over once it answers). How many answers in a row a platform that is back after an outage must give before the workload may be scaled down again (scaling up follows at once).")
 	f.StringVar(&opts.ReportSpoolFile, "report-spool-file", "", "File that keeps the reports of scaling actions the platform has not acknowledged yet (put it in a volume that outlives the container, an emptyDir for instance). They are sent again, oldest first, when the platform answers; without a file they are kept in memory only.")
 	f.DurationVar(&opts.InventoryInterval, "inventory-interval", controller.DefaultInventoryInterval, "How often the nodes, and the workloads of the platform modules with their Pods and the requests and limits of their containers, are read (read-only) for the resource pages of the platform. A report is made when something that is configuration changed, and at least once an hour. Needs read access to nodes and pods. 0 turns it off.")
+	f.BoolVar(&opts.AdjustPodSpec, "adjust-pod-spec", false, "Besides the replicas, write the CPU and memory Requests, the Limits the module manages and the Node Selector of the recommended node pool on the Pod template of a module in auto mode (a change of the template rolls the Pods of the workload). Needs patch on Deployments and StatefulSets: the default role does not give it (deploy/operator/rbac/role-pod-spec.yaml does, the Helm chart gives it with adjustPodSpec.enabled). Off, the operator writes the replicas and nothing else.")
 	f.StringVar(&opts.Cluster, "cluster", "", "The name of the cluster this operator is for, as registered on the platform (lower-case letters, digits and -). The access key must be bound to it on the clusters page. Empty is the platform's default cluster. The KUBE_RES_FORESIGHT_CLUSTER environment variable is used when the flag is not given.")
 	f.BoolVar(&opts.CollectEvents, "collect-events", true, "Read the events of the cluster, read-only, and report them to the platform (the platform can switch it off too). Turn it off here to leave the operator doing nothing but scaling.")
 	f.BoolVar(&opts.CollectChanges, "collect-changes", true, "Watch the nodes, Pods, Deployments, StatefulSets and HPAs of the cluster, read-only, and report their state changes to the platform (the platform can switch it off too). Turn it off here to leave the operator doing nothing but scaling.")
@@ -196,7 +200,7 @@ func Run(ctx context.Context, opts *Options) error {
 	if err := outbox.Load(); err != nil {
 		return err
 	}
-	applier := &controller.Applier{Client: mgr.GetClient(), Decider: cachedPlatform, Reporter: outbox, Metrics: opMetrics}
+	applier := &controller.Applier{Client: mgr.GetClient(), Decider: cachedPlatform, Reporter: outbox, Metrics: opMetrics, AdjustPodSpec: opts.AdjustPodSpec}
 	endpoint, err := platformEndpoint(opts)
 	if err != nil {
 		return err
