@@ -357,29 +357,23 @@ func TestAdmissionCarriesGPUAndEveryAnswerIsRecorded(t *testing.T) {
 	assert.Equal(t, false, list[1].(map[string]any)["applied"])
 }
 
-func TestOperatorDecisionCarriesTheBoundsAndTheDynamicCeiling(t *testing.T) {
+func TestOperatorDecisionCarriesTheBoundsOfTheModule(t *testing.T) {
 	r, cpu := forecastTestRouter(t)
-	m := seedModule(t, cpu.ID, model.ModeAuto, func(m *model.ForecastModule) {
-		m.MaxReplicasMode, m.MaxReplicas, m.HardMaxReplicas, m.ExpandStepRatio, m.MinScore = model.MaxReplicasDynamic, 10, 30, 0.5, 60
-	})
+	m := seedModule(t, cpu.ID, model.ModeAuto, func(m *model.ForecastModule) { m.MaxReplicas = 10 })
 	seedRecommendation(t, m, func(rec *model.Recommendation) { rec.Replicas, rec.Algorithm, rec.Score = 14, "holt", 77 })
 	url := "/operator/decisions?module=" + m.Name
 
 	data := answer(t, performJSON(t, r, http.MethodGet, url, "", nil).Body.Bytes())
-	assert.Equal(t, false, data["available"], "14 is above the ceiling of 10 until the module has expanded")
+	assert.Equal(t, false, data["available"], "14 is above the maximum of 10: the one ceiling there is")
 
-	require.NoError(t, model.DB.Create(&model.ModuleRunState{ModuleID: m.ID, EffectiveMaxReplicas: 15}).Error)
+	require.NoError(t, model.DB.Model(m).Update("max_replicas", 15).Error)
 	data = answer(t, performJSON(t, r, http.MethodGet, url, "", nil).Body.Bytes())
 	assert.Equal(t, true, data["available"], data["reason"])
 	assert.EqualValues(t, 14, data["replicas"])
 	assert.EqualValues(t, 15, data["max_replicas"])
-	assert.EqualValues(t, 30, data["hard_max_replicas"])
+	assert.Nil(t, data["hard_max_replicas"], "there is no second maximum")
 	assert.EqualValues(t, 2, data["min_replicas"])
 	assert.Equal(t, "holt", data["algorithm"])
-
-	require.NoError(t, model.DB.Model(&model.ModuleRunState{}).Where("module_id = ?", m.ID).Update("effective_max_replicas", 99).Error)
-	data = answer(t, performJSON(t, r, http.MethodGet, url, "", nil).Body.Bytes())
-	assert.EqualValues(t, 30, data["max_replicas"], "the expansion never passes the independent hard maximum")
 }
 
 func TestAdmissionAnswersForAutoModulesAndSetsTheLimitsAModuleManages(t *testing.T) {

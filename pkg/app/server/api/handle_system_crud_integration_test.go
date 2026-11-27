@@ -14,7 +14,7 @@ import (
 func systemCRUDRouter(t *testing.T) (*gin.Engine, *model.Role) {
 	t.Helper()
 	db := apiTestDB(t)
-	require.NoError(t, db.AutoMigrate(&model.SecretKey{}, &model.RefreshTokenSession{}, &model.LoginAuditLog{}, &model.UserContact{}))
+	require.NoError(t, db.AutoMigrate(&model.SecretKey{}, &model.RefreshTokenSession{}, &model.LoginAuditLog{}, &model.UserContact{}, &model.UserColumnConfig{}))
 	previousDB := model.DB
 	model.DB = db
 	t.Cleanup(func() { model.DB = previousDB })

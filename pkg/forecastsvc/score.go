@@ -67,9 +67,6 @@ func outcomeOf(m *model.ForecastModule, res multimetric.Result, current int) sco
 		n = m.MinReplicas
 	}
 	ceiling := m.MaxReplicas
-	if m.MaxReplicasMode == model.MaxReplicasDynamic && m.HardMaxReplicas > 0 {
-		ceiling = m.HardMaxReplicas
-	}
 	if ceiling > 0 && n > ceiling {
 		n = ceiling
 	}

@@ -52,7 +52,7 @@ func newClusterRig(t *testing.T) *clusterRig {
 	ch := &ClusterRouter{Service: svc, Datasources: rdb.NewDatasourceDAO(db), Gate: gate}
 	ih := &InventoryRouter{Service: &inventorysvc.Service{DAO: rdb.NewInventoryDAO(db), Modules: modules, Config: rdb.NewSysConfigDAO(db)},
 		Forecast: forecastsvc.New(modules, rdb.NewMetricMappingDAO(db), rdb.NewDatasourceDAO(db), rdb.NewSampleDAO(db), rdb.NewPredictionDAO(db)), Gate: gate}
-	rt := &RuntimeRouter{Modules: modules, Predictions: rdb.NewPredictionDAO(db), RunStates: rdb.NewRunStateDAO(db), Config: rdb.NewSysConfigDAO(db), Gate: gate,
+	rt := &RuntimeRouter{Modules: modules, Predictions: rdb.NewPredictionDAO(db), Config: rdb.NewSysConfigDAO(db), Gate: gate,
 		Now: func() time.Time { return runtimeNow }}
 
 	r := gin.New()

@@ -132,32 +132,23 @@ func TestAScoreBelowTheModuleMinimumFallsBackWithTheReason(t *testing.T) {
 	assert.Contains(t, detail.Selection[0].Reason, "below the module minimum")
 }
 
-func TestTheReplicaCeilingExpandsStepByStepUpToTheHardMaximum(t *testing.T) {
+// The maximum of replicas is the one ceiling: a forecast that wants more is held to it, cycle after cycle.
+func TestTheMaximumOfReplicasIsTheOnlyCeiling(t *testing.T) {
 	f := newFixture(t)
-	ctx := context.Background()
 	f.querier.value = constant(map[string]float64{"cpu{": 1}, func(time.Time) float64 { return 1000 }) // 1000 rps, 100 per pod: 11 replicas
 	f.bind(t, "rps", "naive", nil, 0)
 	f.setModule(t, func(m *model.ForecastModule) {
 		m.HeadroomRatio, m.MinReplicas, m.MaxReplicas = 1, 2, 5
-		m.MaxReplicasMode, m.HardMaxReplicas, m.ExpandStepRatio = model.MaxReplicasDynamic, 8, 0.2
 	})
-
-	var seen []int
 	for i := 0; i < 3; i++ {
 		res := f.cycle(t)
 		require.NotNil(t, res.Recommend, "%v", res.Errors)
-		seen = append(seen, res.Recommend.Replicas)
+		assert.Equal(t, 5, res.Recommend.Replicas, "held to the maximum")
 		*f.clock = f.clock.Add(time.Minute)
 	}
-	assert.Equal(t, []int{6, 8, 8}, seen, "5 -> 6 (a 20% step) -> 8 (the hard maximum), never above it")
-	st, err := f.svc.RunStates.RunState(ctx, f.module.ID)
-	require.NoError(t, err)
-	assert.Equal(t, 8, st.EffectiveMaxReplicas)
-
-	// a fixed ceiling never expands
-	f.setModule(t, func(m *model.ForecastModule) { m.MaxReplicasMode = model.MaxReplicasFixed })
+	f.setModule(t, func(m *model.ForecastModule) { m.MaxReplicas = 9 })
 	res := f.cycle(t)
-	assert.Equal(t, 5, res.Recommend.Replicas)
+	assert.Equal(t, 9, res.Recommend.Replicas, "a raised maximum is the new ceiling at once")
 }
 
 func TestAModuleCollectsPredictsAndBacktestsWithItsOwnSourcesAndTheEnabledAlgorithms(t *testing.T) {

@@ -81,12 +81,6 @@ const (
 	ReplicaModeDynamic = "dynamic"
 )
 
-// Replica ceiling modes.
-const (
-	MaxReplicasFixed   = "fixed"
-	MaxReplicasDynamic = "dynamic"
-)
-
 // Capacity modes: where the throughput of one pod comes from.
 const (
 	CapacityModeManual   = "manual"
@@ -196,12 +190,9 @@ type ForecastModule struct {
 	// fallback values apply. 0 accepts any score.
 	MinScore float64 `gorm:"not null;default:0" json:"min_score" column_setting:"false"`
 
-	// Replica ceiling. MaxReplicas is the normal upper limit. In dynamic mode a forecast above it may raise the
-	// effective ceiling when the algorithm in use scored at least MinScore, by at most ExpandStepRatio of the
-	// current ceiling per cycle, and never beyond HardMaxReplicas, which nothing may exceed. MinReplicas is a hard floor.
-	MaxReplicasMode string  `gorm:"type:varchar(10);not null;default:'fixed'" json:"max_replicas_mode" column_setting:"false"`
-	HardMaxReplicas int     `gorm:"not null;default:0" json:"hard_max_replicas" column_setting:"false"`
-	ExpandStepRatio float64 `gorm:"not null;default:0" json:"expand_step_ratio" column_setting:"false"`
+	// The replicas are bounded by MinReplicas and MaxReplicas below, and only by them: MinReplicas is the floor, MaxReplicas the most the module may be scaled out to.
+	// (The ceiling that could be raised under "dynamic expansion", with its own hard maximum, is retired: two maximums said two things. Its columns stay in an old
+	// database with their defaults and are not read.)
 
 	// Hard bounds and the module fallback; 0 = unset.
 	MinCPUMilli    int64 `gorm:"not null;default:0" json:"min_cpu_milli" column_setting:"false"`
@@ -628,27 +619,6 @@ func (m *ForecastModule) Validate() error {
 	if m.MinScore < 0 || m.MinScore > 100 {
 		return fmt.Errorf("min_score must be between 0 and 100")
 	}
-	switch m.MaxReplicasMode {
-	case "":
-		m.MaxReplicasMode = MaxReplicasFixed
-	case MaxReplicasFixed, MaxReplicasDynamic:
-	default:
-		return fmt.Errorf("max_replicas_mode must be fixed or dynamic")
-	}
-	if m.HardMaxReplicas < 0 || m.ExpandStepRatio < 0 || m.ExpandStepRatio > 5 {
-		return fmt.Errorf("hard_max_replicas must not be negative and expand_step_ratio must be between 0 and 5")
-	}
-	if m.MaxReplicasMode == MaxReplicasDynamic {
-		if m.MaxReplicas <= 0 || m.HardMaxReplicas < m.MaxReplicas {
-			return fmt.Errorf("dynamic expansion needs max_replicas and a hard_max_replicas that is not below it")
-		}
-		if m.ExpandStepRatio == 0 {
-			m.ExpandStepRatio = 0.25
-		}
-	}
-	if m.HardMaxReplicas > 0 && m.MaxReplicas > m.HardMaxReplicas {
-		return fmt.Errorf("max_replicas exceeds hard_max_replicas")
-	}
 	if m.MinGPU < 0 || m.MaxGPU < 0 || m.FallbackGPU < 0 || (m.MaxGPU > 0 && m.MinGPU > m.MaxGPU) {
 		return fmt.Errorf("invalid gpu bounds")
 	}
@@ -809,7 +779,7 @@ type Recommendation struct {
 	// recommendation did not come from a forecast.
 	Algorithm string  `gorm:"type:varchar(40)" json:"algorithm" column_setting:"true"`
 	Score     float64 `gorm:"not null;default:0" json:"score" column_setting:"true"`
-	// EffectiveMaxReplicas is the replica ceiling in force: the module maximum, or the raised one under dynamic expansion.
+	// EffectiveMaxReplicas is the replica ceiling in force: the maximum of the module (kept so a snapshot says which ceiling it was held to).
 	EffectiveMaxReplicas int `gorm:"not null;default:0" json:"effective_max_replicas" column_setting:"false"`
 
 	Detail string `gorm:"type:text" json:"detail" column_setting:"false"` // JSON: per-field reasons and the inputs used

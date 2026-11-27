@@ -49,17 +49,6 @@ type SelectionRow struct {
 	Lagging        bool    `json:"lagging"`
 }
 
-// ExpansionDetail says what the dynamic replica ceiling did.
-type ExpansionDetail struct {
-	Mode      string `json:"mode"`
-	Base      int    `json:"base"`      // the module maximum
-	Hard      int    `json:"hard"`      // the safety ceiling nothing may exceed
-	Wanted    int    `json:"wanted"`    // what the forecast asked for before the ceiling
-	Effective int    `json:"effective"` // the ceiling in force
-	Expanded  bool   `json:"expanded"`
-	Reason    string `json:"reason"`
-}
-
 // PeriodDetail is a fixed period of the module as the decision saw it: whether it applied at that moment, and the values
 // it pins (0 = not pinned, the algorithm decides). A disabled period is listed with Enabled false and never applies.
 type PeriodDetail struct {
@@ -117,7 +106,6 @@ type RecommendDetail struct {
 	Algorithm string              `json:"algorithm,omitempty"`
 	Score     float64             `json:"score,omitempty"`
 	Multi     *multimetric.Result `json:"multi,omitempty"`
-	Expansion *ExpansionDetail    `json:"expansion,omitempty"`
 	// Replica explains the dynamic replica solve; nil in fixed mode.
 	Replica *ReplicaDetail `json:"replica,omitempty"`
 	// Predict says how the module predicts: off, none (fixed default configuration), fixed (one named algorithm) or dynamic (by score).
@@ -464,9 +452,6 @@ func (s *Service) decide(ctx context.Context, moduleID uint, failed map[string]s
 		return nil, nil, fmt.Errorf("timezone %q: %w", m.Timezone, err)
 	}
 	ceiling := m.MaxReplicas
-	if m.MaxReplicasMode == model.MaxReplicasDynamic && m.HardMaxReplicas > 0 {
-		ceiling = m.HardMaxReplicas // the decision is bounded by the safety ceiling; the effective one is applied below
-	}
 	in := decision.Inputs{
 		Now: now, Bypass: m.Bypass, BypassReason: m.BypassReason,
 		Policy: decision.Policy{
@@ -761,29 +746,11 @@ func (s *Service) decide(ctx context.Context, moduleID uint, failed map[string]s
 	}
 	detail.Rule = ruleDetail
 
-	// ---- the replica ceiling: the module maximum, raised stepwise under dynamic expansion, never above the hard ceiling
+	// ---- the replica ceiling is the maximum of the module and nothing else; a DaemonSet has no replicas to bound
 	effectiveMax := m.MaxReplicas
 	if !m.HasReplicas() {
 		// a DaemonSet runs one pod per node: only its requests are adjusted
 		rec.Replicas = decision.Field{Set: false, Source: decision.SourceOriginal, Reason: "a DaemonSet has no replica count to set"}
-	} else if m.MaxReplicasMode == model.MaxReplicasDynamic {
-		if rec.Replicas.Set && rec.Replicas.Source == decision.SourceAlgorithm && top != nil {
-			exp := expandCeiling(m, run, rec.Replicas.Value, top.st)
-			detail.Expansion, effectiveMax = exp, exp.Effective
-			if rec.Replicas.Value > int64(exp.Effective) {
-				rec.Replicas.Value, rec.Replicas.Clamped = int64(exp.Effective), true
-				rec.Replicas.Reason += fmt.Sprintf("; capped at the effective maximum %d (%s)", exp.Effective, exp.Reason)
-			} else if exp.Expanded {
-				rec.Replicas.Reason += "; the ceiling was raised: " + exp.Reason
-			}
-		} else {
-			detail.Expansion = &ExpansionDetail{Mode: m.MaxReplicasMode, Base: m.MaxReplicas, Hard: m.HardMaxReplicas, Effective: m.MaxReplicas,
-				Reason: "no forecast-based replica count to expand for"}
-			if rec.Replicas.Set && rec.Replicas.Source != decision.SourceBypass && rec.Replicas.Source != decision.SourceFixedPeriod &&
-				rec.Replicas.Source != decision.SourceFixedCount && m.MaxReplicas > 0 && rec.Replicas.Value > int64(m.MaxReplicas) {
-				rec.Replicas.Value, rec.Replicas.Clamped = int64(m.MaxReplicas), true
-			}
-		}
 	}
 	// ---- the metric triggers: the strategy of the module that reads a metric against a threshold. They come after the forecast and its ceiling and before the periods and
 	// the bounds, so a floor or a cap of a period, the module's minimum and maximum and the pace limits of the operator all hold over what a trigger asks for
@@ -944,46 +911,6 @@ func (s *Service) decide(ctx context.Context, moduleID uint, failed map[string]s
 		}
 	}
 	return row, detail, nil
-}
-
-// expandCeiling decides the replica ceiling under dynamic expansion. The forecast may raise it above the module
-// maximum when the algorithm that produced the number scored well enough, by at most ExpandStepRatio of the ceiling
-// already in force per cycle, and never above the hard ceiling. It comes straight back down when the forecast does.
-func expandCeiling(m *model.ForecastModule, run *model.ModuleRunState, wanted int64, by *instanceState) *ExpansionDetail {
-	exp := &ExpansionDetail{Mode: m.MaxReplicasMode, Base: m.MaxReplicas, Hard: m.HardMaxReplicas, Wanted: int(wanted), Effective: m.MaxReplicas}
-	if wanted <= int64(m.MaxReplicas) {
-		exp.Reason = "the forecast is within the module maximum"
-		return exp
-	}
-	if m.MinScore > 0 && (by == nil || !by.scored || by.score < m.MinScore) {
-		score := 0.0
-		if by != nil {
-			score = by.score
-		}
-		exp.Reason = fmt.Sprintf("the algorithm's score %.1f is below the %.0f needed to raise the ceiling", score, m.MinScore)
-		return exp
-	}
-	base := m.MaxReplicas
-	if run != nil && run.EffectiveMaxReplicas > base {
-		base = run.EffectiveMaxReplicas
-	}
-	allowed := int(math.Ceil(float64(base) * (1 + m.ExpandStepRatio)))
-	if allowed <= base {
-		allowed = base + 1
-	}
-	if m.HardMaxReplicas > 0 && allowed > m.HardMaxReplicas {
-		allowed = m.HardMaxReplicas
-	}
-	eff := int(wanted)
-	if eff > allowed {
-		eff = allowed
-	}
-	if eff < m.MaxReplicas {
-		eff = m.MaxReplicas
-	}
-	exp.Effective, exp.Expanded = eff, eff > m.MaxReplicas
-	exp.Reason = fmt.Sprintf("the forecast wants %d; the step limit of %.0f%% on %d allows %d; the hard ceiling is %d", wanted, m.ExpandStepRatio*100, base, allowed, m.HardMaxReplicas)
-	return exp
 }
 
 // PipelineResult is what one pipeline run did and what went wrong. Each step reports its own error; a failing step

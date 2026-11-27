@@ -170,7 +170,6 @@ func (r *ForecastRouter) CreateModule(c *gin.Context) {
 		FloorRatio: req.FloorRatio, MaxShortfall: req.MaxShortfall,
 		RecP90Target: req.RecP90Target, RecP95Target: req.RecP95Target, RecP99Target: req.RecP99Target, RecLimitGuard: req.RecLimitGuard, RecSustainMinutes: req.RecSustainMinutes,
 		RecCPURequestHeadroom: req.RecCPURequestHeadroom, RecMemoryRequestHeadroom: req.RecMemoryRequestHeadroom, RecCPULimitFactor: req.RecCPULimitFactor, RecMemoryLimitFactor: req.RecMemoryLimitFactor,
-		MaxReplicasMode: req.MaxReplicasMode, HardMaxReplicas: req.HardMaxReplicas, ExpandStepRatio: req.ExpandStepRatio,
 		OOMLookbackDays: req.OOMLookbackDays, OOMMemoryUplift: req.OOMMemoryUplift, JVMHeapPressure: 0.85, RecoverCycles: req.RecoverCycles,
 	}
 	if req.JVMHeapPressure != nil {
@@ -244,7 +243,6 @@ func applyModuleUpdate(m *model.ForecastModule, req *apis.ModuleUpdateReq) {
 	set(&m.Timezone, req.Timezone)
 	set(&m.ReplicaMode, req.ReplicaMode)
 	set(&m.CapacityMode, req.CapacityMode)
-	set(&m.MaxReplicasMode, req.MaxReplicasMode)
 	if req.Description != nil {
 		m.Description = *req.Description
 	}
@@ -276,7 +274,7 @@ func applyModuleUpdate(m *model.ForecastModule, req *apis.ModuleUpdateReq) {
 		&m.LookbackHours: req.LookbackHours, &m.HorizonMinutes: req.HorizonMinutes, &m.MaxFillSteps: req.MaxFillSteps,
 		&m.StepSeconds: req.StepSeconds, &m.MinPoints: req.MinPoints, &m.WindowSteps: req.WindowSteps, &m.RunIntervalMinutes: req.RunIntervalMinutes,
 		&m.TTLSeconds: req.TTLSeconds, &m.MinReplicas: req.MinReplicas, &m.MaxReplicas: req.MaxReplicas, &m.FallbackReplicas: req.FallbackReplicas, &m.FixedReplicas: req.FixedReplicas,
-		&m.HardMaxReplicas: req.HardMaxReplicas, &m.MinGPU: req.MinGPU, &m.MaxGPU: req.MaxGPU, &m.FallbackGPU: req.FallbackGPU,
+		&m.MinGPU: req.MinGPU, &m.MaxGPU: req.MaxGPU, &m.FallbackGPU: req.FallbackGPU,
 		&m.OOMLookbackDays: req.OOMLookbackDays, &m.RecoverCycles: req.RecoverCycles, &m.RecSustainMinutes: req.RecSustainMinutes,
 		&m.ScaleUpMaxStep: req.ScaleUpMaxStep, &m.ScaleDownMaxStep: req.ScaleDownMaxStep,
 		&m.ScaleUpCooldownSeconds: req.ScaleUpCooldownSeconds, &m.ScaleDownCooldownSeconds: req.ScaleDownCooldownSeconds,
@@ -301,7 +299,7 @@ func applyModuleUpdate(m *model.ForecastModule, req *apis.ModuleUpdateReq) {
 		&m.RecP90Target: req.RecP90Target, &m.RecP95Target: req.RecP95Target, &m.RecP99Target: req.RecP99Target, &m.RecLimitGuard: req.RecLimitGuard,
 		&m.RecCPURequestHeadroom: req.RecCPURequestHeadroom, &m.RecMemoryRequestHeadroom: req.RecMemoryRequestHeadroom, &m.RecCPULimitFactor: req.RecCPULimitFactor, &m.RecMemoryLimitFactor: req.RecMemoryLimitFactor,
 		&m.FallbackMinHistoryRatio: req.FallbackMinHistoryRatio, &m.MaxMissingRatio: req.MaxMissingRatio,
-		&m.OOMMemoryUplift: req.OOMMemoryUplift, &m.OOMWeight: req.OOMWeight, &m.JVMHeapPressure: req.JVMHeapPressure, &m.MinScore: req.MinScore, &m.ExpandStepRatio: req.ExpandStepRatio,
+		&m.OOMMemoryUplift: req.OOMMemoryUplift, &m.OOMWeight: req.OOMWeight, &m.JVMHeapPressure: req.JVMHeapPressure, &m.MinScore: req.MinScore,
 	} {
 		if src != nil {
 			*dst = *src

@@ -27,7 +27,6 @@ var (
 	descAlgoScore       = prometheus.NewDesc("kube_res_foresight_algorithm_score", "Latest composite score (0-100) of an algorithm instance.", []string{"module", "algorithm"}, nil)
 	descAlgoSelected    = prometheus.NewDesc("kube_res_foresight_algorithm_selected", "1 for the algorithm instance in use.", []string{"module", "algorithm"}, nil)
 	descEffectiveMax    = prometheus.NewDesc("kube_res_foresight_effective_max_replicas", "Replica ceiling in force (the fixed maximum, or the dynamically expanded one).", []string{"module"}, nil)
-	descHardMax         = prometheus.NewDesc("kube_res_foresight_hard_max_replicas", "Safety ceiling the dynamic expansion never passes.", []string{"module"}, nil)
 	descConsecutiveFail = prometheus.NewDesc("kube_res_foresight_consecutive_failures", "Pipeline cycles in a row that failed.", []string{"module"}, nil)
 	descScalingActions  = prometheus.NewDesc("kube_res_foresight_scaling_actions_24h", "Scaling actions the operator reported in the last 24 hours, by action (ScaleUp, ScaleDown, None) and result.", []string{"module", "action", "result"}, nil)
 	descScalingLastAge  = prometheus.NewDesc("kube_res_foresight_scaling_last_report_age_seconds", "Age of the newest scaling report of the module.", []string{"module"}, nil)
@@ -147,14 +146,7 @@ func (c *Collector) build(ctx context.Context) ([]prometheus.Metric, error) {
 			gauge(descAlgoScore, sc.Score, m.Name, name)
 			gauge(descAlgoSelected, boolFloat(name == state.Selected), m.Name, name)
 		}
-		effective := m.MaxReplicas
-		if m.MaxReplicasMode == model.MaxReplicasDynamic && state.EffectiveMaxReplicas > effective {
-			effective = min(state.EffectiveMaxReplicas, max(m.HardMaxReplicas, m.MaxReplicas))
-		}
-		gauge(descEffectiveMax, float64(effective), m.Name)
-		if m.HardMaxReplicas > 0 {
-			gauge(descHardMax, float64(m.HardMaxReplicas), m.Name)
-		}
+		gauge(descEffectiveMax, float64(m.MaxReplicas), m.Name)
 		gauge(descConsecutiveFail, float64(state.ConsecutiveFailures), m.Name)
 
 		// what the module reads and forecasts, and what it executes

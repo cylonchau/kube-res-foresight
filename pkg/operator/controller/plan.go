@@ -18,10 +18,10 @@ type Decision struct {
 	// Algorithm and Score are the algorithm instance behind the decision and its score (platform decisions).
 	Algorithm string
 	Score     float64
-	// MinReplicas is the hard floor and HardMaxReplicas the safety ceiling the platform holds the module to; 0 = not
+	// MinReplicas is the floor and MaxReplicas the most the module may be scaled out to, as the platform holds them now; 0 = not
 	// stated. A decision outside them is pulled back, whatever the spec allows.
-	MinReplicas     int32
-	HardMaxReplicas int32
+	MinReplicas int32
+	MaxReplicas int32
 	// Urgent says the platform raised the replicas because the load measured now needs more than its forecast gave: a scale-up to it
 	// does not wait for the cooldown and is not limited to the step.
 	Urgent bool
@@ -134,15 +134,15 @@ func MakePlan(in PlanInput) Plan {
 		}
 	}
 
-	// the platform's own hard floor and safety ceiling hold even when the spec is wider
+	// the minimum and the maximum the platform holds the module to now hold even when the spec the operator read earlier is wider
 	if p.DecisionValid {
-		if hm := in.Decision.HardMaxReplicas; hm > 0 && target > hm {
-			target = hm
-			p.Reason += fmt.Sprintf("; limited to the platform's hard maximum of %d replicas", hm)
+		if hi := in.Decision.MaxReplicas; hi > 0 && target > hi {
+			target = hi
+			p.Reason += fmt.Sprintf("; limited to the platform's maximum of %d replicas", hi)
 		}
 		if lo := in.Decision.MinReplicas; lo > 0 && target < lo {
 			target = lo
-			p.Reason += fmt.Sprintf("; raised to the platform's hard minimum of %d replicas", lo)
+			p.Reason += fmt.Sprintf("; raised to the platform's minimum of %d replicas", lo)
 		}
 	}
 

@@ -53,7 +53,7 @@ func forecastTestRouter(t *testing.T) (*gin.Engine, *model.MetricMapping) {
 	require.NoError(t, db.Model(&model.AlgorithmConfig{}).Where("1 = 1").Update("enabled", false).Error)
 	h := &ForecastRouter{Modules: modules, Configs: algorithms, Mappings: mappings, Predictions: preds, Service: svc, Config: rdb.NewSysConfigDAO(db)}
 	center := &AlgorithmCenterRouter{Modules: modules, Algorithms: algorithms, Predictions: preds, Tasks: rdb.NewTaskDefinitionDAO(db), Jobs: rdb.NewJobDAO(db), RunStates: rdb.NewRunStateDAO(db), Service: svc}
-	rt := &RuntimeRouter{Modules: modules, Predictions: preds, RunStates: rdb.NewRunStateDAO(db), Config: rdb.NewSysConfigDAO(db), Now: func() time.Time { return runtimeNow }}
+	rt := &RuntimeRouter{Modules: modules, Predictions: preds, Config: rdb.NewSysConfigDAO(db), Now: func() time.Time { return runtimeNow }}
 
 	r := gin.New()
 	r.GET("/algorithms", h.Algorithms)

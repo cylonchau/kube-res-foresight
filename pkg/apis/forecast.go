@@ -90,11 +90,6 @@ type ModuleCreateReq struct {
 	RecCPULimitFactor        float64 `json:"rec_cpu_limit_factor"`
 	RecMemoryLimitFactor     float64 `json:"rec_memory_limit_factor"`
 
-	// Replica ceiling: fixed, or dynamic (up to HardMaxReplicas, by ExpandStepRatio per cycle).
-	MaxReplicasMode string  `json:"max_replicas_mode"`
-	HardMaxReplicas int     `json:"hard_max_replicas"`
-	ExpandStepRatio float64 `json:"expand_step_ratio"`
-
 	// OOM protection and the JVM heap rule; zero takes the default except JVMHeapPressure, where an explicit 0
 	// turns the rule off and absent takes 0.85.
 	OOMLookbackDays int      `json:"oom_lookback_days"`
@@ -187,10 +182,6 @@ type ModuleUpdateReq struct {
 	RecMemoryRequestHeadroom *float64 `json:"rec_memory_request_headroom"`
 	RecCPULimitFactor        *float64 `json:"rec_cpu_limit_factor"`
 	RecMemoryLimitFactor     *float64 `json:"rec_memory_limit_factor"`
-
-	MaxReplicasMode *string  `json:"max_replicas_mode"`
-	HardMaxReplicas *int     `json:"hard_max_replicas"`
-	ExpandStepRatio *float64 `json:"expand_step_ratio"`
 
 	OOMLookbackDays *int     `json:"oom_lookback_days"`
 	OOMMemoryUplift *float64 `json:"oom_memory_uplift"`

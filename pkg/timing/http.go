@@ -59,6 +59,12 @@ var ListQuery = Param{Key: "http.list_query_seconds", Default: 30, Min: 3, Max: 
 	Name:   "Read Request Time Limit (seconds)",
 	Remark: "The longest a read request (a list, a report, a chart) may take. When it runs out the platform stops it, cancels its database statements and answers 504 with the reason, before the gateway cuts the connection. The pages that read the most (forecast results, recommendations and execution) are the ones to look at when this is reached: narrow the time range or add a filter, or raise it while http.gateway_timeout_seconds allows (3-600)."}
 
+// HeavyReadWait is how long one request waits for a heavy read before it answers "being worked out". It is shorter than the read time limit on purpose: a gateway
+// in front of the platform may wait less than the gateway time-out the platform was told, and the page asks again at once and shows the progress.
+var HeavyReadWait = Param{Key: "http.heavy_read_wait_seconds", Default: 15, Min: 3, Max: 120,
+	Name:   "Heavy Read Wait Per Request (seconds)",
+	Remark: "A read that asks Prometheus for a long window (the resource analysis of a module, the resource dashboard, the cluster figures) holds one request for at most this long. When the work is not done by then the platform answers 'being worked out' with its progress, goes on by itself, and the page asks again until the answer is there. A short wait keeps the request under any gateway in front of the platform, so no 504 comes from waiting; it is also kept under the read request time limit and the gateway timeout (3-120)."}
+
 // ListSearchDays is how far back a text search in a list reads when the request names no time range. A search for a word in the reason or the
 // name of the rows of a table that grows (the scaling records, the admission records) cannot use an index: it reads every row it looks at. The
 // time range is what an index can cut, so a search with no range reads the last days only, and the list says so.

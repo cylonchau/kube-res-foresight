@@ -49,13 +49,15 @@ var ErrPending = resultcache.ErrPending
 // partialKept is how long an answer that the time limit cut short is kept: the queries it did not reach are asked again after this.
 const partialKept = time.Minute
 
-// waitFor is how long a request waits for a heavy read: what is left of its time limit less a little to answer with.
+// waitFor is how long a request waits for a heavy read: what is left of its time limit less a little to answer with, and never more than its own short wait (http.heavy_read_wait_seconds).
 func (s *Service) waitFor(ctx context.Context) time.Duration {
 	room := timing.Under(s.gatewayTimeout(ctx), time.Duration(s.Count(ctx, timing.ListQuery))*time.Second)
 	if deadline, ok := ctx.Deadline(); ok {
 		room = time.Until(deadline)
 	}
-	return max(room-2*time.Second, time.Second)
+	room = max(room-2*time.Second, time.Second)
+	// a heavy read holds a request for its own, shorter wait: the page asks again and sees the progress, and no gateway in front is waited past
+	return min(room, time.Duration(s.Count(ctx, timing.HeavyReadWait))*time.Second)
 }
 
 // backgroundBudget is how long a heavy read that did not finish within its request goes on by itself (http.background_read_seconds).

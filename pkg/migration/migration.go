@@ -392,7 +392,40 @@ func EnsureDefaultConfigs() error {
 	if err := splitLimitHeadroom(); err != nil {
 		return err
 	}
-	return switchOnExistingFixedReplicas()
+	if err := switchOnExistingFixedReplicas(); err != nil {
+		return err
+	}
+	return retireHardMaximum()
+}
+
+// hardMaximumMarker is the system parameter row that says the hard maximum of the modules was folded into their maximum.
+const hardMaximumMarker = "migration.hard_maximum_folded"
+
+// retireHardMaximum folds the retired second maximum into the one there is. A module that could expand its ceiling ("dynamic") up to a hard maximum had been allowed that many
+// replicas, so its maximum becomes the hard maximum, once; a module with a fixed ceiling keeps its maximum, whatever its old hard maximum said. The columns stay in the table,
+// unread.
+func retireHardMaximum() error {
+	db := model.DB
+	if !db.Migrator().HasTable("forecast_module") || !db.Migrator().HasColumn("forecast_module", "hard_max_replicas") || !db.Migrator().HasColumn("forecast_module", "max_replicas_mode") {
+		return nil
+	}
+	marker := model.SysConfig{ConfigKey: hardMaximumMarker, ConfigValue: "done", ConfigName: "Upgrade Marker: Hard Maximum Replicas Folded",
+		Remark: "Written when the hard maximum of the replicas of the modules that expanded their ceiling was made their maximum, because a module has one maximum now. It keeps that from running again. Do not delete it."}
+	res := db.Where("config_key = ?", hardMaximumMarker).FirstOrCreate(&marker)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return nil
+	}
+	moved := db.Exec("UPDATE forecast_module SET max_replicas = hard_max_replicas WHERE max_replicas_mode = 'dynamic' AND hard_max_replicas > max_replicas")
+	if moved.Error != nil {
+		return moved.Error
+	}
+	if moved.RowsAffected > 0 {
+		fmt.Printf("upgrade: %d modules had a hard maximum above their maximum: it is their maximum now (the expansion of the ceiling is retired)\n", moved.RowsAffected)
+	}
+	return nil
 }
 
 // fixedSwitchMarker is the system parameter row that says the fixed replicas of the modules that had one were switched on.

@@ -27,8 +27,6 @@ import (
 type RuntimeRouter struct {
 	Modules     *rdb.ModuleDAO
 	Predictions *rdb.PredictionDAO
-	// RunStates gives the replica ceiling in force under dynamic expansion; without it the hard ceiling applies.
-	RunStates *rdb.RunStateDAO
 	// Config holds the switches that open the modes writing to the cluster. Without it every mode is closed.
 	Config *rdb.SysConfigDAO
 	// admissionMu serialises the decision about an admission request and its record (see recordAdmission).
@@ -120,11 +118,9 @@ type OperatorDecision struct {
 	// Urgent says the replicas come from the load measured now, because the forecast was behind it: the operator raises to them
 	// at once, without the cooldown or the step limit of a scale-up.
 	Urgent bool `json:"urgent,omitempty"`
-	// MinReplicas is the hard floor, MaxReplicas the ceiling in force now (fixed, or the dynamically expanded one) and
-	// HardMaxReplicas the safety ceiling the expansion never passes. The operator refuses a decision outside them.
-	MinReplicas     int `json:"min_replicas,omitempty"`
-	MaxReplicas     int `json:"max_replicas,omitempty"`
-	HardMaxReplicas int `json:"hard_max_replicas,omitempty"`
+	// MinReplicas is the floor and MaxReplicas the most the module may be scaled out to: the two bounds of the module, nothing else. The operator refuses a decision outside them.
+	MinReplicas int `json:"min_replicas,omitempty"`
+	MaxReplicas int `json:"max_replicas,omitempty"`
 }
 
 // latestRecommendation is the recommendation the operator should act on: the stored one when it is recent enough, else one the platform
@@ -146,25 +142,6 @@ func (r *RuntimeRouter) latestRecommendation(c *gin.Context, moduleID uint) (*mo
 	}
 	rec, err := r.Predictions.LatestRecommendation(ctx, moduleID)
 	return rec, false, err
-}
-
-// replicaCeiling is the largest replica count the module may be given now.
-func (r *RuntimeRouter) replicaCeiling(c *gin.Context, m *model.ForecastModule) (effective, hard int) {
-	effective, hard = m.MaxReplicas, m.MaxReplicas
-	if m.MaxReplicasMode != model.MaxReplicasDynamic || m.HardMaxReplicas <= 0 {
-		return effective, hard
-	}
-	hard = m.HardMaxReplicas
-	effective = m.MaxReplicas
-	if r.RunStates != nil {
-		if st, err := r.RunStates.RunState(c.Request.Context(), m.ID); err == nil && st.EffectiveMaxReplicas > effective {
-			effective = st.EffectiveMaxReplicas
-		}
-	}
-	if effective > hard {
-		effective = hard
-	}
-	return effective, hard
 }
 
 // Decision answers GET /operator/decisions?module=<name> with the replicas the operator may apply.
@@ -225,9 +202,8 @@ func (r *RuntimeRouter) Decision(c *gin.Context) {
 		deny("the latest recommendation keeps the original replicas")
 		return
 	}
-	effectiveMax, hardMax := r.replicaCeiling(c, m)
 	switch {
-	case effectiveMax > 0 && rec.Replicas > effectiveMax, hardMax > 0 && rec.Replicas > hardMax, rec.Replicas < m.MinReplicas:
+	case m.MaxReplicas > 0 && rec.Replicas > m.MaxReplicas, rec.Replicas < m.MinReplicas:
 		deny("the latest recommendation is outside the module's current replica bounds")
 		return
 	}
@@ -238,7 +214,7 @@ func (r *RuntimeRouter) Decision(c *gin.Context) {
 	out.Reason = storedDetail(rec).Replicas.Reason
 	out.Algorithm, out.Score = rec.Algorithm, rec.Score
 	out.Urgent = rec.Urgent
-	out.MinReplicas, out.MaxReplicas, out.HardMaxReplicas = m.MinReplicas, effectiveMax, hardMax
+	out.MinReplicas, out.MaxReplicas = m.MinReplicas, m.MaxReplicas
 	query.SuccessResponse(c, nil, out)
 }
 
@@ -249,11 +225,9 @@ type OperatorModule struct {
 	Namespace    string `json:"namespace"`
 	WorkloadKind string `json:"workload_kind"`
 	Workload     string `json:"workload"`
-	// MinReplicas and MaxReplicas are the bounds in force now (a dynamic maximum is the one the run state allows);
-	// HardMaxReplicas is the ceiling the maximum may never pass.
-	MinReplicas     int `json:"min_replicas"`
-	MaxReplicas     int `json:"max_replicas"`
-	HardMaxReplicas int `json:"hard_max_replicas"`
+	// MinReplicas and MaxReplicas are the bounds of the module: the floor, and the most it may be scaled out to.
+	MinReplicas int `json:"min_replicas"`
+	MaxReplicas int `json:"max_replicas"`
 	// FallbackReplicas is what the operator uses while there is no fresh decision (never below the current replicas); 0 = none.
 	FallbackReplicas         int `json:"fallback_replicas"`
 	ScaleUpMaxStep           int `json:"scale_up_max_step"`
@@ -291,9 +265,8 @@ func (r *RuntimeRouter) OperatorModules(c *gin.Context) {
 		if m.Mode != model.ModeAuto || m.Bypass || !m.HasReplicas() || (m.WorkloadKind != model.KindDeployment && m.WorkloadKind != model.KindStatefulSet) {
 			continue
 		}
-		effectiveMax, hardMax := r.replicaCeiling(c, m)
 		out.Modules = append(out.Modules, OperatorModule{Name: m.Name, Namespace: m.Namespace, WorkloadKind: m.WorkloadKind, Workload: m.Workload,
-			MinReplicas: m.MinReplicas, MaxReplicas: effectiveMax, HardMaxReplicas: hardMax, FallbackReplicas: m.FallbackReplicas,
+			MinReplicas: m.MinReplicas, MaxReplicas: m.MaxReplicas, FallbackReplicas: m.FallbackReplicas,
 			ScaleUpMaxStep: m.ScaleUpMaxStep, ScaleDownMaxStep: m.ScaleDownMaxStep,
 			ScaleUpCooldownSeconds: m.ScaleUpCooldownSeconds, ScaleDownCooldownSeconds: m.ScaleDownCooldownSeconds})
 	}

@@ -151,22 +151,22 @@ func TestStaticDecisionNeverExpires(t *testing.T) {
 	assert.EqualValues(t, 8, p.Desired)
 }
 
-func TestThePlatformsHardBoundsHoldEvenWhenTheSpecIsWider(t *testing.T) {
+func TestThePlatformsBoundsHoldEvenWhenTheSpecIsWider(t *testing.T) {
 	d := fresh(18)
-	d.HardMaxReplicas, d.MinReplicas = 12, 5
+	d.MaxReplicas, d.MinReplicas = 12, 5
 	p := MakePlan(in(8, 8, d))
-	assert.EqualValues(t, 12, p.Desired, "the safety ceiling of the platform is not passed")
-	assert.Contains(t, p.Reason, "hard maximum")
+	assert.EqualValues(t, 12, p.Desired, "the maximum of the platform is not passed")
+	assert.Contains(t, p.Reason, "platform's maximum")
 
 	d = fresh(3)
 	d.MinReplicas = 5
 	p = MakePlan(in(8, 8, d))
 	assert.EqualValues(t, 5, p.Desired, "the platform's floor is kept")
-	assert.Contains(t, p.Reason, "hard minimum")
+	assert.Contains(t, p.Reason, "platform's minimum")
 
 	// an expired decision does not carry the bounds along: it freezes as before
 	d = fresh(18)
-	d.HardMaxReplicas = 12
+	d.MaxReplicas = 12
 	expired := now.Add(-time.Minute)
 	d.ValidUntil = &expired
 	assert.False(t, MakePlan(in(8, 8, d)).DecisionValid)

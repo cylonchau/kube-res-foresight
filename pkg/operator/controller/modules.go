@@ -20,7 +20,6 @@ type PlatformModule struct {
 	Workload                 string `json:"workload"`
 	MinReplicas              int32  `json:"min_replicas"`
 	MaxReplicas              int32  `json:"max_replicas"`
-	HardMaxReplicas          int32  `json:"hard_max_replicas"`
 	FallbackReplicas         int32  `json:"fallback_replicas"`
 	ScaleUpMaxStep           int32  `json:"scale_up_max_step"`
 	ScaleDownMaxStep         int32  `json:"scale_down_max_step"`

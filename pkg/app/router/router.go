@@ -256,7 +256,7 @@ func RegisteredRouter(e *gin.Engine) {
 	v1Group.GET("/clusters/:id/events", clusterHandler.Events)
 	v1Group.GET("/clusters/:id/changes", clusterHandler.Changes)
 	v1Group.GET("/clusters/:id/changes/:change", clusterHandler.Change)
-	runtimeHandler := &v1.RuntimeRouter{Modules: rdb.NewModuleDAO(model.DB), Predictions: rdb.NewPredictionDAO(model.DB), RunStates: rdb.NewRunStateDAO(model.DB), Config: rdb.NewSysConfigDAO(model.DB), Fresh: forecastService, Gate: clusterGate}
+	runtimeHandler := &v1.RuntimeRouter{Modules: rdb.NewModuleDAO(model.DB), Predictions: rdb.NewPredictionDAO(model.DB), Config: rdb.NewSysConfigDAO(model.DB), Fresh: forecastService, Gate: clusterGate}
 	v1Group.GET("/operator/modules", runtimeHandler.OperatorModules)
 	v1Group.GET("/operator/settings", runtimeHandler.OperatorSettings)
 	v1Group.GET("/dashboard", forecastHandler.Dashboard)
