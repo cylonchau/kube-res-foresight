@@ -110,14 +110,40 @@ func (dao *UserDAO) Update(ctx context.Context, user *model.User) error {
 	return dao.db.WithContext(ctx).Save(user).Error
 }
 
-// Delete deletes a user by ID
+// Delete removes a user for good: the row, its role links, contacts, sessions and column settings. A soft delete would keep the
+// row and its unique username in the database.
 func (dao *UserDAO) Delete(ctx context.Context, id uint) error {
-	return dao.db.WithContext(ctx).Delete(&model.User{}, id).Error
+	return dao.BatchDelete(ctx, []uint{id})
 }
 
-// BatchDelete deletes users in batch
+// BatchDelete removes users for good, with what hangs on them, in one transaction.
 func (dao *UserDAO) BatchDelete(ctx context.Context, ids []uint) error {
-	return dao.db.WithContext(ctx).Delete(&model.User{}, ids).Error
+	if len(ids) == 0 {
+		return nil
+	}
+	return dao.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return PurgeUsers(tx, func(q *gorm.DB) *gorm.DB { return q.Where("id IN ?", ids) })
+	})
+}
+
+// PurgeUsers hard-deletes the users the scope selects (soft-deleted ones included) and everything that is theirs.
+func PurgeUsers(tx *gorm.DB, scope func(*gorm.DB) *gorm.DB) error {
+	var ids []uint
+	if err := scope(tx.Unscoped().Model(&model.User{})).Pluck("id", &ids).Error; err != nil {
+		return err
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	if err := tx.Exec("DELETE FROM sys_user_roles WHERE user_id IN ?", ids).Error; err != nil {
+		return err
+	}
+	for _, m := range []any{&model.UserContact{}, &model.RefreshTokenSession{}, &model.UserColumnConfig{}} {
+		if err := tx.Unscoped().Where("user_id IN ?", ids).Delete(m).Error; err != nil {
+			return err
+		}
+	}
+	return tx.Unscoped().Where("id IN ?", ids).Delete(&model.User{}).Error
 }
 
 // LoadContacts fills the contacts of a user fetched without them. Sign-in does not need them, so a database that has not

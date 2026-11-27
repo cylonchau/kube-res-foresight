@@ -103,6 +103,11 @@ func Migrate(driver string) error {
 	if err := migrateLDAPToSystemParameters(model.DB); err != nil {
 		return err
 	}
+	if n, err := purgeDeletedUsers(model.DB); err != nil {
+		return err
+	} else if n > 0 {
+		fmt.Printf("upgrade: removed %d users that were only marked deleted\n", n)
+	}
 	if err := cleanupRetiredModules(model.DB); err != nil {
 		return err
 	}
@@ -130,6 +135,18 @@ func Migrate(driver string) error {
 	return nil
 }
 func Upgrade(driver string) error { return Migrate(driver) }
+
+// purgeDeletedUsers removes the users an earlier version only marked as deleted, with what was theirs: deleting a user removes it from the database now.
+func purgeDeletedUsers(db *gorm.DB) (int, error) {
+	var count int64
+	if err := db.Unscoped().Model(&model.User{}).Where("deleted_at IS NOT NULL").Count(&count).Error; err != nil || count == 0 {
+		return 0, err
+	}
+	err := db.Transaction(func(tx *gorm.DB) error {
+		return rdb.PurgeUsers(tx, func(q *gorm.DB) *gorm.DB { return q.Where("deleted_at IS NOT NULL") })
+	})
+	return int(count), err
+}
 
 // predictSwitchMissing reports whether the modules of the database were made before the prediction switch existed.
 func predictSwitchMissing(db *gorm.DB) bool {

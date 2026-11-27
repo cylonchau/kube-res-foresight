@@ -90,7 +90,7 @@ var menuAPIs = map[string][]string{
 	"resource-analysis_overprovision": apiList2(moduleReads(), get("/api/v1/overprovision/resources", "/api/v1/overprovision/ai-advice", "/api/v1/grafana/settings", "/api/v1/grafana/dashboard")),
 	// the page of one module (the second level of the resource dashboard) and the cluster dashboard (its own page, with its own clusters)
 	"resource-analysis_overprovision-detail": apiList2(moduleReads(), get("/api/v1/grafana/settings", "/api/v1/grafana/dashboard")),
-	"resource-analysis_rules":                apiList2(moduleReads(), get("/api/v1/rule-decisions")),
+	"resource-analysis_rules":                apiList2(moduleReads(), get("/api/v1/rule-decisions"), []string{"POST /api/v1/modules/:id/rule-decisions/run"}),
 	"resource-analysis_cluster-dashboard": apiList2(get("/api/v1/overprovision/cluster", "/api/v1/overprovision/clusters", "/api/v1/grafana/settings", "/api/v1/grafana/dashboard"),
 		both("/api/v1/inventory", readMethods...)),
 	"forecast-results_algorithm-runs":  apiList2(moduleReads(), both("/api/v1/training-runs", readMethods...), both("/api/v1/algorithms", readMethods...)),

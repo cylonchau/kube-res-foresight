@@ -134,16 +134,33 @@ func TestTheStoredPasswordHashNeverLogsAnLDAPUserInLocally(t *testing.T) {
 	assert.ErrorIs(t, err, ErrInvalidCredentials)
 }
 
-func TestRolesAreRefreshedOnEveryLogin(t *testing.T) {
+// The mapping gives the roles the first time; after that an administrator owns them and a login does not take them back.
+func TestTheMappingGivesRolesOnlyWhileTheAccountHasNone(t *testing.T) {
 	f := newFixture(t)
 	_, err := f.svc.Login(context.Background(), "alice", "alice-pw")
 	require.NoError(t, err)
 	alice := f.dir.users["alice"]
 	alice.id.Groups = []string{"dev"}
 	f.dir.users["alice"] = alice
+	u, err := f.svc.Login(context.Background(), "alice", "alice-pw")
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"ADMIN", "VIEWER"}, roleCodes(f.user(t, "alice")), "leaving the sre group does not remove what was given")
+	assert.Len(t, u.Roles, 2, "the login answers with the roles the account has")
+
+	// the administrator takes the roles away and gives one; the next login keeps it
+	var viewer model.Role
+	require.NoError(t, f.db.Where("code = ?", "VIEWER").First(&viewer).Error)
+	stored := f.user(t, "alice")
+	require.NoError(t, f.db.Model(&stored).Association("Roles").Replace([]model.Role{viewer}))
 	_, err = f.svc.Login(context.Background(), "alice", "alice-pw")
 	require.NoError(t, err)
-	assert.Equal(t, []string{"VIEWER"}, roleCodes(f.user(t, "alice")), "leaving the sre group removes the admin role")
+	assert.Equal(t, []string{"VIEWER"}, roleCodes(f.user(t, "alice")))
+
+	// with no role at all it is the mapping again, the way a first login is
+	require.NoError(t, f.db.Model(&stored).Association("Roles").Clear())
+	_, err = f.svc.Login(context.Background(), "alice", "alice-pw")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"VIEWER"}, roleCodes(f.user(t, "alice")))
 }
 
 func TestAUserInNoMappedGroupIsDeniedUnlessThereIsADefaultRole(t *testing.T) {
@@ -261,6 +278,9 @@ func TestSyncDisablesVanishedDisabledAndUnmappedAccountsAndReEnablesReturnedOnes
 	alice.id.Disabled = true
 	f.dir.users["alice"] = alice
 	setConfig(t, f.db, "ldap.default_role_code", "")
+	// the administrator took the roles of carol away: nothing is left to keep her in
+	carol := f.user(t, "carol")
+	require.NoError(t, f.db.Model(&carol).Association("Roles").Clear())
 
 	res, err := f.svc.SyncAll(context.Background())
 	require.NoError(t, err)

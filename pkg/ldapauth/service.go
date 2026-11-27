@@ -186,7 +186,14 @@ func (s *Service) Login(ctx context.Context, username, password string) (*model.
 	if err != nil {
 		return nil, err
 	}
-	if len(roles) == 0 {
+	// The mapping gives the roles of an account the platform has none for; once it has some, the administrator owns them.
+	var kept []model.Role
+	if found {
+		if kept, err = s.platformRoles(ctx, &existing); err != nil {
+			return nil, err
+		}
+	}
+	if len(roles) == 0 && len(kept) == 0 {
 		if found {
 			if err := s.disable(ctx, &existing); err != nil {
 				return nil, err
@@ -196,7 +203,7 @@ func (s *Service) Login(ctx context.Context, username, password string) (*model.
 		return nil, fmt.Errorf("%w (groups found for %s: %q; group base DN %q, filter %q; %d groups mapped; default role %q)",
 			ErrNoRole, id.DN, id.Groups, row.GroupBaseDN, row.GroupFilter, len(m.roleCodesByGroup), m.defaultRole)
 	}
-	return s.upsert(ctx, found, &existing, username, id, roles)
+	return s.upsert(ctx, found, &existing, username, id, roles, kept)
 }
 
 // PreviewRoles lists the role codes an identity would receive, for the administrator's connection test.
@@ -217,7 +224,16 @@ func (s *Service) PreviewRoles(ctx context.Context, id *Identity) ([]string, err
 	return codes, err
 }
 
-func (s *Service) upsert(ctx context.Context, found bool, existing *model.User, username string, id *Identity, roles []model.Role) (*model.User, error) {
+// platformRoles are the roles an account has in the platform, whoever gave them.
+func (s *Service) platformRoles(ctx context.Context, u *model.User) ([]model.Role, error) {
+	var roles []model.Role
+	err := s.DB.WithContext(ctx).Model(u).Association("Roles").Find(&roles)
+	return roles, err
+}
+
+// upsert writes the profile of an account from the directory. roles are the mapped ones, given only to an account that has none;
+// kept are the roles it already has, which the directory does not touch.
+func (s *Service) upsert(ctx context.Context, found bool, existing *model.User, username string, id *Identity, roles, kept []model.Role) (*model.User, error) {
 	display := id.DisplayName
 	if display == "" {
 		display = username
@@ -241,6 +257,9 @@ func (s *Service) upsert(ctx context.Context, found bool, existing *model.User, 
 				return err
 			}
 		}
+		if len(kept) > 0 {
+			return nil
+		}
 		return tx.Model(existing).Association("Roles").Replace(roles)
 	})
 	if err != nil {
@@ -248,6 +267,9 @@ func (s *Service) upsert(ctx context.Context, found bool, existing *model.User, 
 	}
 	existing.Status, existing.ExternalDisabled = true, false
 	existing.Roles = roles
+	if len(kept) > 0 {
+		existing.Roles = kept
+	}
 	return existing, nil
 }
 
@@ -295,12 +317,15 @@ func (s *Service) SyncAll(ctx context.Context) (*SyncResult, error) {
 		res.Checked++
 		id, err := s.Dir.Lookup(ctx, rt, u.Username)
 		active := err == nil && !id.Disabled
-		var roles []model.Role
+		var roles, kept []model.Role
 		if active {
 			if roles, err = s.roles(ctx, m, id); err != nil {
 				return res, err
 			}
-			active = len(roles) > 0
+			if kept, err = s.platformRoles(ctx, u); err != nil {
+				return res, err
+			}
+			active = len(roles) > 0 || len(kept) > 0
 		}
 		switch {
 		case err != nil && !errors.Is(err, ErrUserNotFound):
@@ -317,7 +342,7 @@ func (s *Service) SyncAll(ctx context.Context) (*SyncResult, error) {
 				continue // disabled by an administrator: stays disabled
 			}
 			wasDisabled := !u.Status
-			if _, err := s.upsert(ctx, true, u, u.Username, id, roles); err != nil {
+			if _, err := s.upsert(ctx, true, u, u.Username, id, roles, kept); err != nil {
 				return res, err
 			}
 			if wasDisabled {
