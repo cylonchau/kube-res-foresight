@@ -20,7 +20,7 @@ const ShippedName = "kube-res-foresight-resources.json"
 const DefaultUID = "kube-res-foresight-resources"
 
 // PlatformPage is the page of the platform a panel of a workload links back to.
-const PlatformPage = "/forecast-results/overprovision"
+const PlatformPage = "/resource-analysis/overprovision"
 
 // Options shape the dashboard.
 type Options struct {

@@ -37,7 +37,7 @@ func TestPlatformCleanupPreservesGenericTasksAndAuthorization(t *testing.T) {
 	require.False(t, db.Migrator().HasTable("market_kline"))
 	var roots []model.Permission
 	require.NoError(t, db.Where("parent_id = 0 AND visible = ? AND type <> ?", true, "BUTTON").Find(&roots).Error)
-	require.Len(t, roots, 11, "the nine directories of the platform, the dashboard (the page after login) and the assistant")
+	require.Len(t, roots, 12, "the ten directories of the platform (Resource Analysis among them), the dashboard (the page after login) and the assistant")
 	var dir, llm, skill model.Permission
 	require.NoError(t, db.Where("code = ?", "ai-config").First(&dir).Error)
 	require.Equal(t, "DIRECTORY", dir.Type)
@@ -352,4 +352,47 @@ func TestUpgradeRemovesTheRetiredAlgorithmsAndWhatWasStoredForThem(t *testing.T)
 	var runs []string
 	require.NoError(t, db.Table("forecast_training_run").Pluck("algorithm_id", &runs).Error)
 	require.Equal(t, []string{"naive"}, runs, "what was stored for it is gone, the others are kept")
+}
+
+// The resource dashboards moved to the directory Resource Analysis: a role that could open them there still can, with the directory, and the old codes are gone.
+func TestUpgradeMovesTheResourceDashboardsToTheResourceAnalysisDirectory(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(model.Models...))
+	oldDB := model.DB
+	model.DB = db
+	t.Cleanup(func() { model.DB = oldDB })
+
+	results := model.Permission{Name: "Forecast Results", Code: "forecast-results", Type: "DIRECTORY", Status: true}
+	require.NoError(t, db.Create(&results).Error)
+	var old []model.Permission
+	for _, code := range []string{"forecast-results_overprovision", "forecast-results_overprovision-detail", "forecast-results_cluster-dashboard"} {
+		p := model.Permission{Name: code, Code: code, Type: "MENU", ParentID: results.ID, Status: true}
+		require.NoError(t, db.Create(&p).Error)
+		old = append(old, p)
+	}
+	role := model.Role{Name: "Reader", Code: "READER", Status: true}
+	require.NoError(t, db.Create(&role).Error)
+	require.NoError(t, db.Model(&role).Association("Permissions").Replace([]model.Permission{old[0], old[2]}))
+
+	require.NoError(t, seedPlatformPermissions())
+	require.NoError(t, migrateMenuGrants(db))
+	require.NoError(t, cleanupRetiredModules(db))
+	require.NoError(t, seedPlatformPermissions())
+
+	var granted []string
+	require.NoError(t, db.Table("permissions").Joins("JOIN sys_role_permissions rp ON rp.permission_id = permissions.id").
+		Where("rp.role_id = ?", role.ID).Pluck("permissions.code", &granted).Error)
+	require.Contains(t, granted, "resource-analysis_overprovision")
+	require.Contains(t, granted, "resource-analysis_cluster-dashboard")
+	require.Contains(t, granted, "resource-analysis", "the directory comes with its pages")
+	require.NotContains(t, granted, "resource-analysis_overprovision-detail", "a page the role could not open is not given")
+	var left int64
+	require.NoError(t, db.Model(&model.Permission{}).Where("code LIKE ?", "forecast-results_%overprovision%").Or("code = ?", "forecast-results_cluster-dashboard").Count(&left).Error)
+	require.Zero(t, left, "the old codes are removed")
+	var dir, page model.Permission
+	require.NoError(t, db.Where("code = ?", "resource-analysis").First(&dir).Error)
+	require.NoError(t, db.Where("code = ?", "resource-analysis_cluster-dashboard").First(&page).Error)
+	require.Equal(t, dir.ID, page.ParentID)
+	require.Equal(t, "/resource-analysis/cluster-dashboard", page.FeRoute)
 }

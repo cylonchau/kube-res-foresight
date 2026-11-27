@@ -87,10 +87,10 @@ var menuAPIs = map[string][]string{
 		both("/api/v1/algorithms", readMethods...)),
 	"forecast-results_leaderboard": apiList2(moduleReads(), both("/api/v1/algorithm-scores", readMethods...), both("/api/v1/algorithm-rankings", readMethods...),
 		both("/api/v1/algorithms", readMethods...)),
-	"forecast-results_overprovision": apiList2(moduleReads(), get("/api/v1/overprovision/resources", "/api/v1/overprovision/ai-advice", "/api/v1/grafana/settings", "/api/v1/grafana/dashboard")),
+	"resource-analysis_overprovision": apiList2(moduleReads(), get("/api/v1/overprovision/resources", "/api/v1/overprovision/ai-advice", "/api/v1/grafana/settings", "/api/v1/grafana/dashboard")),
 	// the page of one module (the second level of the resource dashboard) and the cluster dashboard (its own page, with its own clusters)
-	"forecast-results_overprovision-detail": apiList2(moduleReads(), get("/api/v1/grafana/settings", "/api/v1/grafana/dashboard")),
-	"forecast-results_cluster-dashboard": apiList2(get("/api/v1/overprovision/cluster", "/api/v1/overprovision/clusters", "/api/v1/grafana/settings", "/api/v1/grafana/dashboard"),
+	"resource-analysis_overprovision-detail": apiList2(moduleReads(), get("/api/v1/grafana/settings", "/api/v1/grafana/dashboard")),
+	"resource-analysis_cluster-dashboard": apiList2(get("/api/v1/overprovision/cluster", "/api/v1/overprovision/clusters", "/api/v1/grafana/settings", "/api/v1/grafana/dashboard"),
 		both("/api/v1/inventory", readMethods...)),
 	"forecast-results_algorithm-runs":  apiList2(moduleReads(), both("/api/v1/training-runs", readMethods...), both("/api/v1/algorithms", readMethods...)),
 	"forecast-actions_recommendations": apiList2(moduleReads(), get("/api/v1/recommendations", "/api/v1/resource-analysis"), both("/api/v1/snapshots", readMethods...)),
@@ -124,7 +124,8 @@ const BusinessRoleCode = "BIZ"
 // data sources, the algorithms, the task center, the AI configuration (models, skills, tasks, audit) or the diagnostics.
 var businessPermissions = []string{
 	"forecast-modules", "forecast-modules_modules",
-	"forecast-results", "forecast-results_history", "forecast-results_effect", "forecast-results_evaluations", "forecast-results_leaderboard", "forecast-results_overprovision", "forecast-results_overprovision-detail", "forecast-results_cluster-dashboard", "forecast-results_algorithm-runs",
+	"resource-analysis", "resource-analysis_overprovision", "resource-analysis_overprovision-detail", "resource-analysis_cluster-dashboard",
+	"forecast-results", "forecast-results_history", "forecast-results_effect", "forecast-results_evaluations", "forecast-results_leaderboard", "forecast-results_algorithm-runs",
 	"forecast-actions", "forecast-actions_recommendations", "forecast-actions_executions", "forecast-actions_fallbacks", "forecast-actions_admissions",
 	"ai-config", "ai-config_chat", "assistant:chat",
 }

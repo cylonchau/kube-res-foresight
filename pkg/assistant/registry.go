@@ -69,7 +69,7 @@ var toolMetas = map[string]toolMeta{
 	"get_module_effect_report": {summary: "How good the forecasts of one module were: accuracy, scale-ups in time, capacity wasted or missing, stability",
 		api: "GET /api/v1/modules/:id/effect-report", pages: []string{"forecast-results_effect", "forecast-results_history"}},
 	"analyze_resources": {summary: "Is a module over-provisioned or short: the analysis of the resource dashboard (use against the Pod's Requests and Limits, verdict, recommended Requests, Limits and replicas)",
-		api: "GET /api/v1/overprovision/advice", pages: []string{"forecast-results_overprovision", "forecast-results_overprovision-detail", "forecast-modules_modules"}},
+		api: "GET /api/v1/overprovision/advice", pages: []string{"resource-analysis_overprovision", "resource-analysis_overprovision-detail", "forecast-modules_modules"}},
 	"list_module_metrics": {summary: "The metrics stored for one module, with units and how far back the data goes",
 		api: "GET /api/v1/modules/:id/metric-catalog", pages: []string{"forecast-modules_modules"}},
 	"get_module_recommendation": {summary: "The newest recommendation of one module: CPU, memory, replicas, who decided it, whether it fell back",

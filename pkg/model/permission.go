@@ -23,6 +23,8 @@ var retiredMenuCodes = map[string]bool{
 	"assistant": true,
 	// the cost page is out of the product while the cost module waits for its requirements (P9 on hold, 2026-11-19); a database that seeded it drops it
 	"forecast-results_cost": true,
+	// the resource dashboard, its detail and the cluster dashboard moved from the forecast results to the directory Resource Analysis (2026-11-27)
+	"forecast-results_overprovision": true, "forecast-results_overprovision-detail": true, "forecast-results_cluster-dashboard": true,
 }
 
 // retiredButtonCodes are API permissions of removed features; the upgrade deletes them with their grants.
@@ -39,7 +41,7 @@ func IsPlatformRoute(code string) bool {
 	if code == "system_coins" || retiredMenuCodes[code] {
 		return false
 	}
-	for _, module := range []string{"system", "authorization", "task-center", "datasource", "forecast", "forecast-modules", "forecast-results", "forecast-actions", "monitoring", "ai-config"} {
+	for _, module := range []string{"system", "authorization", "task-center", "datasource", "forecast", "forecast-modules", "resource-analysis", "forecast-results", "forecast-actions", "monitoring", "ai-config"} {
 		if code == module || strings.HasPrefix(code, module+"_") {
 			return true
 		}

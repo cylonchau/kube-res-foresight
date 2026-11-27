@@ -85,7 +85,7 @@ JVM (heap and non-heap used, committed and maximum; GC count and pause).
 ## Links in both directions
 
 * Platform to Grafana: `/d/<uid>?orgId=1&var-cluster=…&var-namespace=…&var-workload=…&var-pod=…&var-node=…&var-container=…&from=…&to=…`; the window of the page is the time range.
-* Grafana to the platform (only when `platform.public_url` is set): the dashboard link and the workload panels open `/forecast-results/overprovision?namespace=…&workload=…&source=grafana`.
+* Grafana to the platform (only when `platform.public_url` is set): the dashboard link and the workload panels open `/resource-analysis/overprovision?namespace=…&workload=…&source=grafana`.
   The page takes a namespace and a workload that name exactly one thing; "All" (`.*`) and several chosen values are ignored.
 
 ## What was checked, and what was not

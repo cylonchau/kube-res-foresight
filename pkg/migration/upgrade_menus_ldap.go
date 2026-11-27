@@ -35,6 +35,10 @@ var menuSuccessors = map[string][]string{
 	"datasource_presets":           {"datasource_metric-mappings", "forecast-modules_modules"},
 	// the AI assistant had one menu for its model connection; it is the directory AI configuration now, with LLM and skill management
 	"assistant": {"ai-config_llm", "ai-config_skill"},
+	// the resource dashboards moved to the directory Resource Analysis
+	"forecast-results_overprovision":        {"resource-analysis_overprovision"},
+	"forecast-results_overprovision-detail": {"resource-analysis_overprovision-detail"},
+	"forecast-results_cluster-dashboard":    {"resource-analysis_cluster-dashboard"},
 }
 
 // migrateMenuGrants copies the grants of retired menus to their successors (and to the successors' parent

@@ -162,7 +162,7 @@
 | A0 设计收敛 | E2、E3、E10 已答复；E1、E4～E9 还没答复：**A2、A3 先按我的建议值做了（E4 默认值全部做成系统参数、E7 放在“预测结果”下的“资源大盘”、E6 分析结果保留 90 天），你一答复不同就改** | |
 | A1 数据采集与持久化 | **已做**（2026-11-20，只用假客户端、合成数据验证，没在真集群上跑）：operator 只读上报节点、模块的工作负载、Pod、容器、HPA/KEDA；平台表、保留期、JVM 的 committed/非堆/GC 指标种类（见“A1、A3、A4 实际做了什么”） | `pkg/inventory`、`pkg/inventorysvc`、`pkg/operator/controller/inventory.go`、`pkg/dao/rdb/inventory.go`、`pkg/model/inventory.go` |
 | A2 超配分析引擎 | **已做**（2026-11-19，只用合成数据验证；公式和默认值没有真实数据验证） | `pkg/overprovision`（纯函数）、`pkg/forecastsvc/overprovision.go`、表 `overprovision_analysis`、系统参数 12 个、定时任务 `forecast.overprovision`（每 6 小时） |
-| A3 系统内大盘与详情 | **已做**（在真浏览器里看过，临时库、假 Prometheus）：汇总卡、排行图、模块页，加上集群卡片、节点表、Ready 节点趋势、HPA 与副本趋势、配置变更历史、“在 Grafana 打开”、BIZ 账号走查（2026-11-20） | `web/src/views/forecast-results/overprovision`、`components/business/overprovision-module-panel.vue`、`inventory-{cluster,workload}-panel.vue` |
+| A3 系统内大盘与详情 | **已做**（在真浏览器里看过，临时库、假 Prometheus）：汇总卡、排行图、模块页，加上集群卡片、节点表、Ready 节点趋势、HPA 与副本趋势、配置变更历史、“在 Grafana 打开”、BIZ 账号走查（2026-11-20） | `web/src/views/resource-analysis/overprovision`、`components/business/overprovision-module-panel.vue`、`inventory-{cluster,workload}-panel.vue` |
 | A4 Grafana Dashboard 与深链 | **已做**（2026-11-20）：看板由 `pkg/grafana` 用与页面同一套查询生成，JSON 在 `deploy/grafana` 和 Helm；**没在真实 Grafana 里加载过** | `pkg/grafana`、`deploy/grafana/kube-res-foresight-resources.json`、`pkg/app/server/api/handle_grafana.go` |
 | A5 LLM 周期建议 | **已做（2026-11-25，和 P11 的 C6 一起）**：每日 AI 建议，见 ai-and-performance-p11.md 第十二部分 | |
 | A6 移出成本 | **已完成**（2026-11-19） | 见下面“A6 实际做了什么” |
@@ -207,7 +207,7 @@
 | 系统参数 | `analysis.cpu_margin_percent`、`memory_margin_percent`、`memory_peak_percent`、`oom_uplift_percent`、`throttle_percent`、`baseline_window_days`、`grade_severe_percent`、`grade_moderate_percent`、`grade_mild_percent`、`coverage_high_percent`、`coverage_medium_percent`、`result_retention_days`；定时任务 `forecast.overprovision`（迁移种子，`@every 6h`，管理员可改） |
 | 接口 | `GET /overprovision?window=`（大盘，读存下来的结果）、`POST /overprovision/run?module_id=`（立即分析，受手动步骤的预算限制，没来得及的留给定时任务）、`GET /modules/:id/overprovision?window=` 或 `from=&to=`（详情，现算，带图的序列、JVM 和历史） |
 
-### A3：资源大盘（“预测结果 > 资源大盘”，菜单码 `forecast-results_overprovision`）
+### A3：资源大盘（“预测结果 > 资源大盘”，菜单码 `resource-analysis_overprovision`）
 
 一个页面、一个主视图，不用页签：搜索条（窗口、命名空间、状态、计算口径、关键字）、汇总卡（当前预留 CPU 与内存、可回收 CPU 与内存及占比、待优化超配应用、欠配应用、稳定性隐患、受限、最近分析）、可回收资源排行图（下拉选 Top 10 模块或按命名空间，CPU 或内存）、工作负载表（列可在列设置里选）、详情窗口（配置、CPU 与内存各一段：图、分位数、建议值与公式、依据；JVM；历史结果；窗口可选七个之一或自定义范围）。表的“计算口径”下拉切换单 Pod 与全副本总和。**所有数字来自存下来的分析结果，不用预测，不算金额。**业务角色 `BIZ` 的种子带上了这个菜单（已有的 BIZ 角色不会被改，要管理员自己加）。
 
@@ -250,7 +250,7 @@
 - **总览**：最上面是可折叠的“集群与节点”（默认展开）：集群名、就绪节点（x / y）、不可调度、可分配 CPU 与内存、模块的 Pod 数与请求 CPU 与内存（占可分配的比例）、云厂商、可用区、实例类型；**Ready 节点趋势**（每次报告一个点）；**节点表**（状态、压力、实例类型、可用区、可分配、模块 Pod 与请求、正在用的 CPU 与内存及占比——后两列向 Prometheus 现查，查不到的写原因，不弹窗；每行“Grafana”链接）。其下是原有的汇总卡、排行图、模块列表；整页在一个滚动区里。
 - **模块页**：在原有内容下增加“工作负载（operator 上报）”：副本（就绪/期望、可用、已更新）、HPA 或 KEDA（名称、范围、当前→期望）、Pod 数、重启数；每个容器的 CPU/内存 Requests 与 Limits；**副本与 HPA 趋势**（期望、就绪、HPA 当前，上下界虚线）；Pod 列表（节点、阶段、重启、启动时间、每个 Pod 的 Grafana 链接）；**配置变更历史**（时间、摘要、可展开每一项 `路径: 旧 → 新`）；operator 没上报时写明怎么办；`missing`、`stale`、`error` 各有提示。再下面是可折叠的“集群与节点”（点开才加载）。
 - **“在 Grafana 打开”**：工具栏（集群或所选模块）、集群、节点、工作负载、Pod、容器，URL 带 `var-cluster`、`var-namespace`、`var-workload`、`var-pod`、`var-node`、`var-container` 和 `from`/`to`（页面的窗口：`7d` → `now-7d`，自定义范围 → 毫秒时间戳）。**没配 Grafana 地址时一个链接都不画。**
-- **Grafana 打开本页**：看板里的链接 `/forecast-results/overprovision?namespace=…&workload=…&source=grafana`；页面认 `namespace`、`workload`、`module`、`window`，Grafana 的“全部”（`.*`）和多选（`a|b`）不指向一个对象，**忽略**。
+- **Grafana 打开本页**：看板里的链接 `/resource-analysis/overprovision?namespace=…&workload=…&source=grafana`；页面认 `namespace`、`workload`、`module`、`window`，Grafana 的“全部”（`.*`）和多选（`a|b`）不指向一个对象，**忽略**。
 - **接口**：`GET /inventory/nodes`、`/inventory/nodes/trend?hours=`、`/inventory/nodes/usage`（502 = 数据源读不到，页面在原处写原因）、`/inventory/workloads`、`/modules/:id/inventory?hours=`、`/grafana/settings`、`/grafana/dashboard`（下载看板 JSON）；operator 用 `GET /operator/inventory-targets`、`POST /operator/inventory`（权限 `forecast:operator:use`）。BIZ 角色：资源大盘菜单带上前七个读接口，**不带 operator 接口和系统参数的写**；已经存在的 BIZ 角色不会被迁移改（管理员改过的权限不收回、也不补），要在“授权管理”里给它加上这个菜单。
 
 ### A4：Grafana 看板
@@ -271,7 +271,7 @@
 
 | 条 | 做了什么 | 在哪里 |
 |---|---|---|
-| 1 分析窗口 | 去掉 7 个并排的选项，改成和全站一样的时间选择框（最近 N 分钟/小时/天或固定范围）；正好是 15m、30m、1h、1d、7d、15d、30d 之一就走已存的窗口，其他长度按范围现算；总览读“能盖住这个范围的最短已存窗口”并说明 | `utils/overprovision-window.ts`（有测试）、`time-range-field.vue`（加了 `size`）、`views/forecast-results/overprovision/index.vue` |
+| 1 分析窗口 | 去掉 7 个并排的选项，改成和全站一样的时间选择框（最近 N 分钟/小时/天或固定范围）；正好是 15m、30m、1h、1d、7d、15d、30d 之一就走已存的窗口，其他长度按范围现算；总览读“能盖住这个范围的最短已存窗口”并说明 | `utils/overprovision-window.ts`（有测试）、`time-range-field.vue`（加了 `size`）、`views/resource-analysis/overprovision/index.vue` |
 | 2 命名空间与实例 | 两个独立的下拉：先选命名空间，实例只列它的实例，名字里不再带命名空间（两个命名空间同名时才在括号里注明）；选了实例，命名空间自动对上；清掉命名空间，实例也放开 | 同上 |
 | 3 查询与来源 | 所有 PromQL 用同一个列表显示：名字、来源标签（指标模板：名字／系统参数／默认查询）、Prometheus 风格的代码块、得到的值或失败原因；来源标签统一写 `Prometheus · 数据源名` | `components/business/promql-list.vue` |
 | 4 504 | 见下“504” | `pkg/forecastsvc/promstats.go`、`cached.go`、`handle_overprovision.go` |
@@ -301,7 +301,7 @@
 
 | 条 | 做了什么 | 在哪里 |
 |---|---|---|
-| 1 可回收资源排行 | 删除（总览的排行图、可回收卡片、预留合计、待优化／欠配／隐患计数都删了） | `views/forecast-results/overprovision/index.vue` |
+| 1 可回收资源排行 | 删除（总览的排行图、可回收卡片、预留合计、待优化／欠配／隐患计数都删了） | `views/resource-analysis/overprovision/index.vue` |
 | 2 模块列表 | 保留为总览的默认内容：模块、命名空间、工作负载三列加“分析”按钮，选命名空间和实例后进入模块大盘；列表来自模块接口，不含任何存下的分析结果 | 同上 |
 | 3 集群大盘 | 不动：总览页下方仍是 `overprovision-cluster-card.vue` | 同上 |
 | 4 功能移除 | 删除 `inventory-cluster-panel.vue`（集群与节点）、`inventory-workload-panel.vue`（工作负载）、模块详情里的集群卡片、“立即分析”按钮和回收资源卡片；operator 上报与 `/inventory` 接口原样保留（operator 和 Grafana 还要用） | web components |
@@ -331,9 +331,9 @@
 ### 页面边界与导航（两级页面）
 | 层级 | 页面 | 路由 | 里面有什么 | 没有什么 |
 |---|---|---|---|---|
-| 一级 | 资源大盘 | `/forecast-results/overprovision`（菜单“资源大盘”） | 模块列表（模块、CPU 请求／限制、内存请求／限制，命名空间与关键字筛选），每行一个“分析”按钮 | 集群、图、AI 按钮 |
-| 二级 | 模块资源分析 | `/forecast-results/overprovision-detail?module=ID&window=&basis=`（隐藏菜单，菜单码 `forecast-results_overprovision-detail`，高亮一级菜单） | “返回模块列表”、窗口、口径、OOM 数量、卡片墙、分位数表（含 Requests／Limits）、图、查询、AI 悬浮按钮 | 集群大盘、列表 |
-| 独立 | 集群大盘 | `/forecast-results/cluster-dashboard`（菜单“集群大盘”，在“预测结果”下） | 管理的集群数、集群列表（已声明几项 / 总项数、没声明的是哪些）、所选集群的节点／Pod／CPU／内存 | 模块 |
+| 一级 | 资源大盘 | `/resource-analysis/overprovision`（菜单“资源大盘”） | 模块列表（模块、CPU 请求／限制、内存请求／限制，命名空间与关键字筛选），每行一个“分析”按钮 | 集群、图、AI 按钮 |
+| 二级 | 模块资源分析 | `/resource-analysis/overprovision-detail?module=ID&window=&basis=`（隐藏菜单，菜单码 `resource-analysis_overprovision-detail`，高亮一级菜单） | “返回模块列表”、窗口、口径、OOM 数量、卡片墙、分位数表（含 Requests／Limits）、图、查询、AI 悬浮按钮 | 集群大盘、列表 |
+| 独立 | 集群大盘 | `/resource-analysis/cluster-dashboard`（菜单“集群大盘”，在“预测结果”下） | 管理的集群数、集群列表（已声明几项 / 总项数、没声明的是哪些）、所选集群的节点／Pod／CPU／内存 | 模块 |
 - **入口**：模块只能从一级列表进二级页；集群只在集群大盘里；两个大盘互不嵌入。
 - **返回与状态保留**：二级页的“返回模块列表”回到一级并关掉二级页的标签；一级页的命名空间和关键字存在页面外的状态里（`hooks/business/use-overprovision-list-state.ts`），回来时原样还在；二级页的模块、窗口（取标准标签时）和口径写在地址里，刷新、浏览器前进后退都落在同一页；集群大盘所选的集群写在 `?cluster=` 里。窗口选了固定范围时不写进地址（回到默认 7 天）。
 - **权限**：二级页和集群大盘各是一个菜单权限（迁移种子里，二级页不可见），BIZ 角色都有；旧库要跑一次 `--migration` 才有这两个菜单。

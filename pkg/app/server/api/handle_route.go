@@ -201,7 +201,7 @@ const homeRoute = "forecast-modules_modules"
 
 // activeMenus are the pages that are second levels of another page and have no menu of their own: the menu keeps the first level lit while the second is open.
 var activeMenus = map[string]string{
-	"forecast-results_overprovision-detail": "forecast-results_overprovision",
+	"resource-analysis_overprovision-detail": "resource-analysis_overprovision",
 }
 
 func activeMenuOf(code string) string { return activeMenus[code] }
