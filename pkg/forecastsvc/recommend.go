@@ -911,9 +911,8 @@ func (s *Service) decide(ctx context.Context, moduleID uint, failed map[string]s
 		Detail: marshal(detail), Degraded: len(detail.Degraded) > 0, OOMFloor: rec.MemoryBytes.Floored,
 		ResourceVersion: spec.Version, ResourceChangedAt: spec.ChangedAt, ResourceHeld: spec.Held, Urgent: urgent && rec.Replicas.Source == decision.SourceAlgorithm,
 	}
-	if ruleDetail.Replicas || ruleDetail.CPU || ruleDetail.Memory {
-		row.RuleDecisionID = ruleDetail.DecisionID
-	}
+	// the recommendation says which calculation it considered, taken or outranked (the detail says which fields it took)
+	row.RuleDecisionID = ruleDetail.DecisionID
 	if len(detail.Degraded) > 0 {
 		row.DegradeReasons = marshal(detail.Degraded)
 	}

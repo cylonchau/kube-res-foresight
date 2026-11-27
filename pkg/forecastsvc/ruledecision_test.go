@@ -218,3 +218,29 @@ func TestTheDispatchDetailLinksTheCalculationToWhatTheOperatorDid(t *testing.T) 
 	assert.Equal(t, DispatchExecuted, rows[0].State)
 	assert.Equal(t, model.DecisionRule, rows[0].DecisionSource)
 }
+
+// A fixed replica count outranks the formula for the replicas; the Pod spec still follows it, and the recommendation says it considered the calculation.
+func TestAFixedReplicaCountOutranksTheFormulaForTheReplicasOnly(t *testing.T) {
+	f := ruleFixture(t)
+	ctx := context.Background()
+	rule, err := f.svc.RuleDecide(ctx, f.module.ID)
+	require.NoError(t, err)
+	require.True(t, rule.CPUSet)
+	f.setModule(t, func(m *model.ForecastModule) {
+		m.Mode = model.ModeRecommend
+		m.DecisionSource = model.DecisionRule
+		m.MinReplicas, m.MaxReplicas = 1, 100
+		m.FixedReplicas, m.FixedReplicasEnabled = 5, true
+	})
+	rec, detail, err := f.svc.Recommend(ctx, f.module.ID)
+	require.NoError(t, err)
+	assert.Equal(t, string(decision.SourceFixedCount), rec.ReplicasSource)
+	assert.Equal(t, 5, rec.Replicas)
+	assert.False(t, detail.Rule.Replicas, "the replicas were not taken from the formula")
+	assert.True(t, detail.Rule.CPU, "the Pod spec was")
+	assert.Equal(t, string(decision.SourceRule), rec.CPUSource)
+	assert.Equal(t, rule.ID, rec.RuleDecisionID, "the calculation was considered")
+	got, err := f.svc.Dispatch(ctx, f.module.ID)
+	require.NoError(t, err)
+	assert.Equal(t, DispatchRecommended, got.State)
+}
