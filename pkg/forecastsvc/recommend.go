@@ -85,6 +85,8 @@ type SourceDetail struct {
 
 // RecommendDetail is stored with every recommendation so it can be explained and replayed.
 type RecommendDetail struct {
+	// DecisionMode is what decided the module: "strategy:<name>", "algorithm", "recommend" or "none" (see model.ForecastModule.DecisionMode).
+	DecisionMode  string         `json:"decision_mode"`
 	Bypass        bool           `json:"bypass"`
 	BypassReason  string         `json:"bypass_reason,omitempty"`
 	CPU           decision.Field `json:"cpu"`
@@ -466,13 +468,14 @@ func (s *Service) decide(ctx context.Context, moduleID uint, failed map[string]s
 	if err != nil {
 		return nil, nil, err
 	}
-	detail := &RecommendDetail{Bypass: m.Bypass, BypassReason: m.BypassReason, ActivePeriods: []string{},
+	periodsOn := m.ActiveStrategy() == model.StrategyPeriods
+	detail := &RecommendDetail{DecisionMode: m.DecisionMode(), Bypass: m.Bypass, BypassReason: m.BypassReason, ActivePeriods: []string{},
 		Inputs: map[string][]decision.Candidate{}}
 	for _, p := range periods {
 		fp := toPeriod(p)
 		pd := PeriodDetail{Name: p.Name, Enabled: p.Enabled, Priority: p.Priority, Weekly: p.AbsStart == nil && p.AbsEnd == nil,
 			Start: p.AbsStart, End: p.AbsEnd, Replicas: p.Replicas, ReplicaMode: p.ReplicaMode, CPUMilli: p.CPUMilli, MemoryBytes: p.MemoryBytes}
-		if p.Enabled {
+		if p.Enabled && periodsOn {
 			in.Periods = append(in.Periods, fp)
 			if decision.ValidatePeriod(fp) == nil && fp.Active(now, loc) {
 				detail.ActivePeriods = append(detail.ActivePeriods, fp.Name)
@@ -495,6 +498,7 @@ func (s *Service) decide(ctx context.Context, moduleID uint, failed map[string]s
 	if err != nil {
 		return nil, nil, err
 	}
+	data := dataSet(m, bs)
 	scores, err := s.Predictions.LatestScores(ctx, m.ID)
 	if err != nil {
 		return nil, nil, err
@@ -607,7 +611,7 @@ func (s *Service) decide(ctx context.Context, moduleID uint, failed map[string]s
 		current = w.Desired
 	}
 	if current == 0 {
-		if rs := bs.firstOfKind("replicas"); rs != nil {
+		if rs := data.firstOfKind("replicas"); rs != nil {
 			if v, ok := s.latestValue(ctx, rs.Inst, rs.Src.Key); ok && v > 0 {
 				current = int(math.Round(v))
 			}
@@ -663,7 +667,7 @@ func (s *Service) decide(ctx context.Context, moduleID uint, failed map[string]s
 		detail.Multi = &multi
 	}
 
-	oom, err := s.oomFloor(ctx, m, bs, now)
+	oom, err := s.oomFloor(ctx, m, data, now)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -671,7 +675,7 @@ func (s *Service) decide(ctx context.Context, moduleID uint, failed map[string]s
 	if oom.Active {
 		in.Policy.OOMFloorBytes, in.Policy.OOMFloorReason = oom.FloorBytes, oom.Reason
 	}
-	heap, err := s.heapPressure(ctx, m, bs, now)
+	heap, err := s.heapPressure(ctx, m, data, now)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -754,9 +758,9 @@ func (s *Service) decide(ctx context.Context, moduleID uint, failed map[string]s
 	}
 	// ---- the metric triggers: the strategy of the module that reads a metric against a threshold. They come after the forecast and its ceiling and before the periods and
 	// the bounds, so a floor or a cap of a period, the module's minimum and maximum and the pace limits of the operator all hold over what a trigger asks for
-	// a module that keeps a fixed count, or is in bypass, has its replicas held: the triggers are not read for it
-	if m.HasReplicas() && m.ActiveFixedReplicas() == 0 && !m.Bypass {
-		states, fired, err := s.evaluateTriggers(ctx, m, bs, loc, now)
+	// the triggers are read only while the strategy of the metric triggers is the one that is on: a module on another strategy, the forecast or the recommendation mode does not read them
+	if m.HasReplicas() && m.ActiveStrategy() == model.StrategyTriggers {
+		states, fired, err := s.evaluateTriggers(ctx, m, data, loc, now)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -774,9 +778,17 @@ func (s *Service) decide(ctx context.Context, moduleID uint, failed map[string]s
 	}
 	// the floors and caps of the periods keep the count, whoever decided it, within the bounds of the module
 	if m.HasReplicas() && (rec.Replicas.Set || len(in.Periods) > 0) {
-		before := rec.Replicas
-		rec.Replicas = decision.ApplyReplicaWindows(rec.Replicas, decision.ActivePeriods(in), int64(m.MinReplicas), int64(effectiveMax))
-		if rec.Replicas != before {
+		// under the time period strategy nothing forecasts: a window that is a floor or a cap acts on the replicas that run now when nothing else decided a count
+		base, ran := rec.Replicas, false
+		if !base.Set && periodsOn && current > 0 {
+			base, ran = decision.Field{Set: true, Value: int64(current), Source: decision.SourceOriginal, Reason: "the replicas that run now"}, true
+		}
+		next := decision.ApplyReplicaWindows(base, decision.ActivePeriods(in), int64(m.MinReplicas), int64(effectiveMax))
+		if next != base {
+			if ran {
+				next.Source = decision.SourceFixedPeriod
+			}
+			rec.Replicas = next
 			detail.ReplicaWindow = true
 		}
 	}

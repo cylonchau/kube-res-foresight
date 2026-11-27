@@ -447,11 +447,9 @@ func TestAMetricTriggerSetsTheReplicasAndSaysWhy(t *testing.T) {
 		"jvm_heap_max":  func(time.Time) float64 { return gib },
 	})
 	f.bind(t, "rps", "naive", nil, 0)
+	f.dynamic(t, func(m *model.ForecastModule) { m.MaxReplicas, m.TriggersEnabled, m.PredictEnabled = 30, true, false })
 	_, err := f.collect(ctx)
 	require.NoError(t, err)
-	_, err = f.predict(ctx)
-	require.NoError(t, err)
-	f.dynamic(t, func(m *model.ForecastModule) { m.MaxReplicas = 30 })
 	trigger := &model.ModuleTrigger{ModuleID: f.module.ID, Name: "heap-hot", Enabled: true, Metric: model.TriggerJVMHeap, Stat: model.TriggerStatMax, WindowMinutes: 30,
 		Operator: model.TriggerGT, Threshold: 0.9, Action: model.TriggerSet, Unit: model.TriggerUnitReplicas, Amount: 27}
 	require.NoError(t, trigger.Validate())
@@ -468,8 +466,6 @@ func TestAMetricTriggerSetsTheReplicasAndSaysWhy(t *testing.T) {
 	used = 0.95
 	*f.clock = testNow.Add(time.Minute)
 	_, err = f.collect(ctx)
-	require.NoError(t, err)
-	_, err = f.predict(ctx)
 	require.NoError(t, err)
 	hot, detail, err := f.svc.Recommend(ctx, f.module.ID)
 	require.NoError(t, err)

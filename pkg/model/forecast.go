@@ -225,9 +225,13 @@ type ForecastModule struct {
 	DecisionSource string `gorm:"type:varchar(12);not null;default:'algorithm'" json:"decision_source" column_setting:"false"`
 	// FixedReplicasEnabled is the switch of FixedReplicas: off, the count stays stored and takes no part in the replicas (see ActiveFixedReplicas).
 	FixedReplicasEnabled bool `gorm:"not null;default:false" json:"fixed_replicas_enabled" column_setting:"false"`
-	MinGPU               int  `gorm:"not null;default:0" json:"min_gpu" column_setting:"false"`
-	MaxGPU               int  `gorm:"not null;default:0" json:"max_gpu" column_setting:"false"`
-	FallbackGPU          int  `gorm:"not null;default:0" json:"fallback_gpu" column_setting:"false"`
+	// PeriodsEnabled and TriggersEnabled are the switches of the time period strategy and of the metric trigger strategy (the third is FixedReplicasEnabled). At most one of the three is on, and
+	// while one is on the forecast and the recommendation mode are off: a strategy decides the replicas itself (see ActiveStrategy).
+	PeriodsEnabled  bool `gorm:"not null;default:false" json:"periods_enabled" column_setting:"false"`
+	TriggersEnabled bool `gorm:"not null;default:false" json:"triggers_enabled" column_setting:"false"`
+	MinGPU          int  `gorm:"not null;default:0" json:"min_gpu" column_setting:"false"`
+	MaxGPU          int  `gorm:"not null;default:0" json:"max_gpu" column_setting:"false"`
+	FallbackGPU     int  `gorm:"not null;default:0" json:"fallback_gpu" column_setting:"false"`
 
 	// HeadroomRatio >= 1 multiplies the predicted peak (the recommendation coefficient); PodCapacityRPS is the verified safe load of one pod, in requests per second.
 	HeadroomRatio  float64 `gorm:"not null;default:1" json:"headroom_ratio" column_setting:"false"`
@@ -337,9 +341,82 @@ func (m *ForecastModule) MissingToEnable() []string {
 
 func (ForecastModule) TableName() string { return "forecast_module" }
 
-// Predicts reports whether the module forecasts at all: the prediction is switched on and its mode is not "none".
+// The strategies of a module: each decides the replicas by its own rule and ranks above the forecast and the recommendation mode. At most one is on.
+const (
+	StrategyPeriods  = "periods"
+	StrategyTriggers = "triggers"
+	StrategyFixed    = "fixed_replicas"
+)
+
+// EnabledStrategies lists the strategies that are switched on, in the order they win when a stored module has more than one on (a fixed count, the periods, the triggers).
+func (m *ForecastModule) EnabledStrategies() []string {
+	var out []string
+	if m.FixedReplicasEnabled {
+		out = append(out, StrategyFixed)
+	}
+	if m.PeriodsEnabled {
+		out = append(out, StrategyPeriods)
+	}
+	if m.TriggersEnabled {
+		out = append(out, StrategyTriggers)
+	}
+	return out
+}
+
+// ActiveStrategy is the strategy that decides the replicas of the module, "" when none is on. A module saved through the API has at most one on; when a stored one has more,
+// the first of EnabledStrategies counts.
+func (m *ForecastModule) ActiveStrategy() string {
+	if on := m.EnabledStrategies(); len(on) > 0 {
+		return on[0]
+	}
+	return ""
+}
+
+// The decision modes a module runs in: one strategy, the forecast, the recommendation mode (the fixed formula), or none (the module only collects and keeps its default configuration).
+const (
+	ModeStrategyPrefix = "strategy:"
+	DecisionModeNone   = "none"
+	DecisionModeAlgo   = "algorithm"
+	DecisionModeRule   = "recommend"
+)
+
+// DecisionMode says what decides the module now: "strategy:<name>", "algorithm", "recommend" or "none".
+func (m *ForecastModule) DecisionMode() string {
+	switch {
+	case m.ActiveStrategy() != "":
+		return ModeStrategyPrefix + m.ActiveStrategy()
+	case m.DecisionSource == DecisionRule:
+		return DecisionModeRule
+	case m.PredictEnabled && m.PredictMode != PredictNone:
+		return DecisionModeAlgo
+	}
+	return DecisionModeNone
+}
+
+// ValidateDecisionMode checks that the modes do not overlap: at most one strategy is on, and the forecast and the recommendation mode are on only while none is. A module
+// follows the recommendation mode when its decision source is "rule" and the forecast when the prediction is switched on and its decision source is "algorithm".
+func (m *ForecastModule) ValidateDecisionMode() error {
+	on := m.EnabledStrategies()
+	if len(on) > 1 {
+		return fmt.Errorf("only one of the time period, metric trigger and fixed replicas strategies may be on (on now: %s)", strings.Join(on, ", "))
+	}
+	if len(on) == 1 {
+		switch {
+		case m.DecisionSource == DecisionRule:
+			return fmt.Errorf("the recommendation mode can be on only while the time period, metric trigger and fixed replicas strategies are all off (%s is on)", on[0])
+		case m.PredictEnabled && m.PredictMode != PredictNone:
+			return fmt.Errorf("the forecast can be on only while the time period, metric trigger and fixed replicas strategies are all off (%s is on)", on[0])
+		}
+	}
+	if m.FixedReplicasEnabled && m.FixedReplicas <= 0 {
+		return fmt.Errorf("the fixed replicas strategy needs a replica count above 0")
+	}
+	return nil
+}
+
+// Predicts reports whether the module forecasts at all: the prediction is switched on, its mode is not "none", and no strategy or the recommendation mode takes the decision.
 func (m *ForecastModule) Predicts() bool {
-	return m.PredictEnabled && m.PredictMode != PredictNone
+	return m.PredictEnabled && m.PredictMode != PredictNone && m.ActiveStrategy() == "" && m.DecisionSource != DecisionRule
 }
 
 // The sources a module can follow.
@@ -349,12 +426,14 @@ const (
 )
 
 // FollowsRule says the module follows the fixed formula of the resource analysis, not the forecasts.
-func (m *ForecastModule) FollowsRule() bool { return m.DecisionSource == DecisionRule }
+func (m *ForecastModule) FollowsRule() bool {
+	return m.DecisionSource == DecisionRule && m.ActiveStrategy() == ""
+}
 
 // ActiveFixedReplicas is the replica count the module keeps whatever the forecast says: the fixed count when the switch is on and a count is set, else 0 (the fixed count
 // takes no part, and every other source of the replicas works as it does for a module that has none).
 func (m *ForecastModule) ActiveFixedReplicas() int {
-	if m.FixedReplicasEnabled && m.FixedReplicas > 0 {
+	if m.ActiveStrategy() == StrategyFixed && m.FixedReplicas > 0 {
 		return m.FixedReplicas
 	}
 	return 0
@@ -648,13 +727,10 @@ func (m *ForecastModule) Validate() error {
 	if m.MaxReplicas > 0 && m.MinReplicas > m.MaxReplicas {
 		return fmt.Errorf("min_replicas exceeds max_replicas")
 	}
-	if m.FixedReplicasEnabled && m.FixedReplicas <= 0 {
-		return fmt.Errorf("fixed_replicas must be set when the fixed replicas are switched on")
-	}
 	if m.DecisionSource != "" && m.DecisionSource != DecisionAlgorithm && m.DecisionSource != DecisionRule {
 		return fmt.Errorf("decision_source must be %q or %q", DecisionAlgorithm, DecisionRule)
 	}
-	return nil
+	return m.ValidateDecisionMode()
 }
 
 // ModulePeriod is an administrator fixed-value window (see decision.FixedPeriod).

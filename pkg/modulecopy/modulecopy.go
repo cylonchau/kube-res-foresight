@@ -97,6 +97,11 @@ func Apply(dst, src *model.ForecastModule, groups []string) {
 			dst.MinReplicas, dst.MaxReplicas = src.MinReplicas, src.MaxReplicas
 			dst.FallbackReplicas, dst.FixedReplicas, dst.FixedReplicasEnabled = src.FallbackReplicas, src.FixedReplicas, src.FixedReplicasEnabled
 			dst.DecisionSource = src.DecisionSource
+			dst.PeriodsEnabled, dst.TriggersEnabled = src.PeriodsEnabled, src.TriggersEnabled
+			if dst.ActiveStrategy() != "" {
+				// a strategy takes the decision from the forecast and the recommendation mode: the target cannot keep its prediction on beside it
+				dst.PredictEnabled, dst.DecisionSource = false, model.DecisionAlgorithm
+			}
 			dst.ScaleUpMaxStep, dst.ScaleDownMaxStep = src.ScaleUpMaxStep, src.ScaleDownMaxStep
 			dst.ScaleUpCooldownSeconds, dst.ScaleDownCooldownSeconds = src.ScaleUpCooldownSeconds, src.ScaleDownCooldownSeconds
 		case GroupData:

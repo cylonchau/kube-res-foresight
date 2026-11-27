@@ -395,6 +395,8 @@ func TestBypassKeepsOriginalValuesAndIsRecorded(t *testing.T) {
 func TestFixedPeriodOverridesAndFallbackWhenModelsAreUnusable(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
+	f.module.PeriodsEnabled = true
+	require.NoError(t, f.svc.Modules.Update(ctx, f.module))
 	// nothing collected or predicted: cpu falls back, replicas come from the active fixed period
 	require.NoError(t, f.svc.Modules.SavePeriod(ctx, &model.ModulePeriod{
 		ModuleID: f.module.ID, Name: "wed-morning", Enabled: true, Weekdays: 1 << int(time.Wednesday), StartMinute: 9 * 60, EndMinute: 12 * 60, Replicas: 9}))
@@ -414,6 +416,8 @@ func TestFixedPeriodOverridesAndFallbackWhenModelsAreUnusable(t *testing.T) {
 func TestAbsoluteFixedPeriodPinsValuesInsideItsWindowOnly(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
+	f.module.PeriodsEnabled = true
+	require.NoError(t, f.svc.Modules.Update(ctx, f.module))
 	start := testNow.Add(-time.Hour)
 	end := testNow.Add(time.Hour)
 	period := &model.ModulePeriod{ModuleID: f.module.ID, Name: "release", Enabled: true, AbsStart: &start, AbsEnd: &end,

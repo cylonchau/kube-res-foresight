@@ -101,6 +101,10 @@ type ModuleCreateReq struct {
 	OOMWeight        *float64 `json:"oom_weight"`
 	// FixedReplicasEnabled switches FixedReplicas on: off, the fixed count is kept in the form but takes no part in the replicas.
 	FixedReplicasEnabled *bool `json:"fixed_replicas_enabled"`
+	// PeriodsEnabled and TriggersEnabled switch the time period strategy and the metric trigger strategy on; at most one of the three strategies is on (the forecast and the
+	// recommendation mode are then off).
+	PeriodsEnabled  *bool `json:"periods_enabled"`
+	TriggersEnabled *bool `json:"triggers_enabled"`
 	// DecisionSource is what the module follows: "algorithm" (the forecasts, the default) or "rule" (the fixed formula of the resource analysis).
 	DecisionSource string `json:"decision_source"`
 
@@ -192,6 +196,8 @@ type ModuleUpdateReq struct {
 	OOMWeight        *float64 `json:"oom_weight"`
 
 	FixedReplicasEnabled *bool   `json:"fixed_replicas_enabled"`
+	PeriodsEnabled       *bool   `json:"periods_enabled"`
+	TriggersEnabled      *bool   `json:"triggers_enabled"`
 	DecisionSource       *string `json:"decision_source"`
 }
 
@@ -332,11 +338,6 @@ type TriggerReq struct {
 type BacktestReq struct {
 	Metric  string `json:"metric" binding:"required"`
 	Cutoffs int    `json:"cutoffs"`
-}
-
-// BypassReq makes a module keep every original value; the reason is mandatory and audited.
-type BypassReq struct {
-	Reason string `json:"reason"`
 }
 
 // AlgorithmCreateReq creates a custom algorithm: an id, a parameter schema and a formula over the history. The system

@@ -10,6 +10,16 @@ import (
 // module's own metric sources.
 type boundSet []*model.AlgorithmRun
 
+// dataSet is what the metrics around a decision (the JVM heap, the OOM kills, the replicas that run, the metric triggers) are read through: the runs of the algorithms when the
+// module predicts, else the module itself as the owner of its metric sources (a module on a strategy, or on the recommendation mode, has no algorithm run, and its sources are as much
+// its own).
+func dataSet(m *model.ForecastModule, bs boundSet) boundSet {
+	if len(bs) > 0 {
+		return bs
+	}
+	return boundSet{m.Data()}
+}
+
 // sourceRef is a metric source with the algorithm run that forecasts it. A source is the module's, but each algorithm
 // forecasts it separately, so a forecast is found through both.
 type sourceRef struct {

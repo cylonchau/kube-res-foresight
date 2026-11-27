@@ -219,7 +219,7 @@ func TestTheDispatchDetailLinksTheCalculationToWhatTheOperatorDid(t *testing.T) 
 	assert.Equal(t, model.DecisionRule, rows[0].DecisionSource)
 }
 
-// A fixed replica count outranks the formula for the replicas; the Pod spec still follows it, and the recommendation says it considered the calculation.
+// A fixed replica count strategy that is on takes the decision from the recommendation mode: the replicas are the count and the formula is not followed.
 func TestAFixedReplicaCountOutranksTheFormulaForTheReplicasOnly(t *testing.T) {
 	f := ruleFixture(t)
 	ctx := context.Background()
@@ -228,21 +228,20 @@ func TestAFixedReplicaCountOutranksTheFormulaForTheReplicasOnly(t *testing.T) {
 	require.True(t, rule.CPUSet)
 	f.setModule(t, func(m *model.ForecastModule) {
 		m.Mode = model.ModeRecommend
-		m.DecisionSource = model.DecisionRule
 		m.MinReplicas, m.MaxReplicas = 1, 100
-		m.FixedReplicas, m.FixedReplicasEnabled = 5, true
+		m.FixedReplicas, m.FixedReplicasEnabled, m.PredictEnabled = 5, true, false
 	})
 	rec, detail, err := f.svc.Recommend(ctx, f.module.ID)
 	require.NoError(t, err)
 	assert.Equal(t, string(decision.SourceFixedCount), rec.ReplicasSource)
 	assert.Equal(t, 5, rec.Replicas)
 	assert.False(t, detail.Rule.Replicas, "the replicas were not taken from the formula")
-	assert.True(t, detail.Rule.CPU, "the Pod spec was")
-	assert.Equal(t, string(decision.SourceRule), rec.CPUSource)
-	assert.Equal(t, rule.ID, rec.RuleDecisionID, "the calculation was considered")
+	assert.False(t, detail.Rule.CPU, "the fixed count strategy is on, so the recommendation mode takes no part")
+	assert.NotEqual(t, string(decision.SourceRule), rec.CPUSource)
+	assert.Zero(t, rec.RuleDecisionID, "the calculation was not followed")
 	got, err := f.svc.Dispatch(ctx, f.module.ID)
 	require.NoError(t, err)
-	assert.Equal(t, DispatchRecommended, got.State)
+	assert.Equal(t, DispatchNotFollowed, got.State, "the fixed count strategy is on: the recommendation mode is not followed")
 }
 
 // A trigger can read the Resource Assessment: the replicas it needs less the replicas that run, taken from the stored calculation.
@@ -255,6 +254,7 @@ func TestATriggerCanReadTheGapOfTheResourceAssessment(t *testing.T) {
 	f.setModule(t, func(m *model.ForecastModule) {
 		m.Mode = model.ModeRecommend
 		m.MinReplicas, m.MaxReplicas = 1, 100
+		m.TriggersEnabled, m.PredictEnabled, m.DecisionSource = true, false, model.DecisionAlgorithm
 	})
 	trigger := &model.ModuleTrigger{ModuleID: f.module.ID, Name: "assessment-short", Enabled: true, Metric: model.TriggerRuleGap, Stat: model.TriggerStatLast, WindowMinutes: 15,
 		Operator: model.TriggerGT, Threshold: -1000, Action: model.TriggerScaleUp, Unit: model.TriggerUnitReplicas, Amount: 2}

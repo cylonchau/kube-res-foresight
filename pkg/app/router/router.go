@@ -237,8 +237,6 @@ func RegisteredRouter(e *gin.Engine) {
 	v1Group.GET("/training-runs/summary", forecastHandler.TrainingSummary)
 	v1Group.GET("/training-runs/:id", forecastHandler.GetTraining)
 	v1Group.GET("/training-runs/:id/data", forecastHandler.TrainingData)
-	v1Group.POST("/controls/:id/bypass", forecastHandler.Bypass)
-	v1Group.POST("/controls/:id/resume", forecastHandler.Resume)
 	// the clusters operators report from (P12): an operator is for one cluster, named by --cluster and by the access key it uses
 	clusterService := &clustersvc.Service{DAO: rdb.NewClusterDAO(model.DB), Config: rdb.NewSysConfigDAO(model.DB), Modules: rdb.NewModuleDAO(model.DB),
 		Copier: &modulecopy.Copier{Modules: rdb.NewModuleDAO(model.DB), Mappings: rdb.NewMetricMappingDAO(model.DB)}}

@@ -150,8 +150,9 @@ func (r *ForecastRouter) CreateModule(c *gin.Context) {
 		OOMWeightEnabled: req.OOMWeightEnabled != nil && *req.OOMWeightEnabled,
 		// a fixed count given without saying whether it counts is on, as it was before the switch existed
 		FixedReplicasEnabled: req.FixedReplicasEnabled == nil && req.FixedReplicas > 0 || req.FixedReplicasEnabled != nil && *req.FixedReplicasEnabled,
-		DecisionSource:       decisionSourceOf(req.DecisionSource),
-		Namespace:            strings.TrimSpace(req.Namespace), WorkloadKind: req.WorkloadKind, Workload: strings.TrimSpace(req.Workload), Service: req.Service, Container: req.Container,
+		PeriodsEnabled:       req.PeriodsEnabled != nil && *req.PeriodsEnabled, TriggersEnabled: req.TriggersEnabled != nil && *req.TriggersEnabled,
+		DecisionSource: decisionSourceOf(req.DecisionSource),
+		Namespace:      strings.TrimSpace(req.Namespace), WorkloadKind: req.WorkloadKind, Workload: strings.TrimSpace(req.Workload), Service: req.Service, Container: req.Container,
 		LookbackHours: req.LookbackHours, HorizonMinutes: req.HorizonMinutes, MaxFillSteps: req.MaxFillSteps,
 		StepSeconds: req.StepSeconds, MinPoints: req.MinPoints, WindowSteps: req.WindowSteps, RunIntervalMinutes: req.RunIntervalMinutes,
 		LimitCPURatio: req.LimitCPURatio, LimitMemoryRatio: req.LimitMemoryRatio,
@@ -266,6 +267,12 @@ func applyModuleUpdate(m *model.ForecastModule, req *apis.ModuleUpdateReq) {
 	}
 	if req.FixedReplicasEnabled != nil {
 		m.FixedReplicasEnabled = *req.FixedReplicasEnabled
+	}
+	if req.PeriodsEnabled != nil {
+		m.PeriodsEnabled = *req.PeriodsEnabled
+	}
+	if req.TriggersEnabled != nil {
+		m.TriggersEnabled = *req.TriggersEnabled
 	}
 	if req.DecisionSource != nil {
 		m.DecisionSource = decisionSourceOf(*req.DecisionSource)
@@ -840,37 +847,6 @@ func (r *ForecastRouter) ListRecommendations(c *gin.Context) {
 		return
 	}
 	query.SuccessResponse(c, nil, gin.H{"list": list, "total": total, "page": page, "pageSize": size})
-}
-
-// Bypass makes a module keep every original value. The reason is mandatory and, like every write, is audited
-// by the operation-log middleware.
-func (r *ForecastRouter) Bypass(c *gin.Context) {
-	id, ok := parseUintParam(c, "id")
-	if !ok {
-		return
-	}
-	var req apis.BypassReq
-	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Reason) == "" {
-		query.BadRequest(c, errors.New("a reason is required to bypass a module"))
-		return
-	}
-	if err := r.Modules.SetBypass(c.Request.Context(), id, true, strings.TrimSpace(req.Reason)); err != nil {
-		r.writeError(c, err)
-		return
-	}
-	query.SuccessResponse(c, nil, "ok")
-}
-
-func (r *ForecastRouter) Resume(c *gin.Context) {
-	id, ok := parseUintParam(c, "id")
-	if !ok {
-		return
-	}
-	if err := r.Modules.SetBypass(c.Request.Context(), id, false, ""); err != nil {
-		r.writeError(c, err)
-		return
-	}
-	query.SuccessResponse(c, nil, "ok")
 }
 
 func jsonMarshal(v any) (string, error) {

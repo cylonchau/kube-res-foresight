@@ -395,7 +395,10 @@ func EnsureDefaultConfigs() error {
 	if err := switchOnExistingFixedReplicas(); err != nil {
 		return err
 	}
-	return retireHardMaximum()
+	if err := retireHardMaximum(); err != nil {
+		return err
+	}
+	return normalizeDecisionModes()
 }
 
 // hardMaximumMarker is the system parameter row that says the hard maximum of the modules was folded into their maximum.
@@ -424,6 +427,74 @@ func retireHardMaximum() error {
 	}
 	if moved.RowsAffected > 0 {
 		fmt.Printf("upgrade: %d modules had a hard maximum above their maximum: it is their maximum now (the expansion of the ceiling is retired)\n", moved.RowsAffected)
+	}
+	return nil
+}
+
+// decisionModeMarker is the system parameter row that says the decision modes of the modules were made exclusive.
+const decisionModeMarker = "migration.decision_modes_exclusive"
+
+// normalizeDecisionModes gives the modules the decision modes they have now, once: a time period strategy, a metric trigger strategy and a fixed replicas strategy, each with its switch, of which
+// at most one is on, and the forecast and the recommendation mode that are on only while none of them is. A module that had enabled periods or triggers gets the switch of that strategy on; when it
+// had more than one the fixed count wins, then the periods, then the triggers; a module with a strategy on has its forecast and its recommendation mode off, because the strategy outranks them. A
+// module that was in bypass is switched off (the bypass is retired: a module that does nothing is a module that is off). The marker row keeps this from running again, so what an administrator sets
+// afterwards stays.
+func normalizeDecisionModes() error {
+	db := model.DB
+	if !db.Migrator().HasTable(&model.ForecastModule{}) || !db.Migrator().HasColumn(&model.ForecastModule{}, "periods_enabled") {
+		return nil
+	}
+	marker := model.SysConfig{ConfigKey: decisionModeMarker, ConfigValue: "done", ConfigName: "Upgrade Marker: Decision Modes Exclusive",
+		Remark: "Written when the strategies of the modules got a switch each and the forecast, the recommendation mode and the three strategies were made exclusive (the bypass retired). It keeps that from running again. Do not delete it."}
+	res := db.Where("config_key = ?", decisionModeMarker).FirstOrCreate(&marker)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return nil
+	}
+	modules := func() *gorm.DB { return db.Model(&model.ForecastModule{}) }
+	if db.Migrator().HasColumn(&model.ForecastModule{}, "bypass") {
+		off := modules().Where("bypass = ?", true).Updates(map[string]any{"enabled": false, "bypass": false, "bypass_reason": ""})
+		if off.Error != nil {
+			return off.Error
+		}
+		if off.RowsAffected > 0 {
+			fmt.Printf("upgrade: %d modules were in bypass: they are switched off now (the bypass is retired)\n", off.RowsAffected)
+		}
+	}
+	if db.Migrator().HasTable(&model.ModulePeriod{}) {
+		if err := modules().Where("id IN (?)", db.Model(&model.ModulePeriod{}).Select("module_id").Where("enabled = ?", true)).Update("periods_enabled", true).Error; err != nil {
+			return err
+		}
+	}
+	if db.Migrator().HasTable(&model.ModuleTrigger{}) {
+		if err := modules().Where("id IN (?)", db.Model(&model.ModuleTrigger{}).Select("module_id").Where("enabled = ?", true)).Update("triggers_enabled", true).Error; err != nil {
+			return err
+		}
+	}
+	// a fixed count with no count is no strategy; the fixed count wins over the periods, the periods over the triggers
+	steps := []struct {
+		where  string
+		values map[string]any
+	}{
+		{"fixed_replicas_enabled = ? AND fixed_replicas <= 0", map[string]any{"fixed_replicas_enabled": false}},
+		{"fixed_replicas_enabled = ?", map[string]any{"periods_enabled": false, "triggers_enabled": false}},
+		{"periods_enabled = ?", map[string]any{"triggers_enabled": false}},
+	}
+	for _, st := range steps {
+		if err := modules().Where(st.where, true).Updates(st.values).Error; err != nil {
+			return err
+		}
+	}
+	taken := modules().Where("fixed_replicas_enabled = ? OR periods_enabled = ? OR triggers_enabled = ?", true, true, true).
+		Where("predict_enabled = ? OR decision_source = ?", true, model.DecisionRule).
+		Updates(map[string]any{"predict_enabled": false, "decision_source": model.DecisionAlgorithm})
+	if taken.Error != nil {
+		return taken.Error
+	}
+	if taken.RowsAffected > 0 {
+		fmt.Printf("upgrade: %d modules had a strategy on beside the forecast or the recommendation mode: the strategy decides, the forecast and the recommendation mode are off now\n", taken.RowsAffected)
 	}
 	return nil
 }

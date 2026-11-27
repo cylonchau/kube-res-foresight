@@ -140,8 +140,6 @@ func forecastTestRouter(t *testing.T) (*gin.Engine, *model.MetricMapping) {
 	r.POST("/operator/reports", rt.Report)
 	r.GET("/admission/recommendations", rt.Admission)
 	r.GET("/scaling-decisions", rt.ListExecutions)
-	r.POST("/controls/:id/bypass", h.Bypass)
-	r.POST("/controls/:id/resume", h.Resume)
 	return r, cpu
 }
 
@@ -490,17 +488,6 @@ func TestPipelineFromTheModuleThroughTheEnabledAlgorithmsToTheRecommendation(t *
 	require.Equal(t, http.StatusOK, performJSON(t, r, http.MethodPost, base+"/predict", "", nil).Code)
 	rec = performJSON(t, r, http.MethodGet, fmt.Sprintf("/predictions?module_id=%d&metric=cpu&algorithm_id=ewma", module), "", nil)
 	assert.EqualValues(t, 10, decodeData(t, rec.Body.Bytes())["total"])
-
-	// bypass: the original is kept, resume restores model-driven values
-	assert.Equal(t, http.StatusBadRequest, performJSON(t, r, http.MethodPost, fmt.Sprintf("/controls/%d/bypass", module), "", map[string]any{"reason": "  "}).Code)
-	require.Equal(t, http.StatusOK, performJSON(t, r, http.MethodPost, fmt.Sprintf("/controls/%d/bypass", module), "", map[string]any{"reason": "incident"}).Code)
-	rec = performJSON(t, r, http.MethodPost, base+"/recommend", "", nil)
-	recommendation = decodeData(t, rec.Body.Bytes())["recommendation"].(map[string]any)
-	assert.Equal(t, "bypass", recommendation["cpu_source"])
-	assert.Equal(t, false, recommendation["cpu_set"])
-	require.Equal(t, http.StatusOK, performJSON(t, r, http.MethodPost, fmt.Sprintf("/controls/%d/resume", module), "", nil).Code)
-	rec = performJSON(t, r, http.MethodPost, base+"/recommend", "", nil)
-	assert.Equal(t, "algorithm", decodeData(t, rec.Body.Bytes())["recommendation"].(map[string]any)["cpu_source"])
 
 	// observe mode produces no recommendation
 	require.Equal(t, http.StatusOK, performJSON(t, r, http.MethodPut, base, "", map[string]any{"mode": "observe"}).Code)
