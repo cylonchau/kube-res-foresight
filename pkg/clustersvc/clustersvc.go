@@ -269,6 +269,43 @@ func (s *Service) Delete(ctx context.Context, id uint) error {
 	return s.DAO.Delete(ctx, c)
 }
 
+// DeleteWithModules deletes a cluster together with its modules, which the person asked for by name: a module that is switched on is switched off first (a module is not deleted while it is
+// on), and every module of the cluster is deleted with what the platform holds of it. It returns how many modules went. The default cluster is not deleted.
+func (s *Service) DeleteWithModules(ctx context.Context, id uint) (int, error) {
+	c, err := s.DAO.Get(ctx, id)
+	if err != nil {
+		return 0, err
+	}
+	if c.IsDefault {
+		return 0, fmt.Errorf("%w: the default cluster cannot be deleted", ErrInvalid)
+	}
+	modules, err := s.DAO.ModulesOf(ctx, c)
+	if err != nil {
+		return 0, err
+	}
+	if len(modules) > 0 && s.Modules == nil {
+		return 0, fmt.Errorf("%w: its %d module(s) cannot be deleted from here", ErrInUse, len(modules))
+	}
+	gone := 0
+	for _, m := range modules {
+		if m.Enabled {
+			full, err := s.Modules.Get(ctx, m.ID)
+			if err != nil {
+				return gone, err
+			}
+			full.Enabled = false
+			if err := s.Modules.Update(ctx, full); err != nil {
+				return gone, fmt.Errorf("switch off module %s: %w", m.Name, err)
+			}
+		}
+		if err := s.Modules.Delete(ctx, m.ID); err != nil {
+			return gone, fmt.Errorf("delete module %s: %w", m.Name, err)
+		}
+		gone++
+	}
+	return gone, s.DAO.Delete(ctx, c)
+}
+
 // IngestResult says what became of a batch.
 type IngestResult struct {
 	Added   int `json:"added"`

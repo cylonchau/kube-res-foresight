@@ -63,14 +63,30 @@ func (dao *ClusterDAO) Delete(ctx context.Context, c *model.Cluster) error {
 		if err := tx.Model(&model.SecretKey{}).Where("cluster = ?", c.Name).Update("cluster", "").Error; err != nil {
 			return err
 		}
-		if err := tx.Where("cluster = ?", c.Name).Delete(&model.ClusterEvent{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("cluster = ?", c.Name).Delete(&model.ClusterChange{}).Error; err != nil {
-			return err
+		// everything that names the cluster goes with it: the events and the changes, and what the operator reported of its nodes and workloads and the memory of the deleted
+		// self-registered modules (a table that does not exist yet in an unmigrated database has nothing to delete)
+		for _, table := range []any{&model.ClusterEvent{}, &model.ClusterChange{}, &model.ClusterNodeSnapshot{}, &model.WorkloadConfig{}, &model.WorkloadConfigChange{}, &model.RegistrationTombstone{}} {
+			if !tx.Migrator().HasTable(table) {
+				continue
+			}
+			if err := tx.Where("cluster = ?", c.Name).Delete(table).Error; err != nil {
+				return err
+			}
 		}
 		return tx.Delete(&model.Cluster{}, c.ID).Error
 	})
+}
+
+// ModulesOf are the modules that belong to the cluster, as ModuleCount counts them.
+func (dao *ClusterDAO) ModulesOf(ctx context.Context, c *model.Cluster) ([]model.ForecastModule, error) {
+	var out []model.ForecastModule
+	q := dao.db.WithContext(ctx).Select("id", "name", "enabled", "cluster")
+	if c.IsDefault {
+		q = q.Where("cluster = ? OR cluster = ?", c.Name, "")
+	} else {
+		q = q.Where("cluster = ?", c.Name)
+	}
+	return out, q.Order("id").Find(&out).Error
 }
 
 // Rename gives a cluster another name, and every row that refers to the cluster by its name goes with it: the modules and the access keys that name it, the events and
@@ -106,7 +122,9 @@ func (dao *ClusterDAO) ModuleCount(ctx context.Context, c *model.Cluster) (int64
 	} else {
 		q = q.Where("cluster = ?", c.Name)
 	}
-	return n, q.Count(&n).Error
+	// the count is read after the query has made it (a return statement does not say which comes first)
+	err := q.Count(&n).Error
+	return n, err
 }
 
 // KeyIDs are the access keys bound to the cluster.

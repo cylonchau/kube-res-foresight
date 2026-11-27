@@ -245,11 +245,21 @@ func (r *ClusterRouter) Delete(c *gin.Context) {
 	if !ok {
 		return
 	}
+	// modules=delete: the person said the modules of the cluster go with it (a cluster that still has modules is refused without it)
+	if c.Query("modules") == "delete" {
+		n, err := r.Service.DeleteWithModules(c.Request.Context(), id)
+		if err != nil {
+			r.clusterError(c, err)
+			return
+		}
+		query.SuccessResponse(c, nil, gin.H{"deleted": true, "modules": n})
+		return
+	}
 	if err := r.Service.Delete(c.Request.Context(), id); err != nil {
 		r.clusterError(c, err)
 		return
 	}
-	query.SuccessResponse(c, nil, "deleted")
+	query.SuccessResponse(c, nil, gin.H{"deleted": true, "modules": 0})
 }
 
 // Keys serves GET /clusters/keys: the access keys that can be bound, with the cluster each is bound to now.
