@@ -215,3 +215,62 @@ func TestUpgradeFromThePreviousReleaseRunsEndToEnd(t *testing.T) {
 		assert.Zero(t, n, code+" is retired and gone")
 	}
 }
+
+// An upgrade makes the decision modes exclusive once: a module with enabled periods or triggers gets the switch of that strategy (the fixed count wins, then the periods, then the triggers), a
+// strategy takes the forecast and the recommendation mode off, a module in bypass is switched off, and the marker row keeps it from running again.
+func TestTheUpgradeMakesTheDecisionModesExclusiveOnce(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.ForecastModule{}, &model.ModulePeriod{}, &model.ModuleTrigger{}, &model.SysConfig{}))
+	mk := func(name string, mutate func(*model.ForecastModule)) *model.ForecastModule {
+		m := &model.ForecastModule{Name: name, Namespace: "prod", Workload: name, Enabled: true, Mode: model.ModeObserve, PredictEnabled: true, PredictMode: model.PredictDynamic,
+			DecisionSource: model.DecisionAlgorithm, TTLSeconds: 900, HeadroomRatio: 1, Timezone: "UTC", ReplicaMode: "fixed", CapacityMode: "manual", MaxShortfall: 0.5}
+		if mutate != nil {
+			mutate(m)
+		}
+		require.NoError(t, db.Create(m).Error)
+		return m
+	}
+	periods := mk("with-periods", nil)
+	triggers := mk("with-triggers", func(m *model.ForecastModule) { m.DecisionSource, m.PredictEnabled = model.DecisionRule, false })
+	both := mk("with-both", func(m *model.ForecastModule) { m.FixedReplicas, m.FixedReplicasEnabled = 3, true })
+	empty := mk("fixed-without-count", func(m *model.ForecastModule) { m.FixedReplicasEnabled = true })
+	plain := mk("plain", nil)
+	held := mk("held", func(m *model.ForecastModule) { m.Bypass = true })
+	for _, m := range []*model.ForecastModule{periods, both} {
+		require.NoError(t, db.Create(&model.ModulePeriod{ModuleID: m.ID, Name: "night", Enabled: true, Replicas: 4, ReplicaMode: "min"}).Error)
+	}
+	for _, m := range []*model.ForecastModule{triggers, both} {
+		require.NoError(t, db.Create(&model.ModuleTrigger{ModuleID: m.ID, Name: "hot", Enabled: true, Metric: "cpu", Stat: "avg", WindowMinutes: 15, Operator: "gt", Action: "scale_up", Unit: "replicas", Amount: 1, Weight: 1}).Error)
+	}
+	require.NoError(t, db.Create(&model.ModuleTrigger{ModuleID: plain.ID, Name: "off", Enabled: false, Metric: "cpu", Stat: "avg", WindowMinutes: 15, Operator: "gt", Action: "scale_up", Unit: "replicas", Amount: 1, Weight: 1}).Error)
+
+	model.DB = db
+	require.NoError(t, normalizeDecisionModes())
+	reload := func(m *model.ForecastModule) *model.ForecastModule {
+		var out model.ForecastModule
+		require.NoError(t, db.First(&out, m.ID).Error)
+		return &out
+	}
+	got := reload(periods)
+	assert.True(t, got.PeriodsEnabled)
+	assert.False(t, got.PredictEnabled, "a strategy takes the forecast off")
+	got = reload(triggers)
+	assert.True(t, got.TriggersEnabled)
+	assert.Equal(t, model.DecisionAlgorithm, got.DecisionSource, "and the recommendation mode")
+	got = reload(both)
+	assert.True(t, got.FixedReplicasEnabled && !got.PeriodsEnabled && !got.TriggersEnabled, "the fixed count wins over the periods and the triggers")
+	assert.False(t, reload(empty).FixedReplicasEnabled, "a fixed count with no count is no strategy")
+	assert.Equal(t, model.DecisionModeAlgo, reload(plain).DecisionMode(), "a module with only a switched-off trigger keeps its forecast")
+	got = reload(held)
+	assert.False(t, got.Enabled || got.Bypass, "a module in bypass is switched off")
+	for _, m := range []*model.ForecastModule{periods, triggers, both, empty, plain, held} {
+		assert.NoError(t, reload(m).ValidateDecisionMode(), m.Name)
+	}
+
+	// it runs once: what an administrator sets afterwards stays
+	require.NoError(t, db.Model(&model.ForecastModule{}).Where("id = ?", plain.ID).Update("triggers_enabled", true).Error)
+	require.NoError(t, normalizeDecisionModes())
+	assert.True(t, reload(plain).TriggersEnabled)
+	assert.True(t, reload(plain).PredictEnabled, "the second run changed nothing")
+}

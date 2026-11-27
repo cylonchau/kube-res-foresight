@@ -1,0 +1,26 @@
+<h2 id="what">节点池是什么</h2>
+<p>节点池是一组同样规格的 Kubernetes 节点：用 Node Selector 标签区分，写明单个节点能给 Pod 的 CPU、内存（GPU 节点还有卡数）和用途。平台按模块单个 Pod 的 CPU、内存推荐最合适的节点池，和 CPU、内存、副本数的推荐一起展示；要不要真的把工作负载调过去，由模块的运行模式决定（见<a href="module-settings.html#run-mode">运行模式</a>）。</p>
+<div data-screenshot="nodepool-list">节点池管理：每个池子的类型、Node Selector 标签、单个节点的规格和状态。这里是三个演示用的池子。</div>
+<h2 id="config">怎么配置</h2>
+<p>一级菜单“节点池管理”，新增或编辑一个节点池：</p>
+<table><thead><tr><th>配置项</th><th>含义</th><th>怎么配</th></tr></thead><tbody>
+<tr><td>名称</td><td>在同一个集群里不重复。</td><td>写出规格，例如 <code>memory-4c32g</code>。</td></tr>
+<tr><td>类型</td><td>CPU 密集型、内存密集型、GPU、通用。</td><td>按节点的核数和内存比选：8 核 16 GiB 是 CPU 型，4 核 32 GiB 是内存型，带 GPU 的是 GPU 型。</td></tr>
+<tr><td>Node Selector 标签</td><td>选中这个池子里节点的标签，可以写多个。</td><td>和节点上的标签一致，例如 <code>pool = memory-4c32g</code>。</td></tr>
+<tr><td>单个节点的规格</td><td>一个节点能给 Pod 的 CPU 和内存（节点的 allocatable，不是整机规格）；GPU 池还要填每个节点的卡数。</td><td>启用的池子必须填：没有规格就没法算一个节点放几个 Pod。</td></tr>
+<tr><td>集群</td><td>池子所在的集群；留空表示每个集群里都有这样标签的节点。</td><td>多集群且各自池子不同才填。</td></tr>
+<tr><td>优先级</td><td>两个池子同样合适时，数字大的先推荐。</td><td>一般不用填。</td></tr>
+</tbody></table>
+<div data-screenshot="nodepool-form">新增节点池：名称、类型、Node Selector 标签、单个节点的规格。</div>
+<h2 id="recommend">怎么推荐</h2>
+<p>在模块的“节点池”一节打开“推荐节点池”。每次生成推荐时，平台拿这次推荐的单个 Pod 的 CPU、内存，对每个启用的池子算：一个节点放得下几个这样的 Pod，放满后 CPU 和内存各用掉多少。两项利用率的平均数最高的池子就是推荐的池子，平均数相同时看优先级，再看节点小的。</p>
+<ul><li>200m CPU、4 GiB 内存的 Pod：在 4 核 32 GiB 的池子里放 8 个，内存用满，CPU 只用 40%；在 8 核 16 GiB 的池子里放 4 个，内存用满，CPU 只用 10%，所以推荐内存密集型的池子。</li><li>2 核、3 GiB 的 Pod：在 8 核 16 GiB 的池子里放 4 个，CPU 用满，内存用 75%，推荐 CPU 密集型的池子。</li><li>要 GPU 的 Pod 只会被推荐到 GPU 池，不要 GPU 的 Pod 不会被推荐到 GPU 池。</li><li>一个节点放不下的 Pod、没启用的池子、别的集群的池子都不参与。</li></ul>
+<div data-screenshot="rec-list">资源推荐：CPU、内存、副本数旁边是推荐的节点池；详情里写出这个池子为什么合适，以及其他池子的比较。</div>
+<h2 id="apply">推荐了会怎么样</h2>
+<table><thead><tr><th>运行模式</th><th>节点池</th></tr></thead><tbody>
+<tr><td>仅观察</td><td>没有推荐，也就没有节点池。</td></tr>
+<tr><td>仅推荐</td><td>只展示。</td></tr>
+<tr><td>准入</td><td>工作负载创建或更新时，准入的回答里带着池子的 Node Selector，Kyverno 策略把它加到 Pod 上；池子的标签是每次回答时现读的，改了标签下一个 Pod 就用新的。</td></tr>
+<tr><td>自动</td><td>同准入；Operator 以 <code>--adjust-pod-spec</code> 启动时，还会把 Node Selector 写到工作负载的 Pod 模板上，同时去掉别的池子的标签，会滚动更新 Pod。默认的 Operator 角色没有改工作负载的权限，要用 Helm 的 <code>adjustPodSpec.enabled</code> 或 <code>deploy/operator/rbac/role-pod-spec.yaml</code> 额外授权。</td></tr>
+</tbody></table>
+<p>Operator 只从平台当次的回答里取要写的内容，不用它记住的旧回答：平台失联期间不会改工作负载的规格。</p>

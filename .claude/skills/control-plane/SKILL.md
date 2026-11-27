@@ -14,6 +14,7 @@ description: 用于 kube-res-foresight Operator、副本执行和 Platform Prome
 3. Auto 前确认副本控制权（由 kube-res-foresight-operator 取代 HPA/KEDA）；存在 HPA/KEDA 或其他写入控制器时拒绝双写并告警。切换执行后端先释放原所有者。
 4. 每一轮读平台的模块和决策，检查硬边界、冷却、限幅、最低 Ready 容量，再通过 scale 子资源修改目标副本。分别记录 API 结果与 current/desired/ready，写成功不等于 Pod Ready。PDB 不替代显式缩容保护。
 5. 重复事件和重启保持幂等并恢复冷却/决策；过期或模型故障停止危险缩容并显示 fallback。固定周期和 bypass 遵循 [admission-safety](../admission-safety/SKILL.md)。
+6. 决策方式（`pkg/model/forecast.go` 的 `ValidateDecisionMode`）：算法预测、推荐模式和三种策略（时间周期、指标触发、固定副本数）一次只启用一种，策略高于预测和推荐；策略下没有预测，基数是现在运行的副本数。Operator 默认只写 scale 子资源；以 `--adjust-pod-spec` 启动才会按 auto 模块决策里的 `pod_spec` 写 Pod 模板（Requests、模块管理的 Limits、节点池的 Node Selector，滚动更新），只用平台当次的新鲜回答，默认角色没有这个写权限（Helm `adjustPodSpec.enabled`、`deploy/operator/rbac/role-pod-spec.yaml` 才有），`rbac_test.go` 守着。准入的回答也带节点池的 `node_selector`。
 6. 提前量包含抓取、推理、控制循环、Pod P95 Ready 与必要 Node 启动时间；不能预测任意瞬时 burst，使用最低 Ready 容量保障。
 
 ## 复用与验证

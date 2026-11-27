@@ -4,11 +4,11 @@
 <p>Set fixed resources or replicas for defined business windows, including start, end, timezone, priority, and covered fields. Other fields follow their normal policies; normal calculation resumes after the window.</p>
 <p>Schedules use explicit IANA timezones and storage stays in UTC. The platform defaults to UTC+8 and pages display UTC+8. Never write converted display times back as storage values.</p>
 <h2 id="fallback">Degradation and recovery</h2>
-<p>Each field follows bypass → schedule → eligible model → module fallback → unchanged. Values must remain valid, fresh, and within bounds. OOM floors apply outside bypass.</p>
+<p>Each field follows schedule → eligible model → module fallback → unchanged. Values must remain valid, fresh, and within bounds.</p>
 <p>Record reasons for insufficient history, stale inputs, model failure, or missing eligible forecasts. Consecutive healthy cycles are required before recovery to avoid unstable switching.</p>
 <h2 id="bypass">When manual intervention is needed</h2>
-<ol><li>Enable Bypass and record a reason.</li><li>Disable the corresponding global setting and return to Recommend or Observe.</li><li>Review snapshots, action records, and actual resources.</li><li>Fix inputs or policy and compare results before gradually restoring authorization.</li></ol>
-<div class="callout"><strong>Stopping future actions does not undo previous changes</strong><p>Bypass and global settings do not restore earlier resource or replica configurations automatically. Consider current service state and action history when restoring them.</p></div>
+<ol><li>Switch the module off.</li><li>Disable the corresponding global setting and return to Recommend or Observe.</li><li>Review snapshots, action records, and actual resources.</li><li>Fix inputs or policy and compare results before gradually restoring authorization.</li></ol>
+<div class="callout"><strong>Stopping future actions does not undo previous changes</strong><p>Switching a module off and the global settings do not restore earlier resource or replica configurations automatically. Consider current service state and action history when restoring them.</p></div>
 <h2 id="oom">Configure OOM memory protection separately</h2>
 <p>Modules separate OOM protection from prediction metrics. Configure lookback, memory uplift, and heap pressure, then connect OOM counts, pre-OOM working set, memory limits, and JVM heap metrics. Rules missing their required inputs do not apply, and recommendation details identify the missing inputs.</p>
 <p>OOM score weighting is disabled by default. When enabled, it penalizes memory scores only where memory was underallocated in the evaluation window; CPU scores are unaffected. Memory floors provide protection while scores compare models.</p>

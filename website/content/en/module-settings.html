@@ -9,7 +9,7 @@
 <table><thead><tr><th>Setting</th><th>Meaning</th><th>How to set it</th></tr></thead><tbody>
 <tr><td>Name, namespace, kind, workload</td><td>Which workload the module manages. Namespace, kind and name together are unique.</td><td>Kinds: Deployment, StatefulSet, DaemonSet.</td></tr>
 <tr><td>Service, container</td><td>The <code>{{service}}</code> and <code>{{container}}</code> variables of the metric PromQL; not part of the workload's identity.</td><td>Only when a metric template uses them.</td></tr>
-<tr><td>Mode</td><td>Observe only watches; Recommend gives advice; Admission may apply resource advice to new Pods; Auto lets the Operator change replicas.</td><td>Admission and Auto also need the global switches, which are off by default.</td></tr>
+<tr><td>Mode</td><td>Observe only, Recommend only, Admission, Auto: what each may do to the cluster is under "Run mode" below; every mode has a question mark that explains it.</td><td>Admission and Auto also need the global switches, which are off by default.</td></tr>
 <tr><td>History range (720 hours), forecast horizon (15 minutes), step, training window steps, fewest points, most filled steps (3)</td><td>The data and periods of forecasting. The resource dashboard does not use them.</td><td>Make the history cover the cycles an algorithm needs; leave the step empty to follow the query step.</td></tr>
 <tr><td>Most missing data (30%), least history (80%)</td><td>The floor of data quality: with too much missing or too little history the run degrades.</td><td>Relax them for a flaky source rather than switching the check off.</td></tr>
 <tr><td>Time zone</td><td>The periods, the effective time of triggers and the analysis by the hour on the dashboard follow it; Asia/Shanghai by default.</td><td>An IANA zone name.</td></tr>
@@ -58,12 +58,22 @@
 <tr><td>Recommendation TTL (900 s), least algorithm score</td><td>How long a recommendation is valid; an algorithm scoring below the least is not used.</td><td>A TTL that is too short lets a recommendation expire before the next run.</td></tr>
 <tr><td>Fallback CPU, memory, replicas</td><td>The defaults when the forecast is not available; they pass through the bounds above.</td><td>Optional; unset keeps the value.</td></tr>
 <tr><td>Recovery cycles (2)</td><td>After a degraded run, this many healthy cycles in a row end it.</td><td>Avoids flapping at the edge of a fault.</td></tr>
-<tr><td>Bypass</td><td>When on, the module takes no part in automatic decisions and nothing is changed.</td><td>Switch it on, with a reason, for a manual takeover.</td></tr>
 </tbody></table>
 <div data-screenshot="form-bounds">"Replica bounds" under Safety bounds: the least and most replicas and the mode of the most; the line below says what the setting comes to.</div>
 <div data-screenshot="form-pace">"Replica pace": the most replicas one action adds or removes in each direction, and the cooldowns.</div>
-<h2 id="strategies">Strategies</h2>
-<p>The prediction mode, periods, metric triggers and fixed replicas, and how they combine when they give different replica counts, are in <a href="strategies.html">Strategies and how they combine</a>.</p>
+<h2 id="run-mode">Run mode</h2>
+<table><thead><tr><th>Mode</th><th>Resource advice</th><th>Requests / Limits and node pool</th><th>Replicas</th></tr></thead><tbody>
+<tr><td>Observe only</td><td>None</td><td>Not changed</td><td>Not changed</td></tr>
+<tr><td>Recommend only</td><td>The recommended CPU, memory, replicas and node pool, shown only</td><td>Not changed</td><td>Not changed</td></tr>
+<tr><td>Admission</td><td>The same</td><td>When a workload is created or updated, admission (Kyverno) sets the Requests / Limits and the Node Selector of the node pool from the recommendation</td><td>Not changed</td></tr>
+<tr><td>Auto</td><td>The same</td><td>Besides admission, an operator started with <code>--adjust-pod-spec</code> writes them on the workload (which rolls its Pods)</td><td>The operator adjusts them from the recommendation</td></tr>
+</tbody></table>
+<p>Admission and Auto need the matching system setting to be on; every change to a module is bound by its run mode, and what the run mode does not allow the platform does not do.</p>
+<h2 id="strategies">Decision modes and strategies</h2>
+<p>The forecast, the recommendation mode and the three strategies (time periods, metric triggers, fixed replicas) are used one at a time, and each shows only its own parameters; see <a href="strategies.html">Decision modes and strategies</a>.</p>
+<h2 id="node-pool">Node pool</h2>
+<p>Switch "Recommend a node pool" on in the "Node pool" section and the platform recommends the pool that fits the Pod of the module, shown with the CPU, memory and replicas; the pools are configured under "Node pools", see <a href="node-pools.html">Node pools</a>.</p>
+<div data-screenshot="form-nodepool">Node pool: once the recommendation is on, the line below says, for the current run mode, whether the workload is really moved to the recommended pool.</div>
 <h2 id="example">Example: a Deployment of 12 replicas</h2>
 <p>Pod Requests of 4 cores and 6 GiB, Limits of 8 cores and 16 GiB. Goal: observe first, then tighten step by step.</p>
 <table><thead><tr><th>Step</th><th>Setting</th><th>What the resource dashboard shows</th></tr></thead><tbody>

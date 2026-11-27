@@ -4,7 +4,7 @@
     {"id": "concepts", "zh": "核心概念", "en": "Core concepts", "pages": ["architecture", "runtime", "concepts", "metrics", "algorithms"]},
     {"id": "algorithm-reference", "zh": "算法参数手册", "en": "Algorithm reference", "pages": ["algorithm-naive", "algorithm-seasonal_naive", "algorithm-ewma", "algorithm-damped_trend", "algorithm-hist_percentile", "algorithm-random_forest", "algorithm-knn", "algorithm-holt_winters", "algorithm-model_service", "algorithm-theta", "algorithm-mstl", "algorithm-seasonal_profile", "algorithm-peak_envelope", "algorithm-combination", "algorithm-ridge_ar", "algorithm-gbdt"]},
     {"id": "guides", "zh": "使用指南", "en": "User guides", "pages": ["evaluation", "recommendations", "scaling", "safety"]},
-    {"id": "resource", "zh": "资源大盘与模块配置", "en": "Resource dashboard and modules", "pages": ["resource-dashboard", "module-settings", "strategies", "cluster-inventory"]},
+    {"id": "resource", "zh": "资源大盘与模块配置", "en": "Resource dashboard and modules", "pages": ["resource-dashboard", "module-settings", "strategies", "node-pools", "cluster-inventory"]},
     {"id": "ai", "zh": "AI 助手", "en": "AI assistant", "pages": ["assistant", "llm-configuration", "ai-tasks"]},
     {"id": "operations", "zh": "运维与管理", "en": "Operations", "pages": ["dashboard", "monitoring", "administration", "ldap", "smtp", "faq"]}
   ],
@@ -12,7 +12,8 @@
     "getting-started": {"zh": ["快速开始", "接入第一个工作负载，走通预测与推荐流程。"], "en": ["Quick start", "Connect a workload and follow your first recommendation."]},
     "resource-dashboard": {"zh": ["资源大盘与推荐依据", "看清每个模块的使用量，理解 Requests、Limits、副本数怎么推荐，以及常态与高负载时段。"], "en": ["Resource dashboard and the basis of advice", "Read a module's use, see how Requests, Limits and replicas are recommended, and tell the normal hours from the busy ones."]},
     "module-settings": {"zh": ["模块配置说明", "逐组说明模块的每项配置怎么填、默认值和效果，并给出一次完整配置的示例。"], "en": ["Module settings", "How to fill in every group of module settings, their defaults and effects, with a worked example."]},
-    "strategies": {"zh": ["模块策略与合并顺序", "预测模式、时间周期、指标触发和固定副本数各管什么，几个策略同时给出不同副本数时怎么合并。"], "en": ["Strategies and how they combine", "What prediction modes, periods, metric triggers and fixed replicas each do, and how they combine when they disagree."]},
+    "strategies": {"zh": ["决策方式与策略", "算法预测、推荐模式和时间周期、指标触发、固定副本数三种策略：各自怎么决定副本数和资源，为什么一次只启用一种，指标触发怎么算。"], "en": ["Decision modes and strategies", "The forecast, the recommendation mode and the three strategies (time periods, metric triggers, fixed replicas): what each decides, why only one is on at a time, and how a trigger is worked out."]},
+    "node-pools": {"zh": ["节点池管理", "配置节点池和 Node Selector 标签，平台怎么按 Pod 的 CPU、内存推荐节点池，以及运行模式怎样决定会不会真的调过去。"], "en": ["Node pools", "Configure node pools and their Node Selector labels, how the platform recommends a pool from the CPU and memory of a Pod, and how the run mode decides whether the workload is moved."]},
     "cluster-inventory": {"zh": ["集群大盘与 Operator 上报", "声明集群指标、区分模块指标与集群指标，并了解 Operator 上报给平台的集群与工作负载信息。"], "en": ["Cluster dashboard and the Operator report", "Declare cluster metrics, tell module metrics from cluster metrics, and see what the Operator reports about the cluster and workloads."]},
     "installation": {"zh": ["安装与部署", "准备管理平台、任务引擎与执行组件，了解配置和启动方式。"], "en": ["Installation", "Prepare the platform, job engine, and optional execution components."]},
     "concepts": {"zh": ["功能架构与核心概念", "理解工作负载模块、指标模板、算法与执行策略之间的关系。"], "en": ["Capabilities and concepts", "Understand modules, metric templates, models, and operating policies."]},

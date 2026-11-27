@@ -1,0 +1,26 @@
+<h2 id="what">What a node pool is</h2>
+<p>A node pool is a group of Kubernetes nodes of one shape: told apart by Node Selector labels, with the CPU and memory one node gives to Pods (and the GPUs of a GPU node) and what it is for. The platform recommends the pool that fits the Pod of a module best, shown with the CPU, memory and replicas recommendation; whether the workload is really moved there is decided by the run mode of the module (see <a href="module-settings.html#run-mode">Run mode</a>).</p>
+<div data-screenshot="nodepool-list">Node pools: the type, the Node Selector labels, the size of one node and the state of each pool. Three demonstration pools.</div>
+<h2 id="config">How to configure</h2>
+<p>The first-level menu "Node pools": add or edit a pool.</p>
+<table><thead><tr><th>Setting</th><th>Meaning</th><th>How to set it</th></tr></thead><tbody>
+<tr><td>Name</td><td>Unique in a cluster.</td><td>Write the shape in it, for example <code>memory-4c32g</code>.</td></tr>
+<tr><td>Type</td><td>CPU-intensive, memory-intensive, GPU, general.</td><td>By the ratio of cores to memory: 8 cores and 16 GiB is a CPU pool, 4 cores and 32 GiB a memory pool, nodes with GPUs a GPU pool.</td></tr>
+<tr><td>Node Selector labels</td><td>The labels that select the nodes of the pool; several can be given.</td><td>The same as the labels on the nodes, for example <code>pool = memory-4c32g</code>.</td></tr>
+<tr><td>Size of one node</td><td>What one node gives to Pods (the allocatable of the node, not the machine); a GPU pool also gives the GPUs of a node.</td><td>Required for a pool that is on: without it the number of Pods a node holds cannot be worked out.</td></tr>
+<tr><td>Cluster</td><td>The cluster the pool is in; empty means every cluster has nodes with these labels.</td><td>Only for several clusters with different pools.</td></tr>
+<tr><td>Priority</td><td>When two pools fit equally well, the higher number is recommended first.</td><td>Usually not needed.</td></tr>
+</tbody></table>
+<div data-screenshot="nodepool-form">Add a node pool: name, type, Node Selector labels, size of one node.</div>
+<h2 id="recommend">How it is recommended</h2>
+<p>Switch "Recommend a node pool" on in the "Node pool" section of the module. At every recommendation the platform takes the CPU and memory of the Pod of that recommendation and works out, for every pool that is on, how many such Pods one node holds and how much of its CPU and memory they use. The pool with the highest mean of the two shares is recommended; on a tie the priority decides, then the smaller node.</p>
+<ul><li>A Pod of 200m CPU and 4 GiB: 8 fit a 4-core 32-GiB node and fill its memory and 40% of its CPU; 4 fit an 8-core 16-GiB node and fill its memory and 10% of its CPU, so the memory pool is recommended.</li><li>A Pod of 2 cores and 3 GiB: 4 fit an 8-core 16-GiB node and fill its CPU and 75% of its memory, so the CPU pool is recommended.</li><li>A Pod that asks for GPUs is only recommended a GPU pool, and a Pod that does not is never recommended one.</li><li>A Pod that does not fit a node, a pool that is off, and a pool of another cluster take no part.</li></ul>
+<div data-screenshot="rec-list">Resource recommendations: the recommended node pool stands beside the CPU, memory and replicas; the detail says why the pool fits and compares the others.</div>
+<h2 id="apply">What the recommendation does</h2>
+<table><thead><tr><th>Run mode</th><th>Node pool</th></tr></thead><tbody>
+<tr><td>Observe only</td><td>Nothing is recommended, so no pool.</td></tr>
+<tr><td>Recommend only</td><td>Shown only.</td></tr>
+<tr><td>Admission</td><td>When a workload is created or updated, the answer of admission carries the Node Selector of the pool and the Kyverno policy puts it on the Pod; the labels of a pool are read at every answer, so a change reaches the next Pod.</td></tr>
+<tr><td>Auto</td><td>As admission; an operator started with <code>--adjust-pod-spec</code> also writes the Node Selector on the Pod template of the workload and removes the labels of the other pools, which rolls the Pods. The default role of the operator cannot change workloads: grant it with <code>adjustPodSpec.enabled</code> in the Helm chart or <code>deploy/operator/rbac/role-pod-spec.yaml</code>.</td></tr>
+</tbody></table>
+<p>The operator writes only what the platform says in its answer of that moment, never an answer it remembered: while the platform cannot be reached it changes no workload spec.</p>

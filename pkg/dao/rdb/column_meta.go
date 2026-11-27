@@ -20,6 +20,7 @@ var PageModelMap = map[string]interface{}{
 	"secret_key_manage":      &model.SecretKey{},
 	"datasource_manage":      &model.Datasource{},
 	"metric_mapping_manage":  &model.MetricMapping{},
+	"node_pool_manage":       &model.NodePool{},
 	"task_center_definition": &model.TaskDefinition{},
 	"task_center_audit":      &model.Job{},
 	"user_column_config":     &model.UserColumnConfig{},

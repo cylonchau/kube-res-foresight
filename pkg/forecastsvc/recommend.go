@@ -761,6 +761,12 @@ func (s *Service) decide(ctx context.Context, moduleID uint, failed map[string]s
 	}
 	// ---- the metric triggers: the strategy of the module that reads a metric against a threshold. They come after the forecast and its ceiling and before the periods and
 	// the bounds, so a floor or a cap of a period, the module's minimum and maximum and the pace limits of the operator all hold over what a trigger asks for
+	// Under the time period strategy and the metric trigger strategy nothing forecasts the count: with no window and no trigger asking for another, the replicas stay what they are. The
+	// default of the module (its fallback replicas) is not a count to move to, so it is not the base of a window or a trigger.
+	if m.HasReplicas() && current > 0 && (m.ActiveStrategy() == model.StrategyPeriods || m.ActiveStrategy() == model.StrategyTriggers) &&
+		rec.Replicas.Source != decision.SourceFixedPeriod && rec.Replicas.Source != decision.SourceBypass {
+		rec.Replicas = decision.Field{Set: true, Value: int64(current), Source: decision.SourceOriginal, Reason: "no period or trigger asks for another count: the replicas that run now stay"}
+	}
 	// the triggers are read only while the strategy of the metric triggers is the one that is on: a module on another strategy, the forecast or the recommendation mode does not read them
 	if m.HasReplicas() && m.ActiveStrategy() == model.StrategyTriggers {
 		states, fired, err := s.evaluateTriggers(ctx, m, data, loc, now)
@@ -781,17 +787,9 @@ func (s *Service) decide(ctx context.Context, moduleID uint, failed map[string]s
 	}
 	// the floors and caps of the periods keep the count, whoever decided it, within the bounds of the module
 	if m.HasReplicas() && (rec.Replicas.Set || len(in.Periods) > 0) {
-		// under the time period strategy nothing forecasts: a window that is a floor or a cap acts on the replicas that run now when nothing else decided a count
-		base, ran := rec.Replicas, false
-		if !base.Set && periodsOn && current > 0 {
-			base, ran = decision.Field{Set: true, Value: int64(current), Source: decision.SourceOriginal, Reason: "the replicas that run now"}, true
-		}
-		next := decision.ApplyReplicaWindows(base, decision.ActivePeriods(in), int64(m.MinReplicas), int64(effectiveMax))
-		if next != base {
-			if ran {
-				next.Source = decision.SourceFixedPeriod
-			}
-			rec.Replicas = next
+		before := rec.Replicas
+		rec.Replicas = decision.ApplyReplicaWindows(rec.Replicas, decision.ActivePeriods(in), int64(m.MinReplicas), int64(effectiveMax))
+		if rec.Replicas != before {
 			detail.ReplicaWindow = true
 		}
 	}

@@ -1,7 +1,7 @@
 <h2 id="where">配置在哪里，怎么看生效值</h2>
 <p>在“模块管理 &gt; 模块列表”里新建或编辑模块。编辑页分四组：<strong>基础配置</strong>、<strong>计算参数</strong>、<strong>安全边界</strong>、<strong>模块策略</strong>；运行模式在基础信息里选。模块列表的操作栏有“参数”按钮，不进入编辑页就能按分组看到每项参数当前的生效值、单位、来源（本模块、系统设置或未设置）和含义。</p>
 <p>本页的图片取自用模拟数据搭建的演示环境（三个模块、一个模拟的 Prometheus 和 Operator 上报），数字只用来说明界面，不代表任何真实负载。</p>
-<div data-screenshot="module-list">模块列表：每个模块一行，操作栏有编辑、删除、克隆、需求、参数和旁路。</div>
+<div data-screenshot="module-list">模块列表：每个模块一行，“决策方式”一列写明现在由什么决定副本数和资源；操作栏有编辑、删除、克隆、需求和参数。</div>
 <div data-screenshot="module-params">“参数”窗口：按分组列出每项参数的当前生效值、来源（本模块、系统设置或未设置）和含义，只读。</div>
 <p>大多数计算系数填 0 表示“跟随系统设置”（系统管理 &gt; 系统设置 &gt; 资源分析与推荐）。需要整体调整时改系统设置，某个模块要特殊对待时才在模块里单独填。</p>
 <h2 id="quick-start">一次配置的顺序</h2>
@@ -10,7 +10,7 @@
 <table><thead><tr><th>配置项</th><th>含义</th><th>怎么配</th></tr></thead><tbody>
 <tr><td>名称、命名空间、Kind、工作负载</td><td>这个模块管哪个工作负载。命名空间、Kind、名称合起来不能重复。</td><td>Kind 支持 Deployment、StatefulSet、DaemonSet。</td></tr>
 <tr><td>Service、Container</td><td>指标 PromQL 里的 <code>{{service}}</code>、<code>{{container}}</code> 变量，不属于工作负载的身份。</td><td>只有指标模板用到这些变量时才填。</td></tr>
-<tr><td>运行模式</td><td>Observe 只观察；Recommend 给建议；Admission 允许为新 Pod 应用资源建议；Auto 允许 Operator 调副本。</td><td>准入与自动还要全局开关打开，默认关闭。</td></tr>
+<tr><td>运行模式</td><td>仅观察、仅推荐、准入、自动，各自能对集群做什么见下面“运行模式”；每种模式旁有问号说明。</td><td>准入与自动还要全局开关打开，默认关闭。</td></tr>
 <tr><td>历史范围（默认 720 小时）、预测提前量（15 分钟）、采样步长、训练窗口步数、最少数据点、最大补点步数（3）</td><td>预测用的数据与周期。资源大盘不用它们。</td><td>历史范围至少覆盖算法需要的周期数；步长留空沿用指标查询的步长。</td></tr>
 <tr><td>最大缺失比例（30%）、最少历史占比（80%）</td><td>数据质量底线：缺得太多或历史太短，这一轮降级。</td><td>数据源经常抖动时适当放宽，而不是关掉检查。</td></tr>
 <tr><td>时区</td><td>时间周期、指标触发的生效时间和大盘按小时的分析都按它算，默认 Asia/Shanghai。</td><td>写 IANA 时区名。</td></tr>
@@ -59,12 +59,22 @@
 <tr><td>推荐有效期（900 秒）、算法最低评分</td><td>一份推荐多久内可用；评分低于它的算法不被采用。</td><td>过短时推荐会在下一轮预测前过期。</td></tr>
 <tr><td>降级 CPU、内存、副本数</td><td>预测不可用时的默认值，经过上面的边界。</td><td>可选；不填则保持原值。</td></tr>
 <tr><td>恢复观察周期数（2）</td><td>降级恢复后要连续健康这么多个周期才解除。</td><td>避免在异常边缘频繁切换。</td></tr>
-<tr><td>旁路</td><td>开启后模块不参与自动决策，也不改任何配置。</td><td>需要人工接管时开，并写原因。</td></tr>
 </tbody></table>
 <div data-screenshot="form-bounds">安全边界里的“副本边界”：最小、最大副本数和最大副本数方式，下面一行写出当前设置的结果。</div>
 <div data-screenshot="form-pace">“副本调整节奏”：扩容、缩容每次最多增减的个数和冷却时间。</div>
-<h2 id="strategies">模块策略</h2>
-<p>预测模式、时间周期、指标触发和固定副本数在<a href="strategies.html">模块策略与合并顺序</a>里说明，包括几个策略同时给出不同副本数时怎么合并。</p>
+<h2 id="run-mode">运行模式</h2>
+<table><thead><tr><th>模式</th><th>资源推荐</th><th>改 Requests / Limits 和节点池</th><th>改副本数</th></tr></thead><tbody>
+<tr><td>仅观察</td><td>不给出推荐</td><td>不改</td><td>不改</td></tr>
+<tr><td>仅推荐</td><td>给出推荐的 CPU、内存、副本数和节点池，只展示</td><td>不改</td><td>不改</td></tr>
+<tr><td>准入</td><td>同上</td><td>工作负载创建或更新时，准入（Kyverno）按推荐设置 Requests / Limits 和节点池的 Node Selector</td><td>不改</td></tr>
+<tr><td>自动</td><td>同上</td><td>在准入的基础上，Operator 以 <code>--adjust-pod-spec</code> 启动时也会写到工作负载上（会滚动更新 Pod）</td><td>Operator 按推荐调整</td></tr>
+</tbody></table>
+<p>准入和自动要系统设置里对应的开关打开才生效；模块的任何调整都受它的运行模式约束，运行模式不允许的事平台不会做。</p>
+<h2 id="strategies">决策方式与策略</h2>
+<p>算法预测、推荐模式，以及时间周期、指标触发、固定副本数三种策略，一次只启用一种，每种只显示自己的参数，见<a href="strategies.html">决策方式与策略</a>。</p>
+<h2 id="node-pool">节点池</h2>
+<p>在“节点池”一节打开“推荐节点池”，平台会按这个模块单个 Pod 的 CPU、内存推荐适合的节点池，和 CPU、内存、副本数一起展示；节点池在“节点池管理”里配置，见<a href="node-pools.html">节点池管理</a>。</p>
+<div data-screenshot="form-nodepool">节点池：打开推荐后，下面一行按当前运行模式说明会不会真的调到推荐的池子。</div>
 <h2 id="example">示例：一个 12 副本的 Deployment</h2>
 <p>单 Pod Requests 4 核、6 GiB，Limits 8 核、16 GiB。目标：先观察，再逐步收紧。</p>
 <table><thead><tr><th>步骤</th><th>配置</th><th>在资源大盘上看到什么</th></tr></thead><tbody>
