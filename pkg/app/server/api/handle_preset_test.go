@@ -18,7 +18,7 @@ func presetTestRouter(t *testing.T) (*gin.Engine, *model.Datasource) {
 	db := apiTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.Datasource{}, &model.MetricMapping{}, &model.ForecastModule{PredictEnabled: true}, &model.AlgorithmConfig{},
 		&model.ModulePeriod{}, &model.ModuleTrigger{}, &model.MetricSeries{}, &model.MetricSample{}, &model.Prediction{}, &model.BacktestRun{}, &model.Recommendation{},
-		&model.PredictionEvaluation{}, &model.ScalingExecution{}, &model.MetricSource{}, &model.AlgorithmScore{}, &model.AdmissionDecision{}, &model.TrainingRun{}, &model.ScaleOutcome{}, &model.ModuleRunState{}))
+		&model.PredictionEvaluation{}, &model.ScalingExecution{}, &model.MetricSource{}, &model.AlgorithmScore{}, &model.AdmissionDecision{}, &model.TrainingRun{}, &model.ScaleOutcome{}, &model.RuleDecision{}, &model.ModuleRunState{}))
 	ds := &model.Datasource{Name: "prom", Type: "prometheus", BaseURL: "http://prom:9090", AuthType: "none", TimeoutSeconds: 30, MaxConcurrency: 1, Enabled: true, Status: "unknown"}
 	require.NoError(t, db.Create(ds).Error)
 	h := &PresetRouter{Datasources: rdb.NewDatasourceDAO(db), Mappings: rdb.NewMetricMappingDAO(db)}

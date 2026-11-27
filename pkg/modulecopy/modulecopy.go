@@ -97,6 +97,7 @@ func Apply(dst, src *model.ForecastModule, groups []string) {
 			dst.MinReplicas, dst.MaxReplicas, dst.HardMaxReplicas = src.MinReplicas, src.MaxReplicas, src.HardMaxReplicas
 			dst.MaxReplicasMode, dst.ExpandStepRatio = src.MaxReplicasMode, src.ExpandStepRatio
 			dst.FallbackReplicas, dst.FixedReplicas, dst.FixedReplicasEnabled = src.FallbackReplicas, src.FixedReplicas, src.FixedReplicasEnabled
+			dst.DecisionSource = src.DecisionSource
 			dst.ScaleUpMaxStep, dst.ScaleDownMaxStep = src.ScaleUpMaxStep, src.ScaleDownMaxStep
 			dst.ScaleUpCooldownSeconds, dst.ScaleDownCooldownSeconds = src.ScaleUpCooldownSeconds, src.ScaleDownCooldownSeconds
 		case GroupData:

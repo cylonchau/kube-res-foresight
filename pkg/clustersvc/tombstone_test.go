@@ -15,7 +15,7 @@ import (
 func (f *fixture) withDeletable(t *testing.T) {
 	t.Helper()
 	require.NoError(t, f.db.AutoMigrate(&model.MetricSeries{}, &model.MetricSample{}, &model.ModuleTrigger{}, &model.ModuleRunState{}, &model.AlgorithmScore{}, &model.Recommendation{},
-		&model.Prediction{}, &model.PredictionEvaluation{}, &model.BacktestRun{}, &model.TrainingRun{}, &model.ScaleOutcome{}))
+		&model.Prediction{}, &model.PredictionEvaluation{}, &model.BacktestRun{}, &model.TrainingRun{}, &model.ScaleOutcome{}, &model.RuleDecision{}))
 }
 
 // A module that registered itself and was deleted by a person is not made again by the next report; a person lets it be registered again; a module somebody made by hand

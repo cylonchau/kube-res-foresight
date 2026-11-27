@@ -139,6 +139,70 @@ type RecommendDetail struct {
 	// forecast, the fallback or the fixed count gave (nil when none fired).
 	Triggers       []TriggerState           `json:"triggers,omitempty"`
 	TriggerOutcome *decision.TriggerOutcome `json:"trigger_outcome,omitempty"`
+	// Rule says which source the module follows and, when it follows the fixed formula, what the formula gave and whether it was taken (see RuleDetail).
+	Rule *RuleDetail `json:"rule,omitempty"`
+}
+
+// RuleDetail is the part of a recommendation about the two sources of a decision. Source is what the module follows; for the fixed formula DecisionID is the calculation, Applied says it
+// was taken (replicas, CPU, memory) and Unavailable says why it was not; the figures the forecasts gave are kept beside it, so the two can be read side by side.
+type RuleDetail struct {
+	Source      string `json:"source"`
+	DecisionID  uint   `json:"decision_id,omitempty"`
+	Unavailable string `json:"unavailable,omitempty"`
+	Replicas    bool   `json:"replicas_taken,omitempty"`
+	CPU         bool   `json:"cpu_taken,omitempty"`
+	Memory      bool   `json:"memory_taken,omitempty"`
+	// what the algorithms said, before the rule took the field (absent when the field did not come from an algorithm)
+	AlgorithmReplicas int64 `json:"algorithm_replicas,omitempty"`
+	AlgorithmCPUMilli int64 `json:"algorithm_cpu_milli,omitempty"`
+	AlgorithmMemory   int64 `json:"algorithm_memory_bytes,omitempty"`
+}
+
+// takeRule puts the replicas of the fixed formula in the recommendation, in place of what the algorithms gave, unless something outranks the computed values (a bypass, a fixed period,
+// a fixed count). It returns whether it did.
+func takeRule(rec *decision.Recommendation, rd *model.RuleDecision, d *RuleDetail) bool {
+	if rd == nil || !rd.ReplicasSet || rd.RecommendedReplicas <= 0 {
+		return false
+	}
+	switch rec.Replicas.Source {
+	case decision.SourceBypass, decision.SourceFixedPeriod, decision.SourceFixedCount:
+		return false
+	}
+	if rec.Replicas.Source == decision.SourceAlgorithm {
+		d.AlgorithmReplicas = rec.Replicas.Value
+	}
+	reason := fmt.Sprintf("the fixed formula over %s: %d needed against %d now", rd.Period, rd.RecommendedReplicas, rd.CurrentReplicas)
+	if rd.ReplicasFormula != "" {
+		reason += "; " + rd.ReplicasFormula
+	}
+	rec.Replicas = decision.Field{Set: true, Value: int64(rd.RecommendedReplicas), Source: decision.SourceRule, Detail: "rule#" + fmt.Sprint(rd.ID), Reason: reason}
+	return true
+}
+
+// takeRuleResources puts the Pod CPU and memory of the fixed formula in the recommendation. The bounds and the rounding of the Pod spec apply to them afterwards, as to any value.
+func takeRuleResources(rec *decision.Recommendation, rd *model.RuleDecision, d *RuleDetail) {
+	if rd == nil {
+		return
+	}
+	outranked := func(f decision.Field) bool {
+		return f.Source == decision.SourceBypass || f.Source == decision.SourceFixedPeriod
+	}
+	if rd.CPUSet && rd.CPURecommendedMilli > 0 && !outranked(rec.CPUMilli) {
+		if rec.CPUMilli.Source == decision.SourceAlgorithm {
+			d.AlgorithmCPUMilli = rec.CPUMilli.Value
+		}
+		rec.CPUMilli = decision.Field{Set: true, Value: rd.CPURecommendedMilli, Source: decision.SourceRule, Detail: "rule#" + fmt.Sprint(rd.ID),
+			Reason: fmt.Sprintf("the fixed formula over %s: P95 %.3g cores of one Pod", rd.Period, rd.CPUP95)}
+		d.CPU = true
+	}
+	if rd.MemorySet && rd.MemoryRecommendedBytes > 0 && !outranked(rec.MemoryBytes) {
+		if rec.MemoryBytes.Source == decision.SourceAlgorithm {
+			d.AlgorithmMemory = rec.MemoryBytes.Value
+		}
+		rec.MemoryBytes = decision.Field{Set: true, Value: rd.MemoryRecommendedBytes, Source: decision.SourceRule, Detail: "rule#" + fmt.Sprint(rd.ID),
+			Reason: fmt.Sprintf("the fixed formula over %s: P95 %.0f bytes of one Pod", rd.Period, rd.MemoryP95)}
+		d.Memory = true
+	}
 }
 
 // ErrObserveOnly is returned when a recommendation is requested for a module in observe mode.
@@ -678,6 +742,25 @@ func (s *Service) decide(ctx context.Context, moduleID uint, failed map[string]s
 		}
 	}
 
+	// ---- the second source: a module that follows the fixed formula takes its replicas from it, in place of the forecasts (the forecasts above were still made, to be shown beside it)
+	ruleDetail := &RuleDetail{Source: m.DecisionSource}
+	if ruleDetail.Source == "" {
+		ruleDetail.Source = model.DecisionAlgorithm
+	}
+	var ruleRow *model.RuleDecision
+	if m.FollowsRule() {
+		var why string
+		if ruleRow, why = s.RuleFollowed(ctx, m); ruleRow != nil {
+			ruleDetail.DecisionID = ruleRow.ID
+			if m.HasReplicas() {
+				ruleDetail.Replicas = takeRule(&rec, ruleRow, ruleDetail)
+			}
+		} else {
+			ruleDetail.Unavailable = why + "; the forecasts decided"
+		}
+	}
+	detail.Rule = ruleDetail
+
 	// ---- the replica ceiling: the module maximum, raised stepwise under dynamic expansion, never above the hard ceiling
 	effectiveMax := m.MaxReplicas
 	if !m.HasReplicas() {
@@ -774,6 +857,8 @@ func (s *Service) decide(ctx context.Context, moduleID uint, failed map[string]s
 		}
 	}
 
+	takeRuleResources(&rec, ruleRow, ruleDetail)
+
 	// a module fixed to one algorithm does not fall back to the default the moment that algorithm has nothing usable: the last result of the
 	// algorithm is held for a while (see holdFixedResult)
 	prevRec, err := s.Predictions.LatestRecommendation(ctx, m.ID)
@@ -825,6 +910,9 @@ func (s *Service) decide(ctx context.Context, moduleID uint, failed map[string]s
 		Algorithm: detail.Algorithm, Score: detail.Score, EffectiveMaxReplicas: effectiveMax,
 		Detail: marshal(detail), Degraded: len(detail.Degraded) > 0, OOMFloor: rec.MemoryBytes.Floored,
 		ResourceVersion: spec.Version, ResourceChangedAt: spec.ChangedAt, ResourceHeld: spec.Held, Urgent: urgent && rec.Replicas.Source == decision.SourceAlgorithm,
+	}
+	if ruleDetail.Replicas || ruleDetail.CPU || ruleDetail.Memory {
+		row.RuleDecisionID = ruleDetail.DecisionID
 	}
 	if len(detail.Degraded) > 0 {
 		row.DegradeReasons = marshal(detail.Degraded)

@@ -107,6 +107,12 @@ func (s *Service) resourcePolicy(ctx context.Context) (ratio float64, hold time.
 	return float64(percent) / 100, time.Duration(hours) * time.Hour
 }
 
+// computedSource says a value was worked out from the use (by the forecasts of the algorithms or by the fixed formula), not set by a person or a fallback: the Pod spec is
+// rounded and held against small moves for these, and taken at once from the others.
+func computedSource(s decision.Source) bool {
+	return s == decision.SourceAlgorithm || s == decision.SourceRule
+}
+
 // pinOne decides one field of the spec: take the computed value, or keep the pinned one.
 // computed is the field after rounding; prev is what the latest snapshot carried (0 = none); prevFromAlgorithm says that value
 // was itself a forecast result and not an override.
@@ -114,7 +120,7 @@ func pinOne(f decision.Field, prev int64, prevFromAlgorithm bool, lo, hi int64, 
 	if !f.Set {
 		return f, false, "not set: the original value is kept"
 	}
-	if f.Source != decision.SourceAlgorithm || f.Floored {
+	if !computedSource(f.Source) || f.Floored {
 		return f, false, "taken at once: " + string(f.Source) + " overrides the spec"
 	}
 	if prev <= 0 || !prevFromAlgorithm {
@@ -156,10 +162,10 @@ func (s *Service) pinResources(ctx context.Context, m *model.ForecastModule, now
 		}
 		return v
 	}
-	if rec.CPUMilli.Set && rec.CPUMilli.Source == decision.SourceAlgorithm {
+	if rec.CPUMilli.Set && computedSource(rec.CPUMilli.Source) {
 		rec.CPUMilli.Value = clamp(RoundCPUMilli(rec.CPUMilli.Value), bounds.MinCPUMilli, bounds.MaxCPUMilli)
 	}
-	if rec.MemoryBytes.Set && rec.MemoryBytes.Source == decision.SourceAlgorithm {
+	if rec.MemoryBytes.Set && computedSource(rec.MemoryBytes.Source) {
 		rec.MemoryBytes.Value = clamp(RoundMemoryBytes(rec.MemoryBytes.Value), bounds.MinMemoryBytes, bounds.MaxMemoryBytes)
 	}
 	detail.Computed = ResourcePair{CPUMilli: rec.CPUMilli.Value, MemoryBytes: rec.MemoryBytes.Value}
@@ -175,10 +181,10 @@ func (s *Service) pinResources(ctx context.Context, m *model.ForecastModule, now
 	var changedAt *time.Time
 	if prev != nil {
 		if prev.CPUSet {
-			prevCPU, prevCPUAlgo = prev.CPUMilli, prev.CPUSource == string(decision.SourceAlgorithm)
+			prevCPU, prevCPUAlgo = prev.CPUMilli, computedSource(decision.Source(prev.CPUSource))
 		}
 		if prev.MemorySet {
-			prevMem, prevMemAlgo = prev.MemoryBytes, prev.MemorySource == string(decision.SourceAlgorithm)
+			prevMem, prevMemAlgo = prev.MemoryBytes, computedSource(decision.Source(prev.MemorySource))
 		}
 		changedAt = prev.ResourceChangedAt
 	}

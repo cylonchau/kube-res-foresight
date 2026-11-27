@@ -189,6 +189,9 @@ func RegisteredRouter(e *gin.Engine) {
 	moduleGroup.GET("/:id/effect-report", forecastHandler.ModuleEffectReport)
 	moduleGroup.GET("/:id/metric-catalog", forecastHandler.ModuleMetricCatalog)
 	moduleGroup.GET("/:id/overprovision", forecastHandler.ModuleOverprovision)
+	moduleGroup.GET("/:id/dispatch", forecastHandler.ModuleDispatch)
+	moduleGroup.GET("/:id/rule-decisions", forecastHandler.ModuleRuleDecisions)
+	moduleGroup.POST("/:id/rule-decisions/run", forecastHandler.ModuleRuleRun)
 	moduleGroup.GET("/:id/overprovision/prometheus", forecastHandler.ModulePrometheusStats)
 	moduleGroup.POST("/:id/change-preview", forecastHandler.ModuleChangePreview)
 	moduleGroup.POST("/:id/change-preview/async", forecastHandler.ModuleChangePreviewAsync)
@@ -324,6 +327,7 @@ func RegisteredRouter(e *gin.Engine) {
 	v1Group.GET("/admission/recommendations", runtimeHandler.Admission)
 	v1Group.GET("/scaling-decisions", runtimeHandler.ListExecutions)
 	v1Group.GET("/scale-outcomes", runtimeHandler.ListScaleOutcomes)
+	v1Group.GET("/rule-decisions", forecastHandler.RuleDecisions)
 
 	ldapHandler := &v1.LDAPRouter{Service: ldapService}
 	configHandler.LDAP = ldapHandler

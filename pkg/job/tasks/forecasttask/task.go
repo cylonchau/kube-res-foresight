@@ -159,6 +159,25 @@ func (t *Overprovision) Execute(ctx context.Context, _ *model.Job) error {
 	return err
 }
 
+// RuleJobType makes the calculation of the fixed formula of the resource analysis (the second source of a decision).
+const RuleJobType = "forecast.rule"
+
+// Rule is that job: for every enabled module that follows the fixed formula, and for the others when their newest calculation is old. It reads Prometheus the way the resource dashboard does
+// and changes nothing in the cluster; the decision that takes the calculation is made by the run of the module.
+type Rule struct {
+	Service *forecastsvc.Service
+}
+
+func (t *Rule) Type() string { return RuleJobType }
+
+func (t *Rule) Execute(ctx context.Context, _ *model.Job) error {
+	done, err := t.Service.RuleDecideAll(ctx)
+	if done > 0 {
+		logger.Info("fixed formula calculated", logger.Int("modules", done))
+	}
+	return err
+}
+
 // InventoryPruneJobType deletes the snapshots of the cluster and the history of the configuration of the workloads that are past their retention (P10 A1).
 const InventoryPruneJobType = "inventory.prune"
 

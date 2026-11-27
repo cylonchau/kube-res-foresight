@@ -23,6 +23,7 @@ func registerForecast() {
 	job.Register(&forecasttask.Score{Modules: modules, Service: service})
 	job.Register(&forecasttask.Evaluate{Modules: modules, Service: service})
 	job.Register(&forecasttask.Overprovision{Service: service})
+	job.Register(&forecasttask.Rule{Service: service})
 	job.Register(&forecasttask.InventoryPrune{Service: &inventorysvc.Service{DAO: rdb.NewInventoryDAO(model.DB), Modules: modules, Config: rdb.NewSysConfigDAO(model.DB)}})
 	job.Register(&forecasttask.ClusterUsage{Service: &clustersvc.Service{DAO: rdb.NewClusterDAO(model.DB), Config: rdb.NewSysConfigDAO(model.DB)}, Source: forecastsvc.ClusterUsage{Service: service}})
 	job.Register(&forecasttask.ClusterPrune{Service: &clustersvc.Service{DAO: rdb.NewClusterDAO(model.DB), Config: rdb.NewSysConfigDAO(model.DB)}})

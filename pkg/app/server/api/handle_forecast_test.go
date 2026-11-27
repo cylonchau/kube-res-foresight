@@ -34,7 +34,7 @@ func forecastTestRouter(t *testing.T) (*gin.Engine, *model.MetricMapping) {
 	gin.SetMode(gin.TestMode)
 	db := apiTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.Datasource{}, &model.MetricMapping{}, &model.ForecastModule{PredictEnabled: true}, &model.AlgorithmConfig{},
-		&model.ModulePeriod{}, &model.ModuleTrigger{}, &model.MetricSeries{}, &model.MetricSample{}, &model.Prediction{}, &model.BacktestRun{}, &model.Recommendation{}, &model.PredictionEvaluation{}, &model.ScalingExecution{}, &model.MetricSource{}, &model.AlgorithmScore{}, &model.AdmissionDecision{}, &model.TrainingRun{}, &model.ScaleOutcome{}, &model.ModuleRunState{}, &model.SysConfig{}, &model.TaskDefinition{}, &model.Job{}, &model.OverprovisionAnalysis{}, &model.RegistrationTombstone{}))
+		&model.ModulePeriod{}, &model.ModuleTrigger{}, &model.MetricSeries{}, &model.MetricSample{}, &model.Prediction{}, &model.BacktestRun{}, &model.Recommendation{}, &model.PredictionEvaluation{}, &model.ScalingExecution{}, &model.MetricSource{}, &model.AlgorithmScore{}, &model.AdmissionDecision{}, &model.TrainingRun{}, &model.ScaleOutcome{}, &model.RuleDecision{}, &model.ModuleRunState{}, &model.SysConfig{}, &model.TaskDefinition{}, &model.Job{}, &model.OverprovisionAnalysis{}, &model.RegistrationTombstone{}))
 	previous := model.DB
 	model.DB = db
 	t.Cleanup(func() { model.DB = previous })
@@ -97,6 +97,9 @@ func forecastTestRouter(t *testing.T) (*gin.Engine, *model.MetricMapping) {
 	r.GET("/modules/:id/delay-report", h.ModuleDelayReport)
 	r.GET("/modules/:id/effect-report", h.ModuleEffectReport)
 	r.GET("/modules/:id/overprovision", h.ModuleOverprovision)
+	r.GET("/modules/:id/dispatch", h.ModuleDispatch)
+	r.GET("/modules/:id/rule-decisions", h.ModuleRuleDecisions)
+	r.GET("/rule-decisions", h.RuleDecisions)
 	r.GET("/overprovision", h.OverprovisionBoard)
 	r.POST("/overprovision/run", h.OverprovisionRun)
 	r.POST("/modules/:id/change-preview", h.ModuleChangePreview)
@@ -1361,4 +1364,40 @@ func TestAHeavyReportSaysWhereItsAnswerCameFromAndIsMadeAgainWhenTheModuleChange
 	require.Equal(t, http.StatusOK, update.Code, update.Body.String())
 	assert.Equal(t, "miss", get().Header().Get("X-Cache"))
 	assert.Equal(t, "hit", get().Header().Get("X-Cache"))
+}
+
+// A module follows the forecasts or the fixed formula of the resource analysis, nothing else; what it follows is kept, copied with the replica settings, and read in the dispatch detail.
+func TestAModuleFollowsTheForecastsOrTheFixedFormulaAndTheDispatchDetailSaysWhich(t *testing.T) {
+	r, _ := forecastTestRouter(t)
+	id := createModule(t, r, map[string]any{"name": "api", "namespace": "prod", "workload": "api"})
+	got := decodeData(t, performJSON(t, r, http.MethodGet, fmt.Sprintf("/modules/%d", id), "", nil).Body.Bytes())
+	assert.Equal(t, "algorithm", got["decision_source"], "the forecasts are the default")
+
+	assert.Equal(t, http.StatusBadRequest, performJSON(t, r, http.MethodPost, "/modules", "", map[string]any{"name": "bad", "namespace": "prod", "workload": "bad", "decision_source": "magic"}).Code)
+	assert.Equal(t, http.StatusBadRequest, performJSON(t, r, http.MethodPut, fmt.Sprintf("/modules/%d", id), "", map[string]any{"decision_source": "magic"}).Code)
+
+	rec0 := performJSON(t, r, http.MethodPut, fmt.Sprintf("/modules/%d", id), "", map[string]any{"decision_source": "rule"})
+	require.Equal(t, http.StatusOK, rec0.Code)
+	d0 := decodeData(t, performJSON(t, r, http.MethodGet, fmt.Sprintf("/modules/%d/dispatch", id), "", nil).Body.Bytes())
+	assert.Equal(t, "observe_only", d0["state"], "a module in observe mode records and recommends nothing")
+	require.Equal(t, http.StatusOK, performJSON(t, r, http.MethodPut, fmt.Sprintf("/modules/%d", id), "", map[string]any{"mode": "recommend"}).Code)
+	got = decodeData(t, performJSON(t, r, http.MethodGet, fmt.Sprintf("/modules/%d", id), "", nil).Body.Bytes())
+	assert.Equal(t, "rule", got["decision_source"])
+
+	rec := performJSON(t, r, http.MethodGet, fmt.Sprintf("/modules/%d/dispatch", id), "", nil)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	d := decodeData(t, rec.Body.Bytes())
+	assert.Equal(t, "rule", d["decision_source"])
+	assert.Equal(t, "unavailable", d["state"], "it follows the formula and no calculation has been made yet")
+	assert.NotEmpty(t, d["why"])
+
+	rec = performJSON(t, r, http.MethodGet, "/rule-decisions", "", nil)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	list := decodeData(t, rec.Body.Bytes())["list"].([]any)
+	require.Len(t, list, 1)
+	assert.Equal(t, "unavailable", list[0].(map[string]any)["state"])
+
+	rec = performJSON(t, r, http.MethodGet, fmt.Sprintf("/modules/%d/rule-decisions", id), "", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.EqualValues(t, 0, decodeData(t, rec.Body.Bytes())["total"])
 }

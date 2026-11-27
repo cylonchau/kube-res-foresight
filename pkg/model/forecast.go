@@ -229,6 +229,9 @@ type ForecastModule struct {
 	FallbackReplicas    int   `gorm:"not null;default:0" json:"fallback_replicas" column_setting:"false"`
 	// FixedReplicas, when positive, keeps the module at that many replicas whatever the forecast says (periods can still fix, raise or cap it).
 	FixedReplicas int `gorm:"not null;default:0" json:"fixed_replicas" column_setting:"false"`
+	// DecisionSource is what the replicas and the Pod spec of the module follow: the forecasts of its algorithms (the default) or the fixed formula of the resource analysis, made of
+	// the P90, P95 and P99 of the real use. They are two sources and one is chosen: the other still shows its figures, and decides nothing.
+	DecisionSource string `gorm:"type:varchar(12);not null;default:'algorithm'" json:"decision_source" column_setting:"false"`
 	// FixedReplicasEnabled is the switch of FixedReplicas: off, the count stays stored and takes no part in the replicas (see ActiveFixedReplicas).
 	FixedReplicasEnabled bool `gorm:"not null;default:false" json:"fixed_replicas_enabled" column_setting:"false"`
 	MinGPU               int  `gorm:"not null;default:0" json:"min_gpu" column_setting:"false"`
@@ -347,6 +350,15 @@ func (ForecastModule) TableName() string { return "forecast_module" }
 func (m *ForecastModule) Predicts() bool {
 	return m.PredictEnabled && m.PredictMode != PredictNone
 }
+
+// The sources a module can follow.
+const (
+	DecisionAlgorithm = "algorithm"
+	DecisionRule      = "rule"
+)
+
+// FollowsRule says the module follows the fixed formula of the resource analysis, not the forecasts.
+func (m *ForecastModule) FollowsRule() bool { return m.DecisionSource == DecisionRule }
 
 // ActiveFixedReplicas is the replica count the module keeps whatever the forecast says: the fixed count when the switch is on and a count is set, else 0 (the fixed count
 // takes no part, and every other source of the replicas works as it does for a module that has none).
@@ -667,6 +679,9 @@ func (m *ForecastModule) Validate() error {
 	if m.FixedReplicasEnabled && m.FixedReplicas <= 0 {
 		return fmt.Errorf("fixed_replicas must be set when the fixed replicas are switched on")
 	}
+	if m.DecisionSource != "" && m.DecisionSource != DecisionAlgorithm && m.DecisionSource != DecisionRule {
+		return fmt.Errorf("decision_source must be %q or %q", DecisionAlgorithm, DecisionRule)
+	}
 	return nil
 }
 
@@ -818,6 +833,8 @@ type Recommendation struct {
 	// Urgent says the replicas came from the load measured now because the forecast was behind it: the operator acts at once, without
 	// the cooldown or the step limit of a scale-up.
 	Urgent bool `gorm:"not null;default:false" json:"urgent" column_setting:"false"`
+	// RuleDecisionID is the calculation of the fixed formula this recommendation took its replicas or Pod spec from (0 = none): the way from a calculation to what the operator did with it.
+	RuleDecisionID uint `gorm:"not null;default:0;index" json:"rule_decision_id" column_setting:"false"`
 }
 
 func (Recommendation) TableName() string { return "recommendation" }

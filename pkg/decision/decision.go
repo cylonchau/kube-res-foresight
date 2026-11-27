@@ -18,8 +18,10 @@ const (
 	SourceFixedPeriod Source = "fixed_period" // administrator override window
 	SourceFixedCount  Source = "fixed_count"  // the module keeps a fixed replica count, no algorithm decides it
 	SourceAlgorithm   Source = "algorithm"    // an eligible model that passed the safety checks
-	SourceFallback    Source = "fallback"     // the module's fixed default
-	SourceOriginal    Source = "original"     // nothing usable: keep the user's original value
+	// SourceRule is the fixed formula of the resource analysis: the percentiles (P90, P95, P99) of the real use, not a forecast. It is the other source a module can follow.
+	SourceRule     Source = "rule"
+	SourceFallback Source = "fallback" // the module's fixed default
+	SourceOriginal Source = "original" // nothing usable: keep the user's original value
 	// SourceOOMFloor is a memory value that exists only because of the OOM protection: nothing else gave one.
 	SourceOOMFloor Source = "oom_floor"
 )

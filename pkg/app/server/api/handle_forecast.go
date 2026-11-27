@@ -150,6 +150,7 @@ func (r *ForecastRouter) CreateModule(c *gin.Context) {
 		OOMWeightEnabled: req.OOMWeightEnabled != nil && *req.OOMWeightEnabled,
 		// a fixed count given without saying whether it counts is on, as it was before the switch existed
 		FixedReplicasEnabled: req.FixedReplicasEnabled == nil && req.FixedReplicas > 0 || req.FixedReplicasEnabled != nil && *req.FixedReplicasEnabled,
+		DecisionSource:       decisionSourceOf(req.DecisionSource),
 		Namespace:            strings.TrimSpace(req.Namespace), WorkloadKind: req.WorkloadKind, Workload: strings.TrimSpace(req.Workload), Service: req.Service, Container: req.Container,
 		LookbackHours: req.LookbackHours, HorizonMinutes: req.HorizonMinutes, MaxFillSteps: req.MaxFillSteps,
 		StepSeconds: req.StepSeconds, MinPoints: req.MinPoints, WindowSteps: req.WindowSteps, RunIntervalMinutes: req.RunIntervalMinutes,
@@ -267,6 +268,9 @@ func applyModuleUpdate(m *model.ForecastModule, req *apis.ModuleUpdateReq) {
 	}
 	if req.FixedReplicasEnabled != nil {
 		m.FixedReplicasEnabled = *req.FixedReplicasEnabled
+	}
+	if req.DecisionSource != nil {
+		m.DecisionSource = decisionSourceOf(*req.DecisionSource)
 	}
 	for dst, src := range map[*int]*int{
 		&m.LookbackHours: req.LookbackHours, &m.HorizonMinutes: req.HorizonMinutes, &m.MaxFillSteps: req.MaxFillSteps,
@@ -898,4 +902,13 @@ func (r *ForecastRouter) Leaderboard(c *gin.Context) {
 func marshalJSON(v any) string {
 	data, _ := json.Marshal(v)
 	return string(data)
+}
+
+// decisionSourceOf reads the source a module follows from a request: nothing means the forecasts; anything else is kept as it is, for the validation of the module to refuse.
+func decisionSourceOf(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return model.DecisionAlgorithm
+	}
+	return s
 }

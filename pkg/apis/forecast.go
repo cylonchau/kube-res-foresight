@@ -106,6 +106,8 @@ type ModuleCreateReq struct {
 	OOMWeight        *float64 `json:"oom_weight"`
 	// FixedReplicasEnabled switches FixedReplicas on: off, the fixed count is kept in the form but takes no part in the replicas.
 	FixedReplicasEnabled *bool `json:"fixed_replicas_enabled"`
+	// DecisionSource is what the module follows: "algorithm" (the forecasts, the default) or "rule" (the fixed formula of the resource analysis).
+	DecisionSource string `json:"decision_source"`
 
 	// Optional metric sources created together with the module.
 	Sources []SourceReq `json:"sources"`
@@ -198,7 +200,8 @@ type ModuleUpdateReq struct {
 	OOMWeightEnabled *bool    `json:"oom_weight_enabled"`
 	OOMWeight        *float64 `json:"oom_weight"`
 
-	FixedReplicasEnabled *bool `json:"fixed_replicas_enabled"`
+	FixedReplicasEnabled *bool   `json:"fixed_replicas_enabled"`
+	DecisionSource       *string `json:"decision_source"`
 }
 
 // AlgorithmListReq filters the algorithm list (the catalog with each algorithm's platform-wide setting).

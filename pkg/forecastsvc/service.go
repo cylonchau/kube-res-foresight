@@ -47,6 +47,8 @@ type Service struct {
 	RunStates *rdb.RunStateDAO
 	// Overprovision keeps the results of the over-provisioning analysis (P10 A2).
 	Overprovision *rdb.OverprovisionDAO
+	// Rules keeps the calculations of the fixed formula of the resource analysis, the second source of a decision
+	Rules *rdb.RuleDecisionDAO
 	// Inventory holds what the operator read from the Kubernetes API (the replicas a workload is set to); nil leaves the replicas to Prometheus.
 	Inventory *rdb.InventoryDAO
 
@@ -83,7 +85,7 @@ type Service struct {
 func New(modules *rdb.ModuleDAO, mappings *rdb.MetricMappingDAO, datasources *rdb.DatasourceDAO, samples *rdb.SampleDAO, predictions *rdb.PredictionDAO) *Service {
 	return &Service{Modules: modules, Mappings: mappings, Datasources: datasources, Samples: samples, Predictions: predictions,
 		NewQuerier: PromQuerierFactory, NewCostQuerier: PromCostQuerier, Prices: rdb.NewCostPriceDAO(modules.DB()), Now: time.Now, Telemetry: SharedTelemetry(), RunStates: rdb.NewRunStateDAO(modules.DB()), Config: rdb.NewSysConfigDAO(modules.DB()),
-		Algorithms: rdb.NewAlgorithmDAO(modules.DB()), Overprovision: rdb.NewOverprovisionDAO(modules.DB()), Inventory: rdb.NewInventoryDAO(modules.DB())}
+		Algorithms: rdb.NewAlgorithmDAO(modules.DB()), Overprovision: rdb.NewOverprovisionDAO(modules.DB()), Rules: rdb.NewRuleDecisionDAO(modules.DB()), Inventory: rdb.NewInventoryDAO(modules.DB())}
 }
 
 // PromQuerierFactory builds a Prometheus querier from a stored datasource.
