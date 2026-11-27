@@ -75,6 +75,23 @@ func reduceTrigger(stat string, values []float64) float64 {
 // triggerSamples reads the samples a trigger compares: the stored series of a source of the module, or the heap used over the heap maximum for the JVM heap pressure.
 func (s *Service) triggerSamples(ctx context.Context, m *model.ForecastModule, bs boundSet, t *model.ModuleTrigger, now time.Time) ([]float64, string, error) {
 	from := now.Add(-time.Duration(t.WindowMinutes) * time.Minute)
+	if t.Metric == model.TriggerRuleGap {
+		if s.Rules == nil {
+			return nil, "the Resource Assessment is not available", nil
+		}
+		last, err := s.Rules.Latest(ctx, m.ID)
+		switch {
+		case err != nil:
+			return nil, "", err
+		case last == nil:
+			return nil, "no Resource Assessment has been made for the module yet", nil
+		case now.Sub(last.CheckedAt) > RuleMaxAge:
+			return nil, fmt.Sprintf("the newest Resource Assessment is %s old, older than %s", now.Sub(last.CheckedAt).Round(time.Minute), RuleMaxAge), nil
+		case !last.Certain || !last.ReplicasSet || last.CurrentReplicas <= 0:
+			return nil, "the newest Resource Assessment is not certain, or has no replicas to compare with what runs", nil
+		}
+		return []float64{float64(last.RecommendedReplicas - last.CurrentReplicas)}, "", nil
+	}
 	if t.Metric == model.TriggerJVMHeap {
 		if len(bs.sourcesOfKind("jvm_heap_used")) == 0 || len(bs.sourcesOfKind("jvm_heap_max")) == 0 {
 			return nil, "jvm_heap_used and jvm_heap_max are not both configured as metric sources of the module", nil

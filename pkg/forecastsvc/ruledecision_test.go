@@ -244,3 +244,33 @@ func TestAFixedReplicaCountOutranksTheFormulaForTheReplicasOnly(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, DispatchRecommended, got.State)
 }
+
+// A trigger can read the Resource Assessment: the replicas it needs less the replicas that run, taken from the stored calculation.
+func TestATriggerCanReadTheGapOfTheResourceAssessment(t *testing.T) {
+	f := ruleFixture(t)
+	ctx := context.Background()
+	rule, err := f.svc.RuleDecide(ctx, f.module.ID)
+	require.NoError(t, err)
+	require.True(t, rule.ReplicasSet)
+	f.setModule(t, func(m *model.ForecastModule) {
+		m.Mode = model.ModeRecommend
+		m.MinReplicas, m.MaxReplicas = 1, 100
+	})
+	trigger := &model.ModuleTrigger{ModuleID: f.module.ID, Name: "assessment-short", Enabled: true, Metric: model.TriggerRuleGap, Stat: model.TriggerStatLast, WindowMinutes: 15,
+		Operator: model.TriggerGT, Threshold: -1000, Action: model.TriggerScaleUp, Unit: model.TriggerUnitReplicas, Amount: 2}
+	require.NoError(t, trigger.Validate())
+	require.NoError(t, f.svc.Modules.SaveTrigger(ctx, trigger))
+
+	_, detail, err := f.svc.Recommend(ctx, f.module.ID)
+	require.NoError(t, err)
+	require.Len(t, detail.Triggers, 1)
+	assert.True(t, detail.Triggers[0].Fired, detail.Triggers[0].Reason)
+	assert.EqualValues(t, rule.RecommendedReplicas-rule.CurrentReplicas, detail.Triggers[0].Value, "the replicas the assessment needs less the replicas that run")
+
+	// an old assessment is not read
+	require.NoError(t, f.db.Model(&model.RuleDecision{}).Where("id = ?", rule.ID).Update("checked_at", f.svc.now().Add(-RuleMaxAge-time.Minute)).Error)
+	_, detail, err = f.svc.Recommend(ctx, f.module.ID)
+	require.NoError(t, err)
+	assert.False(t, detail.Triggers[0].Fired)
+	assert.Contains(t, detail.Triggers[0].Reason, "older than")
+}

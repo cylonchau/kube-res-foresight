@@ -689,7 +689,7 @@ func (r *ForecastRouter) triggerFromReq(c *gin.Context, moduleID uint, req *apis
 	if err := t.Validate(); err != nil {
 		return nil, err
 	}
-	if t.Metric != model.TriggerJVMHeap {
+	if t.Metric != model.TriggerJVMHeap && t.Metric != model.TriggerRuleGap {
 		sources, err := r.Modules.Sources(c.Request.Context(), moduleID)
 		if err != nil {
 			return nil, err

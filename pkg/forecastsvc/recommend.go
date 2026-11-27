@@ -754,7 +754,8 @@ func (s *Service) decide(ctx context.Context, moduleID uint, failed map[string]s
 	}
 	// ---- the metric triggers: the strategy of the module that reads a metric against a threshold. They come after the forecast and its ceiling and before the periods and
 	// the bounds, so a floor or a cap of a period, the module's minimum and maximum and the pace limits of the operator all hold over what a trigger asks for
-	if m.HasReplicas() {
+	// a module that keeps a fixed count, or is in bypass, has its replicas held: the triggers are not read for it
+	if m.HasReplicas() && m.ActiveFixedReplicas() == 0 && !m.Bypass {
 		states, fired, err := s.evaluateTriggers(ctx, m, bs, loc, now)
 		if err != nil {
 			return nil, nil, err

@@ -47,6 +47,10 @@ const (
 // the JVM pressure of the module). It needs the sources jvm_heap_used and jvm_heap_max.
 const TriggerJVMHeap = "jvm_heap_pressure"
 
+// TriggerRuleGap is the other metric of a trigger that is no source of the module: the replicas the newest Resource Assessment (the fixed formula of the real use) needs, less the
+// replicas that run: positive when the formula wants more, negative when it wants fewer. It is read from the stored calculation, so the history is not asked for again.
+const TriggerRuleGap = "rule_replicas_gap"
+
 // DefaultTriggerWindowMinutes is the window of a trigger that sets none.
 const DefaultTriggerWindowMinutes = 15
 
