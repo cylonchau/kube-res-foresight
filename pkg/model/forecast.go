@@ -218,7 +218,7 @@ type ForecastModule struct {
 	FallbackCPUMilli    int64 `gorm:"not null;default:0" json:"fallback_cpu_milli" column_setting:"false"`
 	FallbackMemoryBytes int64 `gorm:"not null;default:0" json:"fallback_memory_bytes" column_setting:"false"`
 	FallbackReplicas    int   `gorm:"not null;default:0" json:"fallback_replicas" column_setting:"false"`
-	// FixedReplicas, when positive, keeps the module at that many replicas whatever the forecast says (periods can still fix, raise or cap it).
+	// FixedReplicas, when positive, keeps the module at that many replicas whatever the forecast, the triggers and the periods say: only a bypass or a period that fixes the count outranks it, and the bounds of the module hold.
 	FixedReplicas int `gorm:"not null;default:0" json:"fixed_replicas" column_setting:"false"`
 	// DecisionSource is what the replicas and the Pod spec of the module follow: the forecasts of its algorithms (the default) or the fixed formula of the resource analysis, made of
 	// the P90, P95 and P99 of the real use. They are two sources and one is chosen: the other still shows its figures, and decides nothing.
@@ -526,9 +526,11 @@ func (m *ForecastModule) Validate() error {
 	switch m.CapacityMode {
 	case "":
 		m.CapacityMode = CapacityModeManual
-	case CapacityModeManual, CapacityModeEstimate:
+	case CapacityModeManual:
+	case CapacityModeEstimate:
+		m.CapacityMode = CapacityModeManual // the capacity of a Pod is the entered one; a history estimate is a reference and decides nothing
 	default:
-		return fmt.Errorf("capacity_mode must be manual or estimate")
+		return fmt.Errorf("capacity_mode must be manual")
 	}
 	if m.PodCPURequestMilli < 0 || m.PodMemoryRequestBytes < 0 {
 		return fmt.Errorf("pod requests must not be negative")

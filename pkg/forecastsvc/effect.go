@@ -453,9 +453,7 @@ func clipText(s string, n int) string {
 // note says why: it needs a workload-level series and what one Pod carries.
 func (s *Service) measuredNeeds(ctx context.Context, m *model.ForecastModule, since, now time.Time) ([]decision.NeedPoint, boundSet, string) {
 	cfg := decision.SolverConfig{PodCPUCores: float64(m.PodCPURequestMilli) / 1000, PodMemoryBytes: float64(m.PodMemoryRequestBytes), TargetUtilization: m.TargetUtilization}
-	if m.CapacityMode != model.CapacityModeEstimate {
-		cfg.CapacityRPS = m.PodCapacityRPS
-	}
+	cfg.CapacityRPS = m.PodCapacityRPS
 	bs, err := s.boundSet(ctx, m)
 	if err != nil {
 		return nil, nil, "the sources of the module could not be read: " + err.Error()

@@ -63,6 +63,9 @@ type ModuleTrigger struct {
 	Enabled  bool   `gorm:"not null" json:"enabled" column_setting:"true"`
 	// Priority orders the triggers that ask for different replica counts at once: the higher wins (see decision.ApplyTriggers).
 	Priority int `gorm:"not null;default:0" json:"priority" column_setting:"true"`
+	// Weight is how much the trigger counts when triggers that scale out and triggers that scale in fire together (see decision.ApplyTriggers): the larger total of
+	// weight x how far the metric is past its threshold decides. 1 = counts as one; a metric that is trusted more has a larger weight.
+	Weight float64 `gorm:"not null;default:1" json:"weight" column_setting:"true"`
 	// Metric is the key of a metric source of the module, or TriggerJVMHeap.
 	Metric string `gorm:"type:varchar(32);not null" json:"metric" column_setting:"true"`
 	// Stat reduces the samples of the last WindowMinutes to the value that is compared: last, avg, max or min.
@@ -93,6 +96,12 @@ func (t *ModuleTrigger) Validate() error {
 	}
 	if t.Metric == "" {
 		return fmt.Errorf("trigger metric is required")
+	}
+	if t.Weight == 0 {
+		t.Weight = 1
+	}
+	if t.Weight < 0.1 || t.Weight > 100 {
+		return fmt.Errorf("weight must be between 0.1 and 100")
 	}
 	if t.Stat == "" {
 		t.Stat = TriggerStatAvg

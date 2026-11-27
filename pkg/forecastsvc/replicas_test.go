@@ -176,9 +176,19 @@ func TestDynamicReplicasEstimateCapacityFromHistoryOrExplainWhatIsMissing(t *tes
 
 	_, detail, err := f.svc.Recommend(ctx, f.module.ID)
 	require.NoError(t, err)
-	assert.Equal(t, decision.CapacityEstimated, detail.Replica.Capacity.Source, detail.Replica.Capacity.Note)
-	assert.Greater(t, detail.Replica.Capacity.RPSPerPod, 0.0)
+	// the history gives an estimate, and the estimate is only shown beside the capacity: no capacity was entered, so no throughput constraint is made from it
+	assert.Equal(t, decision.CapacityNone, detail.Replica.Capacity.Source, detail.Replica.Capacity.Note)
+	report, err := f.svc.CapacityReportOf(ctx, f.module.ID)
+	require.NoError(t, err)
+	assert.Equal(t, CapacityReady, report.EstimateState, report.EstimateNote)
+	assert.Greater(t, report.Estimate, 0.0)
+	assert.Equal(t, CapacityNotSet, report.State, "the figure in force is the entered one")
 	require.NotEmpty(t, detail.Replica.Plans)
+	for _, p := range detail.Replica.Plans {
+		for _, c := range p.Constraints {
+			assert.NotEqual(t, decision.ConstraintThroughput, c.Name, "an estimate from the history is not a verified capacity")
+		}
+	}
 
 	// without enough busy moments the capacity is refused, with the reason stated
 	f.querier.value = func(query string, ts time.Time) float64 {
@@ -198,7 +208,10 @@ func TestDynamicReplicasEstimateCapacityFromHistoryOrExplainWhatIsMissing(t *tes
 	_, detail, err = f.svc.Recommend(ctx, f.module.ID)
 	require.NoError(t, err)
 	assert.Equal(t, decision.CapacityNone, detail.Replica.Capacity.Source)
-	assert.Contains(t, detail.Replica.Capacity.Note, "near saturation")
+	report, err = f.svc.CapacityReportOf(ctx, f.module.ID)
+	require.NoError(t, err)
+	assert.Equal(t, CapacityInsufficient, report.EstimateState)
+	assert.Contains(t, report.EstimateNote, "near saturation")
 	for _, p := range detail.Replica.Plans {
 		for _, c := range p.Constraints {
 			assert.NotEqual(t, decision.ConstraintThroughput, c.Name, "no capacity means no throughput constraint, so nothing is invented")

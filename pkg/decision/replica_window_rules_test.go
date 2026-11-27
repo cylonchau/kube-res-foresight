@@ -83,7 +83,7 @@ func TestAFloorGivesTheCountWhenNothingDecidedOne(t *testing.T) {
 	assert.False(t, ApplyReplicaWindows(none, []FixedPeriod{night(ReplicaWindowMax, 6)}, 0, 0).Set, "a cap gives nothing")
 }
 
-func TestAFixedCountReplacesTheAlgorithmAndAPeriodStillWins(t *testing.T) {
+func TestAFixedCountReplacesTheAlgorithmAndOnlyAPeriodThatFixesTheCountOutranksIt(t *testing.T) {
 	at := time.Date(2026, 11, 6, 12, 0, 0, 0, time.UTC)
 	in := windowInputs(at)
 	in.Policy.FixedReplicas = 4
@@ -99,7 +99,7 @@ func TestAFixedCountReplacesTheAlgorithmAndAPeriodStillWins(t *testing.T) {
 	in = windowInputs(time.Date(2026, 11, 6, 22, 0, 0, 0, time.UTC), night(ReplicaWindowMin, 10))
 	in.Policy.FixedReplicas = 4
 	rec = Decide(in)
-	assert.EqualValues(t, 10, ApplyReplicaWindows(rec.Replicas, ActivePeriods(in), 0, 0).Value, "4 normally, at least 10 at night")
+	assert.EqualValues(t, 4, ApplyReplicaWindows(rec.Replicas, ActivePeriods(in), 0, 0).Value, "a floor window does not scale a fixed count: it keeps exactly its replicas")
 
 	in = windowInputs(at)
 	in.Policy.FixedReplicas = 4

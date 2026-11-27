@@ -682,7 +682,7 @@ func (r *ForecastRouter) ListTriggers(c *gin.Context) {
 // triggerFromReq builds and checks a trigger: its metric is a source of the module, or the JVM heap pressure.
 func (r *ForecastRouter) triggerFromReq(c *gin.Context, moduleID uint, req *apis.TriggerReq) (*model.ModuleTrigger, error) {
 	t := &model.ModuleTrigger{
-		ModuleID: moduleID, Name: req.Name, Enabled: req.Enabled == nil || *req.Enabled, Priority: req.Priority, Metric: req.Metric, Stat: req.Stat,
+		ModuleID: moduleID, Name: req.Name, Enabled: req.Enabled == nil || *req.Enabled, Priority: req.Priority, Weight: req.Weight, Metric: req.Metric, Stat: req.Stat,
 		WindowMinutes: req.WindowMinutes, Operator: req.Operator, Threshold: req.Threshold, Action: req.Action, Unit: req.Unit, Amount: req.Amount,
 		Weekdays: req.Weekdays, StartMinute: req.StartMinute, EndMinute: req.EndMinute, Remark: req.Remark,
 	}

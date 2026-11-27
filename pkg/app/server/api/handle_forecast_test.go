@@ -404,8 +404,9 @@ func TestTheCapacityOfAModuleIsAStateAndNotAGuess(t *testing.T) {
 	update["capacity_mode"] = "estimate"
 	require.Equal(t, http.StatusOK, performJSON(t, r, http.MethodPut, fmt.Sprintf("/modules/%d", id), "", update).Code)
 	data = decodeData(t, performJSON(t, r, http.MethodGet, path, "", nil).Body.Bytes())
-	assert.Equal(t, data["estimate_state"], data["state"], "the estimate decides when the mode is estimate")
-	assert.EqualValues(t, 0, data["value"])
+	assert.Equal(t, "ready", data["state"], "the entered capacity is the one in force: an estimate decides nothing, whatever the old mode said")
+	assert.EqualValues(t, 120, data["value"])
+	assert.Equal(t, "manual", data["mode"])
 }
 
 func TestMetricTriggersAreValidatedAgainstTheModule(t *testing.T) {

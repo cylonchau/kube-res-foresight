@@ -16,6 +16,7 @@ type TriggerState struct {
 	Name      string  `json:"name"`
 	Enabled   bool    `json:"enabled"`
 	Priority  int     `json:"priority"`
+	Weight    float64 `json:"weight"`
 	Metric    string  `json:"metric"`
 	Stat      string  `json:"stat"`
 	Window    int     `json:"window_minutes"`
@@ -137,7 +138,7 @@ func (s *Service) evaluateTriggers(ctx context.Context, m *model.ForecastModule,
 	var states []TriggerState
 	var fired []decision.FiredTrigger
 	for _, t := range triggers {
-		st := TriggerState{Name: t.Name, Enabled: t.Enabled, Priority: t.Priority, Metric: t.Metric, Stat: t.Stat, Window: t.WindowMinutes, Operator: t.Operator,
+		st := TriggerState{Name: t.Name, Enabled: t.Enabled, Priority: t.Priority, Weight: t.Weight, Metric: t.Metric, Stat: t.Stat, Window: t.WindowMinutes, Operator: t.Operator,
 			Threshold: t.Threshold, Action: t.Action, Unit: t.Unit, Amount: t.Amount}
 		switch {
 		case !t.Enabled:
@@ -159,7 +160,7 @@ func (s *Service) evaluateTriggers(ctx context.Context, m *model.ForecastModule,
 			if compareTrigger(t.Operator, st.Value, t.Threshold) {
 				st.Fired = true
 				st.Reason = fmt.Sprintf("%s of %s over %d minutes is %.4g %s %.4g", t.Stat, t.Metric, t.WindowMinutes, st.Value, cmp, t.Threshold)
-				fired = append(fired, decision.FiredTrigger{Name: t.Name, Priority: t.Priority, Action: t.Action, Unit: t.Unit, Amount: t.Amount, Metric: t.Metric, Value: st.Value, Why: st.Reason})
+				fired = append(fired, decision.FiredTrigger{Name: t.Name, Priority: t.Priority, Action: t.Action, Unit: t.Unit, Amount: t.Amount, Metric: t.Metric, Value: st.Value, Threshold: t.Threshold, Weight: t.Weight, Why: st.Reason})
 			} else {
 				st.Reason = fmt.Sprintf("%s of %s over %d minutes is %.4g, not %s %.4g", t.Stat, t.Metric, t.WindowMinutes, st.Value, cmp, t.Threshold)
 			}

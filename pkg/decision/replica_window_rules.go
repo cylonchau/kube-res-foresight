@@ -31,9 +31,9 @@ func ActivePeriods(in Inputs) []FixedPeriod { return activePeriods(in) }
 // ApplyReplicaWindows keeps the replica count of f within the floors and caps of the active "min" and "max" periods, then within the bounds of the
 // module (lo and hi, 0 = none: a bound of the module is the last word). With several floors the largest counts, with several caps the smallest;
 // when a floor is above a cap the floor wins, because fewer replicas than someone asked to keep is the riskier mistake. A count that was
-// fixed by a period or by bypass is not touched, and a value that did not exist (nothing was decided) is only given by a floor.
+// fixed by a period, by bypass or by the fixed count of the module is not touched (a fixed count keeps exactly its replicas: no strategy scales it), and a value that did not exist (nothing was decided) is only given by a floor.
 func ApplyReplicaWindows(f Field, active []FixedPeriod, lo, hi int64) Field {
-	if f.Source == SourceBypass || f.Source == SourceFixedPeriod {
+	if f.Source == SourceBypass || f.Source == SourceFixedPeriod || f.Source == SourceFixedCount {
 		return f
 	}
 	var floor, ceil int64

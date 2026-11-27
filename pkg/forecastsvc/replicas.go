@@ -300,22 +300,15 @@ func (s *Service) solveReplicas(ctx context.Context, m *model.ForecastModule, bs
 		detail.Notes = append(detail.Notes, "JVM heap pressure: "+heap.Reason)
 	}
 
-	switch {
-	case m.CapacityMode == model.CapacityModeEstimate:
-		capacity, err := s.estimateCapacity(ctx, m, bs, now)
-		detail.Capacity = capacity
-		if err != nil {
-			detail.Notes = append(detail.Notes, "pod capacity could not be estimated, so no throughput constraint was produced: "+err.Error())
-		} else {
-			cfg.CapacityRPS, cfg.CapacitySource = capacity.RPSPerPod, decision.CapacityEstimated
-		}
-	case m.PodCapacityRPS > 0:
+	// The capacity of a Pod is the figure somebody verified and entered, and no other: what the history says of it is a figure inferred from the load, which is not the most a Pod
+	// can carry, so it is shown beside the capacity (see CapacityReportOf) and never makes a throughput constraint.
+	if m.PodCapacityRPS > 0 {
 		cfg.CapacityRPS, cfg.CapacitySource = m.PodCapacityRPS, decision.CapacityManual
-		detail.Capacity = CapacityDetail{Source: decision.CapacityManual, RPSPerPod: m.PodCapacityRPS, Note: "set by the administrator"}
-	default:
-		detail.Notes = append(detail.Notes, "no pod capacity is configured, so no throughput constraint was produced")
+		detail.Capacity = CapacityDetail{Source: decision.CapacityManual, RPSPerPod: m.PodCapacityRPS, Note: "entered by the administrator"}
+	} else {
+		cfg.CapacitySource = decision.CapacityNone
+		detail.Notes = append(detail.Notes, "no verified pod capacity is entered, so no throughput constraint was produced (a capacity inferred from the history is not used)")
 	}
-	cfg.CapacitySource = detail.Capacity.Source
 
 	plans := decision.SolveReplicas(cfg, in)
 	detail.Plans = plans

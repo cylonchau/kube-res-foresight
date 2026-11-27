@@ -121,3 +121,38 @@ func TestATriggerGivesACountWhenNoOtherStrategyDid(t *testing.T) {
 	assert.True(t, got.Set)
 	assert.EqualValues(t, 7, got.Value)
 }
+
+// Scale-ups and scale-downs that fire together are weighed: the weight of a metric and how far past its threshold it is decide the direction.
+func TestScaleUpsAndScaleDownsFiringTogetherAreWeighed(t *testing.T) {
+	// the container is full (weight 3, 92% against 80%) and the JVM has used little of what it committed (weight 1, 30% against 40%): the container is believed
+	hot := FiredTrigger{Name: "container-memory", Action: TriggerScaleUp, Unit: "replicas", Amount: 2, Weight: 3, Value: 0.92, Threshold: 0.8}
+	idle := FiredTrigger{Name: "jvm-used", Action: TriggerScaleDown, Unit: "replicas", Amount: 1, Weight: 1, Value: 0.3, Threshold: 0.4}
+	got, out := ApplyTriggers(algorithmField(10), 10, []FiredTrigger{hot, idle}, "", 0, 0)
+	assert.EqualValues(t, 12, got.Value)
+	assert.Equal(t, SourceTrigger, got.Source)
+	assert.Greater(t, out.UpScore, out.DownScore)
+	assert.Contains(t, out.Steps[1].Why, "outvoted")
+
+	// the other way round: the JVM is trusted three times as much, so the scale-down wins and removes its replica
+	hot.Weight, idle.Weight = 1, 3
+	got, out = ApplyTriggers(algorithmField(10), 10, []FiredTrigger{hot, idle}, "", 0, 0)
+	assert.EqualValues(t, 9, got.Value)
+	assert.Less(t, out.UpScore, out.DownScore)
+	assert.Contains(t, out.Steps[0].Why, "outvoted")
+	assert.True(t, out.Steps[1].Used)
+
+	// how far past the threshold counts too: the same weights, a metric far past its threshold outweighs one just past it
+	hot = FiredTrigger{Name: "a", Action: TriggerScaleUp, Unit: "replicas", Amount: 1, Weight: 1, Value: 0.81, Threshold: 0.8}
+	idle = FiredTrigger{Name: "b", Action: TriggerScaleDown, Unit: "replicas", Amount: 1, Weight: 1, Value: 0.1, Threshold: 0.4}
+	got, _ = ApplyTriggers(algorithmField(10), 10, []FiredTrigger{hot, idle}, "", 0, 0)
+	assert.EqualValues(t, 9, got.Value, "the idle metric is far below its threshold, the hot one barely above")
+
+	// equal counts: scaling out wins a tie
+	got, _ = ApplyTriggers(algorithmField(10), 10, []FiredTrigger{scaleDown("idle", 0, 2), scaleUp("hot", 0, "replicas", 1)}, "", 0, 0)
+	assert.EqualValues(t, 11, got.Value)
+
+	// a protection takes the scale-down out of the vote: the scale-up acts even though the scale-down would have weighed more
+	idle.Weight = 10
+	got, _ = ApplyTriggers(algorithmField(10), 10, []FiredTrigger{hot, idle}, "the JVM heap is over its threshold", 0, 0)
+	assert.EqualValues(t, 11, got.Value)
+}

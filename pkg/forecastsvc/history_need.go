@@ -66,6 +66,9 @@ func collectLookback(m *model.AlgorithmRun, runs []*model.AlgorithmRun, step tim
 // runsForCollect lists the enabled algorithms of a module for sizing its history range; a failure leaves the module's own
 // lookback (collecting must not stop because the algorithms could not be listed).
 func (s *Service) runsForCollect(ctx context.Context, m *model.ForecastModule) []*model.AlgorithmRun {
+	if !m.Predicts() {
+		return nil // no algorithm trains on this module: the data the algorithms need is not collected
+	}
 	runs, err := s.runsOf(ctx, m)
 	if err != nil {
 		return nil

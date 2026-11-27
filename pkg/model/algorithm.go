@@ -138,10 +138,18 @@ type AlgorithmRun struct {
 	Sources []*MetricSource
 }
 
+// NonPredictingLookbackHours is the history a module that does not predict keeps: what the metric triggers (a window of a day at most) read. The history range of the module
+// (LookbackHours) is the range the algorithms train on, so it holds for a module that predicts and for no other.
+const NonPredictingLookbackHours = 24
+
 // NewRun combines a module and an algorithm config; the sources are the module's.
 func NewRun(m *ForecastModule, c *AlgorithmConfig) *AlgorithmRun {
+	lookback, minPoints := m.LookbackHours, m.MinPoints
+	if !m.Predicts() {
+		lookback, minPoints = min(lookback, NonPredictingLookbackHours), 0
+	}
 	return &AlgorithmRun{ID: m.ID, Name: c.AlgorithmID, AlgorithmID: c.AlgorithmID, Params: c.Params, Weight: c.Weight,
-		Namespace: m.Namespace, Workload: m.Workload, Service: m.Service, Container: m.Container, LookbackHours: m.LookbackHours, HorizonMinutes: m.HorizonMinutes, RunIntervalMinutes: m.RunIntervalMinutes, MaxFillSteps: m.MaxFillSteps, StepSeconds: m.StepSeconds, MinPoints: m.MinPoints, WindowSteps: m.WindowSteps,
+		Namespace: m.Namespace, Workload: m.Workload, Service: m.Service, Container: m.Container, LookbackHours: lookback, HorizonMinutes: m.HorizonMinutes, RunIntervalMinutes: m.RunIntervalMinutes, MaxFillSteps: m.MaxFillSteps, StepSeconds: m.StepSeconds, MinPoints: minPoints, WindowSteps: m.WindowSteps,
 		TrainBudgetSeconds: c.TrainBudgetSeconds, FallbackMinHistoryRatio: m.FallbackMinHistoryRatio, MaxMissingRatio: m.MaxMissingRatio,
 		PromoteMinPoints: c.PromoteMinPoints, PromoteMinImprovement: c.PromoteMinImprovement, PromotePeakTolerance: c.PromotePeakTolerance,
 		Sources: m.Sources}

@@ -23,7 +23,7 @@ const (
 
 // CapacityReport is the capacity of one Pod of the module as module management shows it, with where each figure comes from, so no card is an unexplained number.
 type CapacityReport struct {
-	// Mode is where the safe load of a Pod comes from: manual (entered) or estimate (worked out from the history).
+	// Mode is where the safe load of a Pod comes from: it is always manual (entered); the history only gives the estimate beside it.
 	Mode string `json:"mode"`
 	// State is the state of the figure in force (see the constants), Value the safe requests per second of one Pod when ready, Note the sentence behind the state.
 	State string  `json:"state"`
@@ -59,12 +59,9 @@ func (s *Service) CapacityReportOf(ctx context.Context, moduleID uint) (*Capacit
 		return nil, err
 	}
 	rep := &CapacityReport{
-		Mode: m.CapacityMode, Manual: m.PodCapacityRPS, LookbackDays: int(capacityLookback / (24 * time.Hour)), BusyShare: decision.BusyShare, MinSamples: decision.MinCapacitySamples,
+		Mode: model.CapacityModeManual, Manual: m.PodCapacityRPS, LookbackDays: int(capacityLookback / (24 * time.Hour)), BusyShare: decision.BusyShare, MinSamples: decision.MinCapacitySamples,
 		Reserve: m.CapacityReserve(), ReserveSet: m.TargetUtilization > 0 && m.TargetUtilization <= 1, PodCPURequestMilli: m.PodCPURequestMilli, PodMemoryBytes: m.PodMemoryRequestBytes,
 		Rule: decision.CapacityRule,
-	}
-	if rep.Mode == "" {
-		rep.Mode = model.CapacityModeManual
 	}
 	switch {
 	case m.PodCPURequestMilli <= 0:
@@ -90,10 +87,7 @@ func (s *Service) CapacityReportOf(ctx context.Context, moduleID uint) (*Capacit
 			rep.EstimateState, rep.EstimateNote = CapacityError, err.Error()
 		}
 	}
-	if rep.Mode == model.CapacityModeEstimate {
-		rep.State, rep.Value, rep.Note = rep.EstimateState, rep.Estimate, rep.EstimateNote
-		return rep, nil
-	}
+	// the figure in force is the entered one: the estimate is a reference beside it
 	if m.PodCapacityRPS > 0 {
 		rep.State, rep.Value = CapacityReady, m.PodCapacityRPS
 	} else {

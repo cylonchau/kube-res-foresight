@@ -313,6 +313,7 @@ type TriggerReq struct {
 	Name          string  `json:"name" binding:"required"`
 	Enabled       *bool   `json:"enabled"`
 	Priority      int     `json:"priority"`
+	Weight        float64 `json:"weight"`
 	Metric        string  `json:"metric" binding:"required"`
 	Stat          string  `json:"stat"`
 	WindowMinutes int     `json:"window_minutes"`
