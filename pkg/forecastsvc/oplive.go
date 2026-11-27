@@ -12,6 +12,7 @@ import (
 	"github.com/cylonchau/kube-res-foresight/pkg/collector"
 	"github.com/cylonchau/kube-res-foresight/pkg/model"
 	"github.com/cylonchau/kube-res-foresight/pkg/overprovision"
+	"github.com/cylonchau/kube-res-foresight/pkg/resultcache"
 	"github.com/cylonchau/kube-res-foresight/pkg/timing"
 )
 
@@ -148,11 +149,14 @@ func (l *opLoader) readLive() {
 	var wg sync.WaitGroup
 	slots := make(chan struct{}, promParallel)
 	queriers := map[uint]collector.RangeQuerier{}
+	// a read that goes on in the background tells how many of its queries are answered
+	resultcache.Expect(l.ctx, progressMetrics, len(jobs))
 	for _, j := range jobs {
 		select {
 		case slots <- struct{}{}:
 		case <-askCtx.Done():
 			l.live.queries[j.index].Skipped, l.live.queries[j.index].Error = true, promNotReached
+			resultcache.Finished(l.ctx)
 			continue
 		}
 		mu.Lock()
@@ -163,6 +167,7 @@ func (l *opLoader) readLive() {
 				mu.Unlock()
 				<-slots
 				l.live.queries[j.index].Error = err.Error()
+				resultcache.Finished(l.ctx)
 				continue
 			}
 			queriers[j.ds.ID] = querier
@@ -172,6 +177,7 @@ func (l *opLoader) readLive() {
 		go func(j job, querier collector.RangeQuerier) {
 			defer wg.Done()
 			defer func() { <-slots }()
+			defer resultcache.Finished(l.ctx)
 			q := &l.live.queries[j.index]
 			// the first point is one step after the start: a window of a day at 5 minutes is 288 points, not 289
 			points, err := collector.Fetch(askCtx, querier, j.expr, l.from.Add(j.step), l.to, j.step, collector.Options{Attempts: 1, Concurrency: 1})

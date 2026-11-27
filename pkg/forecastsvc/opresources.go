@@ -10,6 +10,7 @@ import (
 
 	"github.com/cylonchau/kube-res-foresight/pkg/collector"
 	"github.com/cylonchau/kube-res-foresight/pkg/model"
+	"github.com/cylonchau/kube-res-foresight/pkg/resultcache"
 )
 
 // The CPU and memory requests and limits of each module for the table of the resource dashboard: each is the answer of the Prometheus data source of the module's
@@ -61,6 +62,7 @@ func (s *Service) OverprovisionResources(ctx context.Context) (*ResourceList, er
 
 	var wg sync.WaitGroup
 	slots := make(chan struct{}, promParallel)
+	resultcache.Expect(ctx, progressModules, len(modules))
 	for i, m := range modules {
 		row := &ModuleResources{ModuleID: m.ID, Errors: map[string]string{}}
 		out.Rows[i] = row
@@ -68,12 +70,14 @@ func (s *Service) OverprovisionResources(ctx context.Context) (*ResourceList, er
 		case slots <- struct{}{}:
 		case <-askCtx.Done():
 			row.Errors["all"] = promNotReached
+			resultcache.Finished(ctx)
 			continue
 		}
 		wg.Add(1)
 		go func(m *model.ForecastModule, row *ModuleResources) {
 			defer wg.Done()
 			defer func() { <-slots }()
+			defer resultcache.Finished(ctx)
 			s.moduleResources(askCtx, m, at, row)
 		}(m, row)
 	}

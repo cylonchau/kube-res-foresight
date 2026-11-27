@@ -38,3 +38,24 @@ func TestAHeavyReadThatIsStillWorkingIsAnswered202WithTheSignToAskAgain(t *testi
 	assert.Equal(t, PendingRetrySeconds, body.Data.Retry)
 	assert.True(t, errors.Is(forecastsvc.ErrPending, resultcache.ErrPending), "the service and the cache say the same thing")
 }
+
+// The 202 says how far the work has come when it was counted, and says nothing of it when it was not.
+func TestThePendingAnswerCarriesHowFarTheWorkHasCome(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	read := func(err error) map[string]any {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+		require.True(t, answerPending(c, err))
+		var body struct {
+			Data map[string]any `json:"data"`
+		}
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+		return body.Data
+	}
+	with := read(&resultcache.PendingError{Progress: resultcache.Progress{Stage: "metrics", Done: 3, Total: 7}})
+	assert.Equal(t, map[string]any{"stage": "metrics", "done": float64(3), "total": float64(7)}, with["progress"])
+	assert.Equal(t, true, with["pending"])
+	assert.NotContains(t, read(forecastsvc.ErrPending), "progress")
+	assert.NotContains(t, read(&resultcache.PendingError{}), "progress", "nothing counted yet: nothing to say")
+}

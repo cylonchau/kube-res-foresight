@@ -212,6 +212,12 @@ func TestASlowReadIsWorkedOutOnItsOwnAndAPartialAnswerIsKeptOnlyBriefly(t *testi
 	_, _, err := f.svc.PrometheusStatsCached(ctx, f.module.ID, 24*60, time.Time{}, time.Time{})
 	cancel()
 	require.ErrorIs(t, err, ErrPending, "the request could not wait: it is told the answer is being worked out, not 504")
+	// it is told how far the work has come: the CPU was answered at once, the slow ones are still being read
+	progress, counted := resultcache.ProgressOf(err)
+	require.True(t, counted, "the pending answer carries the progress")
+	assert.Equal(t, "metrics", progress.Stage)
+	assert.Positive(t, progress.Total, "the queries of the module were counted")
+	assert.Less(t, progress.Done, progress.Total, "the slow ones are not answered yet")
 
 	var first *PromStats
 	require.Eventually(t, func() bool {

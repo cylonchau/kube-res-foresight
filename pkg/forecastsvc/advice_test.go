@@ -61,3 +61,36 @@ func TestTheAdviceOrdersTheModulesThatNeedALookFirst(t *testing.T) {
 	assert.Equal(t, "7d", short.Period)
 	assert.Equal(t, 1.0, short.CPU.P95)
 }
+
+// A verdict is told as certain only when the engine is sure of it; a low confidence, an unknown verdict or a module that was not read whole is never said to be lowerable.
+func TestTheAdviceNeverSaysACautiousVerdictIsCertainOrCanBeLowered(t *testing.T) {
+	over := func(confidence, status string) *DetailOverprovision {
+		res := &overprovision.Result{Resource: overprovision.CPU, Request: 4, Suggested: 1, Status: status, Confidence: confidence, Usage: overprovision.Usage{P95: 1}}
+		return &DetailOverprovision{ModuleOverprovision: &ModuleOverprovision{Name: "m", Recommend: &WindowOverprovision{Label: "7d", CPU: res}}}
+	}
+	sure := adviceOf(over(overprovision.High, overprovision.StatusOver))
+	assert.True(t, sure.CPU.Certain)
+	assert.True(t, sure.CPU.CanLower, "over, sure of it and the recommendation is below the Requests")
+	assert.Empty(t, sure.CPU.Caution)
+
+	low := adviceOf(over(overprovision.Low, overprovision.StatusOver))
+	assert.False(t, low.CPU.Certain)
+	assert.False(t, low.CPU.CanLower, "a low confidence is not lowered on")
+	assert.Equal(t, "low confidence", low.CPU.Caution)
+
+	unknown := adviceOf(over(overprovision.High, overprovision.StatusUnknown))
+	assert.False(t, unknown.CPU.Certain)
+	assert.False(t, unknown.CPU.CanLower)
+
+	part := over(overprovision.High, overprovision.StatusOver)
+	part.Partial = true
+	partial := adviceOf(part)
+	assert.False(t, partial.CPU.Certain, "part of the figures could not be read")
+	assert.False(t, partial.CPU.CanLower)
+	assert.Contains(t, partial.CPU.Caution, "partial")
+
+	// nothing to lower to: the recommendation is not below the Requests
+	same := over(overprovision.High, overprovision.StatusOver)
+	same.Recommend.CPU.Suggested = 4
+	assert.False(t, adviceOf(same).CPU.CanLower)
+}

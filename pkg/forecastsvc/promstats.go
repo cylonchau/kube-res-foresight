@@ -14,6 +14,7 @@ import (
 	"github.com/cylonchau/kube-res-foresight/pkg/model"
 	"github.com/cylonchau/kube-res-foresight/pkg/overprovision"
 	"github.com/cylonchau/kube-res-foresight/pkg/promclient"
+	"github.com/cylonchau/kube-res-foresight/pkg/resultcache"
 	"github.com/cylonchau/kube-res-foresight/pkg/timing"
 )
 
@@ -331,18 +332,21 @@ func (s *Service) PrometheusStatsScoped(ctx context.Context, moduleID uint, wind
 
 	var wg sync.WaitGroup
 	slots := make(chan struct{}, promParallel)
+	resultcache.Expect(ctx, progressMetrics, len(jobs))
 	for _, j := range jobs {
 		// the metrics are started in their order (the CPU and the memory first) and a few at a time
 		select {
 		case slots <- struct{}{}:
 		case <-askCtx.Done():
 			out.Metrics[j.index].Skipped, out.Metrics[j.index].Error = true, promNotReached
+			resultcache.Finished(ctx)
 			continue
 		}
 		wg.Add(1)
 		go func(j job) {
 			defer wg.Done()
 			defer func() { <-slots }()
+			defer resultcache.Finished(ctx)
 			pm := &out.Metrics[j.index]
 			if j.container {
 				// a container's figure is already one Pod's: it is the Pod figure

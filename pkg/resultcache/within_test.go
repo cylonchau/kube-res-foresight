@@ -143,3 +143,34 @@ func TestWithinWithTheCacheOffWorksInTheRequest(t *testing.T) {
 	assert.Equal(t, Bypassed, res.Source)
 	assert.EqualValues(t, 2, n.Load())
 }
+
+// A request that stops waiting is told how far the work has come: the stage and how many of its units are answered, added up over the reads of one answer.
+func TestWithinTellsHowFarTheWorkHasComeWhenTheWaitRunsOut(t *testing.T) {
+	c, _ := newCache(t)
+	release := make(chan struct{})
+	work := func(ctx context.Context) (*report, error) {
+		Expect(ctx, "metrics", 3)
+		Expect(ctx, "", 2) // a second read of the same answer adds its units
+		Finished(ctx)
+		Finished(ctx)
+		<-release
+		return &report{Rows: []string{"done"}}, nil
+	}
+	_, _, err := Within(context.Background(), c, "k", "v1", time.Minute, 50*time.Millisecond, time.Minute, nil, work)
+	require.ErrorIs(t, err, ErrPending)
+	p, ok := ProgressOf(err)
+	require.True(t, ok)
+	assert.Equal(t, Progress{Stage: "metrics", Done: 2, Total: 5}, p)
+
+	// a unit counted more than it was expected does not go past the total
+	Expect(context.Background(), "x", 1) // no progress in this context: nothing happens, nothing breaks
+	Finished(context.Background())
+
+	close(release)
+	require.Eventually(t, func() bool {
+		got, res, err := Within(context.Background(), c, "k", "v1", time.Minute, time.Second, time.Minute, nil, work)
+		return err == nil && res.Source == Cached && got.Rows[0] == "done"
+	}, 2*time.Second, 10*time.Millisecond)
+	_, ok = ProgressOf(errors.New("boom"))
+	assert.False(t, ok, "an error that is not a pending one carries no progress")
+}

@@ -45,6 +45,11 @@ type AdviceResource struct {
 	OOMKills         float64  `json:"oom_kills,omitempty"`
 	Throttle         float64  `json:"throttle,omitempty"`
 	Reasons          []string `json:"reasons"`
+	// Certain says the verdict can be stated as it is: the engine's confidence is not low, the verdict is not unknown and every figure of the module was read. CanLower says the
+	// Requests can be said to be lowered: the verdict is over, it is certain, and the recommendation is below what the Pod asks. A report never says more than these two.
+	Certain  bool   `json:"certain"`
+	CanLower bool   `json:"can_lower"`
+	Caution  string `json:"caution,omitempty"`
 }
 
 // AdvicePlan is the replicas: what the workload has, what the use asks for and what one action reaches.
@@ -95,6 +100,23 @@ type AdviceReport struct {
 	Basis   string          `json:"basis"`
 }
 
+// certify says what a verdict may be told as. A low confidence, an unknown verdict or a module whose figures were not all read is not certain, and nothing is lowered on it.
+func certify(r *AdviceResource, partial bool) {
+	if r == nil {
+		return
+	}
+	switch {
+	case partial:
+		r.Caution = "partial: some figures of the module could not be read"
+	case r.Status == string(overprovision.StatusUnknown):
+		r.Caution = "unknown: not enough data to say"
+	case r.Confidence == string(overprovision.Low):
+		r.Caution = "low confidence"
+	}
+	r.Certain = r.Caution == ""
+	r.CanLower = r.Certain && r.Status == string(overprovision.StatusOver) && r.SuggestedRequest > 0 && r.SuggestedRequest < r.Request
+}
+
 // adviceOf makes the advice of one module out of its analysis.
 func adviceOf(d *DetailOverprovision) *ModuleAdvice {
 	out := &ModuleAdvice{ModuleID: d.ModuleID, Name: d.Name, Namespace: d.Namespace, Workload: d.Workload, PodSpecFrom: d.PodSpecFrom, Partial: d.Partial}
@@ -126,6 +148,9 @@ func adviceOf(d *DetailOverprovision) *ModuleAdvice {
 		return a
 	}
 	out.CPU, out.Memory = resource(rec.CPU), resource(rec.Memory)
+	for _, r := range []*AdviceResource{out.CPU, out.Memory} {
+		certify(r, d.Partial)
+	}
 	if plan := rec.ReplicaPlan; plan != nil && plan.Needed > 0 {
 		reasons := plan.Reasons
 		if reasons == nil {

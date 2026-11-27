@@ -115,6 +115,8 @@ type Reply struct {
 	Content     string       `json:"content"`
 	Tools       []ToolTrace  `json:"tools"`
 	Attachments []Attachment `json:"attachments"`
+	// Unverified are the figures of the answer that no tool returned (a note says so under the answer).
+	Unverified []string `json:"unverified,omitempty"`
 }
 
 // Availability is what the user interface needs to know before it offers the chat. Enabled is the switch: off, the chat is not offered
@@ -317,6 +319,9 @@ func (s *Service) answer(ctx context.Context, conn Connection, history []Turn, l
 	ctx = context.WithValue(ctx, trailKey{}, t)
 	started := s.now()
 	reply, err := s.converse(ctx, conn, history, lang, page)
+	if err == nil {
+		verifyFigures(reply, t, lang)
+	}
 	if err == nil || !notRecorded(err) {
 		// the record is written even when the request was cancelled (the question was asked), and never holds the answer back for long
 		actx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
@@ -428,6 +433,9 @@ func (s *Service) converse(ctx context.Context, conn Connection, history []Turn,
 func (s *Service) runTool(ctx context.Context, byName map[string]tool, call ToolCall) (string, ToolTrace, *Attachment) {
 	reportProgress(ctx, "tool_start", ToolTrace{Name: call.Name, Arguments: clip(call.Arguments, 200)})
 	content, trace, attachment := s.runToolCore(ctx, byName, call)
+	if tr := trailOf(ctx); tr != nil && trace.OK {
+		tr.see(content)
+	}
 	trace.Result = clip(content, maxTraceResult)
 	reportProgress(ctx, "tool", trace)
 	return content, trace, attachment

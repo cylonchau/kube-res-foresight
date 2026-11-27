@@ -40,6 +40,20 @@ type trail struct {
 	refused  []string
 	mode     ToolMode
 	redacted bool
+	// evidence is what the tools returned in this question: the figures of the answer are looked for in it
+	evidence []string
+}
+
+func (t *trail) see(content string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.evidence = append(t.evidence, content)
+}
+
+func (t *trail) seen() []string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return append([]string(nil), t.evidence...)
 }
 
 func (t *trail) refuse(name string) {

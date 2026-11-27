@@ -61,10 +61,11 @@ type entry struct {
 }
 
 type flight struct {
-	done    chan struct{}
-	version string
-	value   any
-	err     error
+	done     chan struct{}
+	version  string
+	progress *progress
+	value    any
+	err      error
 }
 
 // Cache is an LRU of answers bounded by their size.
@@ -299,12 +300,12 @@ func Within[T any](ctx context.Context, c *Cache, key, version string, ttl, wait
 	}
 	f, working := c.flights[key]
 	if !working || f.version != version {
-		f = &flight{done: make(chan struct{}), version: version}
+		f = &flight{done: make(chan struct{}), version: version, progress: &progress{}}
 		c.flights[key] = f
 		working = false
 		c.misses.Add(1)
 		// the work has the values of the request (what it reads of the context) and none of its end
-		bg, cancel := context.WithTimeout(context.WithoutCancel(ctx), budget)
+		bg, cancel := context.WithTimeout(context.WithValue(context.WithoutCancel(ctx), progressKey{}, f.progress), budget)
 		go func() {
 			defer cancel()
 			value, err := compute(bg)
@@ -335,9 +336,9 @@ func Within[T any](ctx context.Context, c *Cache, key, version string, ttl, wait
 	select {
 	case <-f.done:
 	case <-timer.C:
-		return zero, Result{Source: Shared}, ErrPending
+		return zero, Result{Source: Shared}, pendingOf(f)
 	case <-ctx.Done():
-		return zero, Result{Source: Shared}, ErrPending
+		return zero, Result{Source: Shared}, pendingOf(f)
 	}
 	if f.err != nil {
 		return zero, Result{Source: Computed}, f.err

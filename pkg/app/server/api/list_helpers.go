@@ -73,13 +73,18 @@ const PendingRetrySeconds = 3
 
 // answerPending answers a heavy read that did not finish within the request: 202 with the sign that it is being worked out, which the page reads as "ask again in a
 // few seconds". The work goes on by itself and its answer is kept (see resultcache.Within), so the next ask gets it instead of starting it again. It returns true when it
-// answered.
+// answered. The answer says how far the work has come when it knows.
 func answerPending(c *gin.Context, err error) bool {
 	if !errors.Is(err, resultcache.ErrPending) {
 		return false
 	}
 	c.Header("Retry-After", strconv.Itoa(PendingRetrySeconds))
-	c.JSON(http.StatusAccepted, query.Response{Code: query.OK.Code, Msg: "being worked out", Data: gin.H{"pending": true, "retry_after_seconds": PendingRetrySeconds}})
+	body := gin.H{"pending": true, "retry_after_seconds": PendingRetrySeconds}
+	// how far the work has come: the stage and how many of its queries are answered (absent while nothing has been counted yet)
+	if p, ok := resultcache.ProgressOf(err); ok && p.Total > 0 {
+		body["progress"] = p
+	}
+	c.JSON(http.StatusAccepted, query.Response{Code: query.OK.Code, Msg: "being worked out", Data: body})
 	return true
 }
 

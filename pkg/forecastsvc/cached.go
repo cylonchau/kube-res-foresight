@@ -37,6 +37,12 @@ func (s *Service) cacheTTL(ctx context.Context) time.Duration {
 	return time.Duration(s.Count(ctx, timing.ResultCache)) * time.Minute
 }
 
+// the stages a heavy read reports while it goes on in the background (the page shows them with how many are answered)
+const (
+	progressMetrics = "metrics"
+	progressModules = "modules"
+)
+
 // ErrPending is what a heavy read answers when it was not done within the request: it goes on by itself and the next ask gets it (see resultcache.Within).
 var ErrPending = resultcache.ErrPending
 
