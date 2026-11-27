@@ -617,7 +617,8 @@ func (r *AssistantRouter) DiagnoseChange(c *gin.Context) {
 		query.HandleDBError(c, err)
 		return
 	}
-	explained, err := r.Clusters.Explain(c.Request.Context(), cl, uint(changeID))
+	// the change has to exist; the facts about it (the events and the changes around it) are made by the task, so this request does no more than a row read and answers at once
+	change, err := r.Clusters.DAO.GetChange(c.Request.Context(), cl.Name, uint(changeID))
 	if err != nil {
 		query.HandleDBError(c, err)
 		return
@@ -638,8 +639,8 @@ func (r *AssistantRouter) DiagnoseChange(c *gin.Context) {
 	}
 	principal, _ := principalOfRequest(c)
 	lang := assistantLang(req.Lang)
-	in := aitask.DiagnoseInput{Facts: clustersvc.DiagnoseFacts(explained), Lang: lang, OwnerID: owner.ID, OwnerName: owner.Name, Principal: principal}
-	title := fmt.Sprintf("%s %s/%s", explained.Change.Kind, explained.Change.Namespace, explained.Change.Name)
+	in := aitask.DiagnoseInput{ClusterID: id, ChangeID: uint(changeID), Lang: lang, OwnerID: owner.ID, OwnerName: owner.Name, Principal: principal}
+	title := fmt.Sprintf("%s %s/%s", change.Kind, change.Namespace, change.Name)
 	task, err := r.Async.SubmitSpec(ctx, asyncrun.Spec{Owner: owner.ID, OwnerName: owner.Name, Kind: aitask.DiagnoseKind, Title: title,
 		Dedup: fmt.Sprintf("diagnose-%d-%d-%s", id, changeID, lang), TraceID: c.GetString("requestId"), MaxAttempts: 1, Input: in})
 	if err != nil {

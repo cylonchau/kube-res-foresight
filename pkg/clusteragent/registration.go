@@ -74,5 +74,7 @@ type RegistrationResult struct {
 	// Registered are the names of the modules that were made; Existing how many candidates already were modules.
 	Registered []string `json:"registered"`
 	Existing   int      `json:"existing"`
-	Skipped    []Skip   `json:"skipped"`
+	// Declined is how many candidates were left alone because their module was deleted by a person (see model.RegistrationTombstone).
+	Declined int    `json:"declined"`
+	Skipped  []Skip `json:"skipped"`
 }

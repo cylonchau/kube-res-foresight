@@ -54,6 +54,11 @@ func (s *Service) Register(ctx context.Context, cl *model.Cluster, b clusteragen
 	}
 	for _, w := range b.Workloads {
 		who := w.Namespace + "/" + w.Name
+		// a module that registered itself and was deleted by a person stays deleted until a person allows it again
+		if gone, err := s.Modules.Tombstoned(ctx, cluster, strings.TrimSpace(w.Namespace), w.Kind, strings.TrimSpace(w.Name)); err == nil && gone {
+			res.Declined++
+			continue
+		}
 		made, err := s.registerOne(ctx, cluster, w)
 		switch {
 		case err == nil:

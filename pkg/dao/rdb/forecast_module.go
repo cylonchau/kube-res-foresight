@@ -214,6 +214,10 @@ func (dao *ModuleDAO) Delete(ctx context.Context, id uint) error {
 				return err
 			}
 		}
+		// a module that registered itself and is deleted by a person is not registered again by the next report of the operator
+		if err := writeTombstone(tx, &m); err != nil {
+			return err
+		}
 		return tx.Delete(&model.ForecastModule{}, id).Error
 	})
 }

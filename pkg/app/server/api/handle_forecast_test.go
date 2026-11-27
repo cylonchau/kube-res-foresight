@@ -34,7 +34,7 @@ func forecastTestRouter(t *testing.T) (*gin.Engine, *model.MetricMapping) {
 	gin.SetMode(gin.TestMode)
 	db := apiTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.Datasource{}, &model.MetricMapping{}, &model.ForecastModule{PredictEnabled: true}, &model.AlgorithmConfig{},
-		&model.ModulePeriod{}, &model.ModuleTrigger{}, &model.MetricSeries{}, &model.MetricSample{}, &model.Prediction{}, &model.BacktestRun{}, &model.Recommendation{}, &model.PredictionEvaluation{}, &model.ScalingExecution{}, &model.MetricSource{}, &model.AlgorithmScore{}, &model.AdmissionDecision{}, &model.TrainingRun{}, &model.ScaleOutcome{}, &model.ModuleRunState{}, &model.SysConfig{}, &model.TaskDefinition{}, &model.Job{}, &model.OverprovisionAnalysis{}))
+		&model.ModulePeriod{}, &model.ModuleTrigger{}, &model.MetricSeries{}, &model.MetricSample{}, &model.Prediction{}, &model.BacktestRun{}, &model.Recommendation{}, &model.PredictionEvaluation{}, &model.ScalingExecution{}, &model.MetricSource{}, &model.AlgorithmScore{}, &model.AdmissionDecision{}, &model.TrainingRun{}, &model.ScaleOutcome{}, &model.ModuleRunState{}, &model.SysConfig{}, &model.TaskDefinition{}, &model.Job{}, &model.OverprovisionAnalysis{}, &model.RegistrationTombstone{}))
 	previous := model.DB
 	model.DB = db
 	t.Cleanup(func() { model.DB = previous })
@@ -80,6 +80,9 @@ func forecastTestRouter(t *testing.T) (*gin.Engine, *model.MetricMapping) {
 	r.GET("/modules/:id", h.GetModule)
 	r.PUT("/modules/:id", h.UpdateModule)
 	r.POST("/modules/:id/copy-config", h.CopyConfig)
+	r.POST("/modules/batch-copy-config", h.BatchCopyConfig)
+	r.GET("/modules/tombstones", h.ListTombstones)
+	r.DELETE("/modules/tombstones/:id", h.DeleteTombstone)
 	r.DELETE("/modules/:id", h.DeleteModule)
 	r.GET("/modules/:id/sources", h.ListSources)
 	r.GET("/modules/:id/requirements", h.ModuleRequirements)

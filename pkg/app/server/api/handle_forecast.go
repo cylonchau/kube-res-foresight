@@ -395,6 +395,114 @@ func (r *ForecastRouter) CopyConfig(c *gin.Context) {
 	}
 }
 
+// BatchCopyConfigReq says which module the parameters come from, which modules they are put on and which groups are taken (none named = all of them).
+type BatchCopyConfigReq struct {
+	FromID    uint     `json:"from_id" binding:"required"`
+	TargetIDs []uint   `json:"target_ids" binding:"required,min=1"`
+	Groups    []string `json:"groups"`
+}
+
+// maxBatchCopyTargets is the most modules one batch copy puts the parameters on.
+const maxBatchCopyTargets = 200
+
+// BatchCopyRow is what became of one target of a batch copy: the result of the copy (what was taken and what the module still lacks to be switched on), or why it was not done.
+type BatchCopyRow struct {
+	ID     uint               `json:"id"`
+	Name   string             `json:"name"`
+	OK     bool               `json:"ok"`
+	Error  string             `json:"error,omitempty"`
+	Result *modulecopy.Result `json:"result,omitempty"`
+}
+
+// BatchCopyConfig serves POST /modules/batch-copy-config: the parameters of one module onto several, each as CopyConfig does it (a module that is switched on, or is the source itself, is
+// refused with its reason and the others go on). The answer lists every target.
+// @Summary Copy the parameters of a module onto several modules
+// @Tags Module
+// @Router /api/v1/modules/batch-copy-config [post]
+func (r *ForecastRouter) BatchCopyConfig(c *gin.Context) {
+	var req BatchCopyConfigReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		query.BadRequest(c, err)
+		return
+	}
+	if len(req.TargetIDs) > maxBatchCopyTargets {
+		query.BadRequest(c, fmt.Errorf("at most %d modules at a time", maxBatchCopyTargets))
+		return
+	}
+	ctx := c.Request.Context()
+	if _, err := r.Modules.Get(ctx, req.FromID); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			query.ErrorResponse(c, http.StatusNotFound, errors.New("the module to copy from does not exist"))
+			return
+		}
+		r.writeError(c, err)
+		return
+	}
+	if _, err := modulecopy.Clean(req.Groups); err != nil {
+		query.BadRequest(c, err)
+		return
+	}
+	copier := &modulecopy.Copier{Modules: r.Modules, Mappings: r.Mappings}
+	rows := make([]BatchCopyRow, 0, len(req.TargetIDs))
+	done := 0
+	seen := map[uint]bool{}
+	for _, id := range req.TargetIDs {
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		row := BatchCopyRow{ID: id}
+		if m, err := r.Modules.Get(ctx, id); err == nil {
+			row.Name = m.Name
+		}
+		res, err := copier.Copy(ctx, req.FromID, id, req.Groups)
+		switch {
+		case err == nil:
+			row.OK, row.Result = true, res
+			done++
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			row.Error = "the module does not exist"
+		default:
+			row.Error = err.Error()
+		}
+		rows = append(rows, row)
+	}
+	query.SuccessResponse(c, nil, gin.H{"results": rows, "copied": done, "failed": len(rows) - done})
+}
+
+// ListTombstones serves GET /modules/tombstones: the modules that registered themselves, were deleted by a person, and are not registered again.
+// @Summary The deleted self-registered modules
+// @Tags Module
+// @Router /api/v1/modules/tombstones [get]
+func (r *ForecastRouter) ListTombstones(c *gin.Context) {
+	list, err := r.Modules.Tombstones(c.Request.Context())
+	if err != nil {
+		r.writeError(c, err)
+		return
+	}
+	query.SuccessResponse(c, nil, list)
+}
+
+// DeleteTombstone serves DELETE /modules/tombstones/:id: the workload may be registered again (the next report of the operator that carries it makes the module).
+// @Summary Allow a deleted self-registered module to be registered again
+// @Tags Module
+// @Router /api/v1/modules/tombstones/{id} [delete]
+func (r *ForecastRouter) DeleteTombstone(c *gin.Context) {
+	id, ok := parseUintParam(c, "id")
+	if !ok {
+		return
+	}
+	if err := r.Modules.DeleteTombstone(c.Request.Context(), id); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			query.ErrorResponse(c, http.StatusNotFound, errors.New("no such deleted module"))
+			return
+		}
+		r.writeError(c, err)
+		return
+	}
+	query.SuccessResponse(c, nil, "ok")
+}
+
 // checkCluster refuses a module that says it is in a cluster the platform has not registered, and says the cluster as the module stores it: empty for the default
 // cluster (whether it was left empty or named), else the name.
 func (r *ForecastRouter) checkCluster(ctx context.Context, name string) (string, error) {

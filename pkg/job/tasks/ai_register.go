@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/cylonchau/kube-res-foresight/pkg/assistant"
+	"github.com/cylonchau/kube-res-foresight/pkg/clustersvc"
 	"github.com/cylonchau/kube-res-foresight/pkg/dao/rdb"
 	"github.com/cylonchau/kube-res-foresight/pkg/forecastsvc"
 	"github.com/cylonchau/kube-res-foresight/pkg/job"
@@ -39,9 +40,25 @@ func registerAI(config *rdb.SysConfigDAO) {
 		raw, _ := config.GetValueOrDefault(ctx, timing.AsyncRetentionHours.Key, "")
 		return time.Duration(timing.AsyncRetentionHours.Parse(raw)) * time.Hour
 	}
-	job.Register(&asyncrun.Runner{Tasks: asyncTasks, Retention: retention, Handlers: map[string]asyncrun.Handler{aitask.ChatKind: aitask.ChatHandler(service), aitask.DiagnoseKind: aitask.DiagnoseHandler(service),
+	job.Register(&asyncrun.Runner{Tasks: asyncTasks, Retention: retention, Handlers: map[string]asyncrun.Handler{aitask.ChatKind: aitask.ChatHandler(service), aitask.DiagnoseKind: aitask.DiagnoseHandler(service, clusterFacts()),
 		steprun.Kind: steprun.Handler(forecast), steprun.PreviewKind: steprun.PreviewHandler(forecast)}})
 	asyncSweeper = &asyncrun.Sweeper{Tasks: asyncTasks, Queue: &asyncrun.Queue{Tasks: asyncTasks, Jobs: rdb.NewJobDAO(model.DB), Retention: retention}}
+}
+
+// clusterFacts makes the facts of a change of a cluster for the diagnosis task: the change, the events and the changes around it, all stored by the platform.
+func clusterFacts() aitask.FactsFunc {
+	svc := &clustersvc.Service{DAO: rdb.NewClusterDAO(model.DB)}
+	return func(ctx context.Context, clusterID, changeID uint) (string, error) {
+		cl, err := svc.DAO.Get(ctx, clusterID)
+		if err != nil {
+			return "", err
+		}
+		explained, err := svc.Explain(ctx, cl, changeID)
+		if err != nil {
+			return "", err
+		}
+		return clustersvc.DiagnoseFacts(explained), nil
+	}
 }
 
 // asyncSweeper looks for the tasks whose worker is gone; it runs for as long as the process that runs the jobs does.
